@@ -7,8 +7,12 @@ here before. Exits 1 and lists every violation.
 
 import glob
 import os
+import pathlib
 import re
 import sys
+
+import ci_affected_packages
+import readme_results
 
 # The only `continue-on-error` allowed. The compat report records the step's
 # outcome as data in COMPAT.md, so its failure is read rather than hidden.
@@ -169,6 +173,10 @@ def main():
             continue
         with open(path, encoding="utf-8") as handle:
             violations += test_source_violations(os.path.relpath(path, root), handle.read())
+    violations += ci_affected_packages.uncovered_reads(pathlib.Path(root))
+    for name in readme_results.stale_tables(root):
+        violations.append(f"README.md: the `{name}` results table differs from its pins and "
+                          "baselines; run `python3 scripts/readme_results.py --write`")
     if not os.path.islink(os.path.join(root, "CLAUDE.md")):
         violations.append("CLAUDE.md is not a symlink to AGENTS.md, so the two can drift")
     for violation in violations:

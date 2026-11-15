@@ -64,26 +64,38 @@ const RUST_PRELUDE: &[&str] = &[
 ];
 
 /// The emitted texts: the runtime with every flag on, then every example crate.
-fn emitted_texts() -> Vec<String> {
+///
+/// Any directory or file under `examples/` that cannot be read is an error, and
+/// so is finding no example crate at all: a moved or unreadable corpus must
+/// fail the tests that derive their required set from it, not shrink that set
+/// to the runtime's text. (CI's QUICK mode selects this crate for an
+/// `examples/`-only change, `scripts/ci_affected_packages.py`.)
+fn emitted_texts() -> std::io::Result<Vec<String>> {
     let mut texts = vec![rendered_text(&|_| true)];
     let examples = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples");
-    let mut stack = vec![examples];
+    let mut stack = vec![examples.clone()];
     while let Some(dir) = stack.pop() {
-        let Ok(entries) = std::fs::read_dir(&dir) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
+        let entries = std::fs::read_dir(&dir).map_err(|error| {
+            std::io::Error::new(error.kind(), format!("{}: {error}", dir.display()))
+        })?;
+        for entry in entries {
+            let path = entry?.path();
             if path.is_dir() {
                 stack.push(path);
-            } else if path.extension().is_some_and(|ext| ext == "rs")
-                && let Ok(text) = std::fs::read_to_string(&path)
-            {
-                texts.push(text);
+            } else if path.extension().is_some_and(|ext| ext == "rs") {
+                texts.push(std::fs::read_to_string(&path).map_err(|error| {
+                    std::io::Error::new(error.kind(), format!("{}: {error}", path.display()))
+                })?);
             }
         }
     }
-    texts
+    if texts.len() == 1 {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("no example crate (`.rs`) under {}", examples.display()),
+        ));
+    }
+    Ok(texts)
 }
 
 /// Whether `text` spells `name` unqualified: not after `::`, `.` or a word character.
@@ -133,8 +145,12 @@ fn runtime_root_names(runtime: &str) -> BTreeSet<String> {
 }
 
 #[test]
+#[expect(
+    clippy::expect_used,
+    reason = "an unreadable examples corpus must fail the test"
+)]
 fn every_name_the_generated_crate_spells_is_reserved() {
-    let texts = emitted_texts();
+    let texts = emitted_texts().expect("every committed example crate is readable");
     let runtime = texts.first().cloned().unwrap_or_default();
     let mut required: BTreeSet<String> = RUST_PRELUDE
         .iter()
@@ -202,8 +218,12 @@ fn implemented_traits(texts: &[String]) -> BTreeSet<String> {
 /// The generated `<Bound>Like` traits are exempt: their members ARE the
 /// source methods, by their planned names.
 #[test]
+#[expect(
+    clippy::expect_used,
+    reason = "an unreadable examples corpus must fail the test"
+)]
 fn every_trait_the_emitter_implements_reserves_its_methods() {
-    let texts = emitted_texts();
+    let texts = emitted_texts().expect("every committed example crate is readable");
     let known: BTreeSet<&str> = crate::derive_impls::EMITTED_TRAITS
         .iter()
         .map(|(name, _)| *name)

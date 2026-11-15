@@ -1,42 +1,24 @@
 # CallbackExpr Audit
 
-`CallbackExpr` is private to the Python frontend
-(`crates/smelt-frontend-py/src/lowering/callback_expr.rs`). The TypeScript
-frontend has no such tree: a callback body lowers through `expression`, and a
-callback that only names a callable is a forwarding closure
-(`lowering/callbacks/forwarding.rs`). `smelt-hir` does not define it.
+Status: complete. `CallbackExpr`, `CallbackCallArg` and `CallbackExprKind` no
+longer exist anywhere in the workspace (`grep -rn CallbackExpr crates` finds only
+a historical comment in a test).
 
-## Persisted Uses
+`CallbackExpr` was a private callback-body tree. It was removed in three steps:
 
-None. Removal step 1 is complete: `ExprKind::ListSort.comparator` and
-`Rvalue::ListSort.comparator` carry a normal closure (`ExprId`/`Operand`) like
-every other callback, and the Rust codegen `callback_expr_text` shadow renderer
-plus its metadata scans have been deleted. `smelt-mir` and `smelt-codegen-rust`
-contain no code references to `CallbackExpr`.
-
-## Transient Uses
-
-- The TypeScript frontend can build `CallbackExpr` while converting callback
-  expressions into normal closure CFG bodies.
-- The Python frontend uses the same bridge for list-style callback lowering.
-- These frontend uses are migration scaffolding, not a license to persist new
-  callback trees in HIR or MIR.
+1. Sort comparators became ordinary closure operands
+   (`ExprKind::ListSort.comparator`, `Rvalue::ListSort.comparator`), and the Rust
+   codegen `callback_expr_text` shadow renderer was deleted.
+2. The TypeScript frontend stopped building it: a callback body lowers through
+   `expression` into a normal closure CFG body, and a callback that only names a
+   callable is a forwarding closure (`lowering/callbacks/forwarding.rs`).
+3. The Python frontend's copy, `crates/smelt-frontend-py/src/lowering/callback_expr.rs`,
+   was deleted in `d5376d51b` (2026-11-06): lambdas and single-return nested
+   `def`s lower through expression lowering in their own closure body
+   (`crates/smelt-frontend-py/src/lowering/closure.rs`).
 
 ## Boundary
 
-- Do not add new HIR or MIR fields of type `CallbackExpr`.
-- Do not render callback bodies through bespoke expression-tree emitters; all
-  callback behavior lowers through `ClosureExpr` bodies.
-
-## Removal Path
-
-1. ~~Lower sort comparators into normal closure CFG values and store the
-   comparator as the same closure/operand form used by other callbacks.~~
-   Done: comparators are closure operands end to end and the Rust expression
-   renderer is deleted.
-2. Replace TypeScript and Python frontend `CallbackExpr` builders with direct
-   closure-body builders (the `callback_expr_to_closure` bridge in
-   `lowering/callbacks/closures.rs` and `frontend-py/src/lowering/list.rs` is the remaining
-   transient use).
-3. Delete `CallbackExpr`, `CallbackCallArg`, `CallbackExprKind`, and their
-   remaining HIR validation traversals.
+- Do not reintroduce a callback-specific expression tree in HIR, MIR or a
+  frontend: every callback lowers through a `ClosureExpr` body.
+- Do not render callback bodies through bespoke expression-tree emitters.

@@ -17,7 +17,7 @@ frontend (`smelt-frontend-py`).
 
 Comprehensions lower to an **imperative accumulator loop** wrapped in an
 `ExprKind::Block` value expression, rather than the legacy `map`/`filter`
-`CallbackExpr` bridge (see `docs/callback-expr-audit.md`). For
+`CallbackExpr` bridge, since deleted (see `docs/callback-expr-audit.md`). For
 
 ```python
 [elt for t0 in it0 if c0 for t1 in it1 if c1]
