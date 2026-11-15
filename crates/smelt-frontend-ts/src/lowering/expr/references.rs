@@ -1,5 +1,6 @@
 //! Identifier, constant-expression, and source-location lowering helpers.
 
+use crate::context::IdentitySlotKey;
 use crate::lowering::body_arena::BodyArena;
 use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::peel::{Wrappers, peel};
@@ -260,17 +261,44 @@ impl ModuleBuilder<'_> {
                 }));
             }
             if let Some(value) = self.consts.object(name).cloned() {
-                return Ok(self.object_const_expression(&value, start, end, body));
+                return self.object_const_value_read(name, &value, start, end, body);
             }
             if let Some(item) = self.items.get(name).copied()
                 && let Item::Const(const_item) = self.item_ref(item).clone()
             {
+                // An object-valued const item is one object: see `identity_slots`.
+                // A value whose source annotation is itself erased
+                // (`unknown[]`) keeps its per-read rebuild (see the known gap
+                // in `identity_slots`); the item's own type cannot tell, as a
+                // folded literal may lower to an erased record whatever its
+                // annotation (a date-fns `Locale`).
+                let source_erased =
+                    crate::lowering::support::source_spelling(&self.ctx.krate, const_item.name)
+                        .is_some_and(|text| {
+                            self.ctx
+                                .source_erased_consts
+                                .contains(&(const_item.span.file, text.to_owned()))
+                        });
+                if self.has_reference_identity(const_item.ty) && !source_erased {
+                    let span = self.span(start, end);
+                    return self.identity_slot_read(
+                        IdentitySlotKey::Item(item),
+                        name,
+                        Some(const_item.ty),
+                        span,
+                        body,
+                        |this, init| this.const_item_expression(&const_item, start, end, init),
+                    );
+                }
                 return self.const_item_expression(&const_item, start, end, body);
             }
             if let Some(item) = self.items.get(name).copied()
                 && matches!(self.item_ref(item), Item::Function(_))
             {
                 return self.item_function_closure_expression(item, start, end, body);
+            }
+            if let Some(expr) = self.object_namespace_value_expression(name, start, end, body)? {
+                return Ok(expr);
             }
             // An AMBIENT name resolves through the host first: the declaration
             // is a claim about a binding the host already provides, so the
@@ -419,7 +447,7 @@ impl ModuleBuilder<'_> {
                 }));
             }
             if let Some(value) = self.consts.object(name).cloned() {
-                return Ok(self.object_const_expression(&value, start, end, body));
+                return self.object_const_value_read(name, &value, start, end, body);
             }
             if let Some(value) = self.consts.literal(name) {
                 return Ok(body.push_expr(Expr {
@@ -1639,6 +1667,118 @@ impl ModuleBuilder<'_> {
             // An erased value's call result is erased by propagation; any other
             // non-function value has its shape dropped here, which is recorded.
             _ => self.erase_unless_unknown(ty, ErasureReason::ByName),
+        }
+    }
+
+    /// Read an object namespace (`const fmts = { y(d) {..}, d(d) {..} }`,
+    /// modeled as one module function per member, see
+    /// `object_namespace_declaration`) as a VALUE: a record of its members'
+    /// function values, keyed by member name.
+    ///
+    /// A member read (`fmts.y(..)`) resolves to the member function and never
+    /// gets here; this is every other read: an index by a runtime key
+    /// (date-fns' `lightFormatters[firstCharacter as Token]`), an argument, an
+    /// assignment. With no value for the name, those reads fell through to an
+    /// unmodeled-import placeholder, so every lookup silently missed, in the
+    /// declaring module and in every module that imports it.
+    ///
+    /// The record is typed as precisely as the members allow: when every
+    /// member has one function type (a formatter table), it is a
+    /// `Dict<string, F>` of that function type, which is what the same object
+    /// literal lowers to where it is not a namespace. Members of different
+    /// function types cannot share one value type, so the record holds them
+    /// erased (`ErasureReason::ErasedUnion`). `None` when `name` is no
+    /// namespace here.
+    fn object_namespace_value_expression(
+        &mut self,
+        name: &str,
+        start: u32,
+        end: u32,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Some(members) = self.object_namespaces.get(name).cloned() else {
+            return Ok(None);
+        };
+        let Some(first) = members.values().next().copied() else {
+            return Ok(None);
+        };
+        // One object, however many reads and importers: see `identity_slots`.
+        let span = self.span(start, end);
+        self.identity_slot_read(
+            IdentitySlotKey::Namespace(first),
+            name,
+            None,
+            span,
+            body,
+            |this, init| this.object_namespace_literal(&members, start, end, init),
+        )
+        .map(Some)
+    }
+
+    /// The dictionary of an object namespace's members, each a function value.
+    fn object_namespace_literal(
+        &mut self,
+        members: &indexmap::IndexMap<String, smelt_hir::ItemId>,
+        start: u32,
+        end: u32,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let span = self.span(start, end);
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let mut entries = Vec::with_capacity(members.len());
+        for (key, item) in members {
+            let value = self.item_function_closure_expression(*item, start, end, body)?;
+            let key = body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::String(key.clone())),
+                ty: string_ty,
+                span,
+            });
+            entries.push((key, value));
+        }
+        let mut value_tys = entries.iter().map(|(_, value)| Self::expr_ty(body, *value));
+        let first = value_tys.next();
+        let value_ty = match first {
+            Some(first) if value_tys.all(|ty| ty == first) => first,
+            _ => {
+                let erased = self.erase_with(ErasureReason::ErasedUnion, "object namespace value");
+                for (_, value) in &mut entries {
+                    *value = Self::erase_to_unknown(*value, erased, span, body);
+                }
+                erased
+            }
+        };
+        let ty = self.ctx.krate.types.intern(Type::Dict(string_ty, value_ty));
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::DictLit(entries),
+            ty,
+            span,
+        }))
+    }
+
+    /// A value read of the object constant `name`: its shared slot when the
+    /// constant is a module-level object (see `identity_slots`), else the
+    /// recreated literal.
+    fn object_const_value_read(
+        &mut self,
+        name: &str,
+        value: &crate::ObjectConst,
+        start: u32,
+        end: u32,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        match value.site {
+            Some(site) if self.has_reference_identity(value.ty) => {
+                let span = self.span(start, end);
+                self.identity_slot_read(
+                    IdentitySlotKey::Site(site.file, site.start, site.end),
+                    name,
+                    Some(value.ty),
+                    span,
+                    body,
+                    |this, init| Ok(this.object_const_expression(value, start, end, init)),
+                )
+            }
+            _ => Ok(self.object_const_expression(value, start, end, body)),
         }
     }
 

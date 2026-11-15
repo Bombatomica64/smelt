@@ -41,6 +41,16 @@ impl FunctionEmitter<'_> {
             && !self.is_erased_class_type(dict_ty)
             && let Some(field) = self.operand_string_literal(key)
         {
+            // An OPTIONAL data field is a property the value may not carry:
+            // `"era" in flags` on a `{}` typed `{ era?: number }` is `false`.
+            // Its `Option` slot is `None` exactly when the property is absent
+            // (an explicit `undefined` is the same slot; see
+            // docs/design: `Option<T>` stands for `T | undefined`).
+            if let Some(symbol) = self.optional_data_field_symbol(dict_ty, &field) {
+                let receiver = self.operand_borrow_expr(dict)?;
+                let read = self.field_access_expr(&receiver, dict_ty, symbol)?;
+                return Ok(read.postfix(".is_some()"));
+            }
             return Ok(RustExpr::path(
                 self.type_has_property_statically(dict_ty, &field)
                     .to_string(),
@@ -113,6 +123,30 @@ impl FunctionEmitter<'_> {
                 self.dict_key_reference_expr(key, *key_ty)?.delimited()
             ))
         })
+    }
+
+    /// The declared data field of interface/shape `ty` whose JavaScript key is
+    /// `key`, when its type is optional (a property the value may lack).
+    ///
+    /// A CLASS field is not one: its declaration defines the property on every
+    /// instance (as `undefined` when nothing initializes it), so `"label" in
+    /// point` is `true` for `class Point { label?: string }`.
+    fn optional_data_field_symbol(&self, ty: TypeId, key: &str) -> Option<Symbol> {
+        let Some(Type::Class { name, .. }) = self.mir.types.get(ty) else {
+            return None;
+        };
+        // Only interface shapes are searched: a class is never one.
+        let fields = self
+            .mir
+            .interfaces
+            .iter()
+            .find(|interface| interface.name == *name)
+            .map(|interface| crate::classes::effective_interface_fields(self.mir, interface))?;
+        fields
+            .iter()
+            .find(|field| self.symbol_source_name(field.name) == Ok(key))
+            .filter(|field| matches!(self.mir.types.get(field.ty), Some(Type::Optional(_))))
+            .map(|field| field.name)
     }
 
     /// Whether a string-keyed dict's values are the erased dynamic type.

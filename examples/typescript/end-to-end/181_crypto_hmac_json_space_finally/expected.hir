@@ -1,5 +1,5 @@
 module examples/typescript/end-to-end/181_crypto_hmac_json_space_finally/input.ts (ModuleId(0))
-  body BodyId(9)
+  body BodyId(10)
   items
     fn get_key__module_main owner Module
     fn sign__module_main owner Module

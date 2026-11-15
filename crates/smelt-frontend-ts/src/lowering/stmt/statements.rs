@@ -469,10 +469,18 @@ impl ModuleBuilder<'_> {
                 // the next case) cannot lower to a HIR `Match`; route it
                 // through the general single-iteration-loop lowering where JS
                 // `break` maps to the loop break.
-                if Self::switch_has_fallthrough(switch_stmt) {
-                    return self.switch_fallthrough_statement(switch_stmt, body, block);
-                }
                 let scrutinee = self.expression(&switch_stmt.discriminant, body)?;
+                // The `Match` arms compare by literal label against a text,
+                // number or boolean scrutinee. A switch the labels cannot
+                // express that way (an erased or union discriminant, a label
+                // that is no literal: `case undefined`, `case Kind.A`) is a
+                // chain of `===` tests, exactly JavaScript's definition of
+                // `switch`, through the same loop lowering.
+                if Self::switch_has_fallthrough(switch_stmt)
+                    || !self.switch_matches_by_label(switch_stmt, Self::expr_ty(body, scrutinee))
+                {
+                    return self.switch_fallthrough_statement(switch_stmt, scrutinee, body, block);
+                }
                 // A switch on a discriminant property (`switch (x.kind)`) proves,
                 // inside every non-default arm, that `x` carries that property.
                 // The narrowing is only recorded for arms with a case label; the
@@ -776,23 +784,29 @@ impl ModuleBuilder<'_> {
         iter: smelt_hir::ExprId,
         body: &mut Body,
     ) -> Result<(smelt_hir::PatternId, smelt_hir::BlockId), SmeltError> {
-        let iter_ty = Self::expr_ty(body, iter);
-        let Some((pat, value, binding, annotated_ty, mutable)) =
-            self.for_left_destructuring(left, iter_ty, body)?
-        else {
-            let pat = self.for_left_pattern(left, iter_ty, body)?;
-            return Ok((pat, self.block_from_statement(loop_statement, body)?));
-        };
-        let loop_body = body.push_block(self.statement_span(loop_statement));
-        self.binding_declaration(binding, Some(value), annotated_ty, mutable, body, loop_body)?;
-        if let Statement::BlockStatement(block_stmt) = loop_statement {
-            for nested_statement in &block_stmt.body {
-                self.statement_in_block(nested_statement, body, loop_body)?;
+        // A loop body's flow facts hold inside one iteration: the loop may run
+        // none, so a fact the body proves (the default-initialization idiom
+        // `if (x == null) x = v`) must not reach the code after the loop. A
+        // `while` body gets the same scope.
+        self.with_narrowing(Some(std::collections::HashMap::default()), |this| {
+            let iter_ty = Self::expr_ty(body, iter);
+            let Some((pat, value, binding, annotated_ty, mutable)) =
+                this.for_left_destructuring(left, iter_ty, body)?
+            else {
+                let pat = this.for_left_pattern(left, iter_ty, body)?;
+                return Ok((pat, this.block_from_statement(loop_statement, body)?));
+            };
+            let loop_body = body.push_block(this.statement_span(loop_statement));
+            this.binding_declaration(binding, Some(value), annotated_ty, mutable, body, loop_body)?;
+            if let Statement::BlockStatement(block_stmt) = loop_statement {
+                for nested_statement in &block_stmt.body {
+                    this.statement_in_block(nested_statement, body, loop_body)?;
+                }
+            } else {
+                this.statement_in_block(loop_statement, body, loop_body)?;
             }
-        } else {
-            self.statement_in_block(loop_statement, body, loop_body)?;
-        }
-        Ok((pat, loop_body))
+            Ok((pat, loop_body))
+        })
     }
 
     /// Lower an expression in statement position: an expression statement, or
@@ -866,6 +880,7 @@ impl ModuleBuilder<'_> {
                 return Ok(());
             }
             if self.try_lower_negative_bracket_write_statement(assign, body, block)?
+                || self.try_asserted_record_key_write(assign, body, block)?
                 || self.try_lower_list_length_assignment_statement(assign, body, block)?
                 || self.array_destructuring_assignment_statement(assign, body, block)?
                 || self.try_collect_callable_local_prop(assign, body, block)?
@@ -881,6 +896,11 @@ impl ModuleBuilder<'_> {
             }
             let (target, value) = self.assignment_parts(assign, body)?;
             body.push_stmt_to_block(block, Stmt::Assign { target, value });
+            return Ok(());
+        }
+        if let Expression::UnaryExpression(unary) = expression
+            && self.try_asserted_record_key_delete(unary, body, block)?
+        {
             return Ok(());
         }
         if let Expression::UpdateExpression(update) = expression {

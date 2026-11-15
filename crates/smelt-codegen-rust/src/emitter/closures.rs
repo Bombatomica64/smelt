@@ -1679,10 +1679,11 @@ impl FunctionEmitter<'_> {
             scrutinee_text = scrutinee_text.delimited()
         ));
         let match_declared = self.declared_scope();
+        let scrutinee_ty = self.operand_ty(scrutinee)?;
         for arm in arms {
             out.push_str(&format!(
                 "        {} => {{\n",
-                self.match_label_expr(&arm.label).delimited()
+                self.match_label_text_for_scrutinee(&arm.label, scrutinee_ty)
             ));
             self.emit_closure_block_inner(self.block(arm.target)?, out, active, join, arm_in_loop)?;
             out.push_str("        }\n");

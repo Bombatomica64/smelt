@@ -142,48 +142,16 @@ impl FunctionEmitter<'_> {
                 )))
             }
             Some(Type::Function(_)) => {
-                // A bare function-item-as-value wrapper has a stable item key.
-                // Every reference to the same named function value lowers to its
-                // own closure, so erasing each one inline would build a distinct
-                // `SmeltUnknown::Function` wrapper that compares unequal under
-                // JavaScript reference identity (`===`). Route the erased value
-                // through a per-item accessor so all references share ONE cached
-                // erased value. User arrows have no key and fall through to the
-                // ordinary fresh-erasure logic below.
-                if let Some((key, accessor_body)) = self.function_item_erased_accessor(operand)? {
-                    self.context
-                        .minted
-                        .function_item_accessors
-                        .borrow_mut()
-                        .entry(key)
-                        .or_insert(accessor_body);
-                    return Ok(RustExpr::chain(format!("__smelt_fn_value_{key}()")));
-                }
-                if let Some(erased_call) = self.erased_call_assignment_expr(operand)? {
-                    return Ok(erased_call);
-                }
-                if let Some(Type::Function(function)) =
-                    self.mir.types.get(self.operand_ty(operand)?)
-                    && self.is_erased_unknown_rest_function(function)
-                    && !function.may_throw
-                {
-                    let function_text = self.operand_expr(operand)?;
-                    return Ok(function_text.postfix(self.carrier_format(
-                        self.carrier()?,
-                        format_args!(".clone().into_smelt_unknown()"),
+                let erased = self.erase_function_operand(operand)?;
+                // A typed inline `function` expression is marked as a
+                // constructor where it is erased (see `closure_value_expr`).
+                if self.operand_is_inline_function_expression(operand)? {
+                    return Ok(RustExpr::atom(format!(
+                        "{{ let smelt_value = {erased}; if let SmeltUnknown::Function(smelt_function) = &smelt_value {{ smelt_mark_constructor(smelt_function); }} smelt_value }}",
+                        erased = erased.delimited()
                     )));
                 }
-                let adapter = match self.rest_vector_unknown_adapter(operand)? {
-                    Some(adapter) => adapter,
-                    None => RustExpr::loose(self.carrier_format(self.carrier()?, format_args!("::std::rc::Rc::new(move |_smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, {ERROR_BOX}>(SmeltUnknown::Null))"))),
-                };
-                Ok(RustExpr::atom(self.carrier_format(
-                    self.carrier()?,
-                    format_args!(
-                        "SmeltUnknown::Function({adapter})",
-                        adapter = adapter.delimited()
-                    ),
-                )))
+                Ok(erased)
             }
             // A generated union erases through `into_smelt_unknown()`, which
             // takes `self` BY VALUE. Every other consuming arm of this match
@@ -225,6 +193,72 @@ impl FunctionEmitter<'_> {
             // The rest has nothing to read from the operand itself.
             Some(_) => self.erase_value(&RenderedValue::new(text, ty)),
         }
+    }
+
+    /// Erase a function-typed operand to its `SmeltUnknown::Function` value.
+    fn erase_function_operand(&self, operand: &Operand) -> Result<RustExpr, EmitError> {
+        // A bare function-item-as-value wrapper has a stable item key.
+        // Every reference to the same named function value lowers to its
+        // own closure, so erasing each one inline would build a distinct
+        // `SmeltUnknown::Function` wrapper that compares unequal under
+        // JavaScript reference identity (`===`). Route the erased value
+        // through a per-item accessor so all references share ONE cached
+        // erased value. User arrows have no key and fall through to the
+        // ordinary fresh-erasure logic below.
+        if let Some((key, accessor_body)) = self.function_item_erased_accessor(operand)? {
+            self.context
+                .minted
+                .function_item_accessors
+                .borrow_mut()
+                .entry(key)
+                .or_insert(accessor_body);
+            return Ok(RustExpr::chain(format!("__smelt_fn_value_{key}()")));
+        }
+        if let Some(erased_call) = self.erased_call_assignment_expr(operand)? {
+            return Ok(erased_call);
+        }
+        if let Some(Type::Function(function)) = self.mir.types.get(self.operand_ty(operand)?)
+            && self.is_erased_unknown_rest_function(function)
+            && !function.may_throw
+        {
+            let function_text = self.operand_expr(operand)?;
+            return Ok(function_text.postfix(self.carrier_format(
+                self.carrier()?,
+                format_args!(".clone().into_smelt_unknown()"),
+            )));
+        }
+        let adapter = match self.rest_vector_unknown_adapter(operand)? {
+            Some(adapter) => adapter,
+            None => RustExpr::loose(self.carrier_format(self.carrier()?, format_args!("::std::rc::Rc::new(move |_smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, {ERROR_BOX}>(SmeltUnknown::Null))"))),
+        };
+        Ok(RustExpr::atom(self.carrier_format(
+            self.carrier()?,
+            format_args!(
+                "SmeltUnknown::Function({adapter})",
+                adapter = adapter.delimited()
+            ),
+        )))
+    }
+
+    /// Whether `operand` is an inline `function` expression's closure (its own
+    /// `this`), as opposed to an arrow or a function item's value wrapper.
+    fn operand_is_inline_function_expression(&self, operand: &Operand) -> Result<bool, EmitError> {
+        let Some(local) = operand.local() else {
+            return Ok(false);
+        };
+        let Some(closure_id) = closure_definitions(self.function)?.get(&local).copied() else {
+            return Ok(false);
+        };
+        Ok(self
+            .mir
+            .closures
+            .get(usize::try_from(closure_id.0).unwrap_or(usize::MAX))
+            .is_some_and(|closure| {
+                closure.this_binding == smelt_hir::ClosureThis::Own
+                    && closure.function_item_key.is_none()
+                    && !closure.is_generator
+                    && !matches!(self.mir.types.get(closure.return_ty), Some(Type::Future(_)))
+            }))
     }
 
     /// Return the BARE name of a source future local being erased, if any.

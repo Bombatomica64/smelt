@@ -1628,3 +1628,78 @@ fn generic_callback_fields() -> TestResult {
 fn promise_combinator_operands() -> TestResult {
     verify_node_parity("promise_combinator_operands")
 }
+
+/// An exported object of methods read as a value across modules is the one
+/// object (not an unmodeled placeholder): indexed by a run-time key, its
+/// looked-up member tested for presence, enumerated and compared by identity.
+/// Module-level objects and object-valued const items are likewise one
+/// allocation per declaration, so a locale stored and compared elsewhere is
+/// `===` the imported binding.
+#[test]
+fn object_namespace_values() -> TestResult {
+    verify_node_parity_with("object_namespace_values", &["formatters.ts"])
+}
+
+/// A keyed write or delete through an `as any` / `as unknown as Record<..>`
+/// view of a declared record lands on the record's own fields.
+#[test]
+fn asserted_record_key_writes() -> TestResult {
+    verify_node_parity("asserted_record_key_writes")
+}
+
+/// A fact a branch proves inside a `forEach` callback, `for…of`, `for…in` or
+/// C-style loop body holds for that branch of that iteration only.
+#[test]
+fn loop_narrowing_scopes() -> TestResult {
+    verify_node_parity("loop_narrowing_scopes")
+}
+
+/// An erased `RegExp` answers `test`/`exec`/`toString` read as members, with a
+/// global pattern's `lastIndex` advancing across erased calls.
+#[test]
+fn erased_regexp_methods() -> TestResult {
+    verify_node_parity("erased_regexp_methods")
+}
+
+/// A `switch` over an erased or optional-erased discriminant, or with
+/// non-literal labels (`case undefined`), runs as a chain of `===` tests.
+#[test]
+fn switch_equality_chains() -> TestResult {
+    verify_node_parity("switch_equality_chains")
+}
+
+/// `"key" in record` answers an interface's optional property by presence and
+/// compares keys by their JavaScript spelling; a class field is always own.
+#[test]
+fn optional_field_presence() -> TestResult {
+    verify_node_parity("optional_field_presence")
+}
+
+/// Only a plain `function` owns a `prototype`; arrows, async functions and
+/// methods do not, and a builtin constructor value is a `function`.
+#[test]
+fn constructor_prototypes() -> TestResult {
+    verify_node_parity("constructor_prototypes")
+}
+
+/// Date constructor parts and `Date.UTC` carry out-of-range values into the
+/// next unit and read a 0..99 year as 19xx.
+#[test]
+fn date_part_carry() -> TestResult {
+    verify_node_parity("date_part_carry")
+}
+
+/// A generic class read as a value carries its static methods (named and
+/// symbol-keyed), a direct static call on it compiles, and a class value is a
+/// `function`, not an `object`.
+#[test]
+fn generic_class_statics() -> TestResult {
+    verify_node_parity("generic_class_statics")
+}
+
+/// More module slots than one `thread_local!` block can declare (the macro
+/// recurses once per static) still compile and keep their state.
+#[test]
+fn many_module_globals() -> TestResult {
+    verify_node_parity("many_module_globals")
+}

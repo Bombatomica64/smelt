@@ -335,8 +335,15 @@ impl FunctionEmitter<'_> {
                 "Date constructor internal part count mismatch",
             ));
         };
+        // ECMA-262 MakeDay/MakeTime/MakeDate/TimeClip: every component is
+        // truncated and may lie outside its calendar range, carrying into the
+        // next unit (`new Date(2014, 6, 2, 12, 20, 60)` is 12:21:00, month 14 is
+        // March of the next year); a year in 0..=99 means 19xx. Only the
+        // year/month pair goes through the calendar; the rest is arithmetic on
+        // milliseconds, as the spec states it. A non-finite part or a result
+        // past TimeClip's range is `NaN` (`i64::MIN` here).
         Ok(RustExpr::atom(format!(
-            "{{ let smelt_year_value = ({year}) as f64; let smelt_month_value = ({month}) as f64; let smelt_day_value = ({day}) as f64; let smelt_hour_value = ({hour}) as f64; let smelt_minute_value = ({minute}) as f64; let smelt_second_value = ({second}) as f64; let smelt_milli_value = ({milli}) as f64; if [smelt_year_value, smelt_month_value, smelt_day_value, smelt_hour_value, smelt_minute_value, smelt_second_value, smelt_milli_value].into_iter().all(f64::is_finite) {{ let smelt_year = smelt_year_value as i32; let smelt_month0 = smelt_month_value as u32; let smelt_day = smelt_day_value as u32; let smelt_hour = smelt_hour_value as u32; let smelt_minute = smelt_minute_value as u32; let smelt_second = smelt_second_value as u32; let smelt_milli = smelt_milli_value as u32; chrono::NaiveDate::from_ymd_opt(smelt_year, smelt_month0 + 1, smelt_day).and_then(|smelt_date| smelt_date.and_hms_milli_opt(smelt_hour, smelt_minute, smelt_second, smelt_milli)).map(|smelt_dt| smelt_dt.and_utc().timestamp_millis()).unwrap_or(i64::MIN) }} else {{ i64::MIN }} }}",
+            "{{ let smelt_parts: [f64; 7] = [({year}) as f64, ({month}) as f64, ({day}) as f64, ({hour}) as f64, ({minute}) as f64, ({second}) as f64, ({milli}) as f64]; if smelt_parts.iter().all(|smelt_part| smelt_part.is_finite()) {{ let [smelt_year, smelt_month, smelt_day, smelt_hour, smelt_minute, smelt_second, smelt_milli] = smelt_parts.map(f64::trunc); let smelt_year = if (0.0..=99.0).contains(&smelt_year) {{ 1900.0 + smelt_year }} else {{ smelt_year }}; let smelt_month_year = smelt_year + (smelt_month / 12.0).floor(); let smelt_month0 = smelt_month.rem_euclid(12.0); i32::try_from(smelt_month_year as i64).ok().and_then(|smelt_month_year| chrono::NaiveDate::from_ymd_opt(smelt_month_year, smelt_month0 as u32 + 1, 1)).and_then(|smelt_first| smelt_first.and_hms_opt(0, 0, 0)).map(|smelt_first| smelt_first.and_utc().timestamp_millis() as f64 + (smelt_day - 1.0) * 86_400_000.0 + smelt_hour * 3_600_000.0 + smelt_minute * 60_000.0 + smelt_second * 1_000.0 + smelt_milli).filter(|smelt_time| smelt_time.abs() <= 8.64e15).map_or(i64::MIN, |smelt_time| smelt_time as i64) }} else {{ i64::MIN }} }}",
             year = year.delimited(),
             month = month.delimited(),
             day = day.delimited(),

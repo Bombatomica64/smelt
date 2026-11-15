@@ -56,6 +56,14 @@ pub struct Crate {
     /// constant accessor.
     #[serde(default)]
     pub accessor_fields: Vec<(crate::Symbol, crate::Symbol)>,
+    /// Function items a frontend lowered from a source construct that is a
+    /// CONSTRUCTOR in JavaScript (a plain `function` declaration or
+    /// expression). Only these own a `prototype` object as a value; an arrow,
+    /// a method, an async function and a generator have none, so
+    /// `f.prototype?.constructor === f` tells them apart (date-fns'
+    /// `isConstructor`).
+    #[serde(default)]
+    pub constructible_functions: Vec<ItemId>,
 }
 
 impl Crate {
