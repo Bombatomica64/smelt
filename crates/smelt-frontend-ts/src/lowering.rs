@@ -1,6 +1,7 @@
 //! TypeScript AST lowering into Smelt HIR.
 
 mod ambient_globals;
+mod any_written_locals;
 mod arguments_forwarding;
 mod asserted_member_read;
 mod assertion_views;
@@ -1022,6 +1023,9 @@ struct ModuleBuilder<'ctx> {
     /// `presence_tested_locals`. The value is the strongest presence test the
     /// binding saw.
     presence_widened_bindings: HashMap<u32, presence_tested_locals::PresenceTest>,
+    /// Binding span starts of locals whose elements are written with an `any`
+    /// value, which hold erased elements; see `any_written_locals`.
+    any_written_bindings: HashSet<u32>,
     /// Names of the local `function` declarations whose OWN body is currently
     /// being lowered, innermost last.
     ///

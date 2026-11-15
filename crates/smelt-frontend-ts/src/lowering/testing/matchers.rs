@@ -218,6 +218,7 @@ impl ModuleBuilder<'_> {
         &mut self,
         actual: smelt_hir::ExprId,
         expected: smelt_hir::ExprId,
+        strict: bool,
         span: oxc::span::Span,
         body: &mut Body,
     ) -> smelt_hir::ExprId {
@@ -227,7 +228,11 @@ impl ModuleBuilder<'_> {
         let actual = Self::erase_to_unknown(actual, unknown_ty, span, body);
         let expected = Self::erase_to_unknown(expected, unknown_ty, span, body);
         body.push_expr(Expr {
-            kind: ExprKind::VitestAsymmetricEqual { actual, expected },
+            kind: ExprKind::VitestAsymmetricEqual {
+                actual,
+                expected,
+                strict,
+            },
             ty: bool_ty,
             span,
         })
@@ -1035,8 +1040,22 @@ impl ModuleBuilder<'_> {
                 }
                 _ => false,
             };
-        let mut failed = if uses_asymmetric_matcher {
-            let holds = self.vitest_asymmetric_equal_expr(actual, expected, site.span, body);
+        // `toEqual` skips own properties holding `undefined`; once either
+        // operand is erased that is a property of the run-time values, so the
+        // comparison is the harness's walk rather than `SmeltUnknown`'s
+        // structural `PartialEq` (which library code observes and must keep).
+        let erased_operand = [actual, expected].into_iter().any(|operand| {
+            matches!(
+                self.ctx.krate.types.get(Self::expr_ty(body, operand)),
+                Some(Type::Unknown)
+            )
+        });
+        let loose_erased_equal =
+            !use_strict_identity && matches!(matcher, TestMatcher::Equal) && erased_operand;
+        let mut failed = if uses_asymmetric_matcher || loose_erased_equal {
+            let strict = matches!(matcher, TestMatcher::StrictEqual);
+            let holds =
+                self.vitest_asymmetric_equal_expr(actual, expected, strict, site.span, body);
             self.unary_bool_expr(UnaryOp::Not, holds, site.span, body)
         } else if use_strict_identity {
             let op = if inverted {
@@ -1636,7 +1655,7 @@ impl ModuleBuilder<'_> {
         let expected = self.argument_with_hint(expected_arg, body, Some(unknown_ty))?;
         let expected = Self::erase_to_unknown(expected, unknown_ty, span, body);
         let matcher = self.vitest_matcher_record_expr("matchObject", vec![expected], span, body);
-        let holds = self.vitest_asymmetric_equal_expr(actual, matcher, site.span, body);
+        let holds = self.vitest_asymmetric_equal_expr(actual, matcher, true, site.span, body);
         let failed = if inverted {
             holds
         } else {
@@ -1791,7 +1810,7 @@ impl ModuleBuilder<'_> {
             span,
         });
         let expected = Self::erase_to_unknown(expected, unknown_ty, span, body);
-        let holds = self.vitest_asymmetric_equal_expr(nth_call, expected, site.span, body);
+        let holds = self.vitest_asymmetric_equal_expr(nth_call, expected, true, site.span, body);
         let failed = if inverted {
             holds
         } else {

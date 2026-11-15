@@ -1703,3 +1703,26 @@ fn generic_class_statics() -> TestResult {
 fn many_module_globals() -> TestResult {
     verify_node_parity("many_module_globals")
 }
+
+/// A record whose elements the program writes with an `any` value holds what
+/// was written (`undefined`, scalars, arrays), not the declared element type's
+/// conversion of it.
+#[test]
+fn any_written_slots() -> TestResult {
+    verify_node_parity("any_written_slots")
+}
+
+/// An interface method with several call signatures is one function taking
+/// every overload's arguments: a two-pattern or guarded call reaches it whole.
+#[test]
+fn overloaded_interface_methods() -> TestResult {
+    verify_node_parity("overloaded_interface_methods")
+}
+
+/// An erased value recovers into the union arm its shape belongs to: tuples by
+/// their elements' kinds, lists by their elements, and same-field object shapes
+/// by their literal discriminant.
+#[test]
+fn union_arm_recovery() -> TestResult {
+    verify_node_parity("union_arm_recovery")
+}

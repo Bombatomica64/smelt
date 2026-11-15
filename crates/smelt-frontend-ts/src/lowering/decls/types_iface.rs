@@ -737,6 +737,7 @@ impl ModuleBuilder<'_> {
             index_value_ty,
             decode_facts,
         } = members;
+        let own_methods_from = methods.len();
         for sig in signatures {
             match sig {
                 TSSignature::TSPropertySignature(prop) => {
@@ -985,6 +986,74 @@ impl ModuleBuilder<'_> {
                 }
             }
         }
+        self.collapse_overloaded_methods(methods, own_methods_from);
         Ok(())
+    }
+
+    /// Give each method these signatures declare more than once (an overload
+    /// set: ts-pattern's `Match.with(pattern, handler)`, `with(p1, p2,
+    /// handler)`, `with(...args)`) ONE member: the variadic erased callable
+    /// `(...args: unknown[]) => unknown`.
+    ///
+    /// A struct has one field per name, and keeping only the first overload
+    /// gave every call the first overload's arity: `.with(p1, p2, handler)`
+    /// passed `p2` as the handler, whose conversion silently became a default
+    /// callback, so the arm never matched. The value behind the member is a
+    /// single function that accepts every overload's arguments (`with(...args:
+    /// any[])` in ts-pattern); the variadic signature is the one Rust can
+    /// state for it, each call packs its arguments, and the result converts to
+    /// the type the call site's overload gives it. Overloads of one arity and
+    /// identical parameter types keep the first, as before.
+    fn collapse_overloaded_methods(&mut self, methods: &mut Vec<MethodSig>, from: usize) {
+        let mut index = from;
+        while index < methods.len() {
+            let Some(name) = methods.get(index).map(|method| method.name) else {
+                break;
+            };
+            let same: Vec<usize> = (index..methods.len())
+                .filter(|other| {
+                    methods
+                        .get(*other)
+                        .is_some_and(|method| method.name == name)
+                })
+                .collect();
+            let shape = |method: &MethodSig| {
+                (
+                    method
+                        .params
+                        .iter()
+                        .map(|param| param.ty)
+                        .collect::<Vec<_>>(),
+                    method.rest,
+                )
+            };
+            let differs = same.len() > 1
+                && same.iter().skip(1).any(|other| {
+                    methods
+                        .get(*other)
+                        .zip(methods.get(index))
+                        .is_some_and(|(other, first)| shape(other) != shape(first))
+                });
+            if differs {
+                let erased = self.erase_with(ErasureReason::DynamicOperator, "overloaded method");
+                let rest_ty = self.ctx.krate.types.intern(Type::List(erased));
+                let span = methods.get(index).map(|method| method.span);
+                for other in same.iter().skip(1).rev() {
+                    methods.remove(*other);
+                }
+                if let (Some(method), Some(span)) = (methods.get_mut(index), span) {
+                    method.params = vec![ParamSig {
+                        name: self.synthetic_param_symbol(0),
+                        ty: rest_ty,
+                        span,
+                    }];
+                    method.rest = Some(0);
+                    method.required_params = Some(0);
+                    method.return_ty = erased;
+                    method.is_async = false;
+                }
+            }
+            index += 1;
+        }
     }
 }
