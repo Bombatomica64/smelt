@@ -30,6 +30,10 @@
 //!
 //! - a write of a declared property through `v` is read back from `r`, and a
 //!   write to `r` is read back through `v`, however long `v` was held;
+//! - a write through `v` of a value the property's declared type cannot hold
+//!   is read back through every view as written (JavaScript does not check a
+//!   write); `r`'s typed field keeps its last typed value, since no typed
+//!   read of it is valid TypeScript any more;
 //! - `v` narrowed back to the record type is `r` (`===`), and two views of `r`
 //!   are `===`;
 //! - a property `v` adds that the record type does not declare, a declared
@@ -93,6 +97,40 @@ pub(crate) fn is_live_record(_mir: &Mir, context: &EmitContext, name: Symbol) ->
     context.is_live_record(name)
 }
 
+/// A predicate over the erased `value` that holds exactly when it is of the
+/// kind a field of type `ty` stores, or `None` when every erased value is
+/// taken (an erased, generic or union field, and the types whose erased form
+/// this does not pin down).
+///
+/// JavaScript does not check a write, so an `any` view can store an object
+/// where the record type says `string`. The typed field cannot hold that
+/// value, and converting it would store something nobody wrote
+/// (`"[object Object]"`): a live record's setter refuses the write instead,
+/// and the runtime keeps the value on the object (`SmeltOpenShape::extras`).
+fn erased_value_fits(mir: &Mir, ty: TypeId) -> Option<String> {
+    let tag = |variant: &str| Some(format!("matches!(value, SmeltUnknown::{variant}(_))"));
+    match mir.types.get(ty)? {
+        Type::Float | Type::Int | Type::FixedInt(_) => tag("Number"),
+        Type::String => tag("String"),
+        Type::Bool => tag("Bool"),
+        Type::BigInt => tag("BigInt"),
+        Type::List(_) | Type::Tuple(_) => tag("Array"),
+        Type::Dict(_, _) => tag("Object"),
+        Type::Function(_) => tag("Function"),
+        Type::Class { name, .. } => {
+            // A callable object crosses as a function value.
+            let callable = mir.interfaces.iter().any(|interface| {
+                interface.name == *name && crate::classify::is_callable_shape(mir, interface)
+            });
+            (!callable).then(|| "matches!(value, SmeltUnknown::Object(_))".to_owned())
+        }
+        Type::Optional(inner) => erased_value_fits(mir, *inner).map(|fits| {
+            format!("(matches!(value, SmeltUnknown::Null | SmeltUnknown::Undefined) || {fits})")
+        }),
+        _ => None,
+    }
+}
+
 /// A field statement of the snapshot view, with its entry keyed by the
 /// property name's literal instead of an owned copy of it: the live impl's
 /// sinks take `(&'static str, SmeltUnknown)`, so a read allocates no key.
@@ -147,11 +185,12 @@ impl FunctionEmitter<'_> {
     ///
     /// Reads reuse the per-field erase statements of the snapshot view
     /// ([`Self::record_view_field_statements`]), so a live read and a snapshot
-    /// agree on every field, an absent optional included. A write converts the
-    /// erased value to the field's declared type with the same checked
-    /// conversion a typed assignment from an erased value uses; a field whose
-    /// type has none is not assigned, and the runtime keeps the written value
-    /// as an undeclared property instead.
+    /// agree on every field, an absent optional included. A write of a value
+    /// of the field's kind ([`erased_value_fits`]) converts it to the field's
+    /// declared type with the same checked conversion a typed assignment from
+    /// an erased value uses. Any other value, and a field whose type has no
+    /// such conversion, is handed back: the runtime keeps it on the object,
+    /// where every view reads it.
     ///
     /// `self` is an emitter for any function of the program: a live record is
     /// non-generic, so its field types need no type parameter in scope.
@@ -212,8 +251,13 @@ impl FunctionEmitter<'_> {
             };
             let key = self.symbol_source_name(field.name)?;
             let field_name = self.context.names().field_text(self.mir, field.name);
+            // A value of another type than the field's is handed back, not
+            // coerced: the runtime keeps it on the object, shadowing the field.
+            let guard = erased_value_fits(self.mir, field.ty)
+                .map(|fits| format!("if !{fits} {{ return Err(value); }} "))
+                .unwrap_or_default();
             set_arms.push_str(&format!(
-                "        if *key == {key:?} {{ let smelt_field_value = {converted}; self.0.borrow_mut().{field_name} = smelt_field_value; return Ok(()); }}\n",
+                "        if *key == {key:?} {{ {guard}let smelt_field_value = {converted}; self.0.borrow_mut().{field_name} = smelt_field_value; return Ok(()); }}\n",
                 converted = converted.delimited()
             ));
         }

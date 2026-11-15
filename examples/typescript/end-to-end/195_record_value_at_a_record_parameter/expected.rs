@@ -2593,14 +2593,21 @@ fn smelt_live_get(object: &::std::rc::Rc<dyn SmeltLiveObject>, key: &JsStr) -> O
 fn smelt_live_set(object: &::std::rc::Rc<dyn SmeltLiveObject>, key: &JsStr, value: SmeltUnknown) {
     match object.smelt_field_set(key, value) {
         Ok(()) => {
-            let revived = smelt_open_shape_read(object.smelt_live_address(), |shape| shape.deleted.iter().any(|name| **name == *key)).unwrap_or(false);
-            if revived { smelt_open_shape_write(&**object, |shape| { shape.deleted.retain(|name| **name != *key); shape.order.retain(|name| **name != *key); shape.order.push(key.to_owned()); }); }
+            let (revived, shadowed) = smelt_open_shape_read(object.smelt_live_address(), |shape| (shape.deleted.iter().any(|name| **name == *key), shape.extras.iter().any(|(name, _)| **name == *key))).unwrap_or((false, false));
+            if revived || shadowed {
+                let shadow = smelt_open_shape_write(&**object, |shape| {
+                    if revived { shape.deleted.retain(|name| **name != *key); shape.order.retain(|name| **name != *key); shape.order.push(key.to_owned()); }
+                    shape.extras.iter().position(|(name, _)| **name == *key).map(|position| shape.extras.remove(position))
+                });
+                drop(shadow);
+            }
         }
         Err(value) => {
             let replaced = smelt_open_shape_write(&**object, |shape| {
                 if let Some(slot) = shape.extras.iter_mut().find(|(name, _)| **name == *key) { return Some(::std::mem::replace(&mut slot.1, value)); }
                 shape.extras.push((key.to_owned(), value));
-                shape.order.push(key.to_owned());
+                shape.deleted.retain(|name| **name != *key);
+                if !shape.order.iter().any(|name| **name == *key) { shape.order.push(key.to_owned()); }
                 None
             });
             drop(replaced);
@@ -2615,7 +2622,7 @@ fn smelt_live_remove(object: &::std::rc::Rc<dyn SmeltLiveObject>, key: &JsStr) {
     let removed = smelt_open_shape_write(&**object, |shape| {
         let removed = shape.extras.iter().position(|(name, _)| **name == *key).map(|position| shape.extras.remove(position));
         shape.order.retain(|name| **name != *key);
-        if declared { shape.deleted.push(key.to_owned()); }
+        if declared && !shape.deleted.iter().any(|name| **name == *key) { shape.deleted.push(key.to_owned()); }
         removed
     });
     drop(removed);
@@ -2625,7 +2632,7 @@ fn smelt_live_remove(object: &::std::rc::Rc<dyn SmeltLiveObject>, key: &JsStr) {
 fn smelt_live_entries(object: &::std::rc::Rc<dyn SmeltLiveObject>) -> Vec<(JsString, SmeltUnknown)> {
     let fields = object.smelt_field_entries().into_iter().map(|(key, value)| (smelt_live_key(key), value)).collect::<Vec<_>>();
     let Some((order, extras, deleted)) = smelt_open_shape_read(object.smelt_live_address(), |shape| (shape.order.clone(), shape.extras.clone(), shape.deleted.clone())) else { return fields };
-    let mut fields = fields.into_iter().filter(|(key, _)| !deleted.contains(key)).map(Some).collect::<Vec<_>>();
+    let mut fields = fields.into_iter().filter(|(key, _)| !deleted.contains(key) && !extras.iter().any(|(name, _)| name == key)).map(Some).collect::<Vec<_>>();
     let mut extras = extras.into_iter().map(Some).collect::<Vec<_>>();
     let mut entries = Vec::with_capacity(fields.len() + extras.len());
     for key in &order {
@@ -4237,8 +4244,8 @@ impl SmeltLiveObject for Names {
     }
     #[allow(unused_variables)]
     fn smelt_field_set(&self, key: &JsStr, value: SmeltUnknown) -> Result<(), SmeltUnknown> {
-        if *key == "first" { let smelt_field_value = match value.clone() { SmeltUnknown::String(smelt_value) => smelt_value, smelt_other => JsString::from(match smelt_other { SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_symbol_to_string(&smelt_value), SmeltUnknown::Number(smelt_value) => smelt_number_to_string(smelt_value), SmeltUnknown::Bool(smelt_value) => smelt_value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) }; self.0.borrow_mut().first = smelt_field_value; return Ok(()); }
-        if *key == "last" { let smelt_field_value = match value.clone() { SmeltUnknown::String(smelt_value) => smelt_value, smelt_other => JsString::from(match smelt_other { SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_symbol_to_string(&smelt_value), SmeltUnknown::Number(smelt_value) => smelt_number_to_string(smelt_value), SmeltUnknown::Bool(smelt_value) => smelt_value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) }; self.0.borrow_mut().last = smelt_field_value; return Ok(()); }
+        if *key == "first" { if !matches!(value, SmeltUnknown::String(_)) { return Err(value); } let smelt_field_value = match value.clone() { SmeltUnknown::String(smelt_value) => smelt_value, smelt_other => JsString::from(match smelt_other { SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_symbol_to_string(&smelt_value), SmeltUnknown::Number(smelt_value) => smelt_number_to_string(smelt_value), SmeltUnknown::Bool(smelt_value) => smelt_value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) }; self.0.borrow_mut().first = smelt_field_value; return Ok(()); }
+        if *key == "last" { if !matches!(value, SmeltUnknown::String(_)) { return Err(value); } let smelt_field_value = match value.clone() { SmeltUnknown::String(smelt_value) => smelt_value, smelt_other => JsString::from(match smelt_other { SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_symbol_to_string(&smelt_value), SmeltUnknown::Number(smelt_value) => smelt_number_to_string(smelt_value), SmeltUnknown::Bool(smelt_value) => smelt_value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) }; self.0.borrow_mut().last = smelt_field_value; return Ok(()); }
         Err(value)
     }
     #[allow(unused_mut, unused_variables)]

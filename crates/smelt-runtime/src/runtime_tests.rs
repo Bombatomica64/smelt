@@ -1036,8 +1036,8 @@ mod live_view_family {
             None
         }
         fn smelt_field_set(&self, key: &JsStr, value: SmeltUnknown) -> Result<(), SmeltUnknown> {
-            if *key == "x" { self.0.borrow_mut().x = SmeltFromUnknown::smelt_from_unknown(value); return Ok(()); }
-            if *key == "label" { self.0.borrow_mut().label = SmeltFromUnknown::smelt_from_unknown(value); return Ok(()); }
+            if *key == "x" { if !matches!(value, SmeltUnknown::Number(_)) { return Err(value); } self.0.borrow_mut().x = SmeltFromUnknown::smelt_from_unknown(value); return Ok(()); }
+            if *key == "label" { if !matches!(value, SmeltUnknown::String(_)) { return Err(value); } self.0.borrow_mut().label = SmeltFromUnknown::smelt_from_unknown(value); return Ok(()); }
             Err(value)
         }
         fn smelt_field_entries(&self) -> Vec<(&'static str, SmeltUnknown)> {
@@ -1122,6 +1122,25 @@ mod live_view_family {
         erased.insert("x", SmeltUnknown::Number(9.0));
         assert_eq!(keys(&view(&record)), ["label", "z", "x"]);
         assert_eq!(record.0.borrow().x, 9.0, "the re-added property is the record's field again");
+    }
+
+    /// `p.label = { x: 1 }` through an `any` view: the object holds what was
+    /// written, in the property's place, until a string is written again.
+    #[test]
+    fn a_value_the_field_cannot_hold_stays_on_the_object() {
+        let record = point(1.0, "a");
+        let erased = view(&record);
+        let written = SmeltUnknown::Object(object(&[("x", SmeltUnknown::Number(1.0))]));
+        erased.insert("label", written.clone());
+        assert!(erased.get("label").is_some_and(|read| read.js_strict_eq(&written)), "the view reads the object that was written");
+        assert_eq!(&*record.0.borrow().label, "a", "the typed field was not given a coerced value");
+        let later = view(&record);
+        assert!(later.get("label").is_some_and(|read| read.js_strict_eq(&written)), "every view reads it");
+        assert_eq!(keys(&later), ["x", "label"], "the property keeps its place");
+        assert_eq!(later.iter().count(), 2, "and is listed once");
+        later.insert("label", text("b"));
+        assert_eq!(&*record.0.borrow().label, "b", "a string written later is the field's again");
+        assert_eq!(erased.get("label"), Some(text("b")));
     }
 
     /// An optional property that is absent has no key, and one set later by

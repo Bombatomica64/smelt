@@ -18,6 +18,8 @@
 //!   writes, adds, deletes and keeps the value; key order afterwards;
 //! - `written-through-any`: a callee typed `any` writes, adds and deletes
 //!   properties and keeps the value;
+//! - `written-with-another-type-through-any`: a callee stores a value the
+//!   property's declared type cannot hold; every view reads it as written;
 //! - `written-through-an-erased-type-parameter`: `T extends { x: number }`,
 //!   erased in a callee that reads `p.x`;
 //! - `plain-object-cast-to-a-record`: an erased-born object narrowed to a
@@ -146,6 +148,18 @@ fn record_written_through_any_is_the_callers_record() -> TestResult {
         "written-through-any",
         &Typing {
             records: &[("point", "Point")],
+        },
+    )
+}
+
+/// A value of another type written through a view stays on the object as
+/// written, and a value of the declared type written later is the field's.
+#[test]
+fn value_of_another_type_written_through_a_view_stays_on_the_object() -> TestResult {
+    verify_fixture(
+        "written-with-another-type-through-any",
+        &Typing {
+            records: &[("settings", "Settings"), ("target", "Settings")],
         },
     )
 }

@@ -624,6 +624,20 @@ fn classifies_a_shape_handed_to_an_erased_or_map_slot_as_reference() {
     assert_eq!(names, vec!["Size".to_owned()]);
 }
 
+/// A generic shape handed to such a slot keeps the by-value struct: its erased
+/// view is the snapshot, so there is nothing to share, and its instantiations
+/// convert field by field (`collect_view_flow_triggers`).
+#[test]
+fn a_generic_shape_handed_to_an_erased_slot_stays_a_value_record() {
+    let names = reference_class_names(
+        "interface Holder<T> { value: T; label: string }
+function take(value: unknown): void {}
+function run(): void { const holder: Holder<number> = { value: 1, label: 'a' }; take(holder); }
+",
+    );
+    assert!(names.is_empty(), "{names:?}");
+}
+
 /// A shape that only ever meets its own type keeps the by-value struct: the
 /// trigger must not lift what nothing can observe.
 #[test]

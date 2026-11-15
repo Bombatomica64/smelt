@@ -558,7 +558,12 @@ fn collect_identity_comparison_triggers(mir: &Mir, references: &mut HashSet<Symb
 /// `emitter::view_write_through`, with its own trigger
 /// ([`collect_bound_receiver_triggers`]). Not a callable object
 /// ([`is_callable_shape`]), which crosses as a function value, nor a shape
-/// with a getter-backed property ([`has_accessor_fields`]). Only a value
+/// with a getter-backed property ([`has_accessor_fields`]), nor a GENERIC
+/// shape: its erased view is still the snapshot (`emitter::live_view`), so
+/// lifting it would share nothing, and a value of it at other type arguments
+/// (`Matcher<unknown, string>` pushed into a `Matcher<unknown, unknown>[]`,
+/// ts-pattern) is converted field by field, which only the by-value struct
+/// spells. Only a value
 /// read straight from a local is seen ([`for_each_record_flow`]); a value that
 /// reaches such a slot some other way keeps the representation its other uses
 /// give it, as before this trigger existed.
@@ -571,6 +576,7 @@ fn collect_view_flow_triggers(mir: &Mir, references: &mut HashSet<Symbol>) {
         if view_slot
             && mir.interfaces.iter().any(|interface| {
                 interface.name == name
+                    && interface.type_params.is_empty()
                     && !is_callable_shape(mir, interface)
                     && !has_accessor_fields(mir, interface)
             })

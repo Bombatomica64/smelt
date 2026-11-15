@@ -2565,14 +2565,21 @@ fn smelt_live_get(object: &::std::rc::Rc<dyn SmeltLiveObject>, key: &JsStr) -> O
 fn smelt_live_set(object: &::std::rc::Rc<dyn SmeltLiveObject>, key: &JsStr, value: SmeltUnknown) {
     match object.smelt_field_set(key, value) {
         Ok(()) => {
-            let revived = smelt_open_shape_read(object.smelt_live_address(), |shape| shape.deleted.iter().any(|name| **name == *key)).unwrap_or(false);
-            if revived { smelt_open_shape_write(&**object, |shape| { shape.deleted.retain(|name| **name != *key); shape.order.retain(|name| **name != *key); shape.order.push(key.to_owned()); }); }
+            let (revived, shadowed) = smelt_open_shape_read(object.smelt_live_address(), |shape| (shape.deleted.iter().any(|name| **name == *key), shape.extras.iter().any(|(name, _)| **name == *key))).unwrap_or((false, false));
+            if revived || shadowed {
+                let shadow = smelt_open_shape_write(&**object, |shape| {
+                    if revived { shape.deleted.retain(|name| **name != *key); shape.order.retain(|name| **name != *key); shape.order.push(key.to_owned()); }
+                    shape.extras.iter().position(|(name, _)| **name == *key).map(|position| shape.extras.remove(position))
+                });
+                drop(shadow);
+            }
         }
         Err(value) => {
             let replaced = smelt_open_shape_write(&**object, |shape| {
                 if let Some(slot) = shape.extras.iter_mut().find(|(name, _)| **name == *key) { return Some(::std::mem::replace(&mut slot.1, value)); }
                 shape.extras.push((key.to_owned(), value));
-                shape.order.push(key.to_owned());
+                shape.deleted.retain(|name| **name != *key);
+                if !shape.order.iter().any(|name| **name == *key) { shape.order.push(key.to_owned()); }
                 None
             });
             drop(replaced);
@@ -2587,7 +2594,7 @@ fn smelt_live_remove(object: &::std::rc::Rc<dyn SmeltLiveObject>, key: &JsStr) {
     let removed = smelt_open_shape_write(&**object, |shape| {
         let removed = shape.extras.iter().position(|(name, _)| **name == *key).map(|position| shape.extras.remove(position));
         shape.order.retain(|name| **name != *key);
-        if declared { shape.deleted.push(key.to_owned()); }
+        if declared && !shape.deleted.iter().any(|name| **name == *key) { shape.deleted.push(key.to_owned()); }
         removed
     });
     drop(removed);
@@ -2597,7 +2604,7 @@ fn smelt_live_remove(object: &::std::rc::Rc<dyn SmeltLiveObject>, key: &JsStr) {
 fn smelt_live_entries(object: &::std::rc::Rc<dyn SmeltLiveObject>) -> Vec<(JsString, SmeltUnknown)> {
     let fields = object.smelt_field_entries().into_iter().map(|(key, value)| (smelt_live_key(key), value)).collect::<Vec<_>>();
     let Some((order, extras, deleted)) = smelt_open_shape_read(object.smelt_live_address(), |shape| (shape.order.clone(), shape.extras.clone(), shape.deleted.clone())) else { return fields };
-    let mut fields = fields.into_iter().filter(|(key, _)| !deleted.contains(key)).map(Some).collect::<Vec<_>>();
+    let mut fields = fields.into_iter().filter(|(key, _)| !deleted.contains(key) && !extras.iter().any(|(name, _)| name == key)).map(Some).collect::<Vec<_>>();
     let mut extras = extras.into_iter().map(Some).collect::<Vec<_>>();
     let mut entries = Vec::with_capacity(fields.len() + extras.len());
     for key in &order {
@@ -4248,9 +4255,9 @@ impl SmeltLiveObject for HandlerParamsSet {
     }
     #[allow(unused_variables)]
     fn smelt_field_set(&self, key: &JsStr, value: SmeltUnknown) -> Result<(), SmeltUnknown> {
-        if *key == "handler" { let smelt_field_value = match value.clone() { SmeltUnknown::String(smelt_value) => smelt_value, smelt_other => JsString::from(match smelt_other { SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_symbol_to_string(&smelt_value), SmeltUnknown::Number(smelt_value) => smelt_number_to_string(smelt_value), SmeltUnknown::Bool(smelt_value) => smelt_value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) }; self.0.borrow_mut().handler = smelt_field_value; return Ok(()); }
-        if *key == "score" { let smelt_field_value = match value.clone() { SmeltUnknown::Number(smelt_value) => smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get("__smelt_date") { Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }, SmeltUnknown::String(smelt_value) => smelt_js_string_to_number(&smelt_value), SmeltUnknown::Bool(smelt_value) => if smelt_value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }; self.0.borrow_mut().score = smelt_field_value; return Ok(()); }
-        if *key == "params" { let smelt_field_value = { let smelt_item = |smelt_value: SmeltUnknown| match smelt_value.clone() { SmeltUnknown::String(smelt_value) => smelt_value, smelt_other => JsString::from(match smelt_other { SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_symbol_to_string(&smelt_value), SmeltUnknown::Number(smelt_value) => smelt_number_to_string(smelt_value), SmeltUnknown::Bool(smelt_value) => smelt_value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) }; match (value).into_smelt_unknown() { SmeltUnknown::Object(smelt_values) => match smelt_values.smelt_typed_view(move |smelt_value: SmeltUnknown| smelt_item(smelt_value), |smelt_typed| SmeltUnknown::String((smelt_typed.clone()).into())) { Some(smelt_view) => smelt_view, None => SmeltRecord::with_id_from_entries(smelt_values.id, smelt_values.into_iter().map(|(smelt_key, smelt_value)| (smelt_key, smelt_item(smelt_value)))) }, SmeltUnknown::Array(smelt_values) => smelt_values.into_iter().enumerate().map(|(smelt_index, smelt_value)| (JsString::from(smelt_index.to_string()), smelt_item(smelt_value))).collect(), SmeltUnknown::String(smelt_value) => smelt_value.units().iter().enumerate().map(|(smelt_index, smelt_unit)| { let smelt_value = SmeltUnknown::String(JsString::from_units(&[*smelt_unit])); (JsString::from(smelt_index.to_string()), smelt_item(smelt_value)) }).collect(), _ => SmeltRecord::new() } }; self.0.borrow_mut().params = smelt_field_value; return Ok(()); }
+        if *key == "handler" { if !matches!(value, SmeltUnknown::String(_)) { return Err(value); } let smelt_field_value = match value.clone() { SmeltUnknown::String(smelt_value) => smelt_value, smelt_other => JsString::from(match smelt_other { SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_symbol_to_string(&smelt_value), SmeltUnknown::Number(smelt_value) => smelt_number_to_string(smelt_value), SmeltUnknown::Bool(smelt_value) => smelt_value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) }; self.0.borrow_mut().handler = smelt_field_value; return Ok(()); }
+        if *key == "score" { if !matches!(value, SmeltUnknown::Number(_)) { return Err(value); } let smelt_field_value = match value.clone() { SmeltUnknown::Number(smelt_value) => smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get("__smelt_date") { Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }, SmeltUnknown::String(smelt_value) => smelt_js_string_to_number(&smelt_value), SmeltUnknown::Bool(smelt_value) => if smelt_value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }; self.0.borrow_mut().score = smelt_field_value; return Ok(()); }
+        if *key == "params" { if !matches!(value, SmeltUnknown::Object(_)) { return Err(value); } let smelt_field_value = { let smelt_item = |smelt_value: SmeltUnknown| match smelt_value.clone() { SmeltUnknown::String(smelt_value) => smelt_value, smelt_other => JsString::from(match smelt_other { SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_symbol_to_string(&smelt_value), SmeltUnknown::Number(smelt_value) => smelt_number_to_string(smelt_value), SmeltUnknown::Bool(smelt_value) => smelt_value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) }; match (value).into_smelt_unknown() { SmeltUnknown::Object(smelt_values) => match smelt_values.smelt_typed_view(move |smelt_value: SmeltUnknown| smelt_item(smelt_value), |smelt_typed| SmeltUnknown::String((smelt_typed.clone()).into())) { Some(smelt_view) => smelt_view, None => SmeltRecord::with_id_from_entries(smelt_values.id, smelt_values.into_iter().map(|(smelt_key, smelt_value)| (smelt_key, smelt_item(smelt_value)))) }, SmeltUnknown::Array(smelt_values) => smelt_values.into_iter().enumerate().map(|(smelt_index, smelt_value)| (JsString::from(smelt_index.to_string()), smelt_item(smelt_value))).collect(), SmeltUnknown::String(smelt_value) => smelt_value.units().iter().enumerate().map(|(smelt_index, smelt_unit)| { let smelt_value = SmeltUnknown::String(JsString::from_units(&[*smelt_unit])); (JsString::from(smelt_index.to_string()), smelt_item(smelt_value)) }).collect(), _ => SmeltRecord::new() } }; self.0.borrow_mut().params = smelt_field_value; return Ok(()); }
         Err(value)
     }
     #[allow(unused_mut, unused_variables)]
