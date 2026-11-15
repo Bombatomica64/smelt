@@ -1899,6 +1899,11 @@ impl FunctionEmitter<'_> {
         if let Some(text) = self.bigint_binary_expr(op, lhs, rhs, dest_ty)? {
             return Ok(text);
         }
+        // An absence test of a lifted type parameter value reads its erased
+        // copy (`emitter::generic_scrutinee`).
+        if let Some(text) = self.lifted_param_absence_expr(op, lhs, rhs)? {
+            return Ok(text);
+        }
         if let Some(text) = self.js_loose_equality_expr(op, lhs, rhs)? {
             return Ok(text);
         }

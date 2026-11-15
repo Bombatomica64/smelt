@@ -1,0 +1,317 @@
+module examples/typescript/end-to-end/202_inspected_type_parameter_stays_generic/input.ts (ModuleId(0))
+  body BodyId(16)
+  items
+    global mut box: Box
+    class Box fields [Public size: Float] constructor Some(ItemId(14)) methods [] implements []
+    fn is_nil<T> owner Module
+    fn is_missing<T> owner Module
+    fn is_null<T> owner Module
+    fn kind<T> owner Module
+    fn truthy<T> owner Module
+    fn or_else<T> owner Module
+    fn describe<T> owner Module
+    fn compact<T> owner Module
+    fn count_strings<T> owner Module
+    fn keep_defined<T> owner Module
+    fn tally<T> owner Module
+    fn append_if_present<T> owner Module
+    fn push_if_truthy<T> owner Module
+  locals
+    %0 const shared: List<Float>
+    %1 const same: List<Float>
+    %2 const boxes: List<Box>
+  exprs
+    #0: None = global_get @0(box)
+    #1: Float = 1.0
+    #2: fn(T) -> Bool = @1(is_nil)
+    #3: Bool = call #2(#1)
+    #4: String = "a"
+    #5: fn(T) -> Bool = @1(is_nil)
+    #6: Bool = call #5(#4)
+    #7: Box = global_get @0(box)
+    #8: fn(T) -> Bool = @1(is_nil)
+    #9: Bool = call #8(#7)
+    #10: Float = 0.0
+    #11: fn(T) -> Bool = @1(is_nil)
+    #12: Bool = call #11(#10)
+    #13: None = @17(console_log)
+    #14: None = call #13(#3, #6, #9, #12)
+    #15: Float = 1.0
+    #16: fn(T) -> Bool = @2(is_missing)
+    #17: Bool = call #16(#15)
+    #18: Bool = false
+    #19: fn(T) -> Bool = @2(is_missing)
+    #20: Bool = call #19(#18)
+    #21: Box = global_get @0(box)
+    #22: fn(T) -> Bool = @2(is_missing)
+    #23: Bool = call #22(#21)
+    #24: None = @18(console_log)
+    #25: None = call #24(#17, #20, #23)
+    #26: Float = 1.0
+    #27: fn(T) -> Bool = @3(is_null)
+    #28: Bool = call #27(#26)
+    #29: String = ""
+    #30: fn(T) -> Bool = @3(is_null)
+    #31: Bool = call #30(#29)
+    #32: Box = global_get @0(box)
+    #33: fn(T) -> Bool = @3(is_null)
+    #34: Bool = call #33(#32)
+    #35: None = @19(console_log)
+    #36: None = call #35(#28, #31, #34)
+    #37: Float = 1.0
+    #38: fn(T) -> String = @4(kind)
+    #39: String = call #38(#37)
+    #40: String = "a"
+    #41: fn(T) -> String = @4(kind)
+    #42: String = call #41(#40)
+    #43: Bool = true
+    #44: fn(T) -> String = @4(kind)
+    #45: String = call #44(#43)
+    #46: Box = global_get @0(box)
+    #47: fn(T) -> String = @4(kind)
+    #48: String = call #47(#46)
+    #49: BigInt = 1n
+    #50: fn(T) -> String = @4(kind)
+    #51: String = call #50(#49)
+    #52: None = @20(console_log)
+    #53: None = call #52(#39, #42, #45, #48, #51)
+    #54: Box = global_get @0(box)
+    #55: fn(T) -> Bool = @5(truthy)
+    #56: Bool = call #55(#54)
+    #57: Float = 0.0
+    #58: fn(T) -> Bool = @5(truthy)
+    #59: Bool = call #58(#57)
+    #60: String = ""
+    #61: fn(T) -> Bool = @5(truthy)
+    #62: Bool = call #61(#60)
+    #63: String = "0"
+    #64: fn(T) -> Bool = @5(truthy)
+    #65: Bool = call #64(#63)
+    #66: Float = NaN
+    #67: fn(T) -> Bool = @5(truthy)
+    #68: Bool = call #67(#66)
+    #69: Float = 2.0
+    #70: fn(T) -> Bool = @5(truthy)
+    #71: Bool = call #70(#69)
+    #72: None = @21(console_log)
+    #73: None = call #72(#56, #59, #62, #65, #68, #71)
+    #74: Float = 0.0
+    #75: Float = 5.0
+    #76: fn(T, T) -> T = @6(or_else)
+    #77: Float = call #76(#74, #75)
+    #78: Float = 2.0
+    #79: Float = 5.0
+    #80: fn(T, T) -> T = @6(or_else)
+    #81: Float = call #80(#78, #79)
+    #82: String = ""
+    #83: String = "x"
+    #84: fn(T, T) -> T = @6(or_else)
+    #85: String = call #84(#82, #83)
+    #86: String = "y"
+    #87: String = "x"
+    #88: fn(T, T) -> T = @6(or_else)
+    #89: String = call #88(#86, #87)
+    #90: Box = global_get @0(box)
+    #91: Float = 9.0
+    #92: Box = new Box(#91)
+    #93: fn(T, T) -> T = @6(or_else)
+    #94: Box = call #93(#90, #92)
+    #95: Float = #94.size
+    #96: None = @22(console_log)
+    #97: None = call #96(#77, #81, #85, #89, #95)
+    #98: fn(Optional<T>) -> String = @7(describe)
+    #99: String = call #98()
+    #100: Float = 0.0
+    #101: fn(Optional<T>) -> String = @7(describe)
+    #102: String = call #101(#100)
+    #103: Float = 1.0
+    #104: fn(Optional<T>) -> String = @7(describe)
+    #105: String = call #104(#103)
+    #106: String = "x"
+    #107: fn(Optional<T>) -> String = @7(describe)
+    #108: String = call #107(#106)
+    #109: Box = global_get @0(box)
+    #110: fn(Optional<T>) -> String = @7(describe)
+    #111: String = call #110(#109)
+    #112: None = @23(console_log)
+    #113: None = call #112(#99, #102, #105, #108, #111)
+    #114: Float = 0.0
+    #115: Float = 1.0
+    #116: Float = 2.0
+    #117: Float = 0.0
+    #118: Float = 3.0
+    #119: List<Float> = [#114, #115, #116, #117, #118]
+    #120: fn(List<T>) -> List<T> = @8(compact)
+    #121: List<Float> = call #120(#119)
+    #122: String = ","
+    #123: String = string_join #121, #122
+    #124: String = ""
+    #125: String = "a"
+    #126: String = "b"
+    #127: List<String> = [#124, #125, #126]
+    #128: fn(List<T>) -> List<T> = @8(compact)
+    #129: List<String> = call #128(#127)
+    #130: String = ","
+    #131: String = string_join #129, #130
+    #132: None = @24(console_log)
+    #133: None = call #132(#123, #131)
+    #134: String = "a"
+    #135: String = "b"
+    #136: List<String> = [#134, #135]
+    #137: fn(List<T>) -> Float = @9(count_strings)
+    #138: Float = call #137(#136)
+    #139: Float = 1.0
+    #140: Float = 2.0
+    #141: List<Float> = [#139, #140]
+    #142: fn(List<T>) -> Float = @9(count_strings)
+    #143: Float = call #142(#141)
+    #144: None = @25(console_log)
+    #145: None = call #144(#138, #143)
+    #146: Float = 1.0
+    #147: Float = 2.0
+    #148: Float = 3.0
+    #149: List<Float> = [#146, #147, #148]
+    #150: fn(List<T>) -> List<T> = @10(keep_defined)
+    #151: List<Float> = call #150(#149)
+    #152: Float = len #151
+    #153: Float = 1.0
+    #154: Float = 2.0
+    #155: List<Float> = [#153, #154]
+    #156: fn(List<T>) -> String = @11(tally)
+    #157: String = call #156(#155)
+    #158: String = "a"
+    #159: List<String> = [#158]
+    #160: fn(List<T>) -> String = @11(tally)
+    #161: String = call #160(#159)
+    #162: Box = global_get @0(box)
+    #163: List<Box> = [#162]
+    #164: fn(List<T>) -> String = @11(tally)
+    #165: String = call #164(#163)
+    #166: None = @26(console_log)
+    #167: None = call #166(#152, #157, #161, #165)
+    #168: Float = 1.0
+    #169: Float = 2.0
+    #170: List<Float> = [#168, #169]
+    #171: List<Float> = %0
+    #172: Float = 3.0
+    #173: fn(List<T>, T) -> List<T> = @12(append_if_present)
+    #174: List<Float> = call #173(#171, #172)
+    #175: List<Float> = %1
+    #176: Float = 4.0
+    #177: Float = list_push #175, #176
+    #178: List<Float> = %0
+    #179: String = ","
+    #180: String = string_join #178, #179
+    #181: List<Float> = %1
+    #182: List<Float> = %0
+    #183: Bool = JsStrictEq #181, #182
+    #184: None = @27(console_log)
+    #185: None = call #184(#180, #183)
+    #186: List<Float> = %0
+    #187: Float = 5.0
+    #188: fn(List<T>, T) -> Float = @13(push_if_truthy)
+    #189: Float = call #188(#186, #187)
+    #190: List<Float> = %0
+    #191: Float = 0.0
+    #192: fn(List<T>, T) -> Float = @13(push_if_truthy)
+    #193: Float = call #192(#190, #191)
+    #194: List<Float> = %0
+    #195: String = ","
+    #196: String = string_join #194, #195
+    #197: None = @28(console_log)
+    #198: None = call #197(#189, #193, #196)
+    #199: Box = global_get @0(box)
+    #200: List<Box> = [#199]
+    #201: List<Box> = %2
+    #202: Float = 5.0
+    #203: Box = new Box(#202)
+    #204: fn(List<T>, T) -> Float = @13(push_if_truthy)
+    #205: Float = call #204(#201, #203)
+    #206: List<Box> = %2
+    #207: Float = 1.0
+    #208: Box = #206[#207]
+    #209: Float = #208.size
+    #210: List<Box> = %2
+    #211: Float = len #210
+    #212: None = @29(console_log)
+    #213: None = call #212(#205, #209, #211)
+  stmts
+    s0: #0
+    s1: #14
+    s2: #25
+    s3: #36
+    s4: #53
+    s5: #73
+    s6: #97
+    s7: #113
+    s8: #133
+    s9: #145
+    s10: #167
+    s11: let %0: List<Float> = #170
+    s12: let %1: List<Float> = #174
+    s13: #177
+    s14: #185
+    s15: #198
+    s16: let %2: List<Box> = #200
+    s17: #213
+
+interned types
+  t0 = Float
+  t1 = Box
+  t2 = List<Float>
+  t3 = Unknown
+  t4 = List<Box>
+  t5 = T
+  t6 = Bool
+  t7 = fn(T) -> Bool
+  t8 = T
+  t9 = fn(T) -> Bool
+  t10 = T
+  t11 = fn(T) -> Bool
+  t12 = T
+  t13 = String
+  t14 = fn(T) -> String
+  t15 = T
+  t16 = fn(T) -> Bool
+  t17 = T
+  t18 = fn(T, T) -> T
+  t19 = T
+  t20 = Optional<T>
+  t21 = fn(Optional<T>) -> String
+  t22 = T
+  t23 = List<T>
+  t24 = fn(List<T>) -> List<T>
+  t25 = T
+  t26 = List<T>
+  t27 = fn(List<T>) -> Float
+  t28 = T
+  t29 = List<T>
+  t30 = fn(List<T>) -> List<T>
+  t31 = T
+  t32 = List<T>
+  t33 = fn(List<T>) -> String
+  t34 = T
+  t35 = List<T>
+  t36 = fn(List<T>, T) -> List<T>
+  t37 = T
+  t38 = List<T>
+  t39 = fn(List<T>, T) -> Float
+  t40 = fn(List<T>, T) -> List<T>
+  t41 = None
+  t42 = Int
+  t43 = fn(T, Int, List<T>) -> Bool
+  t44 = List<Unknown>
+  t45 = List<String>
+  t46 = fn(T) -> Bool
+  t47 = fn(T) -> Bool
+  t48 = fn(T) -> Bool
+  t49 = fn(T) -> String
+  t50 = BigInt
+  t51 = fn(T) -> Bool
+  t52 = fn(T, T) -> T
+  t53 = fn(Optional<T>) -> String
+  t54 = fn(List<T>) -> List<T>
+  t55 = fn(List<T>) -> Float
+  t56 = fn(List<T>) -> List<T>
+  t57 = fn(List<T>) -> String
+  t58 = fn(List<T>, T) -> Float

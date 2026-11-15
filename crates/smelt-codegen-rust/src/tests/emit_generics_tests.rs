@@ -615,9 +615,13 @@ const v = pickFirst(nums, (n) => (n > 1 ? 'big' : 'small'), 0);
     );
 }
 
-/// A type parameter inspected inside a closure body does not lift even when the enclosing
-/// function body only moves it, because the emitted inspection runs against the erased
-/// carrier.
+/// A type parameter COMPARED inside a closure body does not lift even when the enclosing
+/// function body only moves it, because the comparison runs against the erased carrier.
+///
+/// The closure used to ask `typeof item === 'string'`. That question is now a scalar
+/// inspection answered on an erased copy (`crate::generic_inspection`, covered by
+/// `scalar_inspection_of_a_type_param_keeps_it_generic`), so the closure here compares two
+/// `T` values instead, which no erased copy of one value answers.
 #[test]
 fn type_param_inspected_inside_a_closure_does_not_lift() {
     // The generic parameter list must be absent and the inspected `T` must not reach the
@@ -626,7 +630,7 @@ fn type_param_inspected_inside_a_closure_does_not_lift() {
         r"
 function scan<T, K extends PropertyKey>(arr: T[], key: (item: T) => K): T[] {
   const out: T[] = [];
-  arr.forEach((item) => { if (typeof item === 'string') { out.push(item); } });
+  arr.forEach((item) => { if (item === arr[0]) { out.push(item); } });
   return out;
 }
 const r = scan(['a', 'b'], (s) => 'k');
@@ -636,6 +640,57 @@ const r = scan(['a', 'b'], (s) => 'k');
     assert_eq!(
         rust_items(&source, &["sig scan"]),
         r"fn scan(arr: SmeltList<SmeltUnknown>, key: &dyn Fn(&SmeltUnknown) -> SmeltUnknown) -> SmeltList<SmeltUnknown>"
+    );
+}
+
+/// A scalar inspection of a bare `T` value keeps `T` generic (`crate::generic_inspection`):
+/// absence, `typeof` (directly and as a guard inside a closure) and truthiness. A member read
+/// and a comparison of two `T` values are not scalar inspections and keep the function erased.
+///
+/// Planted defect: with `is_scalar_inspection` answering `false`, `is_nil`, `kind`, `truthy`
+/// and `strings` lose their generics and this test fails.
+#[test]
+fn scalar_inspection_of_a_type_param_keeps_it_generic() {
+    let source = source_for(
+        r"
+export function isNil<T>(value: T): boolean { return value == null; }
+export function kind<T>(value: T): string { return typeof value; }
+export function truthy<T>(value: T, fallback: T): T { return value ? value : fallback; }
+export function strings<T>(items: T[]): T[] {
+  const out: T[] = [];
+  items.forEach((item) => { if (typeof item === 'string') { out.push(item); } });
+  return out;
+}
+export function same<T>(left: T, right: T): boolean { return left === right; }
+console.log(isNil(1), kind(2), truthy(0, 3), strings(['a']).length, same(1, 2));
+",
+    );
+
+    assert_eq!(
+        rust_items(
+            &source,
+            &[
+                "sig is_nil",
+                "sig kind",
+                "sig truthy",
+                "sig strings",
+                "sig same"
+            ]
+        ),
+        r"fn is_nil<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(value: T) -> bool
+
+fn kind<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(value: T) -> JsString
+
+fn truthy<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(value: T, fallback: T) -> T
+
+fn strings<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(items: SmeltList<T>) -> SmeltList<T>
+
+fn same(left: SmeltUnknown, right: SmeltUnknown) -> bool"
+    );
+    // The absent side of the test is never recovered as a `T`.
+    assert!(
+        source.contains("matches!((value.clone()).into_smelt_unknown(), SmeltUnknown::Null | SmeltUnknown::Undefined)"),
+        "{source}"
     );
 }
 

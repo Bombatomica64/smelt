@@ -13,6 +13,11 @@
 //! such a function still compiles and behaves as the source does (the member
 //! lookup runs on the erased carrier), and a read off a container OF `T` keeps
 //! its `T` generic.
+//!
+//! A scalar inspection of one bare `T` value (`x == null`, `typeof x`, `!x`,
+//! `if (x)`) is not an inspection in this sense: it is answered on an erased
+//! copy and leaves `T` opaque. The rule and its requirements are in
+//! [`crate::generic_inspection`].
 #![expect(
     clippy::redundant_pub_crate,
     reason = "crate-visible items are shared with the crate root and the emitter shards"
@@ -129,10 +134,11 @@ fn type_param_only_moved(mir: &Mir, function: &MirFunction, name: Symbol) -> boo
 ///
 /// Split out of [`type_param_only_moved`] because a closure is a *separate* MIR
 /// body with its own locals and blocks, so walking `function.blocks` alone never
-/// sees inside one. es-toolkit's `flatten` is exactly that shape: `T` lifted,
-/// and the `Array.isArray(item)` that inspects it lives in the inner recursive
-/// closure, emitting `matches!(item, SmeltUnknown::Array(_))` against a `T` and
-/// failing with "expected type parameter `T`, found `SmeltUnknown`".
+/// sees inside one. es-toolkit's `flatten` is exactly that shape: the
+/// `Array.isArray(item)` that asks about a `T` lives in the inner recursive
+/// closure. (That particular question is now a scalar inspection answered on
+/// an erased copy, see [`crate::generic_inspection`]; a closure that compares
+/// or reads into a `T` still keeps the function erased.)
 ///
 /// `seen` guards against a closure cycle; the ids are `ClosureId`'s inner value.
 fn body_only_moves(
@@ -301,6 +307,7 @@ fn body_only_moves(
             }
         }
     }
+    let absent_only = crate::generic_inspection::absent_only_locals(locals, blocks);
     for block in blocks {
         for statement in &block.statements {
             let value = match statement {
@@ -345,6 +352,23 @@ fn body_only_moves(
                 && !operand_is_optional(optional)
             {
                 return false;
+            }
+            // A `T` handed to a callback that reads it as a container of
+            // `T` is reinterpreted, not moved.
+            if crate::generic_inspection::reinterprets_type_param(mir, locals, value, name) {
+                return false;
+            }
+            // A question answered from an erased copy of one bare `T` value
+            // (`x == null`, `typeof x`, `!x`): the copy is only read, so `T`
+            // itself stays opaque (`crate::generic_inspection`).
+            if crate::generic_inspection::is_scalar_inspection(
+                mir,
+                locals,
+                value,
+                name,
+                &absent_only,
+            ) {
+                continue;
             }
             if rvalue_preserves_opacity(value)
                 || is_absence_test(value, &absent_locals, &payload_never_nullish)
@@ -425,6 +449,9 @@ fn body_only_moves(
         ) = &block.terminator
             && mentions(probe)
             && !truthiness_is_presence(probe)
+            // `if (x)` on a bare `T` branches on the truthiness of its erased
+            // copy (`crate::generic_inspection`).
+            && !crate::generic_inspection::operand_is_bare_type_param(mir, locals, probe, name)
         {
             return false;
         }

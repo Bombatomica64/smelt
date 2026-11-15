@@ -145,6 +145,7 @@ mod abort_signal;
 mod crypto;
 mod form_data;
 mod generator;
+mod generic_scrutinee;
 mod generic_trial;
 mod host_interop;
 mod host_member_read;

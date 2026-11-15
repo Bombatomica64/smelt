@@ -306,3 +306,71 @@ console.log(second(["a", "b"], "s"));
         "member_read_off_a_type_parameter_is_an_inspection",
     )
 }
+
+/// Rule (`smelt_codegen_rust::generic_inspection::reinterprets_type_param`):
+/// a body that hands a `T` value, narrowed by `Array.isArray`, to a callback
+/// reading it as `T[]` reinterprets its `T` and stays erased, although the
+/// guard alone is a scalar inspection that would keep `T` generic.
+///
+/// Behaviour: the program prints Node's output for a `T` instantiated with
+/// `number[]` (the nested lists are walked, not rebuilt as empty lists).
+/// Type preservation: `depthFirst` is erased, and `countArrays`, which only
+/// asks the guard, keeps its `T`.
+///
+/// Planted defect: with `reinterprets_type_param` answering `false`,
+/// `depthFirst` lifts and prints `0` for the nested input.
+#[test]
+fn narrowed_type_parameter_read_as_a_container_stays_erased() -> TestResult {
+    let source = r#"// `item` is a `T`; after the guard TypeScript lets it be passed as a `T[]`.
+function depthFirst<T>(items: readonly T[]): number {
+  let leaves = 0;
+  const visit = (arr: readonly T[]) => {
+    for (const item of arr) {
+      if (Array.isArray(item)) {
+        visit(item);
+      } else {
+        leaves += 1;
+      }
+    }
+  };
+  visit(items);
+  return leaves;
+}
+
+// Only the guard: `T` stays a Rust generic.
+function countArrays<T>(items: readonly T[]): number {
+  let arrays = 0;
+  for (const item of items) {
+    if (Array.isArray(item)) {
+      arrays += 1;
+    }
+  }
+  return arrays;
+}
+
+const nested: number[][] = [[1, 2], [3], []];
+console.log(depthFirst(nested), depthFirst([1, 2, 3]));
+console.log(countArrays(nested), countArrays([1, 2, 3]));
+"#;
+    let expected = "3 3\n3 0\n";
+    let (generated, stdout) = build_and_run(
+        "narrowed_type_parameter_read_as_a_container_stays_erased",
+        source,
+    )?;
+    for signature in [
+        r"pub(crate) fn depth_first(items: SmeltList<SmeltUnknown>) -> f64 {",
+        r"pub(crate) fn count_arrays<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(items: SmeltList<T>) -> f64 {",
+    ] {
+        ensure(
+            generated.contains(signature),
+            format!("missing `{signature}` in:\n{generated}"),
+        )?;
+    }
+    ensure_eq(&stdout, &expected.to_owned(), "unexpected stdout")?;
+    ensure_node_agrees(
+        &[("main.ts", source)],
+        "main.ts",
+        expected,
+        "narrowed_type_parameter_read_as_a_container_stays_erased",
+    )
+}
