@@ -49,6 +49,7 @@ impl ModuleBuilder<'_> {
         let any_written = super::any_written_locals::any_written_bindings(program);
         self.any_written_bindings = any_written.bindings;
         self.any_written_returns = any_written.returning_functions;
+        self.unchecked_params = super::unchecked_params::unchecked_params(program);
         // Top-level code is the program's ENTRY POINT, so it may await: the
         // module body becomes the emitted `main`, which is a
         // `#[tokio::main] async fn` whenever it needs to be. Awaiting here was

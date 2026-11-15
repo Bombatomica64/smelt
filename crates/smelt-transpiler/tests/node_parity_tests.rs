@@ -1766,3 +1766,16 @@ fn async_parameter_writes() -> TestResult {
 fn promise_all_settled() -> TestResult {
     verify_node_parity("promise_all_settled")
 }
+
+/// A type written `T | null` erases its absent value as `null` at dynamic
+/// boundaries; `T | undefined` and optional fields stay `undefined`.
+#[test]
+fn null_absent_optionals() -> TestResult {
+    verify_node_parity("null_absent_optionals")
+}
+
+/// Parameters of functions in an object literal cast `as any` accept any value.
+#[test]
+fn as_any_object_params() -> TestResult {
+    verify_node_parity("as_any_object_params")
+}
