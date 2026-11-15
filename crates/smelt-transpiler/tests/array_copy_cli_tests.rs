@@ -547,3 +547,89 @@ fn mut_list_argument_binds_the_other_arguments() -> TestResult {
         "`ys` reaches the instantiated `SmeltList<f64>` without being erased",
     )
 }
+
+/// Shapes from the library gates (date-fns, ts-pattern, radash, remeda):
+/// - `new Holder<V>(this.validate, value)` hands a bounded generic method,
+///   inherited by `NumberParser` (no slot holds it), to a generic class's
+///   callback slot: the method value is bound to the receiver's copy at the
+///   receiver's type arguments (`validate` takes `f64` there);
+/// - `every<T>` reads `record[key]` at its lifted `T`, whose miss is the
+///   generic's default, not the erased `undefined`;
+/// - `draw<T>` returns `null` at `T | null`, which only the erased carrier
+///   keeps apart from `undefined`, so it stays erased;
+/// - `orFallback<T>` asks `data ?? fallback` of a bare `T`, which inspects
+///   it, so it stays erased;
+/// - `first in RULES` probes a module record with an `unknown` key, which
+///   goes through `ToPropertyKey`.
+const LIBRARY_SHAPES_TS: &str = r#"class Holder<V> {
+  check: <K extends string>(key: K, value: V) => boolean;
+  value: V;
+  constructor(check: <K extends string>(key: K, value: V) => boolean, value: V) {
+    this.check = check;
+    this.value = value;
+  }
+  ok(): boolean {
+    return this.check("k", this.value);
+  }
+}
+abstract class Parser<V> {
+  run(value: V): boolean {
+    return new Holder<V>(this.validate, value).ok();
+  }
+  protected validate<K extends string>(key: K, value: V): boolean {
+    return key.length > 0 && value !== undefined;
+  }
+}
+class NumberParser extends Parser<number> {}
+class TextParser extends Parser<string> {
+  protected validate<K extends string>(key: K, value: string): boolean {
+    return key.length > 0 && value.length > 0;
+  }
+}
+function every<T>(record: Record<string, T>, predicate: (key: string, value: T) => boolean): boolean {
+  for (const key of Object.keys(record)) {
+    if (!predicate(key, record[key])) return false;
+  }
+  return true;
+}
+function draw<T>(array: readonly T[]): T | null {
+  if (array.length === 0) return null;
+  return array[0];
+}
+function orFallback<T>(data: T, fallback: T): T {
+  return data ?? fallback;
+}
+const RULES = { asc: 1, desc: -1 } as const;
+function isRule(x: unknown): boolean {
+  const [first, ...rest] = [x];
+  return typeof first === "string" && first in RULES && rest.length === 0;
+}
+const rules: unknown = RULES;
+console.log(new NumberParser().run(3), new TextParser().run(""), new TextParser().run("a"));
+console.log(every({ a: 1, b: 2 }, (k, v) => v > 0), every({ a: 1 }, (k, v) => v > 1));
+console.log(draw([]) === null, draw([true]), draw<boolean>([]) === null);
+console.log(orFallback<number | null>(null, 5), orFallback(0, 5));
+console.log(isRule("desc"), isRule("up"), rules !== undefined);
+"#;
+
+/// What Node prints for [`LIBRARY_SHAPES_TS`].
+const LIBRARY_SHAPES_OUTPUT: &str =
+    "true false true\ntrue false\ntrue true true\n5 0\ntrue false true\n";
+
+/// The library-gate shapes agree with Node and keep the types above.
+#[test]
+fn library_gate_shapes_agree_with_node() -> TestResult {
+    let all = agrees_with_node(LIBRARY_SHAPES_TS, LIBRARY_SHAPES_OUTPUT, "library shapes")?;
+    ensure(
+        all.contains("fn every<T: ") && all.contains("record: SmeltRecord<JsString, T>"),
+        "`every` keeps its `T` through the record read",
+    )?;
+    ensure(
+        all.contains("fn draw(array: SmeltList<SmeltUnknown>) -> Option<SmeltUnknown>"),
+        "`draw` returns `null` at `T | null`, so it stays erased",
+    )?;
+    ensure(
+        all.contains("fn or_fallback(data: SmeltUnknown, fallback: SmeltUnknown)"),
+        "`orFallback` inspects a bare `T` with `??`, so it stays erased",
+    )
+}

@@ -181,6 +181,17 @@ fn body_only_moves(
             .and_then(|index| locals.get(index))
             .is_some_and(|decl| type_mentions_erasure(mir, decl.ty, name))
     };
+    // Whether an operand is typed as an optional (`Option<..>`).
+    let operand_is_optional = |operand: &Operand| -> bool {
+        let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = operand
+        else {
+            return false;
+        };
+        id_index(local.0, "local index does not fit usize")
+            .ok()
+            .and_then(|index| locals.get(index))
+            .is_some_and(|decl| matches!(mir.types.get(decl.ty), Some(Type::Optional(_))))
+    };
     // Whether a compared operand's presence is all `== null` reads: an
     // optional whose payload is not itself a bare type parameter (a bare `T`
     // may hold `null`, which the comparison then inspects).
@@ -285,6 +296,16 @@ fn body_only_moves(
                 && seen.insert(id.0)
                 && let Some(closure) = mir.closures.iter().find(|candidate| candidate.id == *id)
                 && !body_only_moves(mir, &closure.locals, &closure.blocks, name, seen)
+            {
+                return false;
+            }
+            // `x ?? fallback` on a value that is not an optional asks whether
+            // the value ITSELF is nullish, which reads into a `T` it holds
+            // (remeda's `defaultTo` matched a lifted `T` against `null`). An
+            // optional's coalesce reads only its presence and stays a move.
+            if let Rvalue::OptionalCoalesce { optional, .. } = value
+                && mentions(optional)
+                && !operand_is_optional(optional)
             {
                 return false;
             }

@@ -163,6 +163,8 @@ impl<'mir> FunctionEmitter<'mir> {
     /// - a whole erased value returned at, or stored into a handed-on local
     ///   of, a type that structures an own `T` (`new Impl(x) as any` returned
     ///   as `Matcher<T>`): the rebuilt structure is a snapshot, not the object;
+    /// - `null` stored or returned at `T | null` (`Option<T>` has one absent
+    ///   value, so `null` would read back as `undefined`);
     /// - an optional `T` read as a bare `T` (`defaultValue as T` of an absent
     ///   optional): an erased `T` carries the absence as `undefined`, a real
     ///   `T` cannot hold it at all.
@@ -183,6 +185,16 @@ impl<'mir> FunctionEmitter<'mir> {
         let holds_carrier =
             |ty: TypeId| crate::generic_lifting::type_mentions_unknown(self.mir, ty);
         let return_ty = self.body_return_ty();
+        // `null` stored at `T | null` of an own `T`: the erased
+        // `Option<SmeltUnknown>` keeps it apart from `undefined`
+        // (`Some(SmeltUnknown::Null)`), an `Option<T>` cannot.
+        let null_into_own_optional = |ty: TypeId| {
+            matches!(
+                self.mir.types.get(ty),
+                Some(Type::Optional(inner))
+                    if matches!(self.mir.types.get(*inner), Some(Type::TypeParam { name }) if own.contains(name))
+            )
+        };
         let mut pending: Vec<(&[LocalDecl], &[BasicBlock], bool)> =
             vec![(&self.function.locals, &self.function.blocks, true)];
         let mut seen: HashSet<smelt_mir::ClosureId> = HashSet::new();
@@ -472,6 +484,11 @@ impl<'mir> FunctionEmitter<'mir> {
                     let Some(dest_ty) = local_ty(*dest) else {
                         continue;
                     };
+                    if matches!(value, Rvalue::Use(Operand::Const(Constant::None)))
+                        && null_into_own_optional(dest_ty)
+                    {
+                        return Ok(false);
+                    }
                     if let Rvalue::Use(operand) = value
                         && let Some(source) = operand_ty(operand)
                         && let Some(Type::Optional(inner)) = self.mir.types.get(source)
@@ -498,6 +515,11 @@ impl<'mir> FunctionEmitter<'mir> {
                     }
                 }
                 match &block.terminator {
+                    Some(Terminator::Return(Operand::Const(Constant::None)))
+                        if top_level && null_into_own_optional(return_ty) =>
+                    {
+                        return Ok(false);
+                    }
                     Some(Terminator::Return(operand))
                         if top_level
                             && holds_carrier(return_ty)

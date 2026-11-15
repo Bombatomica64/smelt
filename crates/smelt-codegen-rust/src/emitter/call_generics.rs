@@ -568,8 +568,34 @@ impl FunctionEmitter<'_> {
                     && let Some(Type::Function(declared_function)) = self.mir.types.get(target_ty)
                 {
                     let owned_function = declared_function.clone();
+                    // Rendered as the erased value it is. A method read
+                    // (`this.validate`) that no virtual slot stores is its
+                    // bound method value, never a field of the struct.
+                    let erased_value = match arg {
+                        Operand::Copy(Place::Field { base, field, .. })
+                        | Operand::Move(Place::Field { base, field, .. }) => {
+                            let base_place = Place::Local(*base);
+                            let base_ty = self.place_ty(&base_place)?;
+                            match self.mir.types.get(base_ty) {
+                                Some(Type::Class { name, .. })
+                                    if self.find_class_method_function(*name, *field).is_some()
+                                        && !self.class_has_named_field(base_ty, *field) =>
+                                {
+                                    let receiver = self.place_expr(&base_place)?;
+                                    match self
+                                        .class_method_reference_expr(&receiver, *name, *field)?
+                                    {
+                                        Some(method) => method,
+                                        None => self.value_at_type(arg, arg_ty)?,
+                                    }
+                                }
+                                _ => self.value_at_type(arg, arg_ty)?,
+                            }
+                        }
+                        _ => self.value_at_type(arg, arg_ty)?,
+                    };
                     return self.extract_function_with_bindings(
-                        &self.operand_expr(arg)?,
+                        &erased_value,
                         target_ty,
                         &owned_function,
                         &bindings,
