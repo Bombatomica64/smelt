@@ -4826,8 +4826,8 @@ impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Base<T>
     return _smelt_tmp_7;
     }
     fn check(&self, box_: Box1<T>) -> bool {
-    let _smelt_tmp_2: T = <T as SmeltFromUnknown>::smelt_from_unknown((()).into_smelt_unknown());
-    let _smelt_tmp_3: bool = !((box_.value.clone()).into_smelt_unknown().js_strict_eq(&(_smelt_tmp_2).into_smelt_unknown()));
+    let _smelt_tmp_2: T = Default::default();
+    let _smelt_tmp_3: bool = !matches!((box_.value.clone()).into_smelt_unknown(), SmeltUnknown::Undefined);
     return _smelt_tmp_3;
     }
     fn map(&self, fn_: &dyn Fn(&T) -> JsString) -> SmeltList<JsString> {

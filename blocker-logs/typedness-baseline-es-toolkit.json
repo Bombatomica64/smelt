@@ -3,13 +3,13 @@
   "total": {
     "values": {
       "concrete": 14238,
-      "generic": 351,
-      "erased": 7060
+      "generic": 355,
+      "erased": 7056
     },
     "reads": {
       "concrete": 367,
-      "generic": 50,
-      "erased": 979
+      "generic": 51,
+      "erased": 978
     },
     "calls": {
       "concrete": 2191,
@@ -310,13 +310,13 @@
     "src/array/compact.ts": {
       "values": {
         "concrete": 5,
-        "generic": 0,
-        "erased": 3
+        "generic": 3,
+        "erased": 0
       },
       "reads": {
         "concrete": 0,
-        "generic": 0,
-        "erased": 1
+        "generic": 1,
+        "erased": 0
       },
       "calls": {
         "concrete": 0,
@@ -11139,8 +11139,8 @@
     "src/predicate/isNotNil.ts": {
       "values": {
         "concrete": 1,
-        "generic": 0,
-        "erased": 1
+        "generic": 1,
+        "erased": 0
       },
       "reads": {
         "concrete": 0,

@@ -47,6 +47,10 @@
 //! body keeps `T` erased. Uses at a `T`-free type (the `string` a
 //! `typeof x === "string"` guard proves) were never moves and stay rejected
 //! by [`crate::generic_lifting`]'s destination rules.
+#![expect(
+    clippy::redundant_pub_crate,
+    reason = "crate-visible items are shared with the lifting analysis and the emitter"
+)]
 
 use std::collections::HashMap;
 

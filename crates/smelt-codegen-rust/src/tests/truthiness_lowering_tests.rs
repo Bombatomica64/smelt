@@ -9,6 +9,13 @@ use super::{rust_fn, source_for};
 
 /// `item: T` can hold `0`, `""`, `false`, `NaN` or a nullish value, so its
 /// guard is a runtime truthiness test.
+///
+/// Corrected expectation. Old requirement: `compact` was erased whole and the
+/// test ran on `item` as the carrier. New requirement: `compact<T>` stays
+/// generic and the same test runs on an erased copy of `item`
+/// (`crate::generic_inspection`); the arms of the test are unchanged. Evidence:
+/// example `202_inspected_type_parameter_stays_generic` prints Node's output
+/// for `compact([0, 1, 2, 0, 3])` and `compact(["", "a", "b"])`.
 #[test]
 fn a_generic_condition_is_tested_rather_than_folded_to_true() {
     let source = source_for(
@@ -26,20 +33,20 @@ export function compact<T>(items: T[]): T[] {
     );
     assert_eq!(
         rust_fn(&source, "compact"),
-        r"fn compact(items: SmeltList<SmeltUnknown>) -> SmeltList<SmeltUnknown> {
-let mut item: SmeltUnknown;
+        r"fn compact<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(items: SmeltList<T>) -> SmeltList<T> {
+let mut item: T;
 let mut _smelt_tmp_5: usize;
 let mut _smelt_tmp_6: bool;
 let mut _smelt_tmp_7: bool;
 let mut _smelt_tmp_8: f64;
-let mut out: SmeltList<SmeltUnknown> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltUnknown> = vec![]; smelt_list_items }));
+let mut out: SmeltList<T> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<T> = vec![]; smelt_list_items }));
 let mut _smelt_tmp_4: usize = 0;
 loop {
 _smelt_tmp_5 = items.len();
 _smelt_tmp_6 = _smelt_tmp_4 < _smelt_tmp_5;
 if !(_smelt_tmp_6) { break; }
-item = items.borrow().get(_smelt_tmp_4).cloned().unwrap_or_else(|| SmeltUnknown::Undefined);
-_smelt_tmp_7 = match item.clone() { SmeltUnknown::Null | SmeltUnknown::Undefined => false, SmeltUnknown::Bool(smelt_value) => smelt_value, SmeltUnknown::Number(smelt_value) => smelt_value != 0.0 && !smelt_value.is_nan(), SmeltUnknown::String(smelt_value) => !smelt_value.is_empty(), SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => true };
+item = items.borrow().get(_smelt_tmp_4).cloned().unwrap_or_else(|| Default::default());
+_smelt_tmp_7 = match ((item.clone()).into_smelt_unknown()) { SmeltUnknown::Null | SmeltUnknown::Undefined => false, SmeltUnknown::Bool(smelt_value) => smelt_value, SmeltUnknown::Number(smelt_value) => smelt_value != 0.0 && !smelt_value.is_nan(), SmeltUnknown::String(smelt_value) => !smelt_value.is_empty(), SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => true };
 if _smelt_tmp_7 {
 _smelt_tmp_8 = { let smelt_push_item = item; out.borrow_mut().push(smelt_push_item); out.len() as f64 };
 _smelt_tmp_4 = _smelt_tmp_4 + 1;

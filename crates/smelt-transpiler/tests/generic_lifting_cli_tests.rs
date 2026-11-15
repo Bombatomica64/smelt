@@ -321,7 +321,7 @@ console.log(second(["a", "b"], "s"));
 /// `depthFirst` lifts and prints `0` for the nested input.
 #[test]
 fn narrowed_type_parameter_read_as_a_container_stays_erased() -> TestResult {
-    let source = r#"// `item` is a `T`; after the guard TypeScript lets it be passed as a `T[]`.
+    let source = r"// `item` is a `T`; after the guard TypeScript lets it be passed as a `T[]`.
 function depthFirst<T>(items: readonly T[]): number {
   let leaves = 0;
   const visit = (arr: readonly T[]) => {
@@ -351,7 +351,7 @@ function countArrays<T>(items: readonly T[]): number {
 const nested: number[][] = [[1, 2], [3], []];
 console.log(depthFirst(nested), depthFirst([1, 2, 3]));
 console.log(countArrays(nested), countArrays([1, 2, 3]));
-"#;
+";
     let expected = "3 3\n3 0\n";
     let (generated, stdout) = build_and_run(
         "narrowed_type_parameter_read_as_a_container_stays_erased",
