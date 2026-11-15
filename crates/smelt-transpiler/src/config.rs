@@ -144,7 +144,31 @@ impl Config {
                 "runtime.clone-strategy={strategy:?} is not supported in v1.0"
             ));
         }
-        None
+        let (source, name) = self
+            .output
+            .crate_name
+            .as_deref()
+            .map_or(("project.name", self.project.name.as_str()), |name| {
+                ("output.crate-name", name)
+            });
+        crate_name_violation(name).map(|reason| {
+            let hint = if source == "project.name" {
+                "; the generated crate is named after the project, so set `[output] crate-name` to a valid name"
+            } else {
+                ""
+            };
+            format!("{source}={name:?} is not a valid Cargo package name: {reason}{hint}")
+        })
+    }
+
+    /// The generated crate's package name: `[output] crate-name`, else the
+    /// project name, with `-` spelled `_`. [`Config::violation`] has refused a
+    /// manifest whose name Cargo would reject.
+    #[must_use]
+    pub fn generated_crate_name(&self) -> String {
+        self.output_crate_name()
+            .unwrap_or_else(|| self.project_name())
+            .replace('-', "_")
     }
 
     /// Get the list of source file entries.
@@ -393,6 +417,108 @@ impl JsonSchema for PackageSource {
     fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
         PackageSourceToml::json_schema(generator)
     }
+}
+
+/// Why `name` cannot name the generated Cargo package, or `None` when it can.
+///
+/// The rules are crates.io's, a subset of Cargo's own that every registry and
+/// every Cargo version accepts: 1 to 64 characters, ASCII letters, digits, `-`
+/// and `_`, starting with a letter or `_`. The name, with `-` spelled `_`, is
+/// also the library target's name, so it may not be a Rust keyword (Cargo
+/// rejects a keyword target name) or the name of a sysroot crate the generated
+/// code links (`std`, `core`, `alloc`, `test`, `proc_macro`).
+pub(crate) fn crate_name_violation(name: &str) -> Option<String> {
+    const MAX_LEN: usize = 64;
+    const RESERVED: &[&str] = &["std", "core", "alloc", "test", "proc_macro"];
+    let Some(first) = name.chars().next() else {
+        return Some("it is empty".to_owned());
+    };
+    if name.len() > MAX_LEN {
+        return Some(format!(
+            "it is {} characters long, the limit is {MAX_LEN}",
+            name.len()
+        ));
+    }
+    if let Some(bad) = name
+        .chars()
+        .find(|ch| !(ch.is_ascii_alphanumeric() || *ch == '-' || *ch == '_'))
+    {
+        return Some(format!(
+            "it contains {bad:?}; only ASCII letters, digits, `-` and `_` are allowed"
+        ));
+    }
+    if !(first.is_ascii_alphabetic() || first == '_') {
+        return Some(format!(
+            "it starts with {first:?}; it must start with a letter or `_`"
+        ));
+    }
+    let target = name.replace('-', "_");
+    if RESERVED.contains(&target.as_str()) {
+        return Some(format!("`{target}` is the name of a Rust sysroot crate"));
+    }
+    if is_rust_keyword(&target) {
+        return Some(format!("`{target}` is a Rust keyword"));
+    }
+    None
+}
+
+/// Whether `word` is a Rust keyword of the 2024 edition (strict, reserved or
+/// weak-but-unusable as a crate name), which Cargo refuses as a target name.
+fn is_rust_keyword(word: &str) -> bool {
+    matches!(
+        word,
+        "as" | "async"
+            | "await"
+            | "break"
+            | "const"
+            | "continue"
+            | "crate"
+            | "dyn"
+            | "else"
+            | "enum"
+            | "extern"
+            | "false"
+            | "fn"
+            | "for"
+            | "gen"
+            | "if"
+            | "impl"
+            | "in"
+            | "let"
+            | "loop"
+            | "match"
+            | "mod"
+            | "move"
+            | "mut"
+            | "pub"
+            | "ref"
+            | "return"
+            | "self"
+            | "Self"
+            | "static"
+            | "struct"
+            | "super"
+            | "trait"
+            | "true"
+            | "type"
+            | "unsafe"
+            | "use"
+            | "where"
+            | "while"
+            | "abstract"
+            | "become"
+            | "box"
+            | "do"
+            | "final"
+            | "macro"
+            | "override"
+            | "priv"
+            | "try"
+            | "typeof"
+            | "unsized"
+            | "virtual"
+            | "yield"
+    )
 }
 
 /// Output configuration from the [output] section.
