@@ -229,14 +229,11 @@ impl FunctionEmitter<'_> {
                     self.carrier_format(self.carrier()?, format_args!(".into_smelt_unknown()")),
                 ))
             }
-            Some(Type::Future(item)) => {
-                if let Some(bare_local) = self.future_local_identity_key(operand)? {
-                    return Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
-                        "{{ let smelt_promise_id = smelt_promise_identity(&({bare_local}) as *const _ as *const () as usize); SmeltUnknown::Promise(SmeltPromise::pending_with_id(smelt_promise_id)) }}"
-                    ))));
-                }
-                self.promise_future_unknown_expr(&text, *item)
-            }
+            // A `SmeltFuture` is a shared handle, so erasing it takes another
+            // handle on the same promise rather than moving the local: the
+            // erased view shares its settled result and keeps one identity
+            // per source promise (`SmeltFuture::smelt_promise_with`).
+            Some(Type::Future(item)) => self.promise_future_unknown_expr(&smelt_owned_text, *item),
             // Genuine dynamic boundary: a generator crossing into source
             // `unknown` is a live resumable state machine that no concrete
             // type, generated union, or scoped generic can represent on the
@@ -338,29 +335,6 @@ impl FunctionEmitter<'_> {
             }
             _ => "SmeltUnknown::Undefined",
         }
-    }
-
-    /// Return the BARE name of a source future local being erased, if any.
-    ///
-    /// Future values cannot be cloned. When the same future local is erased
-    /// more than once for identity-only operations, moving it into every
-    /// `SmeltPromise::from_future` wrapper would double-move the future. Key a
-    /// pending promise identity on the live local address instead; expression
-    /// futures still move into an awaitable promise wrapper.
-    fn future_local_identity_key(&self, operand: &Operand) -> Result<Option<String>, EmitError> {
-        let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = operand
-        else {
-            return Ok(None);
-        };
-        if matches!(self.local_decl(*local)?.kind, LocalKind::Temp)
-            || !matches!(
-                self.mir.types.get(self.local_decl(*local)?.ty),
-                Some(Type::Future(_))
-            )
-        {
-            return Ok(None);
-        }
-        Ok(Some(self.place_expr(&Place::Local(*local))?.into_string()))
     }
 
     /// The per-entry value erasure for a dict operand crossing into `unknown`.

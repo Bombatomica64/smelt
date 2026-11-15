@@ -1,0 +1,8 @@
+ok 2 | no boom | ok s | no {"code":7}
+3
+3 fulfilled,rejected,fulfilled
+[{"status":"fulfilled","value":6},{"status":"fulfilled","value":8}]
+ok 6
+no x
+ok 8
+done
