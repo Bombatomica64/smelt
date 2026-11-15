@@ -317,8 +317,9 @@ impl FunctionEmitter<'_> {
             // A reference class keeps a function-typed field behind its handle
             // too (see the reference-class read below).
             if self.is_reference_class_type(receiver_ty) {
-                return Ok(self.reference_field_read_expr(receiver_text, receiver_ty, field)?
-                .cloned_value());
+                return Ok(self
+                    .reference_field_read_expr(receiver_text, receiver_ty, field)?
+                    .cloned_value());
             }
             return Ok(receiver_text
                 .postfix(format!(
@@ -349,8 +350,9 @@ impl FunctionEmitter<'_> {
         if self.is_reference_class_type(receiver_ty)
             && self.class_has_named_field(receiver_ty, field)
         {
-            return Ok(self.reference_field_read_expr(receiver_text, receiver_ty, field)?
-            .cloned_value());
+            return Ok(self
+                .reference_field_read_expr(receiver_text, receiver_ty, field)?
+                .cloned_value());
         }
         Ok(receiver_text
             .postfix(format!(

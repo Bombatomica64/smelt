@@ -338,8 +338,7 @@ pub(crate) fn emit_console_inspect_support(
                     implementors.push(context.names().type_name(*implementor)?.as_str().to_owned());
                 }
             }
-            let accessors =
-                crate::structural_views::accessor_names(mir, context, &record.fields);
+            let accessors = crate::structural_views::accessor_names(mir, context, &record.fields);
             Some(console_inspect_prelude::ViewInspect {
                 records: implementors,
                 getters: record

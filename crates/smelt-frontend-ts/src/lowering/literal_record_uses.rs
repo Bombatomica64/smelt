@@ -269,7 +269,11 @@ fn ignored_disqualifiers() -> Vec<Disqualifier> {
         Disqualifier::Other,
     ]
     .into_iter()
-    .filter(|disqualifier| names.split(',').any(|name| name.trim() == disqualifier.name()))
+    .filter(|disqualifier| {
+        names
+            .split(',')
+            .any(|name| name.trim() == disqualifier.name())
+    })
     .collect()
 }
 

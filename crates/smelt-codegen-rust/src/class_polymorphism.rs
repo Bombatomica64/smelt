@@ -83,7 +83,8 @@ pub(crate) fn cell_trait_name(type_name: &str) -> String {
 }
 
 /// The companion name suffixes a reference class claims beside its own name.
-pub(crate) const REFERENCE_COMPANIONS: &[&str] = &["Inner", "SmeltCell", "SmeltStatics", "SmeltView"];
+pub(crate) const REFERENCE_COMPANIONS: &[&str] =
+    &["Inner", "SmeltCell", "SmeltStatics", "SmeltView"];
 
 /// Whether `class` is an instance class (a statics frame is the class VALUE of
 /// a per-evaluation class, never an instance a hierarchy holds).

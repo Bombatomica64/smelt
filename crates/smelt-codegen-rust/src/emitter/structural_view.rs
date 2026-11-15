@@ -168,8 +168,16 @@ impl FunctionEmitter<'_> {
         if std::env::var_os("SMELT_STRUCT_VIEW_TRACE").is_none() {
             return;
         }
-        let (Some(Type::Class { name: from, args: from_args }), Some(Type::Class { name: to, args: to_args })) =
-            (self.mir.types.get(source), self.mir.types.get(target))
+        let (
+            Some(Type::Class {
+                name: from,
+                args: from_args,
+            }),
+            Some(Type::Class {
+                name: to,
+                args: to_args,
+            }),
+        ) = (self.mir.types.get(source), self.mir.types.get(target))
         else {
             return;
         };

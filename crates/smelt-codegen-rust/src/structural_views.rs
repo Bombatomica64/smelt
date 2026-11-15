@@ -197,12 +197,16 @@ fn for_each_record_pair(
         }
         ty
     };
-    let (source, slot) = (strip(source), strip(slot));
+    let (held, wanted) = (strip(source), strip(slot));
     let deeper = depth.saturating_add(1);
-    match (mir.types.get(source), mir.types.get(slot)) {
-        (Some(Type::Class { name: from, args }), Some(Type::Class { name: to, args: to_args }))
-            if args.is_empty() && to_args.is_empty() =>
-        {
+    match (mir.types.get(held), mir.types.get(wanted)) {
+        (
+            Some(Type::Class { name: from, args }),
+            Some(Type::Class {
+                name: to,
+                args: to_args,
+            }),
+        ) if args.is_empty() && to_args.is_empty() => {
             pair(*from, *to);
         }
         (Some(Type::List(from)), Some(Type::List(to))) => {
@@ -341,11 +345,7 @@ pub(crate) struct AccessorNames {
 }
 
 /// The trait methods every view trait declares besides its accessors.
-const RESERVED_METHODS: &[&str] = &[
-    "smelt_any",
-    "smelt_debug",
-    "into_smelt_unknown_as_concrete",
-];
+const RESERVED_METHODS: &[&str] = &["smelt_any", "smelt_debug", "into_smelt_unknown_as_concrete"];
 
 /// The accessor names of the properties `fields` of one view target, by
 /// field symbol.
@@ -390,11 +390,7 @@ pub(crate) fn accessor_names(
             || names.get.starts_with("smelt_as_")
             || names.get.starts_with("r#smelt_as_")
     });
-    if clash {
-        named("smelt_field_")
-    } else {
-        direct
-    }
+    if clash { named("smelt_field_") } else { direct }
 }
 
 /// The declaration of `target`'s view trait (see the module docs).

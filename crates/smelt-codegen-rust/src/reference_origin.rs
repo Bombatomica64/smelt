@@ -155,7 +155,9 @@ pub(crate) fn emit_reference_from_smelt_unknown_impl(
     fields: &[smelt_mir::MirField],
     subclass_origins: &[(String, String)],
     live: bool,
-    view_accessors: Option<&std::collections::HashMap<smelt_hir::Symbol, crate::structural_views::AccessorNames>>,
+    view_accessors: Option<
+        &std::collections::HashMap<smelt_hir::Symbol, crate::structural_views::AccessorNames>,
+    >,
 ) {
     let mut assigns = Vec::new();
     // A live record adopts the plain object it is rebuilt from (see

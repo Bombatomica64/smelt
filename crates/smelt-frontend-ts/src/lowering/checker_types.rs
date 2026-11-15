@@ -393,9 +393,6 @@ impl ModuleBuilder<'_> {
         })
     }
 
-    /// The checker's type for the binding at `start..end`, lowered with
-    /// plain-data object types as records, when it is fully representable
-    /// (see [`Self::checker_literal_binding_type`]).
     /// Whether the argument of `argument` is the caller's object at every
     /// parameter [`Self::checker_argument_shares`] declined: each such
     /// parameter is the argument's own lowered type, or a record type the
@@ -471,14 +468,10 @@ impl ModuleBuilder<'_> {
                     _ => false,
                 }
             }
-            (
-                TsTypeKind::Array { element: from, .. },
-                TsTypeKind::Array { element: to, .. },
-            ) => self.checker_slot_fits(facts, *from, *to, span, depth + 1),
-            (
-                TsTypeKind::Tuple { elements: from, .. },
-                TsTypeKind::Tuple { elements: to, .. },
-            ) => {
+            (TsTypeKind::Array { element: from, .. }, TsTypeKind::Array { element: to, .. }) => {
+                self.checker_slot_fits(facts, *from, *to, span, depth + 1)
+            }
+            (TsTypeKind::Tuple { elements: from, .. }, TsTypeKind::Tuple { elements: to, .. }) => {
                 from.len() == to.len()
                     && from.iter().zip(to).all(|(from_element, to_element)| {
                         self.checker_slot_fits(
@@ -538,7 +531,10 @@ impl ModuleBuilder<'_> {
         (shape.type_params.is_empty()
             && shape.extends.is_empty()
             && shape.methods.is_empty()
-            && !krate.accessor_fields.iter().any(|(owner, _)| *owner == name)
+            && !krate
+                .accessor_fields
+                .iter()
+                .any(|(owner, _)| *owner == name)
             && shape.fields.iter().all(|field| {
                 !matches!(
                     spelled(field.name),
@@ -595,6 +591,9 @@ impl ModuleBuilder<'_> {
             })
     }
 
+    /// The checker's type for the binding at `start..end`, lowered with
+    /// plain-data object types as records, when it is fully representable
+    /// (see [`Self::checker_literal_binding_type`]).
     fn checker_record_type(&mut self, start: u32, end: u32) -> Option<TypeId> {
         let facts = self.ts_facts?;
         let id = facts.type_id_at(&self.path, start, end)?;

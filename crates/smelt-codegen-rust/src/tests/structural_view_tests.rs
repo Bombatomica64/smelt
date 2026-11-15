@@ -35,11 +35,26 @@ fn planned_views(ts: &str) -> (Vec<String>, Vec<String>) {
 #[test]
 fn plans_a_view_for_each_flow_between_shapes_that_share() {
     for (slot, flow) in [
-        ("interface Named { label: string }", "function take(p: Named): string { return p.label; }\nfunction run(): string { const a: Point = { x: 1, label: 'a' }; return take(a); }"),
-        ("type Named = { label: string; x: number }", "function run(): number { const a: Point = { x: 1, label: 'a' }; const b: Named = a; return b.x; }"),
-        ("interface Named { label: string }", "function run(): Named { const a: Point = { x: 1, label: 'a' }; return a; }"),
-        ("interface Named { label: string }", "function take(all: Named[]): number { return all.length; }\nfunction run(): number { const all: Point[] = [{ x: 1, label: 'a' }]; return take(all); }"),
-        ("interface Named { label: string }", "type Holder = { item: Named };\nfunction run(): Holder { const a: Point = { x: 1, label: 'a' }; return { item: a }; }"),
+        (
+            "interface Named { label: string }",
+            "function take(p: Named): string { return p.label; }\nfunction run(): string { const a: Point = { x: 1, label: 'a' }; return take(a); }",
+        ),
+        (
+            "type Named = { label: string; x: number }",
+            "function run(): number { const a: Point = { x: 1, label: 'a' }; const b: Named = a; return b.x; }",
+        ),
+        (
+            "interface Named { label: string }",
+            "function run(): Named { const a: Point = { x: 1, label: 'a' }; return a; }",
+        ),
+        (
+            "interface Named { label: string }",
+            "function take(all: Named[]): number { return all.length; }\nfunction run(): number { const all: Point[] = [{ x: 1, label: 'a' }]; return take(all); }",
+        ),
+        (
+            "interface Named { label: string }",
+            "type Holder = { item: Named };\nfunction run(): Holder { const a: Point = { x: 1, label: 'a' }; return { item: a }; }",
+        ),
     ] {
         let (pairs, references) = planned_views(&format!(
             "type Point = {{ x: number; label: string }};\n{slot};\n{flow}\n"
@@ -94,7 +109,10 @@ fn a_pair_that_does_not_share_plans_no_view() {
         "type Point = { x: number; label: string };\nfunction take(p: Point): number { return p.x; }\n\
          function run(): number { const a: Point = { x: 1, label: 'a' }; return take(a); }\n",
     );
-    assert!(pairs.is_empty() && references.is_empty(), "{pairs:?} {references:?}");
+    assert!(
+        pairs.is_empty() && references.is_empty(),
+        "{pairs:?} {references:?}"
+    );
 }
 
 /// The emitted pair: the source keeps its concrete cell, the target's handle
@@ -127,5 +145,8 @@ fn a_view_target_is_a_trait_object_over_the_source_cell() {
         "the conversion copies:\n{body}"
     );
     // Typed code on the source still reads its own cell directly.
-    assert!(rust_fn(&source, "run").contains("a.0.borrow().label"), "{body}");
+    assert!(
+        rust_fn(&source, "run").contains("a.0.borrow().label"),
+        "{body}"
+    );
 }

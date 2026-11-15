@@ -877,7 +877,7 @@ fn scan_value_flows(
             let (Operand::Copy(place) | Operand::Move(place)) = operand else {
                 return;
             };
-            let source = match place {
+            let handed = match place {
                 Place::Local(local) => local_ty(locals, *local),
                 // A value read out of a record's field or a container's
                 // element, handed on without a local of its own.
@@ -895,7 +895,7 @@ fn scan_value_flows(
                 }
                 _ => None,
             };
-            if let Some(source) = source {
+            if let Some(source) = handed {
                 flow(source, slot);
             }
         };
@@ -933,10 +933,11 @@ fn scan_value_flows(
                             local_ty(locals, *dest).and_then(|ty| mir.types.get(strip(ty)))
                         {
                             for (key, operand) in entries {
-                                let Operand::Const(smelt_mir::Constant::String(key)) = key else {
+                                let Operand::Const(smelt_mir::Constant::String(property)) = key
+                                else {
                                     continue;
                                 };
-                                if let Some(slot) = record_property_type(mir, *name, key) {
+                                if let Some(slot) = record_property_type(mir, *name, property) {
                                     hand(operand, slot);
                                 }
                             }

@@ -354,14 +354,14 @@ impl FunctionEmitter<'_> {
             // A downcast checks whether the instance IS one of the target's
             // classes first and keeps it when it is; the field-wise copy is
             // only the answer for an instance of another class.
-            let downcast = match self.polymorphic_downcast_expr(source, target)? {
+            let checked = match self.polymorphic_downcast_expr(source, target)? {
                 Some(found) => Some(found),
                 // A view cast to another record type is the object it stands
                 // for when that object is one of the target's records
                 // (`crate::structural_views`).
                 None => self.structural_view_downcast_expr(source, target)?,
             };
-            if let Some(downcast) = downcast {
+            if let Some(downcast) = checked {
                 return Ok(Some(RustExpr::atom(format!(
                     "{{ let smelt_struct_value = {value_text}.clone(); match {downcast} {{ Some(smelt_downcast) => smelt_downcast, None => {copied} }} }}",
                     value_text = value_text.tight()

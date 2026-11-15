@@ -1610,8 +1610,9 @@ impl FunctionEmitter<'_> {
             // it is reached before the general reference-class field arm
             // further down, so the projection has to be repeated here.
             if self.is_reference_class_type(base_ty) && self.class_has_named_field(base_ty, field) {
-                return Ok(self.reference_field_read_expr(&self.local_value(base)?, base_ty, field)?
-                .cloned_value());
+                return Ok(self
+                    .reference_field_read_expr(&self.local_value(base)?, base_ty, field)?
+                    .cloned_value());
             }
             return Ok(self
                 .local_value(base)?
@@ -1680,8 +1681,9 @@ impl FunctionEmitter<'_> {
         // out so the borrow guard is a short-lived temporary that ends
         // with the statement — never held across a re-entrant call.
         if self.is_reference_class_type(base_ty) && self.class_has_named_field(base_ty, field) {
-            return Ok(self.reference_field_read_expr(&self.local_value(base)?, base_ty, field)?
-            .cloned_value());
+            return Ok(self
+                .reference_field_read_expr(&self.local_value(base)?, base_ty, field)?
+                .cloned_value());
         }
         let field_text = {
             let receiver = self.local_value(base)?;
