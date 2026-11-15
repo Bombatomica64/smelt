@@ -650,14 +650,17 @@ impl FunctionEmitter<'_> {
         args: &[Operand],
         dest_ty: TypeId,
     ) -> Result<RustExpr, EmitError> {
-        // `Promise.resolve(v)`: defer one microtask, then settle with the
-        // operand. The value is rendered at the future's own item type so
+        // `Promise.resolve(v)`: a future settled with the operand now, so a
+        // reaction on it is queued at once; an `await` of it yields one
+        // microtask tick first (`SmeltFuture::resolved_after_tick`). The value is rendered at the future's own item type so
         // the emitted `Ok(..)` agrees with the declared `SmeltFuture<T>`;
         // with no operand (`Promise.resolve()`) the item type is unit.
         let Some(duration) = args.first() else {
             return Err(EmitError::new("async resolve requires a duration operand"));
         };
-        let duration_text = self.operand_expr(duration)?;
+        // The zero duration was the microtask tick the old lowering slept;
+        // the settled future's `await` now takes that tick itself.
+        let _ = duration;
         let value_text = match args.get(1) {
             Some(value) => {
                 let Some(Type::Future(item_ty)) = self.mir.types.get(dest_ty) else {
@@ -668,9 +671,7 @@ impl FunctionEmitter<'_> {
             None => RustExpr::unit(),
         };
         Ok(RustExpr::atom(format!(
-            "SmeltFuture::from_future(Box::pin(async move {{ {sleep_ms}({duration_text} as f64).await; Ok::<_, {ERROR_BOX}>({value_text}) }}))",
-            sleep_ms = smelt_stdlib::runtime_symbols::timers::SLEEP_MS,
-            duration_text = duration_text.as_cast_operand(),
+            "SmeltFuture::resolved_after_tick({value_text})",
             value_text = value_text.delimited(),
         )))
     }
@@ -915,14 +916,14 @@ impl FunctionEmitter<'_> {
                 &self.render_scope(),
             )?;
             return Ok(RustExpr::atom(format!(
-                "{{ {prelude}{rejected_prelude}SmeltFuture::from_future(Box::pin(async move {{ match {future_text}.await {{ Ok(smelt_value) => {{ {settle} Ok::<_, {ERROR_BOX}>({output}) }} Err(smelt_error) => {{ {rejected_settle} Ok::<_, {ERROR_BOX}>({rejected_output}) }} }} }})) }}",
+                "{{ {prelude}{rejected_prelude}let smelt_reaction_source = {future_text}; let smelt_source = smelt_reaction_source.clone(); smelt_reaction_source.reaction(Box::pin(async move {{ match smelt_source.await {{ Ok(smelt_value) => {{ {settle} Ok::<_, {ERROR_BOX}>({output}) }} Err(smelt_error) => {{ {rejected_settle} Ok::<_, {ERROR_BOX}>({rejected_output}) }} }} }})) }}",
                 future_text = future_text.tight(),
                 output = output.delimited(),
                 rejected_output = rejected_output.delimited(),
             )));
         }
         Ok(RustExpr::atom(format!(
-            "{{ {prelude}SmeltFuture::from_future(Box::pin(async move {{ let smelt_value = {future_text}.await?; {settle} Ok::<_, {ERROR_BOX}>({output}) }})) }}",
+            "{{ {prelude}let smelt_reaction_source = {future_text}; let smelt_source = smelt_reaction_source.clone(); smelt_reaction_source.reaction(Box::pin(async move {{ let smelt_value = smelt_source.await?; {settle} Ok::<_, {ERROR_BOX}>({output}) }})) }}",
             future_text = future_text.tight(),
             output = output.delimited()
         )))
@@ -967,7 +968,7 @@ impl FunctionEmitter<'_> {
             &self.render_scope(),
         )?;
         Ok(RustExpr::atom(format!(
-            "{{ {prelude}SmeltFuture::from_future(Box::pin(async move {{ match {future_text}.await {{ Ok(smelt_value) => Ok::<_, {ERROR_BOX}>(smelt_value), Err(smelt_error) => {{ {settle} Ok::<_, {ERROR_BOX}>({recovered}) }} }} }})) }}",
+            "{{ {prelude}let smelt_reaction_source = {future_text}; let smelt_source = smelt_reaction_source.clone(); smelt_reaction_source.reaction(Box::pin(async move {{ match smelt_source.await {{ Ok(smelt_value) => Ok::<_, {ERROR_BOX}>(smelt_value), Err(smelt_error) => {{ {settle} Ok::<_, {ERROR_BOX}>({recovered}) }} }} }})) }}",
             future_text = future_text.tight(),
             recovered = recovered.delimited()
         )))
@@ -999,7 +1000,7 @@ impl FunctionEmitter<'_> {
         // result (value or rejection) is the settled one.
         let (settle, _) = self.promise_callback_settle(callback, &invocation)?;
         Ok(RustExpr::atom(format!(
-            "{{ {prelude}SmeltFuture::from_future(Box::pin(async move {{ let smelt_outcome = {future_text}.await; {settle} let _ = smelt_callback_value; smelt_outcome }})) }}",
+            "{{ {prelude}let smelt_reaction_source = {future_text}; let smelt_source = smelt_reaction_source.clone(); smelt_reaction_source.reaction(Box::pin(async move {{ let smelt_outcome = smelt_source.await; {settle} let _ = smelt_callback_value; smelt_outcome }})) }}",
             future_text = future_text.tight()
         )))
     }
