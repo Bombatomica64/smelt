@@ -1112,6 +1112,7 @@ struct SmeltLiveLink<K, V> {
     unwrap: ::std::rc::Rc<dyn Fn(&V) -> SmeltUnknown>,
     same: fn(&V, &V) -> bool,
     apply: fn(&mut SmeltFieldStore<K, V>, Vec<(K, V)>, fn(&V, &V) -> bool),
+    keeps: fn(&V) -> bool,
 }
 
 /// Who answers a read of one key of a store.
@@ -1156,6 +1157,17 @@ impl<K, V> SmeltStoreCell<K, V> {
     fn sync(&self) {
         if self.live.borrow().is_some() { self.sync_live(); }
     }
+    fn live_keys(&self) -> Option<Vec<K>> where K: Clone + SmeltPropertyKey {
+        let (object, key) = self.live.borrow().as_ref().map(|link| (::std::rc::Rc::clone(&link.object), link.key))?;
+        let mut keys = smelt_live_keys(&object).into_iter().map(key).collect::<Vec<_>>();
+        if let Ok(store) = self.cell.try_borrow() && store.has_internal_keys() { keys.extend(store.entries().iter().filter(|entry| entry.key.smelt_is_internal_key()).map(|entry| entry.key.clone())); }
+        Some(keys)
+    }
+    fn live_data(&self) -> Option<Vec<(K, V)>> {
+        let (object, key, wrap) = self.live.borrow().as_ref().map(|link| (::std::rc::Rc::clone(&link.object), link.key, ::std::rc::Rc::clone(&link.wrap)))?;
+        if self.cell.try_borrow().map_or(true, |store| store.has_internal_keys()) { return None; }
+        Some(smelt_live_entries(&object).into_iter().map(|(name, value)| (key(name), wrap(value))).collect())
+    }
     fn sync_live(&self) {
         let Some((object, key, wrap, same, apply)) = self.live.borrow().as_ref().map(|link| (::std::rc::Rc::clone(&link.object), link.key, ::std::rc::Rc::clone(&link.wrap), link.same, link.apply)) else { return };
         if self.cell.try_borrow_mut().is_err() { return; }
@@ -1178,12 +1190,13 @@ impl<K: Eq + ::std::hash::Hash + SmeltPropertyKey, V> SmeltStoreCell<K, V> {
         if name.smelt_is_internal_key() && !link.object.smelt_field_names().iter().any(|declared| *name == **declared) { return None; }
         Some((::std::rc::Rc::clone(&link.object), name))
     }
-    fn live_get<Q>(&self, key: &Q) -> SmeltLiveRead<V> where K: ::std::borrow::Borrow<Q>, Q: Eq + SmeltPropertyKey + ?Sized, V: Clone {
+    fn live_get<Q>(&self, key: &Q) -> SmeltLiveRead<V> where K: ::std::borrow::Borrow<Q> + Eq + ::std::hash::Hash + SmeltPropertyKey, Q: Eq + SmeltPropertyKey + ?Sized, V: Clone {
         let Some((object, name)) = self.live_target(key) else { return SmeltLiveRead::Store };
         let Some(fresh) = smelt_live_get(&object, name) else { return SmeltLiveRead::Record(None) };
-        let Some((wrap, same)) = self.live.borrow().as_ref().map(|link| (::std::rc::Rc::clone(&link.wrap), link.same)) else { return SmeltLiveRead::Store };
+        let Some((wrap, same, keeps, own)) = self.live.borrow().as_ref().map(|link| (::std::rc::Rc::clone(&link.wrap), link.same, link.keeps, link.key)) else { return SmeltLiveRead::Store };
         let fresh = wrap(fresh);
         if let Ok(store) = self.cell.try_borrow() && store.len() != 0 && let Some(cached) = store.get(key) && same(cached, &fresh) { return SmeltLiveRead::Record(Some(cached.clone())); }
+        if keeps(&fresh) && let Ok(mut store) = self.cell.try_borrow_mut() { drop(store.insert(own(name.to_owned()), fresh.clone())); }
         SmeltLiveRead::Record(Some(fresh))
     }
     fn live_has<Q>(&self, key: &Q) -> Option<bool> where Q: SmeltPropertyKey + ?Sized {
@@ -1619,13 +1632,13 @@ impl<K: Eq + ::std::hash::Hash + Clone + SmeltPropertyKey, V> SmeltRecord<K, V> 
     fn smelt_value_at(&self, index: usize) -> Option<V> where V: Clone { self.smelt_entry_at(index).map(|(_, value)| value) }
     fn new() -> Self { Self { id: smelt_next_object_id(), store: ::std::rc::Rc::new(SmeltStoreCell::new(SmeltFieldStore::default())) } }
     fn with_id_from_entries<I: IntoIterator<Item = (K, V)>>(id: usize, iter: I) -> Self { let record = Self { id, store: ::std::rc::Rc::new(SmeltStoreCell::new(SmeltFieldStore::default())) }; record.extend(iter); record }
-    fn len(&self) -> usize { self.store.sync(); self.store.borrow().len() }
+    fn len(&self) -> usize { if let Some(keys) = self.store.live_keys() { return keys.len(); } self.store.borrow().len() }
     fn contains_key<Q>(&self, key: &Q) -> bool where K: ::std::borrow::Borrow<Q>, Q: Eq + ::std::hash::Hash + SmeltPropertyKey + ?Sized { if let Some(found) = self.store.live_has(key) { return found; } self.store.borrow().contains_key(key) }
-    fn insert(&self, key: K, value: V) -> Option<V> { self.store.live_set(&key, &value); self.store.borrow_mut().insert(key, value) }
+    fn insert(&self, key: K, value: V) -> Option<V> { if self.store.live_set(&key, &value) { return None; } self.store.borrow_mut().insert(key, value) }
     fn remove<Q>(&self, key: &Q) -> Option<V> where K: ::std::borrow::Borrow<Q>, Q: Eq + ::std::hash::Hash + SmeltPropertyKey + ?Sized { self.store.sync(); self.store.live_remove(key); self.store.borrow_mut().remove(key) }
     fn get<Q>(&self, key: &Q) -> Option<V> where K: ::std::borrow::Borrow<Q>, Q: Eq + ::std::hash::Hash + SmeltPropertyKey + ?Sized, V: Clone { self.store.live_get(key).or_store(|| self.store.borrow().get(key).cloned()) }
     fn iter(&self) -> ::std::vec::IntoIter<(K, V)> where V: Clone { self.store.sync(); self.store.borrow().entries().iter().map(|entry| (entry.key.clone(), entry.value.clone())).collect::<Vec<_>>().into_iter() }
-    fn keys(&self) -> ::std::vec::IntoIter<K> { self.store.sync(); self.store.borrow().entries().iter().map(|entry| entry.key.clone()).collect::<Vec<_>>().into_iter() }
+    fn keys(&self) -> ::std::vec::IntoIter<K> { if let Some(keys) = self.store.live_keys() { return keys.into_iter(); } self.store.borrow().entries().iter().map(|entry| entry.key.clone()).collect::<Vec<_>>().into_iter() }
     fn values(&self) -> ::std::vec::IntoIter<V> where V: Clone { self.store.sync(); self.store.borrow().entries().iter().map(|entry| entry.value.clone()).collect::<Vec<_>>().into_iter() }
     fn extend<I: IntoIterator<Item = (K, V)>>(&self, iter: I) { for (key, value) in iter { self.insert(key, value); } }
     fn clear(&self) { if self.store.is_live() { for key in self.keys() { self.remove(&key); } return; } *self.store.borrow_mut() = SmeltFieldStore::default(); }
@@ -2007,17 +2020,17 @@ impl SmeltObject {
     fn new<K: Into<JsString>>(entries: Vec<(K, SmeltUnknown)>) -> Self { Self::with_id(smelt_next_object_id(), entries) }
     fn with_id<K: Into<JsString>>(id: usize, entries: Vec<(K, SmeltUnknown)>) -> Self { let object = Self { id, store: ::std::rc::Rc::new(SmeltStoreCell::new(SmeltFieldStore::with_capacity(entries.len()))) }; for (key, value) in entries { object.insert(key, value); } object }
     fn from_unknown_record(record: SmeltRecord<JsString, SmeltUnknown>) -> Self { Self { id: record.id, store: record.store } }
-    fn len(&self) -> usize { self.store.sync(); self.store.borrow().len() }
+    fn len(&self) -> usize { if let Some(keys) = self.store.live_keys() { return keys.len(); } self.store.borrow().len() }
     #[inline]
     fn contains_key(&self, key: &(impl SmeltObjectKey + ?Sized)) -> bool { key.with_js_key(|key| self.store.live_has(key).unwrap_or_else(|| self.store.borrow().contains_key(key))) }
     #[inline]
     fn get(&self, key: &(impl SmeltObjectKey + ?Sized)) -> Option<SmeltUnknown> { key.with_js_key(|key| self.store.live_get(key).or_store(|| self.store.borrow().get(key).cloned())) }
     #[allow(dead_code)]
     fn get_text(&self, key: &str) -> Option<SmeltUnknown> { self.get(key) }
-    fn insert(&self, key: impl Into<JsString>, value: SmeltUnknown) -> Option<SmeltUnknown> { let key = key.into(); self.store.live_set(&key, &value); self.store.borrow_mut().insert(key.into(), value) }
+    fn insert(&self, key: impl Into<JsString>, value: SmeltUnknown) -> Option<SmeltUnknown> { let key = key.into(); if self.store.live_set(&key, &value) { return None; } self.store.borrow_mut().insert(key.into(), value) }
     fn remove(&self, key: &(impl SmeltObjectKey + ?Sized)) -> Option<SmeltUnknown> { key.with_js_key(|key| { self.store.sync(); self.store.live_remove(key); self.store.borrow_mut().remove(key) }) }
     fn iter(&self) -> ::std::vec::IntoIter<(JsString, SmeltUnknown)> { self.store.sync(); self.store.borrow().entries().iter().map(|entry| (entry.key.clone(), entry.value.clone())).collect::<Vec<_>>().into_iter() }
-    fn keys(&self) -> Vec<JsString> { self.store.sync(); self.store.borrow().entries().iter().map(|entry| entry.key.clone()).collect() }
+    fn keys(&self) -> Vec<JsString> { if let Some(keys) = self.store.live_keys() { return keys; } self.store.borrow().entries().iter().map(|entry| entry.key.clone()).collect() }
     fn values(&self) -> Vec<SmeltUnknown> { self.store.sync(); self.store.borrow().entries().iter().map(|entry| entry.value.clone()).collect() }
     #[allow(dead_code)]
     fn smelt_with_origin<T: 'static>(self, origin: T) -> Self { *self.store.origin_mut() = Some(Box::new(origin)); self }
@@ -2888,6 +2901,7 @@ pub trait SmeltLiveObject {
     fn smelt_live_cell(&self) -> ::std::rc::Rc<dyn ::std::any::Any>;
     fn smelt_live_address(&self) -> usize;
     fn smelt_live_handle(&self) -> &dyn ::std::any::Any;
+    fn smelt_fields_always_present(&self) -> bool { false }
 }
 
 /// Where a live record's `smelt_field_get` leaves the one value it reads.
@@ -2905,7 +2919,7 @@ struct SmeltOpenShape {
 }
 
 thread_local! {
-    static SMELT_LIVE_KEYS: ::std::cell::RefCell<::std::collections::HashMap<(usize, usize), JsString>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
+    static SMELT_LIVE_KEYS: ::std::cell::RefCell<::std::collections::HashMap<(usize, usize), JsString, ::std::hash::BuildHasherDefault<SmeltAddressHasher>>> = ::std::cell::RefCell::new(::std::collections::HashMap::default());
 }
 
 /// The JavaScript string of the declared property name `name`.
@@ -3020,6 +3034,14 @@ fn smelt_live_entries(object: &::std::rc::Rc<dyn SmeltLiveObject>) -> Vec<(JsStr
     entries
 }
 
+/// The data keys of the record behind a view, in the object's own-key order.
+fn smelt_live_keys(object: &::std::rc::Rc<dyn SmeltLiveObject>) -> Vec<JsString> {
+    if object.smelt_fields_always_present() && smelt_open_shape_read(object.smelt_live_address(), |_| ()).is_none() {
+        return object.smelt_field_names().iter().map(|name| smelt_live_field_name(name)).collect();
+    }
+    smelt_live_entries(object).into_iter().map(|(key, _)| key).collect()
+}
+
 /// Give `record`, just built from the erased object `id` with `entries`, that
 /// object's identity, own-key order and undeclared properties.
 fn smelt_live_adopt(record: &dyn SmeltLiveObject, id: usize, entries: Vec<(JsString, SmeltUnknown)>) {
@@ -3043,7 +3065,7 @@ thread_local! {
 impl SmeltLiveLink<JsString, SmeltUnknown> {
     fn erased(object: ::std::rc::Rc<dyn SmeltLiveObject>) -> Self {
         let (wrap, unwrap) = SMELT_LIVE_ERASED.with(|(wrap, unwrap)| (::std::rc::Rc::clone(wrap), ::std::rc::Rc::clone(unwrap)));
-        Self { object, key: |name| name, wrap, unwrap, same: |left, right| left.js_strict_eq(right), apply: |store, entries, same| store.resync(entries, same) }
+        Self { object, key: |name| name, wrap, unwrap, same: |left, right| left.js_strict_eq(right), apply: |store, entries, same| store.resync(entries, same), keeps: |value| matches!(value, SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_)) }
     }
 }
 
@@ -3052,7 +3074,7 @@ impl SmeltObject {
     fn smelt_typed_view<V: 'static>(&self, wrap: impl Fn(SmeltUnknown) -> V + 'static, unwrap: impl Fn(&V) -> SmeltUnknown + 'static) -> Option<SmeltRecord<JsString, V>> {
         let object = self.store.live.borrow().as_ref().map(|link| ::std::rc::Rc::clone(&link.object))?;
         let record = SmeltRecord { id: self.id, store: ::std::rc::Rc::new(SmeltStoreCell::new(SmeltFieldStore::default())) };
-        *record.store.live.borrow_mut() = Some(SmeltLiveLink { object, key: |name| name, wrap: ::std::rc::Rc::new(wrap), unwrap: ::std::rc::Rc::new(unwrap), same: |_, _| false, apply: |store, entries, same| store.resync(entries, same) });
+        *record.store.live.borrow_mut() = Some(SmeltLiveLink { object, key: |name| name, wrap: ::std::rc::Rc::new(wrap), unwrap: ::std::rc::Rc::new(unwrap), same: |_, _| false, apply: |store, entries, same| store.resync(entries, same), keeps: |_| false });
         Some(record)
     }
 }
@@ -4343,16 +4365,23 @@ fn smelt_json_write(value: &SmeltUnknown, out: &mut String) -> Result<(), &'stat
                 return Ok(());
             }
             let shape = smelt_for_in_object_shape(values);
-            values.store.sync(); let store = values.store.borrow();
             let mut first = true;
-            for entry in store.entries() {
-                if matches!(entry.value, SmeltUnknown::Undefined | SmeltUnknown::Function(_) | SmeltUnknown::Symbol(_)) || !smelt_is_for_in_shape_key(shape, &entry.key) { continue; }
+            let mut write = |key: &JsStr, value: &SmeltUnknown, out: &mut String| -> Result<(), &'static str> {
+                if matches!(value, SmeltUnknown::Undefined | SmeltUnknown::Function(_) | SmeltUnknown::Symbol(_)) || !smelt_is_for_in_shape_key(shape, key) { return Ok(()); }
                 if !first { out.push(','); }
                 first = false;
-                smelt_json_quote(&entry.key, out);
+                smelt_json_quote(key, out);
                 out.push(':');
-                smelt_json_write(&entry.value, out)?;
+                smelt_json_write(value, out)
+            };
+            if let Some(entries) = values.store.live_data() {
+                for (key, value) in &entries { write(key, value, out)?; }
+                out.push('}');
+                return Ok(());
             }
+            values.store.sync();
+            let store = values.store.borrow();
+            for entry in store.entries() { write(&entry.key, &entry.value, out)?; }
             out.push('}');
         }
     }
@@ -5428,6 +5457,7 @@ impl SmeltLiveObject for SmeltRecord355fff2c5e8888da {
     fn smelt_live_cell(&self) -> ::std::rc::Rc<dyn ::std::any::Any> { self.0.clone() }
     fn smelt_live_address(&self) -> usize { ::std::rc::Rc::as_ptr(&self.0) as *const () as usize }
     fn smelt_live_handle(&self) -> &dyn ::std::any::Any { self }
+    fn smelt_fields_always_present(&self) -> bool { true }
 }
 impl IntoSmeltUnknown for SmeltRecord355fff2c5e8888da {
     fn into_smelt_unknown(self) -> SmeltUnknown {
@@ -5505,6 +5535,7 @@ impl SmeltLiveObject for SmeltRecorda086cf5c99222122 {
     fn smelt_live_cell(&self) -> ::std::rc::Rc<dyn ::std::any::Any> { self.0.clone() }
     fn smelt_live_address(&self) -> usize { ::std::rc::Rc::as_ptr(&self.0) as *const () as usize }
     fn smelt_live_handle(&self) -> &dyn ::std::any::Any { self }
+    fn smelt_fields_always_present(&self) -> bool { true }
 }
 impl IntoSmeltUnknown for SmeltRecorda086cf5c99222122 {
     fn into_smelt_unknown(self) -> SmeltUnknown {
@@ -5584,6 +5615,7 @@ impl SmeltLiveObject for SmeltRecord7e5cb823251b06a8 {
     fn smelt_live_cell(&self) -> ::std::rc::Rc<dyn ::std::any::Any> { self.0.clone() }
     fn smelt_live_address(&self) -> usize { ::std::rc::Rc::as_ptr(&self.0) as *const () as usize }
     fn smelt_live_handle(&self) -> &dyn ::std::any::Any { self }
+    fn smelt_fields_always_present(&self) -> bool { true }
 }
 impl IntoSmeltUnknown for SmeltRecord7e5cb823251b06a8 {
     fn into_smelt_unknown(self) -> SmeltUnknown {

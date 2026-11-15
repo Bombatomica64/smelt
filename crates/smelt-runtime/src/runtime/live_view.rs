@@ -88,8 +88,11 @@ thread_local! {
     //~ AND length of its literal (literals share storage: `"p"` may be the
     //~ tail of `"tag-p"`, so neither alone names one). A view refresh names
     //~ every field of its record, and a `JsString` built per field per
-    //~ refresh was most of its cost.
-    static SMELT_LIVE_KEYS: ::std::cell::RefCell<::std::collections::HashMap<(usize, usize), JsString>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
+    //~ refresh was most of its cost. The key is two addresses-sized words,
+    //~ so the table hashes them with the address hasher: listing the keys or
+    //~ serializing a view looks every declared name up, and the default
+    //~ (SipHash) lookup was a third of `Object.keys` of a four-property view.
+    static SMELT_LIVE_KEYS: ::std::cell::RefCell<::std::collections::HashMap<(usize, usize), JsString, ::std::hash::BuildHasherDefault<SmeltAddressHasher>>> = ::std::cell::RefCell::new(::std::collections::HashMap::default());
 }
 
 /// The JavaScript string of the declared property name `name`.
