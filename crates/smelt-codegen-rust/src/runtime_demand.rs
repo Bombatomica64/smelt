@@ -79,6 +79,8 @@ declare_needs! {
     Generator,
     /// The timer queue and promise task queue.
     Timers,
+    /// The `{ status, value | reason }` record of `Promise.allSettled`.
+    AllSettled,
     /// `Date.now()` override state.
     DateNow,
     /// `getTimezoneOffset()` override state.
@@ -103,6 +105,9 @@ declare_needs! {
     UriDecode,
     /// `JSON.stringify` with an indent.
     JsonIndent,
+    /// `smelt_json_stringify_value`: a `JSON.stringify` typed `string |
+    /// undefined` (its value may have no JSON text).
+    JsonStringifyValue,
     /// The fallible `JSON.parse` adapter.
     JsonParse,
     /// `String.prototype.localeCompare`.
@@ -332,6 +337,7 @@ const REQUIRES: &[(Need, &[Need])] = &[
         &[Need::Unknown, Need::IteratorResult, Need::DepGenawaiter],
     ),
     (Need::Timers, &[Need::Unknown]),
+    (Need::AllSettled, &[Need::Unknown]),
     (Need::StructuredClone, &[Need::Unknown]),
     (Need::DefineProperties, &[Need::Unknown]),
     (Need::SetPrototypeOf, &[Need::Unknown]),
@@ -869,6 +875,19 @@ impl RuntimeDemand {
             if reflects || reads_prototype {
                 self.add(Need::ClassPrototypeMethods);
             }
+        }
+        // A `JSON.stringify` typed `string | undefined` answers through the
+        // helper that maps a value with no JSON text to `undefined`.
+        if let Statement::Assign {
+            dest,
+            value: Rvalue::JsonStringify { .. },
+        } = statement
+            && usize::try_from(dest.0)
+                .ok()
+                .and_then(|index| locals.get(index))
+                .is_some_and(|decl| matches!(mir.types.get(decl.ty), Some(Type::Optional(_))))
+        {
+            self.add(Need::JsonStringifyValue);
         }
         if let Statement::Assign {
             value: Rvalue::DictAssign { target, .. },

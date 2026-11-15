@@ -1142,6 +1142,26 @@ fn callback_param_escapes_locally(
             statement_packs_callback_param_into_container(mir, function, statement, local)
         })
     });
+    // A callback parameter STORED by an operation into a container, field,
+    // index or global it does not itself build (`seen.push(make)`,
+    // `map.set(k, cb)`, `globalCb = cb`) escapes the same way: the
+    // destination owns its elements as `'static` handles (an erased one as
+    // `SmeltUnknown::Function`), which a borrowed `&dyn Fn` cannot become
+    // (E0521). Which operands an operation stores is the MIR role table's
+    // answer (`smelt_mir::rvalue_stored_operands`), not a list kept here.
+    let stored_by_operation = function_rvalues(function).any(|value| {
+        smelt_mir::rvalue_stored_operands(value)
+            .into_iter()
+            .any(|operand| {
+                operand_refs_callback_param_or_capturing_closure(
+                    mir,
+                    function,
+                    operand,
+                    local,
+                    Some(&closure_defs),
+                )
+            })
+    });
     // A callback parameter that is rebound in the body (`callback = …`, e.g. the
     // `mapAsync`/`filterAsync` concurrency wrappers reassign their callback to a
     // `limitAsync`-wrapped handle) receives an owned `Rc<dyn Fn…>` on the right.
@@ -1291,6 +1311,7 @@ fn callback_param_escapes_locally(
         || captured_by_closure_bound_to_erased
         || stored_through_place
         || packed_into_container
+        || stored_by_operation
         || bound_to_erased_handle
         || retained_by_async_body
         || rebound_locally

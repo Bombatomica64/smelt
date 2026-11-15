@@ -191,10 +191,11 @@ impl FunctionEmitter<'_> {
             }
             Some(Type::Optional(inner)) => {
                 let value_wrap = self.erase_rendered(&RustExpr::path("smelt_value"), *inner)?;
+                let absent = self.optional_absent_value(*inner);
                 Ok(smelt_owned_text.postfix(self.carrier_format(
                     self.carrier()?,
                     format_args!(
-                        ".map_or(SmeltUnknown::Undefined, |smelt_value| {value_wrap})",
+                        ".map_or({absent}, |smelt_value| {value_wrap})",
                         value_wrap = value_wrap.delimited()
                     ),
                 )))
@@ -228,14 +229,11 @@ impl FunctionEmitter<'_> {
                     self.carrier_format(self.carrier()?, format_args!(".into_smelt_unknown()")),
                 ))
             }
-            Some(Type::Future(item)) => {
-                if let Some(bare_local) = self.future_local_identity_key(operand)? {
-                    return Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
-                        "{{ let smelt_promise_id = smelt_promise_identity(&({bare_local}) as *const _ as *const () as usize); SmeltUnknown::Promise(SmeltPromise::pending_with_id(smelt_promise_id)) }}"
-                    ))));
-                }
-                self.promise_future_unknown_expr(&text, *item)
-            }
+            // A `SmeltFuture` is a shared handle, so erasing it takes another
+            // handle on the same promise rather than moving the local: the
+            // erased view shares its settled result and keeps one identity
+            // per source promise (`SmeltFuture::smelt_promise_with`).
+            Some(Type::Future(item)) => self.promise_future_unknown_expr(&smelt_owned_text, *item),
             // Genuine dynamic boundary: a generator crossing into source
             // `unknown` is a live resumable state machine that no concrete
             // type, generated union, or scoped generic can represent on the
@@ -319,27 +317,24 @@ impl FunctionEmitter<'_> {
             }))
     }
 
-    /// Return the BARE name of a source future local being erased, if any.
+    /// The erased value an absent `Option<inner>` stands for.
     ///
-    /// Future values cannot be cloned. When the same future local is erased
-    /// more than once for identity-only operations, moving it into every
-    /// `SmeltPromise::from_future` wrapper would double-move the future. Key a
-    /// pending promise identity on the live local address instead; expression
-    /// futures still move into an awaitable promise wrapper.
-    fn future_local_identity_key(&self, operand: &Operand) -> Result<Option<String>, EmitError> {
-        let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = operand
-        else {
-            return Ok(None);
-        };
-        if matches!(self.local_decl(*local)?.kind, LocalKind::Temp)
-            || !matches!(
-                self.mir.types.get(self.local_decl(*local)?.ty),
-                Some(Type::Future(_))
-            )
-        {
-            return Ok(None);
+    /// `undefined`, except for a regular-expression match: `match`/`exec`
+    /// answer `null` when nothing matches (ECMA-262), never `undefined`, so an
+    /// absent match erases to `null` (`JSON.stringify("zz".match(/\d/))` is
+    /// `"null"`, and `m === null` holds through erased dataflow).
+    fn optional_absent_value(&self, inner: TypeId) -> &'static str {
+        match self.mir.types.get(inner) {
+            Some(Type::Class { name, .. })
+                if matches!(
+                    self.match_class_kind(*name),
+                    Ok(Some(smelt_stdlib::StdlibClass::Match))
+                ) =>
+            {
+                "SmeltUnknown::Null"
+            }
+            _ => "SmeltUnknown::Undefined",
         }
-        Ok(Some(self.place_expr(&Place::Local(*local))?.into_string()))
     }
 
     /// The per-entry value erasure for a dict operand crossing into `unknown`.
@@ -666,8 +661,9 @@ impl FunctionEmitter<'_> {
             }
             Some(Type::Optional(inner)) => {
                 let value_wrap = self.erase_rendered(&RustExpr::path("smelt_value"), *inner)?;
+                let absent = self.optional_absent_value(*inner);
                 Ok(RustExpr::postfix_on(value.expr(), self.carrier_format(self.carrier()?, format_args!(
-                    "{}.clone().map_or(SmeltUnknown::Undefined, |smelt_value| {value_wrap})",
+                    "{}.clone().map_or({absent}, |smelt_value| {value_wrap})",
                     value.parenthesized_if_needed(), value_wrap = value_wrap.delimited()
                 ))))
             }

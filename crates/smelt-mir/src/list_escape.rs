@@ -1325,5 +1325,22 @@ macro_rules! define_list_facts {
 
 smelt_hir::for_each_op!(define_list_facts);
 
+/// The operands `value` stores into a container, field, index or global.
+///
+/// A handle on each one is reachable from that destination after the
+/// statement runs (`list.push(item)` stores `item`; `[a, b]` stores both).
+///
+/// Read from the same role table the list analysis uses (the op table's
+/// `@STORED` fields and the hand-written container literals), so a new
+/// storing operation is classified once for every client.
+#[must_use]
+pub fn rvalue_stored_operands(value: &Rvalue) -> Vec<&Operand> {
+    operand_roles(value)
+        .into_iter()
+        .filter(|(_, role)| matches!(role, OperandRole::Escapes(EscapeReason::StoredInContainer)))
+        .map(|(operand, _)| operand)
+        .collect()
+}
+
 #[cfg(test)]
 mod tests;
