@@ -123,9 +123,10 @@ fn the_impls_compare_field_with_field_at_the_records_own_types() {
          test('boxes', () => {{ expect(boxes(1)).toEqual(boxes(1)); }});\n\
          test('teams', () => {{ expect(teams(1)).toEqual(teams(1)); }});\n"
     ));
+    // The trait is part of the runtime prelude of a program that plans an impl.
+    assert!(source.contains("pub trait SmeltDeepEq {"), "no trait");
     let body = program_body(&source);
     for expected in [
-        "pub trait SmeltDeepEq {",
         "impl SmeltDeepEq for Team {",
         "let (smelt_left, smelt_right) = (self, other);",
         "smelt_live_deep_eq(smelt_left.lead.clone(), smelt_right.lead.clone()) && (smelt_left.size == smelt_right.size || (smelt_left.size.is_nan() && smelt_right.size.is_nan()))",
