@@ -766,6 +766,7 @@ impl FunctionEmitter<'_> {
                     &RustExpr::path("smelt_record_map"),
                     &rebuild,
                     &subclass_origins,
+                    self.context.is_live_record(*name),
                 )
             } else {
                 rebuild

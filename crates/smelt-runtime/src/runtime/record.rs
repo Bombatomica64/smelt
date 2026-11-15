@@ -24,7 +24,7 @@ impl<K, V> Clone for SmeltRecord<K, V> {
 impl<K, V> serde::Serialize for SmeltRecord<K, V> where K: Eq + ::std::hash::Hash + Clone + serde::Serialize, V: serde::Serialize {
     //~ Serialize record entries in JavaScript insertion order.
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let store = self.store.borrow();
+        /*@if live_views*/self.store.sync(); /*@end*/let store = self.store.borrow();
         let mut map = serde::Serializer::serialize_map(serializer, Some(store.len()))?;
         for entry in store.entries() { serde::ser::SerializeMap::serialize_entry(&mut map, &entry.key, &entry.value)?; }
         serde::ser::SerializeMap::end(map)
@@ -99,6 +99,13 @@ pub trait SmeltPropertyKey {
     fn smelt_key_fingerprint(&self) -> u32;
     //~ Whether this key is in the runtime's internal `__smelt` namespace.
     fn smelt_is_internal_key(&self) -> bool;
+// @smelt:if live_views
+    //~ The JavaScript property name this key spells, for a store that is a
+    //~ live view of a typed record (`live_view.rs`). Only a JavaScript string
+    //~ key names a record's property; no other key type is ever a view's.
+    #[inline]
+    fn smelt_live_key(&self) -> Option<&JsStr> { None }
+// @smelt:end
 }
 
 impl SmeltPropertyKey for str { fn smelt_array_index(&self) -> Option<u32> { smelt_canonical_array_index(self) } #[inline] fn smelt_key_hash(&self) -> u64 { smelt_field_hash_bytes(self.as_bytes()) } #[inline] fn smelt_key_fingerprint(&self) -> u32 { smelt_field_fingerprint(self.as_bytes()) } #[inline] fn smelt_is_internal_key(&self) -> bool { self.starts_with("__smelt") } }
@@ -106,8 +113,8 @@ impl SmeltPropertyKey for String { fn smelt_array_index(&self) -> Option<u32> { 
 // @smelt:if js_string
 //~ A JavaScript string key hashes its code units' bytes, which `JsString`
 //~ and the borrowed `JsStr` share, so a `&JsStr` lookup finds a stored key.
-impl SmeltPropertyKey for JsStr { fn smelt_array_index(&self) -> Option<u32> { if self.len() > 10 || !self.units().iter().all(|unit| (u16::from(b'0')..=u16::from(b'9')).contains(unit)) { return None; } smelt_canonical_array_index(&self.to_string_lossy()) } #[inline] fn smelt_key_hash(&self) -> u64 { smelt_field_hash_bytes(self.byte_view()) } #[inline] fn smelt_key_fingerprint(&self) -> u32 { smelt_field_fingerprint(self.byte_view()) } #[inline] fn smelt_is_internal_key(&self) -> bool { self.eq_str_prefix("__smelt") } }
-impl SmeltPropertyKey for JsString { fn smelt_array_index(&self) -> Option<u32> { (**self).smelt_array_index() } #[inline] fn smelt_key_hash(&self) -> u64 { (**self).smelt_key_hash() } #[inline] fn smelt_key_fingerprint(&self) -> u32 { (**self).smelt_key_fingerprint() } #[inline] fn smelt_is_internal_key(&self) -> bool { (**self).smelt_is_internal_key() } }
+impl SmeltPropertyKey for JsStr { fn smelt_array_index(&self) -> Option<u32> { if self.len() > 10 || !self.units().iter().all(|unit| (u16::from(b'0')..=u16::from(b'9')).contains(unit)) { return None; } smelt_canonical_array_index(&self.to_string_lossy()) } #[inline] fn smelt_key_hash(&self) -> u64 { smelt_field_hash_bytes(self.byte_view()) } #[inline] fn smelt_key_fingerprint(&self) -> u32 { smelt_field_fingerprint(self.byte_view()) } #[inline] fn smelt_is_internal_key(&self) -> bool { self.eq_str_prefix("__smelt") } /*@if live_views*/#[inline] fn smelt_live_key(&self) -> Option<&JsStr> { Some(self) } /*@end*/}
+impl SmeltPropertyKey for JsString { fn smelt_array_index(&self) -> Option<u32> { (**self).smelt_array_index() } #[inline] fn smelt_key_hash(&self) -> u64 { (**self).smelt_key_hash() } #[inline] fn smelt_key_fingerprint(&self) -> u32 { (**self).smelt_key_fingerprint() } #[inline] fn smelt_is_internal_key(&self) -> bool { (**self).smelt_is_internal_key() } /*@if live_views*/#[inline] fn smelt_live_key(&self) -> Option<&JsStr> { Some(self) } /*@end*/}
 // @smelt:end
 // @smelt:if js_key_order
 // @smelt:else
@@ -160,16 +167,16 @@ impl<K: Eq + ::std::hash::Hash + Clone + SmeltPropertyKey, V> SmeltRecord<K, V> 
 // @smelt:else
 //=     fn with_id_from_entries<I: IntoIterator<Item = (K, V)>>(id: usize, iter: I) -> Self { let record = Self { id, store: ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltFieldStore::default())) }; record.extend(iter); record }
 // @smelt:end
-    fn len(&self) -> usize { self.store.borrow().len() }
-    fn contains_key<Q>(&self, key: &Q) -> bool where K: ::std::borrow::Borrow<Q>, Q: Eq + ::std::hash::Hash + SmeltPropertyKey + ?Sized { self.store.borrow().contains_key(key) }
-    fn insert(&self, key: K, value: V) -> Option<V> { self.store.borrow_mut().insert(key, value) }
-    fn remove<Q>(&self, key: &Q) -> Option<V> where K: ::std::borrow::Borrow<Q>, Q: Eq + ::std::hash::Hash + SmeltPropertyKey + ?Sized { self.store.borrow_mut().remove(key) }
-    fn get<Q>(&self, key: &Q) -> Option<V> where K: ::std::borrow::Borrow<Q>, Q: Eq + ::std::hash::Hash + SmeltPropertyKey + ?Sized, V: Clone { self.store.borrow().get(key).cloned() }
-    fn iter(&self) -> ::std::vec::IntoIter<(K, V)> where V: Clone { self.store.borrow().entries().iter().map(|entry| (entry.key.clone(), entry.value.clone())).collect::<Vec<_>>().into_iter() }
-    fn keys(&self) -> ::std::vec::IntoIter<K> { self.store.borrow().entries().iter().map(|entry| entry.key.clone()).collect::<Vec<_>>().into_iter() }
-    fn values(&self) -> ::std::vec::IntoIter<V> where V: Clone { self.store.borrow().entries().iter().map(|entry| entry.value.clone()).collect::<Vec<_>>().into_iter() }
+    fn len(&self) -> usize { /*@if live_views*/self.store.sync(); /*@end*/self.store.borrow().len() }
+    fn contains_key<Q>(&self, key: &Q) -> bool where K: ::std::borrow::Borrow<Q>, Q: Eq + ::std::hash::Hash + SmeltPropertyKey + ?Sized { /*@if live_views*/if let Some(found) = self.store.live_has(key) { return found; } /*@end*/self.store.borrow().contains_key(key) }
+    fn insert(&self, key: K, value: V) -> Option<V> { /*@if live_views*/self.store.live_set(&key, &value); /*@end*/self.store.borrow_mut().insert(key, value) }
+    fn remove<Q>(&self, key: &Q) -> Option<V> where K: ::std::borrow::Borrow<Q>, Q: Eq + ::std::hash::Hash + SmeltPropertyKey + ?Sized { /*@if live_views*/self.store.sync(); /*@end*//*@if live_views*/self.store.live_remove(key); /*@end*/self.store.borrow_mut().remove(key) }
+    fn get<Q>(&self, key: &Q) -> Option<V> where K: ::std::borrow::Borrow<Q>, Q: Eq + ::std::hash::Hash + SmeltPropertyKey + ?Sized, V: Clone { /*@if live_views*/self.store.live_get(key).or_store(|| /*@end*/self.store.borrow().get(key).cloned()/*@if live_views*/)/*@end*/ }
+    fn iter(&self) -> ::std::vec::IntoIter<(K, V)> where V: Clone { /*@if live_views*/self.store.sync(); /*@end*/self.store.borrow().entries().iter().map(|entry| (entry.key.clone(), entry.value.clone())).collect::<Vec<_>>().into_iter() }
+    fn keys(&self) -> ::std::vec::IntoIter<K> { /*@if live_views*/self.store.sync(); /*@end*/self.store.borrow().entries().iter().map(|entry| entry.key.clone()).collect::<Vec<_>>().into_iter() }
+    fn values(&self) -> ::std::vec::IntoIter<V> where V: Clone { /*@if live_views*/self.store.sync(); /*@end*/self.store.borrow().entries().iter().map(|entry| entry.value.clone()).collect::<Vec<_>>().into_iter() }
     fn extend<I: IntoIterator<Item = (K, V)>>(&self, iter: I) { for (key, value) in iter { self.insert(key, value); } }
-    fn clear(&self) { *self.store.borrow_mut() = SmeltFieldStore::default(); }
+    fn clear(&self) { /*@if live_views*/if self.store.is_live() { for key in self.keys() { self.remove(&key); } return; } /*@end*/*self.store.borrow_mut() = SmeltFieldStore::default(); }
 // @smelt:if js_key_order
 // @smelt:else
     //~ Remove and return the last entry (Python `dict.popitem()`); only a
@@ -188,12 +195,51 @@ impl<K: Eq + ::std::hash::Hash + Clone + SmeltPropertyKey, V> SmeltRecord<K, V> 
     //~ absent-key case through it keeps `keys()`/`iter()` ordering identical to
     //~ the copy-back form this replaces. Takes `&self` because a record is a
     //~ reference value with interior mutability, exactly like `insert`.
-    fn entry_or_insert(&self, key: K, default: impl FnOnce() -> V) -> ::std::cell::RefMut<'_, V> {
+// @smelt:if live_views
+    //~ The guard also hands the value back to the record a live view stands
+    //~ for once the caller is done with it (`SmeltEntryMut`).
+    fn entry_or_insert(&self, key: K, default: impl FnOnce() -> V) -> SmeltEntryMut<'_, K, V> {
+        self.store.sync();
         let missing = !self.store.borrow().contains_key(&key);
         if missing { self.insert(key.clone(), default()); }
-        ::std::cell::RefMut::map(self.store.borrow_mut(), move |store| store.get_mut(&key).expect("record entry just inserted"))
+        let slot = ::std::cell::RefMut::map(self.store.borrow_mut(), { let key = key.clone(); move |store| store.get_mut(&key).expect("record entry just inserted") });
+        SmeltEntryMut { slot: Some(slot), store: &self.store, key }
+    }
+// @smelt:else
+//=     fn entry_or_insert(&self, key: K, default: impl FnOnce() -> V) -> ::std::cell::RefMut<'_, V> {
+//=         let missing = !self.store.borrow().contains_key(&key);
+//=         if missing { self.insert(key.clone(), default()); }
+//=         ::std::cell::RefMut::map(self.store.borrow_mut(), move |store| store.get_mut(&key).expect("record entry just inserted"))
+//=     }
+// @smelt:end
+}
+// @smelt:if live_views
+
+/// The entry `SmeltRecord::entry_or_insert` lends out for in-place update.
+//~
+//~ It is the store's own slot, as the plain `RefMut` it stands in for. When
+//~ the store is a live view of a typed record, dropping the guard writes the
+//~ slot's value into that record, so `view[key] = f(view[key])` fused into one
+//~ probe still reaches the object the view stands for.
+pub struct SmeltEntryMut<'a, K: Eq + ::std::hash::Hash + SmeltPropertyKey, V> {
+    slot: Option<::std::cell::RefMut<'a, V>>,
+    store: &'a SmeltStoreCell<K, V>,
+    key: K,
+}
+impl<K: Eq + ::std::hash::Hash + SmeltPropertyKey, V> ::std::ops::Deref for SmeltEntryMut<'_, K, V> {
+    type Target = V;
+    fn deref(&self) -> &V { self.slot.as_ref().expect("entry guard holds its slot until dropped") }
+}
+impl<K: Eq + ::std::hash::Hash + SmeltPropertyKey, V> ::std::ops::DerefMut for SmeltEntryMut<'_, K, V> {
+    fn deref_mut(&mut self) -> &mut V { self.slot.as_mut().expect("entry guard holds its slot until dropped") }
+}
+impl<K: Eq + ::std::hash::Hash + SmeltPropertyKey, V> Drop for SmeltEntryMut<'_, K, V> {
+    fn drop(&mut self) {
+        if !self.store.is_live() { return; }
+        if let Some(slot) = self.slot.take() { self.store.live_set(&self.key, &slot); }
     }
 }
+// @smelt:end
 
 impl<K: Eq + ::std::hash::Hash + Clone + SmeltPropertyKey, V> Default for SmeltRecord<K, V> {
     fn default() -> Self { Self::new() }
@@ -217,7 +263,7 @@ impl<K: Eq + ::std::hash::Hash + SmeltPropertyKey, V: PartialEq> PartialEq for S
     //~ Compared entry-by-entry and order-INSENSITIVELY, matching the `HashMap`
     //~ equality this replaces: JavaScript own-key order is observable through
     //~ enumeration, not through deep equality.
-    fn eq(&self, other: &Self) -> bool { let left = self.store.borrow(); let right = other.store.borrow(); left.len() == right.len() && left.entries().iter().all(|entry| right.get(&entry.key).is_some_and(|found| *found == entry.value)) }
+    fn eq(&self, other: &Self) -> bool { /*@if live_views*/self.store.sync(); other.store.sync(); /*@end*/let left = self.store.borrow(); let right = other.store.borrow(); left.len() == right.len() && left.entries().iter().all(|entry| right.get(&entry.key).is_some_and(|found| *found == entry.value)) }
 }
 
 impl<K: Eq + ::std::hash::Hash + SmeltPropertyKey, V: Eq> Eq for SmeltRecord<K, V> {}

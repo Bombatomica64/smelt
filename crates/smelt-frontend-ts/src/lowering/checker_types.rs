@@ -37,7 +37,10 @@
 //!   polymorphic `this` (Smelt's own rule maps it to the enclosing class);
 //! - a structural object type other than a single call signature (Smelt names
 //!   anonymous object shapes after their source site, which a re-spelling
-//!   cannot reproduce).
+//!   cannot reproduce), except a plain-data record for an unannotated literal
+//!   binding, spelled as its type literal (structural records are named by
+//!   structure, so it lowers to the struct the same literal written in source
+//!   lowers to).
 
 use std::fmt::Write as _;
 
@@ -50,6 +53,7 @@ use smelt_ts_model::model::{TsObjectType, TsSymbolRef, TsTupleElement, TsTupleEl
 use smelt_ts_model::{TsTypeFacts, TsTypeId, TsTypeKind};
 
 use super::ModuleBuilder;
+use super::literal_record_uses::{ArgumentUse, Disqualifier, LiteralDecision};
 
 /// The outermost kind of a value, as far as overload selection compares kinds
 /// (see [`ModuleBuilder::checker_call_value_kind`]).
@@ -200,6 +204,17 @@ impl ModuleBuilder<'_> {
         lowered
     }
 
+    /// Whether `ty` mentions a union anywhere (an optional is not one).
+    fn type_mentions_union(&self, ty: TypeId) -> bool {
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::Union(_)) => true,
+            Some(other) => other
+                .children()
+                .any(|child| self.type_mentions_union(child)),
+            None => false,
+        }
+    }
+
     /// Whether `ty` mentions `never` anywhere.
     ///
     /// A checker return such as `never[][]` (`flatMapDeep([], n => [[n]])`,
@@ -213,6 +228,188 @@ impl ModuleBuilder<'_> {
                 .any(|child| self.type_mentions_never(child)),
             None => false,
         }
+    }
+
+    /// The type TypeScript inferred for an unannotated variable whose
+    /// initializer is the object or array literal `init`, declared by the
+    /// binding at `start..end`, lowered as if the source had written it as
+    /// the annotation.
+    ///
+    /// Without an annotation the literal has no contextual type: a `Dict`
+    /// needs one value type for every key, so `{ id: 1, enabled: false }`
+    /// became `Dict<String, SmeltUnknown>` and every property read lost its
+    /// type, and a list of such records lost its elements'. The checker types
+    /// the binding `{ id: number; enabled: boolean }[]`; a hand port declares
+    /// exactly that, and the re-spelled annotation lowers to the struct the
+    /// same written annotation gives (`decls::anonymous_record`, named by
+    /// structure). Only the binding's own declaration takes it: a literal in
+    /// any other position flows into a slot whose type is the authority, and
+    /// the checker's view of the bare expression may be narrower than it.
+    ///
+    /// Only a fully representable answer is taken: its lowering records no
+    /// erasure (an `any` element, an open layout), and it holds no union
+    /// (`[true, null, 1, 'a']` is a list of a union codegen would erase, where
+    /// the mixed literal already erases once) and no `never`.
+    ///
+    /// And only when the binding's uses allow it: a struct is copied wherever
+    /// it is converted, so a literal whose identity, key set or key order is
+    /// observed, or that is passed, returned or stored, keeps the map lowering
+    /// (`literal_record_uses`, which also leaves alone every literal that
+    /// holds no object literal, a spread, or a value produced elsewhere).
+    pub(in crate::lowering) fn checker_literal_binding_type(
+        &mut self,
+        start: u32,
+        end: u32,
+    ) -> Option<TypeId> {
+        // The struct is taken only when every use of the binding keeps the
+        // value typed (`literal_record_uses`): a literal whose identity, key
+        // set or key order is observed, or that is passed, returned or stored
+        // somewhere a struct would be copied into, stays the map it was.
+        let decision = self.literal_record_uses.decision(start)?;
+        let trace = std::env::var_os("SMELT_LITERAL_RECORD_TRACE").is_some();
+        // A use as an argument is safe when the callee's parameter shares
+        // the caller's object, which only the checker's view of the callee
+        // can say (`checker_argument_shares`).
+        let decision = match decision {
+            LiteralDecision::Struct(arguments) => {
+                match arguments
+                    .iter()
+                    .find(|argument| !self.checker_argument_shares(argument))
+                {
+                    Some(argument) => {
+                        #[expect(
+                            clippy::print_stderr,
+                            reason = "SMELT_LITERAL_RECORD_TRACE is an opt-in developer trace"
+                        )]
+                        if trace {
+                            // Which callee kept the map, for the cost table.
+                            let callee = self.ts_facts.and_then(|facts| {
+                                let id = facts.type_id_at(
+                                    &self.path,
+                                    argument.callee_start,
+                                    argument.callee_end,
+                                )?;
+                                facts.types.get(id).map(|ty| format!("{:?}", ty.kind))
+                            });
+                            eprintln!(
+                                "literal-record {}:{start} call-declined-at {}..{} argument {} callee {}",
+                                self.path,
+                                argument.callee_start,
+                                argument.callee_end,
+                                argument.index,
+                                callee.map_or_else(
+                                    || "untyped".to_owned(),
+                                    |kind| kind.chars().take(160).collect()
+                                ),
+                            );
+                        }
+                        LiteralDecision::Map(Disqualifier::Call)
+                    }
+                    None => LiteralDecision::Struct(arguments),
+                }
+            }
+            map @ LiteralDecision::Map(_) => map,
+        };
+        if let LiteralDecision::Map(disqualifier) = decision {
+            #[expect(
+                clippy::print_stderr,
+                reason = "SMELT_LITERAL_RECORD_TRACE is an opt-in developer trace"
+            )]
+            if trace {
+                // Measurement only: whether the checker's type would have been
+                // taken, so each disqualifier's cost can be counted.
+                // The trial may declare a record struct nothing uses, so a
+                // traced build is for counting, not for shipping.
+                let taken = self.checker_record_type(start, end).is_some();
+                eprintln!(
+                    "literal-record {}:{start} map {} checker={}",
+                    self.path,
+                    disqualifier.name(),
+                    if taken { "taken" } else { "declined" },
+                );
+            }
+            return None;
+        }
+        let lowered = self.checker_record_type(start, end);
+        #[expect(
+            clippy::print_stderr,
+            reason = "SMELT_LITERAL_RECORD_TRACE is an opt-in developer trace"
+        )]
+        if trace {
+            eprintln!(
+                "literal-record {}:{start} struct checker={}",
+                self.path,
+                if lowered.is_some() {
+                    "taken"
+                } else {
+                    "declined"
+                },
+            );
+        }
+        lowered
+    }
+
+    /// Whether the callee of `argument` shares the caller's object at that
+    /// argument position: every signature the checker resolved for it takes,
+    /// there, a slot a record crosses into without being converted to
+    /// another record (see [`checker_slot_shares`]).
+    ///
+    /// # Why this is a general rule and not a list of callees
+    ///
+    /// A record that crosses into `unknown`, `any`, a type parameter or
+    /// `Record<K, V>` is seen there through a live view of itself
+    /// (`smelt-codegen-rust/src/emitter/live_view.rs`): whatever the callee
+    /// does (write, add or delete a property, keep the value, compare it,
+    /// return it) happens to the caller's object, as in JavaScript. So no
+    /// callee has to be known by name: `console.log`, `JSON.stringify`,
+    /// `Object.keys` and the test framework's matchers pass because their
+    /// parameters are `any` or generic, like any user function's.
+    ///
+    /// A parameter of a DIFFERENT record type (an interface, a named or
+    /// inline object type with properties) still converts by building that
+    /// record, a copy, so such a call keeps the literal a map. `false` too
+    /// when the checker has no type for the callee.
+    fn checker_argument_shares(&self, argument: &ArgumentUse) -> bool {
+        let Some(facts) = self.ts_facts else {
+            return false;
+        };
+        let Some(callee) = facts.type_id_at(&self.path, argument.callee_start, argument.callee_end)
+        else {
+            return false;
+        };
+        callee_signatures(facts, callee, argument.construct, 0).is_some_and(|signatures| {
+            signatures.iter().all(|signature| {
+                // An argument past the declared parameters is evaluated
+                // and dropped.
+                signature_parameter(facts, signature, argument.index)
+                    .is_none_or(|parameter| checker_slot_shares(facts, parameter, 0))
+            })
+        })
+    }
+
+    /// The checker's type for the binding at `start..end`, lowered with
+    /// plain-data object types as records, when it is fully representable
+    /// (see [`Self::checker_literal_binding_type`]).
+    fn checker_record_type(&mut self, start: u32, end: u32) -> Option<TypeId> {
+        let facts = self.ts_facts?;
+        let id = facts.type_id_at(&self.path, start, end)?;
+        if checker_type_joins_null_and_undefined(facts, id, 0)
+            || checker_type_has_present_undefined_property(facts, id, 0)
+        {
+            return None;
+        }
+        let records_before = self.ctx.krate.erasures.len();
+        let lowered = self
+            .respell_and_lower_spelling(facts, id, start, end, true)
+            .filter(|ty| {
+                self.ctx.krate.erasures.len() == records_before
+                    && !self.type_mentions_never(*ty)
+                    && !self.type_mentions_union(*ty)
+            });
+        if lowered.is_none() {
+            self.ctx.krate.erasures.truncate(records_before);
+        }
+        lowered
     }
 
     /// The outermost kind of the type the checker resolved the call at
@@ -331,6 +528,19 @@ impl ModuleBuilder<'_> {
         start: u32,
         end: u32,
     ) -> Option<TypeId> {
+        self.respell_and_lower_spelling(facts, id, start, end, false)
+    }
+
+    /// [`Self::respell_and_lower`], spelling plain-data object types as type
+    /// literals when `records` is set (see [`Respeller::plain_record`]).
+    fn respell_and_lower_spelling(
+        &mut self,
+        facts: &TsTypeFacts,
+        id: TsTypeId,
+        start: u32,
+        end: u32,
+        records: bool,
+    ) -> Option<TypeId> {
         let top = facts.types.get(id)?;
         if matches!(
             top.kind,
@@ -348,6 +558,7 @@ impl ModuleBuilder<'_> {
             builder: self,
             facts,
             annotation: (start, end),
+            records,
         }
         .respell(id, 0)?;
         self.lower_respelled_annotation(&text, start, end)
@@ -457,6 +668,13 @@ struct Respeller<'builder, 'ctx> {
     facts: &'builder TsTypeFacts,
     /// Byte span of the annotation being re-spelled, in the builder's file.
     annotation: (u32, u32),
+    /// Whether plain-data object types are spelled as type literals. Only an
+    /// unannotated literal binding asks for it
+    /// ([`ModuleBuilder::checker_literal_binding_type`]): there the object
+    /// type IS the literal's shape, while an object type the checker computes
+    /// for an annotation (`ReturnType<..>` of a branded function) is the
+    /// result of type-level operations Smelt's other lowering owns.
+    records: bool,
 }
 
 impl Respeller<'_, '_> {
@@ -530,6 +748,7 @@ impl Respeller<'_, '_> {
             TsTypeKind::Named {
                 symbol,
                 type_arguments,
+                ..
             } => {
                 if is_node_timer_handle(symbol) {
                     return Some("number".to_owned());
@@ -540,7 +759,11 @@ impl Respeller<'_, '_> {
                     None
                 }
             }
-            TsTypeKind::Object(object) => self.callable(object, depth),
+            TsTypeKind::Object(object) => self.callable(object, depth).or_else(|| {
+                self.records
+                    .then(|| self.plain_record(object, depth))
+                    .flatten()
+            }),
             TsTypeKind::Any
             | TsTypeKind::Unknown
             | TsTypeKind::Never
@@ -623,6 +846,43 @@ impl Respeller<'_, '_> {
         ))
     }
 
+    /// A plain-data structural type (named properties only), as a type literal.
+    ///
+    /// `{ id: number; enabled: boolean }` is spelled as written, so it lowers
+    /// exactly as the same type literal written in source does: a shared
+    /// value type keeps the `Dict` lowering, differing ones the synthesized
+    /// struct `decls::anonymous_record` names by structure, the same struct
+    /// for the same shape wherever it is spelled. A type with call, construct
+    /// or index signatures, with no property, or with a property name that
+    /// cannot be written as a key is declined.
+    fn plain_record(&self, object: &TsObjectType, depth: usize) -> Option<String> {
+        if object.properties.is_empty()
+            || !object.call_signatures.is_empty()
+            || !object.construct_signatures.is_empty()
+            || !object.index_signatures.is_empty()
+        {
+            return None;
+        }
+        let members = object
+            .properties
+            .iter()
+            .map(|property| {
+                let key = if is_identifier(&property.name) {
+                    property.name.clone()
+                } else if property.name.starts_with("__@") {
+                    // A symbol-keyed property: no source key spells it.
+                    return None;
+                } else {
+                    string_literal(&property.name)
+                };
+                let ty = self.respell(property.ty, depth)?;
+                let optional = if property.optional { "?" } else { "" };
+                Some(format!("{key}{optional}: {ty};"))
+            })
+            .collect::<Option<Vec<_>>>()?;
+        Some(format!("{{ {} }}", members.join(" ")))
+    }
+
     /// A structural type that is exactly one call signature, as a function type.
     fn callable(&self, object: &TsObjectType, depth: usize) -> Option<String> {
         let [signature] = object.call_signatures.as_slice() else {
@@ -677,6 +937,125 @@ fn checker_type_children(facts: &TsTypeFacts, id: TsTypeId) -> Vec<TsTypeId> {
     }
 }
 
+/// The signatures a call (or, with `construct`, a `new`) of a value of type
+/// `callee` resolves among; `None` when the checker's type says nothing a
+/// call can be judged by.
+///
+/// - `any` (an unresolved import, an untyped value): no signature, every
+///   argument is taken as `any`, so the empty list (which admits anything);
+/// - an object type or a callable interface: its call or construct signatures;
+/// - an intersection (`F & { mock: .. }`): the signatures of the members that
+///   have any, since the call resolves among all of them;
+/// - anything else, or a callable type with no signature of the asked kind:
+///   `None`.
+fn callee_signatures(
+    facts: &TsTypeFacts,
+    callee: TsTypeId,
+    construct: bool,
+    depth: usize,
+) -> Option<Vec<&smelt_ts_model::model::TsSignature>> {
+    if depth > 4 {
+        return None;
+    }
+    let signatures: Vec<_> = match &facts.types.get(callee)?.kind {
+        TsTypeKind::Any => return Some(Vec::new()),
+        TsTypeKind::Object(object) if construct => object.construct_signatures.iter().collect(),
+        TsTypeKind::Object(object) => object.call_signatures.iter().collect(),
+        TsTypeKind::Named {
+            call_signatures, ..
+        } if !construct => call_signatures.iter().collect(),
+        TsTypeKind::Intersection(members) => members
+            .iter()
+            .filter_map(|member| callee_signatures(facts, *member, construct, depth + 1))
+            .flatten()
+            .collect(),
+        _ => return None,
+    };
+    (!signatures.is_empty()).then_some(signatures)
+}
+
+/// The type `signature` gives the argument at `index`: the parameter there,
+/// or the element type of a rest parameter that collects it; `None` when the
+/// signature declares no parameter for it.
+fn signature_parameter(
+    facts: &TsTypeFacts,
+    signature: &smelt_ts_model::model::TsSignature,
+    index: usize,
+) -> Option<TsTypeId> {
+    let last = signature.parameters.len().checked_sub(1)?;
+    if signature.has_rest && index >= last {
+        let rest = signature.parameters.get(last)?.ty;
+        return Some(match facts.types.get(rest).map(|ty| &ty.kind) {
+            Some(TsTypeKind::Array { element, .. }) => *element,
+            // A rest parameter of any other type (a tuple, a type parameter)
+            // is judged whole.
+            _ => rest,
+        });
+    }
+    signature
+        .parameters
+        .get(index)
+        .map(|parameter| parameter.ty)
+}
+
+/// Whether a record value handed to a slot the checker types `ty` is the
+/// caller's object there.
+///
+/// True for the slots that hold a VIEW of the record (`any`, `unknown`,
+/// `object`, `{}`, an index-signature dictionary, a type the checker left
+/// unevaluated, a type parameter, which is either a real Rust generic holding
+/// the record itself or erased) and for the types a record is never assigned
+/// to (primitives, `null`, `undefined`: the other members of a union). False
+/// for a type with declared properties or a class or interface name, where
+/// the generated Rust builds that other record, and for anything not judged
+/// here (an intersection, a truncated type). An array or a tuple is judged by
+/// its elements.
+fn checker_slot_shares(facts: &TsTypeFacts, ty: TsTypeId, depth: usize) -> bool {
+    if depth > 8 {
+        return false;
+    }
+    let Some(ty) = facts.types.get(ty) else {
+        return false;
+    };
+    match &ty.kind {
+        TsTypeKind::Any
+        | TsTypeKind::Unknown
+        | TsTypeKind::NonPrimitive
+        | TsTypeKind::TypeParameter { .. }
+        | TsTypeKind::Deferred(_)
+        | TsTypeKind::Never
+        | TsTypeKind::Void
+        | TsTypeKind::Undefined
+        | TsTypeKind::Null
+        | TsTypeKind::String
+        | TsTypeKind::Number
+        | TsTypeKind::Boolean
+        | TsTypeKind::BigInt
+        | TsTypeKind::Symbol
+        | TsTypeKind::StringLiteral(_)
+        | TsTypeKind::NumberLiteral(_)
+        | TsTypeKind::BooleanLiteral(_)
+        | TsTypeKind::BigIntLiteral(_)
+        | TsTypeKind::UniqueSymbol
+        | TsTypeKind::EnumMember { .. } => true,
+        TsTypeKind::Union { members, .. } => members
+            .iter()
+            .all(|member| checker_slot_shares(facts, *member, depth + 1)),
+        // An array of records crosses element by element.
+        TsTypeKind::Array { element, .. } => checker_slot_shares(facts, *element, depth + 1),
+        TsTypeKind::Object(object) => {
+            object.properties.is_empty()
+                && object.call_signatures.is_empty()
+                && object.construct_signatures.is_empty()
+        }
+        // A tuple of records crosses element by element, like an array.
+        TsTypeKind::Tuple { elements, .. } => elements
+            .iter()
+            .all(|element| checker_slot_shares(facts, element.ty, depth + 1)),
+        TsTypeKind::Named { .. } | TsTypeKind::Intersection(_) | TsTypeKind::Truncated => false,
+    }
+}
+
 /// Whether checker type `id` holds a union of both `null` and `undefined`.
 ///
 /// Smelt carries `T | null | undefined` as one `Option<T>`, which is the
@@ -704,6 +1083,48 @@ fn checker_type_joins_null_and_undefined(facts: &TsTypeFacts, id: TsTypeId, dept
     checker_type_children(facts, id)
         .into_iter()
         .any(|child| checker_type_joins_null_and_undefined(facts, child, depth + 1))
+}
+
+/// Whether checker type `id` holds an object with a REQUIRED property whose
+/// type admits `undefined` (`{ b: undefined, c: 3 }`).
+///
+/// Such a property is present even when its value is `undefined` (`'b' in
+/// source` holds), while a struct field holding `Option<T>` erases an empty
+/// value by omitting the key, so a literal of that shape is declined. An
+/// optional property (`b?: T`) is absent-or-valued and representable.
+fn checker_type_has_present_undefined_property(
+    facts: &TsTypeFacts,
+    id: TsTypeId,
+    depth: usize,
+) -> bool {
+    if depth > MAX_DEPTH {
+        return false;
+    }
+    if let Some(TsTypeKind::Object(object)) = facts.types.get(id).map(|ty| &ty.kind)
+        && object
+            .properties
+            .iter()
+            .any(|property| !property.optional && checker_type_admits_undefined(facts, property.ty))
+    {
+        return true;
+    }
+    checker_type_children(facts, id)
+        .into_iter()
+        .any(|child| checker_type_has_present_undefined_property(facts, child, depth + 1))
+}
+
+/// Whether checker type `id` is `undefined`/`void` or a union with such a member.
+fn checker_type_admits_undefined(facts: &TsTypeFacts, id: TsTypeId) -> bool {
+    match facts.types.get(id).map(|ty| &ty.kind) {
+        Some(TsTypeKind::Undefined | TsTypeKind::Void) => true,
+        Some(TsTypeKind::Union { members, .. }) => members.iter().any(|member| {
+            matches!(
+                facts.types.get(*member).map(|ty| &ty.kind),
+                Some(TsTypeKind::Undefined | TsTypeKind::Void)
+            )
+        }),
+        _ => false,
+    }
 }
 
 /// The keyword spelling of an intrinsic kind.

@@ -197,7 +197,12 @@ mod smelt_prop_key {
         //~ the values change representation.
         pub fn from_unknown_with(value: SmeltUnknown, mut item: impl FnMut(SmeltUnknown) -> V) -> Self { match value { SmeltUnknown::Object(values) => Self::of(SmeltRecord::with_id_from_entries(values.id, values.into_iter().map(|(key, value)| (key, item(value))))), SmeltUnknown::Array(values) => values.into_vec().into_iter().enumerate().map(|(index, value)| (index.smelt_to_prop_key(), item(value))).collect(), _ => Self::new() } }
         //~ The value at `key`, inserting `default()` first when it is absent.
-        pub fn entry_or_insert(&mut self, key: SmeltPropKey, default: impl FnOnce() -> V) -> ::std::cell::RefMut<'_, V> { self.record.entry_or_insert(key.storage_key(), default) }
+// @smelt:if live_views
+        //~ With live views the record lends out its write-back guard (`SmeltEntryMut`).
+        pub fn entry_or_insert(&mut self, key: SmeltPropKey, default: impl FnOnce() -> V) -> impl ::std::ops::DerefMut<Target = V> + '_ { self.record.entry_or_insert(key.storage_key(), default) }
+// @smelt:else
+//=         pub fn entry_or_insert(&mut self, key: SmeltPropKey, default: impl FnOnce() -> V) -> ::std::cell::RefMut<'_, V> { self.record.entry_or_insert(key.storage_key(), default) }
+// @smelt:end
     }
 
     impl<V: Clone> SmeltPropKeyRecord<V> {

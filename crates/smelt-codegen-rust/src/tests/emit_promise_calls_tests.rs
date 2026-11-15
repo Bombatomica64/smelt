@@ -407,7 +407,7 @@ fn injects_genawaiter_dependency_for_generator_emission() {
 
     let manifest = deps::cargo_toml(
         &EmitOptions::default().crate_name,
-        &generated_deps(&RuntimeDemand::of(&mir)),
+        &generated_deps(&RuntimeDemand::of(&mir, &classify::reference_classes(&mir))),
         GeneratedAllocator::System,
         &EmitOptions::default().with_release_profile(ReleaseProfile::Optimized),
     );

@@ -143,6 +143,11 @@ pub enum TsTypeKind {
         symbol: TsSymbolRef,
         /// Instantiated type arguments, one per declared type parameter.
         type_arguments: Vec<TsTypeId>,
+        /// Call signatures of a callable interface (`interface F { (x: T): R }`);
+        /// empty for every other class or interface. The one part of a named
+        /// type's structure the facts expand, because a call through a value
+        /// of the type is typed by them alone.
+        call_signatures: Vec<TsSignature>,
     },
     /// An anonymous, mapped or object-literal type, expanded to its resolved members.
     Object(TsObjectType),
