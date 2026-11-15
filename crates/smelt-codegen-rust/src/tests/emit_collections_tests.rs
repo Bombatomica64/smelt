@@ -3,17 +3,22 @@
 use super::*;
 
 /// A concrete numeric list cannot share storage with a list of tagged values.
+///
+/// Old requirement: the erasure copies the elements into a new tagged buffer
+/// (`SmeltUnknown::Number(..)` .. `collect::<Vec<_>>()`). New requirement: the
+/// erasure is the live view of the typed list (`into_live_smelt_unknown`,
+/// the runtime's `SmeltLiveList`), which converts each element it touches and
+/// keeps no buffer of its own, so a write through either handle is seen by
+/// the other, as for the one JavaScript array both name. The guarantee this
+/// test protects is unchanged: the `f64` storage is never handed out as a
+/// list of tagged values (the alias boundary below).
 #[test]
 fn concrete_list_erasure_still_converts_elements() {
     let source = source_for(include_str!("../../tests/fixtures/erased_generic_list.ts"));
     let body = emitted_function_body(&source, "fn concrete_array");
     assert!(
-        body.contains("SmeltUnknown::Number("),
-        "concrete numeric elements still need conversion into tagged values: {body}"
-    );
-    assert!(
-        body.contains("collect::<Vec<_>>()"),
-        "different element representations require a new buffer: {body}"
+        body.contains(".into_live_smelt_unknown()"),
+        "a concrete list erases to its live view, which converts per element: {body}"
     );
     assert!(
         !body.contains(ERASED_GENERIC_ARRAY_ALIAS_FN),
@@ -918,7 +923,7 @@ export function run(inputs: number[][]): unknown {
         r#"fn run(inputs: SmeltList<SmeltList<f64>>) -> SmeltUnknown {
 let _smelt_tmp_1: SmeltList<SmeltList<SmeltUnknown>> = Into::<SmeltList<_>>::into({ let smelt_l: SmeltList<_> = inputs.clone().into(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|smelt_value| { let smelt_l: SmeltList<_> = smelt_value.clone().into(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|smelt_value| SmeltUnknown::Number(smelt_value as f64)).collect::<Vec<_>>()) }).collect::<Vec<_>>()) });
 let _smelt_tmp_2: SmeltList<SmeltList<f64>> = { let smelt_l: SmeltList<_> = cartesian_product(_smelt_tmp_1).clone().into(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|smelt_value| { let smelt_l: SmeltList<_> = smelt_value.clone().into(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|smelt_value| match smelt_value.clone() { SmeltUnknown::Number(smelt_value) => smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get("__smelt_date") { Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }, SmeltUnknown::String(smelt_value) => smelt_js_string_to_number(&smelt_value), SmeltUnknown::Bool(smelt_value) => if smelt_value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }).collect::<Vec<_>>()) }).collect::<Vec<_>>()) };
-return { let smelt_l = _smelt_tmp_2; let smelt_id = smelt_l.id(); let smelt_values: Vec<_> = smelt_l.into(); SmeltUnknown::Array(SmeltArray::with_id(smelt_id, smelt_values.into_iter().map(|smelt_value| { let smelt_l = smelt_value; let smelt_id = smelt_l.id(); let smelt_values: Vec<_> = smelt_l.into(); SmeltUnknown::Array(SmeltArray::with_id(smelt_id, smelt_values.into_iter().map(|smelt_value| SmeltUnknown::Number(smelt_value as f64)).collect::<Vec<_>>())) }).collect::<Vec<_>>())) };
+return SmeltList::clone(&_smelt_tmp_2).into_live_smelt_unknown();
 }"#
     );
 }

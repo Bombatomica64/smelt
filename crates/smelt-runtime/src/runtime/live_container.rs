@@ -151,3 +151,97 @@ impl<T: IntoSmeltUnknown + SmeltFromUnknown + Clone + ::std::cmp::Eq + ::std::ha
 }
 // @smelt:end
 // @smelt:item-end
+
+// Live erased views of typed arrays.
+//
+// The same contract as a live `Map`/`Set`, for `Array`: a JavaScript array is
+// ONE object, so erasing a typed `SmeltList<T>` (`into_live_smelt_unknown`,
+// chosen by the emitter when `T` can be rebuilt from the erased carrier) gives
+// a `SmeltArray` whose elements ARE the typed list's. The array keeps no buffer
+// of its own: every access (`len`, an index read or write, `push`, `splice`,
+// a `length` write, `sort`) goes through `SmeltLiveList` to the typed storage,
+// converting the elements it touches, so each costs what the typed operation
+// costs plus one conversion per element, and nothing is ever stale. Narrowing
+// the view back to `SmeltList<T>` hands out the SAME typed handle
+// (`SmeltArray::live_typed`). A copy (`[...view]`, `Array.from(view)`,
+// `slice`) snapshots the elements into an ordinary erased array, independent
+// as in JavaScript.
+//
+// A value written through the view is converted to `T` (`SmeltFromUnknown`):
+// the static type says every element is a `T`, so a write of another kind
+// (only possible through `any`) stores `T`'s conversion of it.
+
+// @smelt:item SmeltLiveList when unknown & live_arrays
+/// The typed list behind a live erased array, seen element by element as erased values.
+trait SmeltLiveList {
+    //~ Element count.
+    fn element_count(&self) -> usize;
+    //~ The element at `index`, erased, or `None` past the end.
+    fn element(&self, index: usize) -> Option<SmeltUnknown>;
+    //~ Store `value` at `index`, growing the list with `undefined`'s conversion as JS leaves holes.
+    fn set_element(&self, index: usize, value: SmeltUnknown);
+    //~ Every element, erased: a copy.
+    fn elements(&self) -> Vec<SmeltUnknown>;
+    //~ Remove `delete` elements at `start`, insert `items` there, answer the removed ones erased.
+    fn splice_elements(&self, start: usize, delete: usize, items: Vec<SmeltUnknown>) -> Vec<SmeltUnknown>;
+    //~ Replace every element in place.
+    fn replace_elements(&self, values: Vec<SmeltUnknown>);
+    //~ The typed list itself, for narrowing back to it.
+    fn typed_list(&self) -> &dyn ::std::any::Any;
+    //~ Whether `value` survives the round trip through the element type, so
+    //~ storing it in the typed list loses nothing.
+    fn holds(&self, value: &SmeltUnknown) -> bool;
+}
+
+impl<T: IntoSmeltUnknown + SmeltFromUnknown + Clone + 'static> SmeltLiveList for SmeltList<T> {
+    fn element_count(&self) -> usize { self.borrow().len() }
+    fn element(&self, index: usize) -> Option<SmeltUnknown> { self.borrow().get(index).cloned().map(IntoSmeltUnknown::into_smelt_unknown) }
+    fn set_element(&self, index: usize, value: SmeltUnknown) { let mut values = self.borrow_mut(); if index >= values.len() { values.resize_with(index.saturating_add(1), || T::smelt_from_unknown(SmeltUnknown::Undefined)); } values[index] = T::smelt_from_unknown(value); }
+    fn elements(&self) -> Vec<SmeltUnknown> { self.borrow().iter().cloned().map(IntoSmeltUnknown::into_smelt_unknown).collect() }
+    fn splice_elements(&self, start: usize, delete: usize, items: Vec<SmeltUnknown>) -> Vec<SmeltUnknown> { let mut values = self.borrow_mut(); let start = start.min(values.len()); let end = start.saturating_add(delete).min(values.len()); values.splice(start..end, items.into_iter().map(T::smelt_from_unknown)).map(IntoSmeltUnknown::into_smelt_unknown).collect() }
+    fn replace_elements(&self, values: Vec<SmeltUnknown>) { *self.borrow_mut() = values.into_iter().map(T::smelt_from_unknown).collect(); }
+    fn typed_list(&self) -> &dyn ::std::any::Any { self }
+    fn holds(&self, value: &SmeltUnknown) -> bool { smelt_live_same_content(&T::smelt_from_unknown(value.clone()).into_smelt_unknown(), value, 0) }
+}
+
+/// Whether two erased values hold the same content, ignoring object identity.
+//~
+//~ The question `SmeltLiveList::holds` asks: a value's round trip through
+//~ the element type is a NEW object carrying the source's id (a record's
+//~ erasure keeps its id), so identity would answer "same" for exactly the
+//~ conversions that lost something. Content is compared instead: primitives
+//~ by value (`NaN` matching `NaN`), arrays element-wise, objects key by key in
+//~ both directions. Past a fixed depth (a cycle, or a structure too deep to be
+//~ worth walking) the answer is "different", which only detaches the view
+//~ early: the safe direction.
+fn smelt_live_same_content(left: &SmeltUnknown, right: &SmeltUnknown, depth: usize) -> bool {
+    if depth > 32 { return false; }
+    match (left, right) {
+        (SmeltUnknown::Number(left), SmeltUnknown::Number(right)) => left.to_bits() == right.to_bits() || (left.is_nan() && right.is_nan()),
+        (SmeltUnknown::Array(left), SmeltUnknown::Array(right)) => { let (left, right) = (left.clone().into_vec(), right.clone().into_vec()); left.len() == right.len() && left.iter().zip(&right).all(|(left, right)| smelt_live_same_content(left, right, depth + 1)) }
+        (SmeltUnknown::Object(left), SmeltUnknown::Object(right)) => { let left_entries = left.iter().collect::<Vec<_>>(); let right_count = right.iter().count(); left_entries.len() == right_count && left_entries.iter().all(|(key, value)| right.get(&*key.to_string_lossy()).is_some_and(|other| smelt_live_same_content(value, &other, depth + 1))) }
+        (left, right) => left == right,
+    }
+}
+
+impl<T: IntoSmeltUnknown + SmeltFromUnknown + Clone + 'static> SmeltList<T> {
+    //~ Erase this list to a LIVE view: the erased array whose elements are this list's.
+    fn into_live_smelt_unknown(self) -> SmeltUnknown { SmeltUnknown::Array(SmeltArray { id: self.id(), values: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new())), detached: false, live: Some(::std::rc::Rc::new(::std::cell::RefCell::new(Some(::std::rc::Rc::new(self))))) }) }
+}
+
+impl SmeltArray {
+    //~ The typed list this array is a live view of, when it is a `SmeltList<T>`: the same handle, not a copy.
+    fn live_typed<T: 'static>(&self) -> Option<SmeltList<T>> { self.live_view()?.typed_list().downcast_ref::<SmeltList<T>>().cloned() }
+    //~ The typed list this array is still a live view of.
+    fn live_view(&self) -> Option<::std::rc::Rc<dyn SmeltLiveList>> { self.live.as_ref()?.borrow().clone() }
+    //~ The live view, for a write of `values`. A value the typed list cannot
+    //~ hold faithfully (a `number` written into a `string[]` through `any`, an
+    //~ object with more fields than the element type) DETACHES the view first:
+    //~ its elements move into the array's own erased buffer and the shared
+    //~ cell lets go of the typed list, so every handle on this array goes on
+    //~ as an ordinary erased array, holding exactly what JavaScript wrote, and
+    //~ the typed list keeps what it had (the copy semantics erasure had before
+    //~ live views). `None` once detached, or when the write detaches.
+    fn live_view_for(&self, values: &[SmeltUnknown]) -> Option<::std::rc::Rc<dyn SmeltLiveList>> { let live = self.live_view()?; if values.iter().all(|value| live.holds(value)) { return Some(live); } *self.values.borrow_mut() = live.elements(); if let Some(cell) = &self.live { *cell.borrow_mut() = None; } None }
+}
+// @smelt:item-end

@@ -443,7 +443,7 @@ impl SmeltInspect for SmeltUnknown {
                 //~ An array's own named properties (a match's `index`, `input`,
                 //~ `groups`, or `arr.extra = 1`) follow its elements as `key: value`.
                 let named = smelt_array_named_properties(array.id);
-                let values = array.values.borrow();
+                let values = array.clone().into_vec();
                 let keyed = named.iter().map(|(key, value)| SmeltInspectKeyed { key, value }).collect::<Vec<_>>();
                 let entries = values.iter().map(|value| value as &dyn SmeltInspect).chain(keyed.iter().map(|entry| entry as &dyn SmeltInspect)).collect::<Vec<_>>();
                 smelt_inspect_array(ctx, depth, &entries)

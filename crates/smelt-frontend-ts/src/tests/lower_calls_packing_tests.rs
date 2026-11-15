@@ -7863,7 +7863,10 @@ function keysFromMap(input: Map<string, number>, opaque: unknown) {
     // `input.keys()` is a live iterator (`CollectionIterator`), but one that
     // `Array.from` drains where it is made is the projection itself
     // (`generator_items_expr`), so the drained list is a `DictProjection`.
-    ensure_exprs!(&ctx, DictProjection, Len, UnknownCast);
+    // `Array.from(opaque)` used to be an `UnknownCast` of the erased value,
+    // which aliased an erased array; it is now a copy of it (`ListCopy`), a
+    // NEW array as in JavaScript.
+    ensure_exprs!(&ctx, DictProjection, Len, ListCopy);
     Ok(())
 }
 
