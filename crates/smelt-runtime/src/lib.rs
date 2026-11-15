@@ -117,6 +117,7 @@ mod runtime {
     include!("runtime/http_server.rs");
     include!("runtime/identity.rs");
     include!("runtime/js_map.rs");
+    include!("runtime/live_container.rs");
     include!("runtime/js_set.rs");
     include!("runtime/js_string.rs");
     include!("runtime/json_indent.rs");

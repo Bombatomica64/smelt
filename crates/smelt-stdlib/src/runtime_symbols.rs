@@ -477,6 +477,13 @@ pub mod markers {
     /// Carried under the [`SMELT_METHOD`] prefix until the program's first
     /// read of the class fills the value in (docs/design/class-prototypes.md).
     pub const SMELT_CLASS_PENDING: &str = "__smelt_class_pending";
+    /// The hook through which an erased `Map`/`Set` answers from the typed
+    /// container it was erased from (a live view, `smelt_live_container`).
+    ///
+    /// Stored under the [`SMELT_METHOD`] prefix
+    /// (`__smelt_method:__smelt_live`), so enumeration, copies and
+    /// serialization skip it like every other hidden member.
+    pub const SMELT_LIVE: &str = "__smelt_live";
     /// `__smelt_crypto_key`.
     pub const SMELT_CRYPTO_KEY: &str = "__smelt_crypto_key";
     /// `__smelt_databasesync`.
@@ -662,6 +669,7 @@ pub mod markers {
         SMELT_CLASS_FRAME,
         SMELT_CLASS_PENDING,
         SMELT_CLASS_PROTO,
+        SMELT_LIVE,
         SMELT_CRYPTO_KEY,
         SMELT_DATABASESYNC,
         SMELT_DATAVIEW,
@@ -770,6 +778,10 @@ pub mod boundary {
     pub const INTO_METHOD: &str = "into_smelt_unknown";
     /// The by-reference erasure method.
     pub const TO_METHOD: &str = "to_smelt_unknown";
+    /// The live erasure of a typed `Map`/`Set` (`smelt_live_container`): the
+    /// same boundary as [`INTO_METHOD`], with the typed container kept
+    /// behind the erased value instead of a snapshot of it.
+    pub const INTO_LIVE_METHOD: &str = "into_live_smelt_unknown";
     /// The `typeof` type-test method.
     pub const JS_TYPEOF: &str = "js_typeof";
     /// The `typeof` helper.
