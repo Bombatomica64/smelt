@@ -1,6 +1,6 @@
 # Bug-library transpile probes (TypeScript + Python)
 
-_Generated 2026-11-14 by the `library-probes` workflow (`scripts/probe_libraries.py`)._
+_Generated 2026-11-15 by the `library-probes` workflow (`scripts/probe_libraries.py`)._
 
 Each library is checked out at a pinned ref (see `.github/compat/libraries.json`), given its `.github/compat/<name>/Smelt.toml`, and run through `smelt build`. If a crate is emitted, its generated `cargo test` suite is run and counted. Otherwise every source/test file is scanned individually with `smelt dump-hir` to enumerate the full set of distinct blocker classes (single-file mode cannot resolve cross-file imports, so bare `unresolved name/identifier` errors are excluded as scan noise).
 
@@ -17,7 +17,7 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 | [hono](https://github.com/honojs/hono) | TS | **yes** | 444 / 10 | — | — | — |
 | [radash](https://github.com/sodiray/radash) | TS | **yes** | transpiled (counts unparsed) | — | — | — |
 | [ts-pattern](https://github.com/gvergnaud/ts-pattern) | TS | **yes** | transpiled (counts unparsed) | — | — | — |
-| [valibot](https://github.com/fabian-hiller/valibot) | TS | **no** | n/a | `library/src/storages/globalConfig/globalConfig.ts` | 4 | non-working Rust (4r/0s) |
+| [valibot](https://github.com/fabian-hiller/valibot) | TS | **no** | n/a | `library/src/storages/globalConfig/globalConfig.ts` | 3 | non-working Rust (3r/0s) |
 | [neverthrow](https://github.com/supermacro/neverthrow) | TS | **no** | n/a | `src/result.ts` | 1 | missing-stdlib (0r/1s) |
 | [immer](https://github.com/immerjs/immer) | TS | **no** | n/a | `__tests__/spec_ts.ts` | 1 | non-working Rust (1r/0s) |
 | [rxjs](https://github.com/ReactiveX/rxjs) | TS | **no** | n/a | `packages/observable/src/observable.ts` | 8 | non-working Rust (8r/0s) |
@@ -68,10 +68,9 @@ Each library is checked out at a pinned ref (see `.github/compat/libraries.json`
 
 | Occurrences | Files | Category | Blocker class |
 | ---: | ---: | --- | --- |
-| 1044 | 1044 | non-working Rust | module-level mutable binding initializer must be a literal for now |
+| 1046 | 1046 | non-working Rust | module-level mutable binding initializer must be a literal for now |
 | 4 | 4 | non-working Rust | string normalize requires a literal normalization form |
 | 3 | 3 | non-working Rust | module-level binding `X` holds a `X` instance that cannot be read from here; a class-typed |
-| 2 | 2 | non-working Rust | `X` is not modelled |
 
 ## neverthrow
 
