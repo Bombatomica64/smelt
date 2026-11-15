@@ -1,26 +1,50 @@
-//! Object literals that must keep the map lowering, end to end against Node.
+//! Which unannotated object literals become record structs, end to end
+//! against Node.
 //!
-//! An unannotated object literal lowers to a record struct only when every
-//! use of its binding keeps the value typed
+//! An unannotated object literal lowers to a record struct when every use of
+//! its binding keeps the value typed or hands it to a slot that shares it
 //! (`smelt-frontend-ts/src/lowering/literal_record_uses.rs`). Each fixture
-//! under `tests/fixtures/literal-records/` is one family of uses that
-//! disqualifies a literal:
+//! under `tests/fixtures/literal-records/` is one family of uses:
 //!
-//! - `identity-stays-a-map`: `===`, `Object.is`, `Set`/array membership;
-//! - `keys-stay-a-map`: computed keys, `in`, `Object.keys`/`values`/`entries`,
-//!   `for..in`, a spread, integer-like keys;
-//! - `passed-or-stored-stays-a-map`: an argument of a function that writes
-//!   through it or rebuilds it in another key order, a literal stored in a
-//!   container or returned, a record-valued property replaced.
+//! - `identity-stays-a-map` (the name is historical): a literal compared
+//!   with `===`, or handed to `Set.add`/`has`, `push`/`indexOf` or an
+//!   `unknown` parameter, is a struct and keeps its identity there; one
+//!   aliased at an annotated binding keeps the map;
+//! - `keys-stay-a-map`: computed keys, `in`, `for..in`, a spread, integer-like
+//!   keys keep the map;
+//! - `passed-or-stored-stays-a-map`: a literal passed to callees typed
+//!   `Record<string, unknown>`, `any` or a type parameter is a struct (the
+//!   callee writes the caller's object, and a rebuilt value keeps the callee's
+//!   key order); one stored in a container, returned, or with a record-valued
+//!   property replaced keeps the map;
+//! - `passed-to-another-record-type-stays-a-map`: a literal passed to a
+//!   parameter of another record type keeps the map.
+//! - `stored-at-another-record-type-stays-a-map`: a literal stored in or
+//!   returned at a slot of another record type, or whose record-valued
+//!   property is replaced by another record type, keeps the map.
 //!
 //! Two requirements are checked on each, separately:
 //!
 //! - **behavior**: the generated program prints `expected.stdout`, and
 //!   `expected.stdout` is what Node prints for the same source;
 //! - **lowering**: every literal binding the fixture names is declared as the
-//!   map (`SmeltRecord<JsString, SmeltUnknown>`), and a control binding used
-//!   only through typed reads is declared as a record struct, so the fixture
-//!   fails if the rule stops applying in either direction.
+//!   map (`SmeltRecord<JsString, SmeltUnknown>`) or as a record struct, as
+//!   listed, so the fixture fails if the rule moves in either direction.
+//!
+//! # Expectations corrected when call arguments stopped disqualifying
+//!
+//! - **Old requirement**: a literal passed to ANY call other than
+//!   `console.*`, `JSON.stringify` and the deep-equality matchers keeps the
+//!   map, and so does one compared with `===` (`origin`, `tracked`, `first`,
+//!   `second` of the identity fixture; `counter`, `unordered` of the
+//!   passed-or-stored one were asserted to be maps).
+//! - **Evidence**: that requirement existed because a struct handed to a slot
+//!   of another type was copied. It no longer is where the slot holds a view
+//!   (`smelt-codegen-rust/src/emitter/live_view.rs`): the same programs,
+//!   lowered as structs, print what Node prints, which each fixture's
+//!   `expected.stdout` (unchanged) checks.
+//! - **New requirement**: those six literals are structs; the behavior
+//!   requirement is the same one, on the same output.
 //!
 //! The fixtures live here and not under `examples/`: a literal that stays a
 //! map is avoidable erasure by definition, and the examples corpus holds none
@@ -110,15 +134,18 @@ fn verify_fixture(name: &str, lowering: &Lowering) -> TestResult {
     ensure_node_agrees(&[("main.ts", source.as_str())], "main.ts", &expected, name)
 }
 
-/// A literal whose identity is observed keeps the map; `present`, which is
-/// only read and compared with `undefined`/`null`, is a struct.
+/// A literal whose identity is observed is a struct: `origin` and `tracked`
+/// are handed to collection methods that find them again, `first` and
+/// `second` are compared with `===`, `present` with `undefined`/`null`.
+/// `third` is aliased at an annotated `unknown` binding, a use the rule does
+/// not model, and keeps the map.
 #[test]
-fn literal_with_observed_identity_stays_a_map() -> TestResult {
+fn literal_with_observed_identity_keeps_its_identity() -> TestResult {
     verify_fixture(
         "identity-stays-a-map",
         &Lowering {
-            maps: &["origin", "tracked", "first", "second", "third"],
-            structs: &["present"],
+            maps: &["third"],
+            structs: &["origin", "tracked", "first", "second", "present"],
         },
     )
 }
@@ -135,17 +162,47 @@ fn literal_with_observed_keys_stays_a_map() -> TestResult {
     )
 }
 
-/// A literal passed to a function, stored, returned, or with a record-valued
-/// property replaced keeps the map: the callee's writes reach it and the
-/// rebuilt value keeps the callee's key order. `replacement` is annotated, so
-/// it is a struct with or without the rule.
+/// A literal stored in a container, returned, or with a record-valued
+/// property replaced keeps the map. `counter` and `unordered` are only passed
+/// to callees whose parameters hold a view (`Record<string, unknown>`, `any`,
+/// a type parameter) and are structs: the callee's writes reach them and the
+/// rebuilt value keeps the callee's key order. `replacement` is annotated.
 #[test]
 fn literal_passed_or_stored_stays_a_map() -> TestResult {
     verify_fixture(
         "passed-or-stored-stays-a-map",
         &Lowering {
-            maps: &["counter", "unordered", "first", "made", "outer"],
-            structs: &["replacement"],
+            maps: &["first", "made", "outer"],
+            structs: &["counter", "unordered", "replacement"],
+        },
+    )
+}
+
+/// A literal stored in or returned at a slot of another record type, or whose
+/// record-valued property is replaced by a value of another record type,
+/// keeps the map. `replacement` is annotated with a type alias, so it is a
+/// struct named after the alias, not one of the literal structs this checks.
+#[test]
+fn literal_stored_at_another_record_type_stays_a_map() -> TestResult {
+    verify_fixture(
+        "stored-at-another-record-type-stays-a-map",
+        &Lowering {
+            maps: &["kept", "made", "outer"],
+            structs: &[],
+        },
+    )
+}
+
+/// A literal passed to a parameter of another record type keeps the map, which
+/// the callee's record adopts; `viewed`, passed only to a `Record<..>`
+/// parameter, is a struct.
+#[test]
+fn literal_passed_to_another_record_type_stays_a_map() -> TestResult {
+    verify_fixture(
+        "passed-to-another-record-type-stays-a-map",
+        &Lowering {
+            maps: &["moved", "first"],
+            structs: &["viewed"],
         },
     )
 }

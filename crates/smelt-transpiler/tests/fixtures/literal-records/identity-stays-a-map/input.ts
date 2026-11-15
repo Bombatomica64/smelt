@@ -1,16 +1,15 @@
-// An unannotated object literal whose identity is observed stays a map.
+// An unannotated object literal whose identity is observed is a record struct
+// and keeps that identity; one aliased at an annotated binding stays a map.
 //
-// The map IS the JavaScript object: it enters a `Set<unknown>`, an
-// `unknown[]` or an `unknown` binding as itself, and `===`, `Object.is`, `has`,
-// `indexOf` and `includes` find it again. A literal used that way keeps the
-// map lowering it always had (`literal_record_uses`, `Disqualifier::Identity`,
-// and `Disqualifier::Call` for the literals handed to a function).
+// A record struct is one object. `===` between two of them compares their
+// identities, and a struct that enters a `Set<unknown>`, an `unknown[]` or an
+// `unknown` parameter does so as a view of itself with the struct's own
+// identity, so `has`, `indexOf` and `includes` find it again. `origin`,
+// `tracked`, `first` and `second` are structs.
 //
-// This family is a precaution: lowered as record structs, these particular
-// lines print the same, because a struct keeps its identity into an erased
-// slot. It is not known to hold for every identity observation (the test
-// framework's `toBe` on a value that came back from a callee does not), so
-// the fixture pins the map lowering and Node's answers.
+// `third` is aliased at a binding annotated `unknown`, a use the rule does not
+// model (`literal_record_uses`, `Disqualifier::Other`), and keeps the map
+// lowering.
 //
 // Every line below is diffed against Node.
 

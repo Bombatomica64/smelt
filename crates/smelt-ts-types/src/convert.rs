@@ -363,9 +363,15 @@ impl<'checker> Converter<'checker> {
             .try_as_interface_type()
             .map_or(0, |interface| interface.type_parameters().len());
         let type_arguments = self.type_arguments(ty, arity);
+        // A callable interface is called through these; an interface whose
+        // signatures cannot be expanded here (the depth budget) reports none.
+        let call_signatures = self
+            .nested(|converter| converter.signatures(ty, SignatureKind::Call))
+            .unwrap_or_default();
         Some(TsTypeKind::Named {
             symbol: self.symbol_ref(declared),
             type_arguments,
+            call_signatures,
         })
     }
 

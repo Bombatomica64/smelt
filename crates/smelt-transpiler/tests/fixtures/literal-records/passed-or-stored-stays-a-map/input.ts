@@ -1,19 +1,19 @@
-// An unannotated object literal that is passed to a function, returned or
-// stored stays a map.
+// An unannotated object literal that is returned or stored stays a map; one
+// that is only passed to callees whose parameters hold a view of it is a
+// record struct.
 //
-// A record struct handed to a slot of another type (`Record<string, ..>`,
-// `any`, a type parameter, another record) is converted, and the conversion is
-// a copy: a write made through that view does not reach the caller's object,
-// and a value a callee returns as its `T` is rebuilt in the struct's key order
-// whatever order the callee built it in. The map is passed as itself. A
-// callee's body is not inspected, so every argument position other than a
-// known by-value observer keeps the map lowering the literal always had, and
-// so does a literal that leaves its binding (`literal_record_uses`,
-// `Disqualifier::Call`, `Disqualifier::Escape`, `Disqualifier::PartWrite`).
+// A record struct handed to `Record<string, ..>`, `any` or a type parameter is
+// seen there through a view of itself: the callee's write reaches the caller's
+// object, and a value a callee returns as its `T` keeps the key order the
+// callee built it in. `counter` and `unordered` below are structs for that
+// reason, and the lines marked (*) used to be the reason they were not: as
+// structs they printed `1`, `1` and `zeta,alpha,mid zeta,alpha,mid`.
 //
-// Lowered as record structs, the lines marked (*) print `1`, `1`,
-// `zeta,alpha,mid zeta,alpha,mid` and `first`: the stale value and the
-// unsorted order.
+// A literal that leaves its binding (stored in a container, returned), or
+// whose record-valued property is replaced, keeps the map lowering it always
+// had (`literal_record_uses`, `Disqualifier::Escape`,
+// `Disqualifier::PartWrite`): the slot it lands in is not inspected. Lowered
+// as a record struct, the line marked (**) prints `first`.
 //
 // Every line below is diffed against Node.
 
@@ -54,7 +54,7 @@ function stored(): void {
   const first = { id: 1, label: "first" };
   const all: Record<string, unknown>[] = [first];
   all[0]["label"] = "renamed";
-  console.log(first.label); // (*)
+  console.log(first.label); // (**)
 
   const made = makeRecord();
   made["extra"] = true;

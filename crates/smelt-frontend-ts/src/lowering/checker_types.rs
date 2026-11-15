@@ -53,7 +53,7 @@ use smelt_ts_model::model::{TsObjectType, TsSymbolRef, TsTupleElement, TsTupleEl
 use smelt_ts_model::{TsTypeFacts, TsTypeId, TsTypeKind};
 
 use super::ModuleBuilder;
-use super::literal_record_uses::LiteralDecision;
+use super::literal_record_uses::{ArgumentUse, Disqualifier, LiteralDecision};
 
 /// The outermost kind of a value, as far as overload selection compares kinds
 /// (see [`ModuleBuilder::checker_call_value_kind`]).
@@ -267,6 +267,49 @@ impl ModuleBuilder<'_> {
         // somewhere a struct would be copied into, stays the map it was.
         let decision = self.literal_record_uses.decision(start)?;
         let trace = std::env::var_os("SMELT_LITERAL_RECORD_TRACE").is_some();
+        // A use as an argument is safe when the callee's parameter shares
+        // the caller's object, which only the checker's view of the callee
+        // can say (`checker_argument_shares`).
+        let decision = match decision {
+            LiteralDecision::Struct(arguments) => {
+                match arguments
+                    .iter()
+                    .find(|argument| !self.checker_argument_shares(argument))
+                {
+                    Some(argument) => {
+                        #[expect(
+                            clippy::print_stderr,
+                            reason = "SMELT_LITERAL_RECORD_TRACE is an opt-in developer trace"
+                        )]
+                        if trace {
+                            // Which callee kept the map, for the cost table.
+                            let callee = self.ts_facts.and_then(|facts| {
+                                let id = facts.type_id_at(
+                                    &self.path,
+                                    argument.callee_start,
+                                    argument.callee_end,
+                                )?;
+                                facts.types.get(id).map(|ty| format!("{:?}", ty.kind))
+                            });
+                            eprintln!(
+                                "literal-record {}:{start} call-declined-at {}..{} argument {} callee {}",
+                                self.path,
+                                argument.callee_start,
+                                argument.callee_end,
+                                argument.index,
+                                callee.map_or_else(
+                                    || "untyped".to_owned(),
+                                    |kind| kind.chars().take(160).collect()
+                                ),
+                            );
+                        }
+                        LiteralDecision::Map(Disqualifier::Call)
+                    }
+                    None => LiteralDecision::Struct(arguments),
+                }
+            }
+            map @ LiteralDecision::Map(_) => map,
+        };
         if let LiteralDecision::Map(disqualifier) = decision {
             #[expect(
                 clippy::print_stderr,
@@ -304,6 +347,44 @@ impl ModuleBuilder<'_> {
             );
         }
         lowered
+    }
+
+    /// Whether the callee of `argument` shares the caller's object at that
+    /// argument position: every signature the checker resolved for it takes,
+    /// there, a slot a record crosses into without being converted to
+    /// another record (see [`checker_slot_shares`]).
+    ///
+    /// # Why this is a general rule and not a list of callees
+    ///
+    /// A record that crosses into `unknown`, `any`, a type parameter or
+    /// `Record<K, V>` is seen there through a live view of itself
+    /// (`smelt-codegen-rust/src/emitter/live_view.rs`): whatever the callee
+    /// does (write, add or delete a property, keep the value, compare it,
+    /// return it) happens to the caller's object, as in JavaScript. So no
+    /// callee has to be known by name: `console.log`, `JSON.stringify`,
+    /// `Object.keys` and the test framework's matchers pass because their
+    /// parameters are `any` or generic, like any user function's.
+    ///
+    /// A parameter of a DIFFERENT record type (an interface, a named or
+    /// inline object type with properties) still converts by building that
+    /// record, a copy, so such a call keeps the literal a map. `false` too
+    /// when the checker has no type for the callee.
+    fn checker_argument_shares(&self, argument: &ArgumentUse) -> bool {
+        let Some(facts) = self.ts_facts else {
+            return false;
+        };
+        let Some(callee) = facts.type_id_at(&self.path, argument.callee_start, argument.callee_end)
+        else {
+            return false;
+        };
+        callee_signatures(facts, callee, argument.construct, 0).is_some_and(|signatures| {
+            signatures.iter().all(|signature| {
+                // An argument past the declared parameters is evaluated
+                // and dropped.
+                signature_parameter(facts, signature, argument.index)
+                    .is_none_or(|parameter| checker_slot_shares(facts, parameter, 0))
+            })
+        })
     }
 
     /// The checker's type for the binding at `start..end`, lowered with
@@ -667,6 +748,7 @@ impl Respeller<'_, '_> {
             TsTypeKind::Named {
                 symbol,
                 type_arguments,
+                ..
             } => {
                 if is_node_timer_handle(symbol) {
                     return Some("number".to_owned());
@@ -852,6 +934,125 @@ fn checker_type_children(facts: &TsTypeFacts, id: TsTypeId) -> Vec<TsTypeId> {
             .collect(),
         Some(TsTypeKind::Named { type_arguments, .. }) => type_arguments.clone(),
         _ => Vec::new(),
+    }
+}
+
+/// The signatures a call (or, with `construct`, a `new`) of a value of type
+/// `callee` resolves among; `None` when the checker's type says nothing a
+/// call can be judged by.
+///
+/// - `any` (an unresolved import, an untyped value): no signature, every
+///   argument is taken as `any`, so the empty list (which admits anything);
+/// - an object type or a callable interface: its call or construct signatures;
+/// - an intersection (`F & { mock: .. }`): the signatures of the members that
+///   have any, since the call resolves among all of them;
+/// - anything else, or a callable type with no signature of the asked kind:
+///   `None`.
+fn callee_signatures(
+    facts: &TsTypeFacts,
+    callee: TsTypeId,
+    construct: bool,
+    depth: usize,
+) -> Option<Vec<&smelt_ts_model::model::TsSignature>> {
+    if depth > 4 {
+        return None;
+    }
+    let signatures: Vec<_> = match &facts.types.get(callee)?.kind {
+        TsTypeKind::Any => return Some(Vec::new()),
+        TsTypeKind::Object(object) if construct => object.construct_signatures.iter().collect(),
+        TsTypeKind::Object(object) => object.call_signatures.iter().collect(),
+        TsTypeKind::Named {
+            call_signatures, ..
+        } if !construct => call_signatures.iter().collect(),
+        TsTypeKind::Intersection(members) => members
+            .iter()
+            .filter_map(|member| callee_signatures(facts, *member, construct, depth + 1))
+            .flatten()
+            .collect(),
+        _ => return None,
+    };
+    (!signatures.is_empty()).then_some(signatures)
+}
+
+/// The type `signature` gives the argument at `index`: the parameter there,
+/// or the element type of a rest parameter that collects it; `None` when the
+/// signature declares no parameter for it.
+fn signature_parameter(
+    facts: &TsTypeFacts,
+    signature: &smelt_ts_model::model::TsSignature,
+    index: usize,
+) -> Option<TsTypeId> {
+    let last = signature.parameters.len().checked_sub(1)?;
+    if signature.has_rest && index >= last {
+        let rest = signature.parameters.get(last)?.ty;
+        return Some(match facts.types.get(rest).map(|ty| &ty.kind) {
+            Some(TsTypeKind::Array { element, .. }) => *element,
+            // A rest parameter of any other type (a tuple, a type parameter)
+            // is judged whole.
+            _ => rest,
+        });
+    }
+    signature
+        .parameters
+        .get(index)
+        .map(|parameter| parameter.ty)
+}
+
+/// Whether a record value handed to a slot the checker types `ty` is the
+/// caller's object there.
+///
+/// True for the slots that hold a VIEW of the record (`any`, `unknown`,
+/// `object`, `{}`, an index-signature dictionary, a type the checker left
+/// unevaluated, a type parameter, which is either a real Rust generic holding
+/// the record itself or erased) and for the types a record is never assigned
+/// to (primitives, `null`, `undefined`: the other members of a union). False
+/// for a type with declared properties or a class or interface name, where
+/// the generated Rust builds that other record, and for anything not judged
+/// here (an intersection, a truncated type). An array or a tuple is judged by
+/// its elements.
+fn checker_slot_shares(facts: &TsTypeFacts, ty: TsTypeId, depth: usize) -> bool {
+    if depth > 8 {
+        return false;
+    }
+    let Some(ty) = facts.types.get(ty) else {
+        return false;
+    };
+    match &ty.kind {
+        TsTypeKind::Any
+        | TsTypeKind::Unknown
+        | TsTypeKind::NonPrimitive
+        | TsTypeKind::TypeParameter { .. }
+        | TsTypeKind::Deferred(_)
+        | TsTypeKind::Never
+        | TsTypeKind::Void
+        | TsTypeKind::Undefined
+        | TsTypeKind::Null
+        | TsTypeKind::String
+        | TsTypeKind::Number
+        | TsTypeKind::Boolean
+        | TsTypeKind::BigInt
+        | TsTypeKind::Symbol
+        | TsTypeKind::StringLiteral(_)
+        | TsTypeKind::NumberLiteral(_)
+        | TsTypeKind::BooleanLiteral(_)
+        | TsTypeKind::BigIntLiteral(_)
+        | TsTypeKind::UniqueSymbol
+        | TsTypeKind::EnumMember { .. } => true,
+        TsTypeKind::Union { members, .. } => members
+            .iter()
+            .all(|member| checker_slot_shares(facts, *member, depth + 1)),
+        // An array of records crosses element by element.
+        TsTypeKind::Array { element, .. } => checker_slot_shares(facts, *element, depth + 1),
+        TsTypeKind::Object(object) => {
+            object.properties.is_empty()
+                && object.call_signatures.is_empty()
+                && object.construct_signatures.is_empty()
+        }
+        // A tuple of records crosses element by element, like an array.
+        TsTypeKind::Tuple { elements, .. } => elements
+            .iter()
+            .all(|element| checker_slot_shares(facts, element.ty, depth + 1)),
+        TsTypeKind::Named { .. } | TsTypeKind::Intersection(_) | TsTypeKind::Truncated => false,
     }
 }
 

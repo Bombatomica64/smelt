@@ -308,6 +308,7 @@ impl Comparer<'_> {
             TsTypeKind::Named {
                 symbol,
                 type_arguments,
+                ..
             } => self.named_agrees(hir, &symbol.name, type_arguments, 1),
             TsTypeKind::Object(_) => matches!(hir, Type::Class { .. }),
             TsTypeKind::Any
@@ -387,6 +388,7 @@ impl Comparer<'_> {
             TsTypeKind::Named {
                 symbol,
                 type_arguments,
+                ..
             } => self.named_agrees(hir, &symbol.name, type_arguments, depth),
             TsTypeKind::Object(object)
                 if object.properties.is_empty() && !object.call_signatures.is_empty() =>
