@@ -298,6 +298,12 @@ impl FunctionEmitter<'_> {
             Rvalue::ClassValue { class, constructor } => {
                 self.class_value(*class, constructor.as_ref())
             }
+            Rvalue::StaticDispatch {
+                class,
+                member,
+                args,
+                ..
+            } => self.static_dispatch_value(*class, *member, args, dest_ty),
             Rvalue::InstanceOfValue { value, target } => {
                 self.instance_of_value(value, target)
             }

@@ -16,6 +16,28 @@ pub enum GeneratorResumeKind {
     Throw,
 }
 
+/// The static member a [`ExprKind::StaticDispatch`] reaches on its receiver
+/// class.
+///
+/// A static method's `this` is the class it was CALLED on, not the class that
+/// declares it: `Sub.bump()` running `Base`'s `static bump() { this.count++ }`
+/// writes `Sub.count`. Each way a static method uses `this` is one member of
+/// the receiver class.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum StaticMember {
+    /// `this.field`: the receiver's static field (own or inherited).
+    Get(Symbol),
+    /// `this.field = value`: a write that makes the field the receiver's own.
+    Set(Symbol),
+    /// `new this(..)`: an instance of the receiver class, at the declaring
+    /// class's instance type.
+    Construct,
+    /// `this.method(..)` or `Class.method(..)`: the receiver's static method.
+    Call(Symbol),
+    /// `this` as a value: the receiver's class value.
+    ClassValue,
+}
+
 /// How far a property-presence test is allowed to look for the key.
 ///
 /// JavaScript has two presence tests over one property name, and they answer

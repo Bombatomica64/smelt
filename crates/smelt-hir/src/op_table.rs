@@ -2226,6 +2226,38 @@ macro_rules! op_group_transcribed {
                 class: [$crate::Symbol],
             }
                 => (format!("instanceof {}, class{}", value, class.0));
+            /// A static member reached through a RECEIVER class: `this.count`,
+            /// `this.count = v`, `new this()`, `this.m()` or `this` inside a
+            /// static method of `class` (`receiver` is `None`: the class the
+            /// method was called on), or a static method called through a class
+            /// that inherits it (`Sub.bump()`, `receiver` is `Some(Sub)`).
+            /// JavaScript binds a static method's `this` to the class it was
+            /// called on, so the member resolves on that class.
+            StaticDispatch {
+                /// The class the member is reached on; `None` for the static
+                /// method's own `this`.
+                receiver: [Option<$crate::Symbol>],
+                /// The class whose static method body (or inherited static) the
+                /// member belongs to: `this`'s declared class.
+                class: [$crate::Symbol],
+                /// Which member.
+                member: [$crate::StaticMember],
+                /// The member's arguments (a written value, constructor or
+                /// method arguments).
+                args: many,
+            }
+                // A static method or constructor body may throw; a static
+                // field read or write and the class value do not.
+                fallible(matches!(
+                    member,
+                    $crate::StaticMember::Construct | $crate::StaticMember::Call(_)
+                ))
+                call(format!("@static_dispatch_{member:?}"))
+                => (format!(
+                    "static_dispatch {receiver:?}.{member:?}({}) of class{}",
+                    args.join(", "),
+                    class.0
+                ));
             /// A class used as a value: the runtime constructor object.
             ///
             /// `instanceof`, `new` and `.name` read it at run time, which is the

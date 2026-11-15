@@ -1161,9 +1161,12 @@ console.log(m.x);
 ",
     );
 
+    // `Plain` has a subclass, so it is a polymorphic handle over the
+    // subclass's shared cell (`crate::class_polymorphism`); the requirement
+    // (both are reference classes, one representation per hierarchy) holds.
     assert_eq!(
         rust_items(&source, &["struct Plain(", "struct Mutated("]),
-        r"struct Plain(::std::rc::Rc<::std::cell::RefCell<PlainInner>>);
+        r"struct Plain(::std::rc::Rc<dyn PlainSmeltCell>);
 
 struct Mutated(::std::rc::Rc<::std::cell::RefCell<MutatedInner>>);"
     );
@@ -1391,22 +1394,27 @@ class B(A):
 ",
     );
 
+    // `B` overrides `fetch`, so the hierarchy is a reference (polymorphic)
+    // hierarchy (`classify::collect_override_triggers`): a `B` viewed as an
+    // `A` must still dispatch to `B.fetch`, which a by-value copy into an `A`
+    // could not. `B`'s record nests `A`'s. The requirement (the override
+    // replaces the inherited method; `super` reaches the base body) holds.
     assert_eq!(
         rust_items(&source, &["impl B {"]),
         r"impl B {
 fn new(x: i64) -> Self {
 let __smelt_super: A;
-let mut self_: B = B { x: 0 };
+let mut self_: B = B(::std::rc::Rc::new(::std::cell::RefCell::new(BInner { __smelt_base: AInner { x: 0 } })));
 let _smelt_tmp_3: A = A::new(x);
 __smelt_super = _smelt_tmp_3;
-self_.x = __smelt_super.x;
+self_.0.borrow_mut().x = __smelt_super.0.borrow().x.clone();
 return self_;
 }
 fn fetch(&self) -> i64 {
 return 99;
 }
 fn __smelt_super_fetch(&self) -> i64 {
-return self.x;
+return self.0.borrow().x.clone();
 }
 }"
     );
@@ -1428,11 +1436,14 @@ class B(A):
 ",
     );
 
+    // `B` overrides `greet`, so it is a reference class nesting `A`'s record
+    // (`classify::collect_override_triggers`); `super().greet` still calls the
+    // base body without recursing into the override.
     assert_eq!(
         rust_items(&source, &["impl B {"]),
         r"impl B {
 fn new() -> Self {
-let self_: B = B {  };
+let self_: B = B(::std::rc::Rc::new(::std::cell::RefCell::new(BInner { __smelt_base: AInner {  } })));
 return self_;
 }
 fn greet(&self, value: i64) -> i64 {
@@ -1669,12 +1680,14 @@ console.log(store.total());
 ",
     );
 
+    // `Store` has a subclass, so it is a polymorphic handle
+    // (`crate::class_polymorphism`); both stay reference classes.
     assert_eq!(
         rust_items(
             &source,
             &["struct Store(", "struct CountingStore(", "fn total"]
         ),
-        r#"struct Store(::std::rc::Rc<::std::cell::RefCell<StoreInner>>);
+        r#"struct Store(::std::rc::Rc<dyn StoreSmeltCell>);
 
 struct CountingStore(::std::rc::Rc<::std::cell::RefCell<CountingStoreInner>>);
 
@@ -1943,11 +1956,14 @@ export function show(): string { return new Square().describe(); }
 ",
     );
 
+    // `SquareInner` nests `ShapeInner`, which holds the slots
+    // (`crate::class_polymorphism`); the constructor still binds every slot
+    // to its own method before the body runs.
     assert_eq!(
         rust_items(&source, &["impl Square {"]),
         r#"impl Square {
 fn new() -> Self {
-let mut this: Self = { let smelt_instance = Square(::std::rc::Rc::new(::std::cell::RefCell::new(SquareInner { name: { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> JsString> = ::std::rc::Rc::new(move || -> JsString { JsString::new() }); smelt_default_callback }, sides: { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> f64> = ::std::rc::Rc::new(move || -> f64 { 0.0 }); smelt_default_callback } }))); smelt_instance.0.borrow_mut().name = { let smelt_virtual_receiver = ::std::rc::Rc::downgrade(&smelt_instance.0); let smelt_virtual_method: ::std::rc::Rc<dyn Fn() -> JsString> = ::std::rc::Rc::new(move || -> JsString { let smelt_method_receiver = Self(smelt_virtual_receiver.upgrade().expect("a virtual method slot outlived its instance")); smelt_method_receiver.name() }); smelt_virtual_method }; smelt_instance.0.borrow_mut().sides = { let smelt_virtual_receiver = ::std::rc::Rc::downgrade(&smelt_instance.0); let smelt_virtual_method: ::std::rc::Rc<dyn Fn() -> f64> = ::std::rc::Rc::new(move || -> f64 { let smelt_method_receiver = Self(smelt_virtual_receiver.upgrade().expect("a virtual method slot outlived its instance")); smelt_method_receiver.sides() }); smelt_virtual_method }; smelt_instance };
+let mut this: Self = { let smelt_instance = Square(::std::rc::Rc::new(::std::cell::RefCell::new(SquareInner { __smelt_base: ShapeInner { name: { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> JsString> = ::std::rc::Rc::new(move || -> JsString { JsString::new() }); smelt_default_callback }, sides: { let smelt_default_callback: ::std::rc::Rc<dyn Fn() -> f64> = ::std::rc::Rc::new(move || -> f64 { 0.0 }); smelt_default_callback } } }))); smelt_instance.0.borrow_mut().name = { let smelt_virtual_receiver = ::std::rc::Rc::downgrade(&smelt_instance.0); let smelt_virtual_method: ::std::rc::Rc<dyn Fn() -> JsString> = ::std::rc::Rc::new(move || -> JsString { let smelt_method_receiver = Self(smelt_virtual_receiver.upgrade().expect("a virtual method slot outlived its instance")); smelt_method_receiver.name() }); smelt_virtual_method }; smelt_instance.0.borrow_mut().sides = { let smelt_virtual_receiver = ::std::rc::Rc::downgrade(&smelt_instance.0); let smelt_virtual_method: ::std::rc::Rc<dyn Fn() -> f64> = ::std::rc::Rc::new(move || -> f64 { let smelt_method_receiver = Self(smelt_virtual_receiver.upgrade().expect("a virtual method slot outlived its instance")); smelt_method_receiver.sides() }); smelt_virtual_method }; smelt_instance };
 let _smelt_tmp_1: Self = Self::__smelt_init_Shape(this);
 this = _smelt_tmp_1;
 return this;

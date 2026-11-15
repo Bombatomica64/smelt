@@ -20,6 +20,8 @@ trait SmeltInspect {
     fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String;
     //~ Whether this value is a JavaScript number (grouped arrays right-align them).
     fn smelt_inspect_is_number(&self) -> bool { false }
+    //~ Whether this value is an array hole, shown as an empty item.
+    fn smelt_inspect_is_hole(&self) -> bool { false }
     //~ Render this value as a top-level `console.log` argument.
     fn smelt_console_text(&self) -> String { self.smelt_inspect(&mut SmeltInspectContext::default(), 0) }
 }
@@ -219,18 +221,29 @@ fn smelt_inspect_array(ctx: &mut SmeltInspectContext, depth: usize, entries: &[&
     }
     let depth = depth + 1;
     ctx.current_depth = depth;
-    let shown = entries.len().min(100);
-    let mut output = Vec::with_capacity(shown + 1);
+    //~ A run of holes is one `<n empty items>` entry, which counts toward the
+    //~ 100 shown entries like any other (`formatArray`).
+    let mut output = Vec::new();
+    let mut numbers = true;
+    let mut index = 0;
     ctx.indentation += 2;
-    for entry in &entries[..shown] {
-        output.push(entry.smelt_inspect(ctx, depth));
+    while index < entries.len() && output.len() < 100 {
+        let holes = entries[index..].iter().take_while(|entry| entry.smelt_inspect_is_hole()).count();
+        if holes > 0 {
+            output.push(format!("<{holes} empty item{}>", if holes == 1 { "" } else { "s" }));
+            numbers = false;
+            index += holes;
+            continue;
+        }
+        numbers &= entries[index].smelt_inspect_is_number();
+        output.push(entries[index].smelt_inspect(ctx, depth));
+        index += 1;
     }
     ctx.indentation -= 2;
-    let remaining = entries.len() - shown;
+    let remaining = entries.len() - index;
     if remaining > 0 {
         output.push(smelt_inspect_more(remaining));
     }
-    let numbers = entries.iter().take(output.len()).all(|entry| entry.smelt_inspect_is_number());
     smelt_inspect_reduce(ctx, output, "[", "]", depth, Some(numbers), remaining > 0)
 }
 
@@ -295,6 +308,7 @@ fn smelt_inspect_collection(ctx: &mut SmeltInspectContext, depth: usize, kind: &
 impl SmeltInspect for f64 {
     fn smelt_inspect(&self, _ctx: &mut SmeltInspectContext, _depth: usize) -> String { smelt_console_number(*self) }
     fn smelt_inspect_is_number(&self) -> bool { true }
+    fn smelt_inspect_is_hole(&self) -> bool { smelt_is_number_hole(*self) }
 }
 
 impl SmeltInspect for i64 {

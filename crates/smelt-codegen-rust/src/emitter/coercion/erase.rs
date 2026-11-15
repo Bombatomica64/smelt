@@ -939,9 +939,35 @@ impl FunctionEmitter<'_> {
         // (`emitter::statics_frame`), never copied into the object.
         let frame = self.is_statics_frame_class(*name);
         let error_base = self.error_base_name(*name);
+        // A method's virtual slot (the stored closure a polymorphic class
+        // dispatches through, `virtual_slots`) is not an own property in
+        // JavaScript: the method lives on the prototype, and the erased
+        // object answers it from its `__smelt_method:` prototype entries
+        // with the class-wide identity (`a.bark === b.bark`). A slot listed
+        // here shadowed them with a closure minted per instance. A method
+        // with no bridged prototype entry keeps its slot.
+        let proto_entries_present =
+            crate::classes::find_class(self.mir, *name).is_some_and(|class| {
+                crate::class_proto::class_has_proto_entries(self.mir, self.context, class)
+            });
+        let method_on_prototype = |field: Symbol| {
+            proto_entries_present
+                && self.is_virtual_method_storage_field(target, field)
+                && self
+                    .find_class_method_function(*name, field)
+                    .is_some_and(|function| {
+                        crate::class_proto::method_is_proto_eligible(
+                            self.mir,
+                            self.context,
+                            *name,
+                            function,
+                        )
+                    })
+        };
         fields
             .iter()
             .filter(|field| !frame && field.visibility.is_own_property())
+            .filter(|field| !method_on_prototype(field.name))
             .map(|field| {
                 let source_name = self.symbol_source_name(field.name)?;
                 let statement: Result<String, EmitError> = (|| {
@@ -1056,6 +1082,31 @@ impl FunctionEmitter<'_> {
                 value_text.delimited()
             )));
         }
+        // A polymorphic handle may hold an instance of a subclass, which erases
+        // as that subclass: its generated `IntoSmeltUnknown` dispatches to the
+        // concrete cell (`crate::class_polymorphism`).
+        if self.context.is_polymorphic_class(*name) {
+            return Ok(RustExpr::chain(format!(
+                "IntoSmeltUnknown::into_smelt_unknown({})",
+                value_text.cloned_value().delimited()
+            )));
+        }
+        self.concrete_class_unknown_object_expr(value_text, target)
+    }
+
+    /// The erased object of the class instance `value_text` of type `target`
+    /// projected as an instance of exactly that class (the field-wise
+    /// projection [`Self::class_unknown_object_expr`] answers for every class
+    /// but a polymorphic handle, and the one a polymorphic hierarchy's
+    /// concrete cell erases through, see `crate::class_polymorphism`).
+    pub(in crate::emitter) fn concrete_class_unknown_object_expr(
+        &self,
+        value_text: &RustExpr,
+        target: TypeId,
+    ) -> Result<RustExpr, EmitError> {
+        let Some(Type::Class { name, .. }) = self.mir.types.get(target) else {
+            return Ok(self.carrier_expr(self.carrier()?, &RustExpr::atom("SmeltUnknown::Null")));
+        };
         let conversion_entry =
             helper_reservation::push_entry(&self.conversions.record_conversion_stack, target);
         let entries_result = self.record_view_field_statements(target, *name);

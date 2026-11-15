@@ -386,6 +386,32 @@ impl<'a> CrateBuilder<'a, FreeFunctionsWritten> {
                     emitter.emit_method(out)?;
                 }
             }
+            // The class's own bodies its prototype object names where a
+            // subclass overrides them (`class_proto::prototype_own_copies`),
+            // unless a `super` call already copied the same body here.
+            for method in class_proto::prototype_own_copies(mir, context, class)? {
+                if copied.contains(&method) {
+                    continue;
+                }
+                copied.push(method);
+                if let Some(function) = mir
+                    .functions
+                    .get(id_index(method.0, "method index does not fit usize")?)
+                    && let Some(copy_name) = classes::super_copy_name(context, function)
+                {
+                    let substituted =
+                        classes::substituted_inherited_member(mir, function, class.name);
+                    let copied_body = substituted.as_ref().unwrap_or(function);
+                    let mut emitter = FunctionEmitter::super_copy(
+                        mir,
+                        context,
+                        copied_body,
+                        class.name,
+                        copy_name,
+                    )?;
+                    emitter.emit_method(out)?;
+                }
+            }
             // A generic class's statics get an impl of their own (below).
             let statics_impl = classes::static_methods_impl_args(context, class, needs_unknown);
             if statics_impl.is_none() {
@@ -417,6 +443,22 @@ impl<'a> CrateBuilder<'a, FreeFunctionsWritten> {
                 && let Some(methods) = class_proto::class_prototype_methods_fn(mir, context, class)?
             {
                 out.push_str(&methods);
+            }
+            // A class of a polymorphic hierarchy erases itself through one
+            // inherent method its cell's `into_smelt_unknown_as_concrete` calls
+            // (`crate::class_polymorphism`).
+            if needs_unknown
+                && (context.is_polymorphic_class(class.name)
+                    || crate::class_polymorphism::nested_base(
+                        mir,
+                        context.polymorphic_classes(),
+                        class.name,
+                    )
+                    .is_some())
+            {
+                out.push_str(&crate::class_polymorphism::own_erasure_method(
+                    mir, context, class,
+                )?);
             }
             if needs_unknown && let Some(host) = field_setter_host(mir, context, class) {
                 let emitter = FunctionEmitter::new(mir, context, host)?;
@@ -461,6 +503,19 @@ impl<'a> CrateBuilder<'a, FreeFunctionsWritten> {
                         emitter.emit_python_add_impl(out, &name, &impl_generics, &type_args)?;
                     }
                 }
+            }
+            // The statics trait a static method's `this` is bounded by, and
+            // its impl for every receiver class (`crate::static_receiver`).
+            let members = context.static_receivers().members(class.name);
+            let receiver_host = class.static_methods.iter().find_map(|id| {
+                context
+                    .static_receivers()
+                    .receiver_class(*id)
+                    .and_then(|_| mir.functions.get(usize::try_from(id.0).ok()?))
+            });
+            if let Some(statics_host) = receiver_host {
+                let emitter = FunctionEmitter::new(mir, context, statics_host)?;
+                out.push_str(&emitter.statics_trait_text(class.name, members)?);
             }
         }
         Ok(self.advance())

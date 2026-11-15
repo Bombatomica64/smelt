@@ -1003,9 +1003,15 @@ return _smelt_tmp_3;
 
 #[test]
 fn call_site_adapter_omits_its_return_annotation_at_an_unmonomorphized_callee() {
-    // `sink` demotes (its body assigns the callback result into `unknown`), `outer` demotes with
-    // it, and the omitted callback renders the erased default, never annotated with a caller's
-    // unrelated `T`.
+    // `sink` demotes (its body assigns the callback result into `unknown`), and the omitted
+    // callback renders the erased default, never annotated with a caller's unrelated `T`.
+    //
+    // Old requirement: `outer` demoted with `sink`, because its render touched the erased
+    // carrier (the call into the erased `sink`). New requirement: `outer` keeps `T` generic. Its
+    // `T` is only read as `items.len()`, a container query, and nothing carrying `T` crosses into
+    // the erased `sink` (`generic_lifting::type_params_stay_opaque`,
+    // `FunctionEmitter::erased_seams_keep_identity`). The call-site requirement this test pins is
+    // unchanged: the callback adapter is not annotated with `outer`'s `T`.
     let source = source_for(
         r"
 export function sink<T>(x: number, cb: (v: number) => T): number {
@@ -1022,7 +1028,7 @@ export function outer<T>(items: T[]): number {
         rust_items(&source, &["sig sink", "fn outer"]),
         r"fn sink(x: f64, cb: &dyn Fn(f64) -> SmeltUnknown) -> f64
 
-fn outer(items: SmeltList<SmeltUnknown>) -> f64 {
+fn outer<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(items: SmeltList<T>) -> f64 {
 let _smelt_tmp_2: f64;
 let _smelt_tmp_3: f64;
 let _smelt_tmp_1: f64 = sink(1.0, &|smelt_arg0: f64| SmeltUnknown::Null);

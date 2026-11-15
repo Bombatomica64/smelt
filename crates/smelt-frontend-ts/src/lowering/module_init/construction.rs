@@ -68,6 +68,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             types: TypeScope::new(type_alias_fields, callable_fields, callable_object_aliases),
             current_class: None,
             static_initializer_class: None,
+            static_method_this: None,
             evaluation_statics: HashMap::new(),
             evaluation_frames: HashMap::new(),
             lowering_evaluation_statics: None,

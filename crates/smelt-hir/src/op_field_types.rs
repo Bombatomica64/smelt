@@ -90,6 +90,7 @@ holds_no_types!(
     crate::EventEmitterOp,
     crate::FormDataOp,
     crate::GeneratorResumeKind,
+    crate::StaticMember,
     crate::HeadersOp,
     crate::HostModuleOp,
     crate::HttpServerOp,

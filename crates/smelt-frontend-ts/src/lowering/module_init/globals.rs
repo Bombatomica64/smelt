@@ -266,6 +266,16 @@ impl ModuleBuilder<'_> {
         }
     }
 
+    /// Drop the folded object or collection value of `name`, which is being
+    /// lifted to a module slot so every read sees its one object.
+    pub(super) fn forget_folded_aggregate(&mut self, name: &str) {
+        self.consts.forget_object(name);
+        if self.consts.forget_collection(name) {
+            let key = self.export_key(name.to_owned());
+            self.ctx.const_collections.write().remove(&key);
+        }
+    }
+
     /// Fold an ANNOTATED module-level array/`Set` const into collection metadata.
     ///
     /// An unannotated `const xs = [1]` already records its literal elements so
@@ -415,6 +425,14 @@ impl ModuleBuilder<'_> {
         &mut self,
         init: &Expression<'_>,
     ) -> Result<smelt_hir::TypeId, SmeltError> {
+        // An alias of an earlier module binding (`const amap = lmap`) has that
+        // binding's recorded type. Probing the read instead would type it by
+        // the binding's folded replay, which spells a folded `Map` as a record.
+        if let Expression::Identifier(target) = init.without_parentheses()
+            && let Some(ty) = self.module_globals.get(target.name.as_str()).copied()
+        {
+            return Ok(ty);
+        }
         let mut body = Body::new(None, self.expression_span(init));
         let mark = self.speculation_mark(&body);
         let result = self

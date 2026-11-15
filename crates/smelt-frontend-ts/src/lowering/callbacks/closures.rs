@@ -581,6 +581,49 @@ impl ModuleBuilder<'_> {
                 this.scope.restore_bindings(function_locals);
                 capture_names.sort();
                 capture_names.dedup();
+                // A name standing for a statics-frame field (`FrameAlias`)
+                // is reached through the frame's local, which the closure
+                // captures once for every such name.
+                let mut captured_frames: Vec<(smelt_hir::LocalId, smelt_hir::LocalId)> = Vec::new();
+                for name in &capture_names {
+                    let Some(alias) = saved_locals.alias(name.as_str()) else {
+                        continue;
+                    };
+                    let body_base = if let Some((_, inner)) =
+                        captured_frames.iter().find(|(outer, _)| *outer == alias.base)
+                    {
+                        *inner
+                    } else {
+                        let Some(source_decl) = outer_body.local_at(alias.base) else {
+                            continue;
+                        };
+                        let symbol = source_decl
+                            .name
+                            .unwrap_or_else(|| this.ctx.krate.symbols.intern("__smelt_frame"));
+                        let inner = body.push_local(LocalDecl {
+                            name: Some(symbol),
+                            ty: source_decl.ty,
+                            mutable: false,
+                            span: source_decl.span,
+                        });
+                        captures.push(ClosureCapture {
+                            source_local: alias.base,
+                            body_local: Some(inner),
+                            symbol,
+                            ty: source_decl.ty,
+                            mode: CaptureMode::ByRef,
+                        });
+                        captured_frames.push((alias.base, inner));
+                        inner
+                    };
+                    this.scope.bind_alias(
+                        name.clone(),
+                        crate::lowering::state::local_scope::FrameAlias {
+                            base: body_base,
+                            ..alias
+                        },
+                    );
+                }
                 for name in capture_names {
                     let Some(source_local) = saved_locals.lookup(name.as_str()) else {
                         continue;

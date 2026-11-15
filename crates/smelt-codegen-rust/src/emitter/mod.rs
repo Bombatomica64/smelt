@@ -169,6 +169,7 @@ mod operand;
 mod optional_access;
 mod place;
 mod place_type;
+mod polymorphic_cast;
 mod post_dominance;
 mod primitive_cast;
 mod py_exception;
@@ -184,6 +185,7 @@ mod seam_assertions;
 mod set;
 mod sqlite;
 mod static_call_args;
+mod static_dispatch;
 mod statics_frame;
 mod string_units;
 mod strings;
@@ -278,6 +280,11 @@ pub(crate) struct EmitContext {
     /// Whether the render under trial touched the erased carrier; see
     /// [`Self::note_carrier_use`].
     carrier_touched: std::cell::Cell<bool>,
+    /// Whether the render under trial emitted a demotion token, text that
+    /// exists only to make the trial erase the caller
+    /// (`FunctionEmitter::demoting_erased_argument_expr`); see
+    /// [`Self::request_trial_demotion`].
+    demotion_requested: std::cell::Cell<bool>,
     /// Nesting of real dynamic boundaries, inside which a carrier use does not
     /// count.
     carrier_boundaries: std::cell::Cell<usize>,
@@ -307,6 +314,9 @@ pub(crate) struct EmitContext {
     generic_functions: RefCell<HashSet<FuncId>>,
     /// The functions whose generic status the running trial asked about.
     generic_reads: RefCell<HashSet<FuncId>>,
+    /// Which call arguments each callee only reads, computed on first use by
+    /// the generic-lifting trial ([`EmitContext::read_only_arguments`]).
+    read_only_arguments: ::std::cell::OnceCell<smelt_mir::ReadOnlyArguments>,
     /// Class symbols emitted as reference classes (handle newtype over
     /// `Rc<RefCell<Inner>>`), computed once by [`crate::classify`]. Every class
     /// not in this set stays a by-value value class with its current emission.
@@ -317,6 +327,13 @@ pub(crate) struct EmitContext {
     /// Classes whose instances carry the hidden runtime class tag, computed
     /// once by [`crate::class_identity::identity_classes`].
     identity_classes: HashSet<Symbol>,
+    /// Reference classes with reference subclasses, emitted as polymorphic
+    /// handles over shared storage, computed once by
+    /// [`crate::class_polymorphism::polymorphic_classes`].
+    polymorphic_classes: HashSet<Symbol>,
+    /// Which static methods take their receiver class as a generic, and each
+    /// class's statics trait ([`crate::static_receiver`]).
+    static_receivers: crate::static_receiver::StaticReceiverPlan,
     /// Closures stored on the instance they capture, which capture it weakly
     /// (see [`weak_receiver`]).
     weak_receivers: weak_receiver::WeakReceiverPlan,
@@ -389,6 +406,8 @@ impl EmitContext {
             .transpose()?
             .ok_or_else(|| EmitError::new("MIR is missing the None type"))?;
         let reference_classes = crate::classify::reference_classes(mir);
+        let polymorphic_classes =
+            crate::class_polymorphism::polymorphic_classes(mir, &reference_classes);
         // Every declared item's Rust name, decided once by identity; see
         // `crate::names`. Declarations and references both read it.
         let mut names = crate::names::RustNames::plan(mir, none_ty, &reference_classes)?;
@@ -444,16 +463,27 @@ impl EmitContext {
             erased_arguments: ::std::cell::RefCell::default(),
             generic_functions: RefCell::new(HashSet::new()),
             generic_reads: RefCell::new(HashSet::new()),
+            read_only_arguments: ::std::cell::OnceCell::new(),
             weak_receivers: weak_receiver::WeakReceiverPlan::of(mir, &reference_classes),
+            identity_classes: crate::class_identity::identity_classes(mir)
+                .into_iter()
+                .filter(|class| !polymorphic_classes.contains(class))
+                .filter(|class| {
+                    crate::class_polymorphism::nested_base(mir, &polymorphic_classes, *class)
+                        .is_none()
+                })
+                .collect(),
+            polymorphic_classes,
             live_records: live_view::live_records(mir, &reference_classes, &demand),
             reference_classes,
-            identity_classes: crate::class_identity::identity_classes(mir),
+            static_receivers: crate::static_receiver::StaticReceiverPlan::compute(mir),
             type_param_elision: crate::generic_elision::compute(mir),
             erased_view_write_through: view_write_through::program_writes_erased_fields(mir),
             program_reads_this: demand.has(Need::ThisRead),
             needs_bigint: demand.has(Need::BigInt),
             demand,
             carrier_touched: std::cell::Cell::new(false),
+            demotion_requested: std::cell::Cell::new(false),
             carrier_boundaries: std::cell::Cell::new(0),
             minted: render_state::MintedItems::default(),
             startup: Vec::new(),
@@ -511,6 +541,20 @@ impl EmitContext {
     /// Answers whether the carrier was touched since the last call, and clears it.
     pub(crate) fn take_carrier_touched(&self) -> bool {
         self.carrier_touched.replace(false)
+    }
+
+    /// Record that the render under trial needs its function erased whole:
+    /// a `&mut` call argument whose caller and callee renderings disagree,
+    /// with no bridge that keeps the callee's writes. The MIR-level lifting
+    /// fallback (`generic_lifting::type_params_stay_opaque`) must not override
+    /// that answer the way it overrides an ordinary carrier touch.
+    pub(crate) fn request_trial_demotion(&self) {
+        self.demotion_requested.set(true);
+    }
+
+    /// Answers whether a demotion was requested since the last call, and clears it.
+    pub(crate) fn take_demotion_requested(&self) -> bool {
+        self.demotion_requested.replace(false)
     }
 
     /// Record that a `console.log` argument renders through `SmeltInspect`.
@@ -571,6 +615,22 @@ impl EmitContext {
     /// mutability; value classes keep the current by-value struct emission.
     pub(crate) fn is_reference_class(&self, symbol: Symbol) -> bool {
         self.reference_classes.contains(&symbol)
+    }
+
+    /// Return whether the class named `symbol` is a polymorphic handle over
+    /// shared storage ([`crate::class_polymorphism`]).
+    pub(crate) fn is_polymorphic_class(&self, symbol: Symbol) -> bool {
+        self.polymorphic_classes.contains(&symbol)
+    }
+
+    /// The static methods taking a receiver class ([`crate::static_receiver`]).
+    pub(crate) fn static_receivers(&self) -> &crate::static_receiver::StaticReceiverPlan {
+        &self.static_receivers
+    }
+
+    /// The polymorphic classes ([`crate::class_polymorphism`]).
+    pub(crate) fn polymorphic_classes(&self) -> &HashSet<Symbol> {
+        &self.polymorphic_classes
     }
 
     /// Return whether instances of the class named `symbol` carry the hidden
@@ -696,7 +756,24 @@ impl EmitContext {
                     _ => {
                         self.generic_reads.borrow_mut().clear();
                         let emitter = FunctionEmitter::for_generic_trial(mir, self, function)?;
-                        let generic = emitter.renders_real_generics()?;
+                        // The trial records only THAT the render touched the
+                        // erased carrier, not whether a type parameter was
+                        // involved: a local typed `any`, or the erased result
+                        // of an erased callee, trips it as surely as an
+                        // inspected `T`. MIR attributes every use to the local
+                        // it reads, so a body whose type parameters are only
+                        // ever moved, copied or handed on (into an erased
+                        // callee, through the `IntoSmeltUnknown` bound every
+                        // lifted parameter carries) keeps them generic
+                        // (`generic_lifting::type_params_stay_opaque`).
+                        self.take_demotion_requested();
+                        let strict = emitter.renders_real_generics()?;
+                        let demotion_requested = self.take_demotion_requested();
+                        let generic = strict
+                            || (!demotion_requested
+                                && crate::generic_lifting::type_params_stay_opaque(mir, function)
+                                && emitter.signature_spells_own_type_params()?
+                                && emitter.erased_seams_keep_identity()?);
                         let reads = self.generic_reads.take();
                         trials.insert(function.id, TrialOutcome { generic, reads });
                         trials
@@ -779,6 +856,13 @@ impl EmitContext {
                 generic.remove(&id);
             }
         }
+    }
+
+    /// Which call arguments each callee only reads (see
+    /// [`smelt_mir::ReadOnlyArguments`]), summarized once per crate.
+    pub(crate) fn read_only_arguments(&self, mir: &Mir) -> &smelt_mir::ReadOnlyArguments {
+        self.read_only_arguments
+            .get_or_init(|| smelt_mir::ReadOnlyArguments::compute(mir))
     }
 
     /// Return whether the free function with `id` emits real Rust generics.

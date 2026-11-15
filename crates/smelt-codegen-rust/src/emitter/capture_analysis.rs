@@ -315,6 +315,10 @@ impl FunctionEmitter<'_> {
                     )? {
                         self.place_expr(place)?
                     } else {
+                        // On this `&mut` path the token stands for a borrow no
+                        // expression can bridge, so the caller must erase
+                        // whole whatever MIR says about its type parameters.
+                        self.context.request_trial_demotion();
                         self.demoting_erased_argument_expr(place, place_ty)?
                     }
                 } else if self.list_argument_aliases_callee_parameter(

@@ -376,7 +376,10 @@ impl FunctionEmitter<'_> {
         class: Symbol,
         method: Symbol,
     ) -> Result<Option<RustExpr>, EmitError> {
-        let Some(function) = self.mir.functions.iter().find(|function| {
+        // The class's own declaration, else the one it inherits (`EraParser`
+        // reading `Parser`'s `validate`): the inherited copy emitted into
+        // the class's `impl` answers the call either way.
+        let own = self.mir.functions.iter().find(|function| {
             matches!(
                 function.origin,
                 HirOrigin::ClassMethod {
@@ -385,9 +388,16 @@ impl FunctionEmitter<'_> {
                     ..
                 } if function_class == class && function_method == method
             )
-        }) else {
+        });
+        let Some(declared) = own.or_else(|| self.find_class_method_function(class, method)) else {
             return self.abstract_class_method_reference_expr(class, method);
         };
+        // An inherited method's types are spelled in its declaring class
+        // (`validate(value: V)` of `Parser<V>`); the receiver's copy takes them
+        // at the receiver's arguments (`f64` for `EraParser extends
+        // Parser<number>`), the same substitution the copy itself uses.
+        let substituted = crate::classes::substituted_inherited_member(self.mir, declared, class);
+        let function = substituted.as_ref().unwrap_or(declared);
         let method_name = self.method_rust_name(method)?;
         let unknown_ty = self.type_id(Type::Unknown)?;
         let args = function

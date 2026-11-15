@@ -79,6 +79,16 @@ impl ModuleBuilder<'_> {
         // concrete thing is not made into something else by an `instanceof`
         // test: that is either a tautology or dead code, and rewriting its type
         // would discard what the source said it was.
+        // A class local tested against one of its SUBCLASSES narrows to the
+        // subclass: `s: Shape` with `s instanceof Rect` holds a `Rect` in the
+        // true branch, the downcast TypeScript itself performs. (A test
+        // against the class itself or an unrelated class still narrows
+        // nothing.)
+        if let Some(Type::Class { name: base, .. }) = self.ctx.krate.types.get(ty).cloned()
+            && let Some(narrowed) = self.subclass_instance_type(base, class_name)
+        {
+            return Some((local_name.to_owned(), narrowed));
+        }
         if !matches!(self.ctx.krate.types.get(ty), Some(Type::Unknown)) {
             return None;
         }
@@ -88,6 +98,51 @@ impl ModuleBuilder<'_> {
         }
         let narrowed = self.stdlib_class_type(class_name);
         Some((local_name.to_owned(), narrowed))
+    }
+
+    /// The instance type of the class named `class_name` when it is a
+    /// non-generic STRICT subclass of the class `base`, else `None`.
+    ///
+    /// A generic subclass is left alone: its type arguments would have to be
+    /// recovered from the base's, which this guard does not attempt.
+    fn subclass_instance_type(
+        &mut self,
+        base: smelt_hir::Symbol,
+        class_name: &str,
+    ) -> Option<smelt_hir::TypeId> {
+        let item = self.classes.item(class_name)?;
+        let Some(smelt_hir::Item::Class(target)) =
+            self.ctx.krate.items.get(usize::try_from(item.0).ok()?)
+        else {
+            return None;
+        };
+        if !target.type_params.is_empty() || target.name == base {
+            return None;
+        }
+        let target_name = target.name;
+        let mut current = target.base;
+        let mut seen = std::collections::HashSet::new();
+        while let Some(symbol) = current {
+            if symbol == base {
+                return Some(self.ctx.krate.types.intern(Type::Class {
+                    name: target_name,
+                    args: Vec::new(),
+                }));
+            }
+            if !seen.insert(symbol) {
+                return None;
+            }
+            current = self
+                .ctx
+                .krate
+                .items
+                .iter()
+                .find_map(|candidate| match candidate {
+                    smelt_hir::Item::Class(class) if class.name == symbol => Some(class.base),
+                    _ => None,
+                })?;
+        }
+        None
     }
 
     /// Filter a union through a structural flow fact.

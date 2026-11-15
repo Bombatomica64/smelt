@@ -586,10 +586,19 @@ impl FunctionEmitter<'_> {
         // `default_value` already emits. A union WITHOUT a
         // generated enum still renders as `SmeltUnknown` and
         // still answers `undefined`.
-        let value_is_unknownish = matches!(
+        // A type parameter the enclosing item declares as a real Rust generic
+        // is not erased: its miss is the generic's default, as a list read
+        // at `T` answers, never the erased `undefined` a `T` cannot hold.
+        let generic_in_scope = matches!(
             self.mir.types.get(value_ty),
-            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-        ) && self.concrete_union_members(value_ty).is_none();
+            Some(Type::TypeParam { name }) if self.current_function_type_params().contains(name)
+        );
+        let value_is_unknownish = !generic_in_scope
+            && matches!(
+                self.mir.types.get(value_ty),
+                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+            )
+            && self.concrete_union_members(value_ty).is_none();
         if self.dict_uses_smelt_record(key_ty) && value_is_unknownish {
             // A keyed read is a property read like a dotted one: a stored
             // accessor (an object literal's `get`) is called, and a miss

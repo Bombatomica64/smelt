@@ -446,14 +446,16 @@ impl FunctionEmitter<'_> {
             ));
         };
         let list_text = self.local_value(*local)?;
-        // The extended-from list is bound before the receiver's write borrow, so
-        // `a.extend(a)` cannot hold a read guard and a write guard on one shared
-        // buffer at the same time.
+        // The extended-from items are collected before the receiver's write
+        // borrow, so `a.push(...b)` with `b` sharing `a`'s buffer (the same
+        // local, or two names of one array) never holds a read guard and a
+        // write guard on one buffer at the same time, and appends the items `b`
+        // had before the call, as JavaScript's spread does.
         let list_mut = list_write_expr(&list_text);
-        let other_read = list_read_expr(&RustExpr::path("smelt_extend_from"));
+        let other_read = list_read_expr(&RustExpr::path("smelt_extend_list"));
         if returns_length {
             Ok(RustExpr::atom(format!(
-                "{{ let smelt_extend_from = {other_text}; {list_mut}.extend({other_read}.iter().cloned()); {list_text}.len() as f64 }}",
+                "{{ let smelt_extend_list = {other_text}; let smelt_extend_from: Vec<_> = {other_read}.iter().cloned().collect(); {list_mut}.extend(smelt_extend_from); {list_text}.len() as f64 }}",
                 other_text = other_text.delimited(),
                 list_mut = list_mut.tight(),
                 other_read = other_read.tight(),
@@ -461,7 +463,7 @@ impl FunctionEmitter<'_> {
             )))
         } else {
             Ok(RustExpr::atom(format!(
-                "{{ let smelt_extend_from = {other_text}; {list_mut}.extend({other_read}.iter().cloned()); () }}",
+                "{{ let smelt_extend_list = {other_text}; let smelt_extend_from: Vec<_> = {other_read}.iter().cloned().collect(); {list_mut}.extend(smelt_extend_from); () }}",
                 other_text = other_text.delimited(),
                 list_mut = list_mut.tight(),
                 other_read = other_read.tight()

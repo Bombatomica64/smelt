@@ -1,7 +1,8 @@
 //! Lvalue (place) lowering for assignment targets.
 //!
 //! Only a handful of expression kinds denote assignable MIR [`Place`]s: locals,
-//! field, optional-field and index, optional-index projections, tuple indexing, and the transparent
+//! field, optional-field and index, optional-index projections, tuple indexing, a
+//! module global read as a whole (through a copy stored back), and the transparent
 //! `TypeAssert`/`UnknownCast` wrappers. [`LoweringCtx::lower_place`] handles
 //! those; every other [`ExprKind`] is a value expression and is rejected there.
 
@@ -167,6 +168,19 @@ impl LoweringCtx<'_> {
             }
             ExprKind::TypeAssert { value } | ExprKind::UnknownCast { value, .. } => {
                 self.lower_place(*value)
+            }
+            // The whole binding of a module-level mutable global as a write
+            // root: an in-place operation on it (`(erased as number[]).push(3)`)
+            // runs on a copy read out of the cell, which is stored back after,
+            // exactly as a write through one of its fields does
+            // (`global_receiver_copy`). For a shared handle (a list, a live
+            // erased view) the copy names the same storage.
+            ExprKind::GlobalGet { item } if self.global_ids.contains_key(item) => {
+                let base = self.global_ids.get(item).copied().ok_or_else(|| {
+                    self.error("assignment references an unknown global", Some(expr.span))
+                })?;
+                let (copy, writebacks) = self.global_receiver_copy(base, expr_id, expr.span)?;
+                Ok((Place::Local(copy), writebacks))
             }
             // Every other expression kind produces a value, not an assignable
             // place.

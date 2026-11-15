@@ -271,6 +271,58 @@ impl BodyListEscape {
     }
 }
 
+/// Which arguments of statically resolved calls a callee only reads.
+///
+/// Built from the interprocedural escape summaries, with values that may hold
+/// a list without being typed as one (`unknown`, an optional list) tracked as
+/// lists. A callee parameter is read-only when the callee neither keeps a
+/// handle on the argument past the call nor writes through it in place. Such
+/// a callee cannot tell a list from a copy of it that keeps its identity, so
+/// a caller may hand it a converted copy (a `SmeltList<T>` erased into a
+/// `SmeltUnknown`) without changing what either side observes.
+#[derive(Debug, Clone)]
+pub struct ReadOnlyArguments {
+    /// The carrier-tracking summaries.
+    summaries: CallSummaries,
+}
+
+impl ReadOnlyArguments {
+    /// Summarize every function of `mir`.
+    #[must_use]
+    pub fn compute(mir: &Mir) -> Self {
+        Self {
+            summaries: CallSummaries::compute_tracking(mir, true),
+        }
+    }
+
+    /// Whether `callee` only reads its argument at `index` of a call passing
+    /// `arg_count` arguments. Unresolvable callees (async, generator,
+    /// overridable) and broken positional mappings answer `false`.
+    #[must_use]
+    pub fn argument_is_read_only(&self, callee: FuncId, index: usize, arg_count: usize) -> bool {
+        self.summaries.resolved(callee).is_some_and(|facts| {
+            facts.argument_effect(index, arg_count) == ArgumentEffect::Confined { mutated: false }
+        })
+    }
+
+    /// Whether `callee` never writes through its argument at `index` and
+    /// keeps no handle on it except as its own result (`toArray(x)` returning
+    /// `x`). A caller handing it a copy then holds that copy only through the
+    /// call's result, and cannot tell it from the list while it never hands
+    /// that result on to anything that could keep or change it.
+    #[must_use]
+    pub fn argument_only_returned_unmutated(
+        &self,
+        callee: FuncId,
+        index: usize,
+        arg_count: usize,
+    ) -> bool {
+        self.summaries
+            .resolved(callee)
+            .is_some_and(|facts| facts.argument_only_returned_unmutated(index, arg_count))
+    }
+}
+
 /// Classify every list-typed local in every function and closure of `mir`.
 ///
 /// Bodies with no list-typed locals are omitted. Results are ordered by body
@@ -395,6 +447,28 @@ enum OperandRole {
     },
     /// A handle on this operand's buffer becomes reachable from outside.
     Escapes(EscapeReason),
+}
+
+/// Whether `value` reads its operand at `position` (in [`Rvalue::reads`]
+/// order) only for its elements: the operation keeps no handle on that list's
+/// buffer and does not write through it ([`OperandRole::Read`] or a
+/// non-mutating [`OperandRole::Receiver`] in the op table).
+///
+/// An operand the table gives no role, or any other role, answers `false`, so
+/// an unmodelled operation never looks like a pure read.
+pub(crate) fn reads_list_elements_only(value: &Rvalue, position: usize) -> bool {
+    let mut operands = Vec::new();
+    value.reads(|operand| operands.push(std::ptr::from_ref(operand)));
+    let Some(target) = operands.get(position).copied() else {
+        return false;
+    };
+    operand_roles(value).into_iter().any(|(operand, role)| {
+        std::ptr::eq(operand, target)
+            && matches!(
+                role,
+                OperandRole::Read | OperandRole::Receiver { mutating: false }
+            )
+    })
 }
 
 /// A [`LocalId`] index as a slice index, saturating rather than wrapping.
@@ -625,11 +699,22 @@ impl<'a> BodyWalk<'a> {
         }
     }
 
-    /// Whether a local holds a `Type::List`.
+    /// Whether a local holds a `Type::List`, or, when the summaries track
+    /// carriers, a value that may hold a list buffer without being typed as
+    /// one: the erased carrier (`unknown`) or an optional of either.
     fn is_list(&self, local: LocalId) -> bool {
-        self.body
-            .local_ty(local)
-            .is_some_and(|ty| matches!(self.mir.types.get(ty), Some(Type::List(_))))
+        self.body.local_ty(local).is_some_and(|declared| {
+            let carriers = self.summaries.tracks_carriers();
+            let payload = match self.mir.types.get(declared) {
+                Some(Type::Optional(inner)) if carriers => *inner,
+                _ => declared,
+            };
+            match self.mir.types.get(payload) {
+                Some(Type::List(_)) => true,
+                Some(Type::Unknown) => carriers,
+                _ => false,
+            }
+        })
     }
 
     /// Record that a list local appears somewhere in the body.
@@ -1036,13 +1121,16 @@ impl<'a> BodyWalk<'a> {
                     // is.
                     return ParamEffect {
                         escapes: true,
+                        escapes_external: true,
                         mutated: false,
                     };
                 }
                 let root = self.groups.find(param.0);
+                let escapes_external = self.groups.escaped_external.contains_key(&root);
                 ParamEffect {
-                    escapes: self.groups.escaped_external.contains_key(&root)
+                    escapes: escapes_external
                         || self.groups.returned.get(&root).copied().unwrap_or(false),
+                    escapes_external,
                     mutated: self.groups.mutated.get(&root).copied().unwrap_or(false),
                 }
             },

@@ -110,6 +110,29 @@ impl FunctionEmitter<'_> {
         // key type against the erased `key_ty` for exact equality would fold this
         // to the literal `false`, silently corrupting the lookup for object keys.
         if !self.dict_key_operand_is_compatible(key, *key_ty)? {
+            // An erased key probing a string-keyed record goes through
+            // `ToPropertyKey` first, as JavaScript's `in` does: remeda's
+            // `maybeDirection in COMPARATORS` (an `unknown` narrowed by a
+            // `typeof` guard the erased local does not re-type) answered
+            // `false` for `"desc"` once `COMPARATORS` was a record value.
+            let key_ty_of_operand = self.operand_ty(key)?;
+            if matches!(self.mir.types.get(*key_ty), Some(Type::String))
+                && matches!(
+                    self.mir.types.get(key_ty_of_operand),
+                    Some(
+                        Type::Unknown | Type::Union(_) | Type::TypeParam { .. } | Type::Optional(_)
+                    )
+                )
+            {
+                let key_text =
+                    self.property_key_to_string_expr(&self.operand_expr(key)?, key_ty_of_operand)?;
+                let key_rust = self.rendered_type(*key_ty)?;
+                let receiver = self.operand_borrow_expr(dict)?;
+                return Ok(receiver.postfix(format!(
+                    ".contains_key(&{key_rust}::from({key_text}))",
+                    key_text = key_text.delimited()
+                )));
+            }
             return Ok(RustExpr::path("false"));
         }
         // `contains_key` takes `&self`, so read the receiver by borrow. Cloning it

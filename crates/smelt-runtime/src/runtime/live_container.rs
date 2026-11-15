@@ -191,18 +191,43 @@ trait SmeltLiveList {
     //~ Whether `value` survives the round trip through the element type, so
     //~ storing it in the typed list loses nothing.
     fn holds(&self, value: &SmeltUnknown) -> bool;
+    //~ Grow to `len` elements, the new slots holes (JS `arr.length = n`).
+    fn grow_with_holes(&self, len: usize);
+    //~ Whether the slot at `index` is a hole.
+    fn is_hole(&self, index: usize) -> bool;
 }
 
 impl<T: IntoSmeltUnknown + SmeltFromUnknown + Clone + 'static> SmeltLiveList for SmeltList<T> {
     fn element_count(&self) -> usize { self.borrow().len() }
-    fn element(&self, index: usize) -> Option<SmeltUnknown> { self.borrow().get(index).cloned().map(IntoSmeltUnknown::into_smelt_unknown) }
-    fn set_element(&self, index: usize, value: SmeltUnknown) { let mut values = self.borrow_mut(); if index >= values.len() { values.resize_with(index.saturating_add(1), || T::smelt_from_unknown(SmeltUnknown::Undefined)); } values[index] = T::smelt_from_unknown(value); }
-    fn elements(&self) -> Vec<SmeltUnknown> { self.borrow().iter().cloned().map(IntoSmeltUnknown::into_smelt_unknown).collect() }
+    fn element(&self, index: usize) -> Option<SmeltUnknown> { self.borrow().get(index).cloned().map(smelt_list_slot_unknown) }
+    fn set_element(&self, index: usize, value: SmeltUnknown) { let mut values = self.borrow_mut(); if index >= values.len() { values.resize_with(index.saturating_add(1), smelt_list_hole::<T>); } values[index] = T::smelt_from_unknown(value); }
+    fn elements(&self) -> Vec<SmeltUnknown> { self.borrow().iter().cloned().map(smelt_list_slot_unknown).collect() }
     fn splice_elements(&self, start: usize, delete: usize, items: Vec<SmeltUnknown>) -> Vec<SmeltUnknown> { let mut values = self.borrow_mut(); let start = start.min(values.len()); let end = start.saturating_add(delete).min(values.len()); values.splice(start..end, items.into_iter().map(T::smelt_from_unknown)).map(IntoSmeltUnknown::into_smelt_unknown).collect() }
     fn replace_elements(&self, values: Vec<SmeltUnknown>) { *self.borrow_mut() = values.into_iter().map(T::smelt_from_unknown).collect(); }
     fn typed_list(&self) -> &dyn ::std::any::Any { self }
     fn holds(&self, value: &SmeltUnknown) -> bool { smelt_live_same_content(&T::smelt_from_unknown(value.clone()).into_smelt_unknown(), value, 0) }
+    fn grow_with_holes(&self, len: usize) { let mut values = self.borrow_mut(); if len > values.len() { values.resize_with(len, smelt_list_hole::<T>); } }
+    fn is_hole(&self, index: usize) -> bool { self.borrow().get(index).is_some_and(smelt_list_value_is_hole) }
 }
+
+//~ The value a hole of a `SmeltList<T>` is stored as.
+//~
+//~ JavaScript leaves a hole where a write past the end, or a `length` grown
+//~ through an erased handle, skips slots. A `number` element has an
+//~ out-of-band value to spare (`smelt_number_hole`, a reserved NaN payload that
+//~ any arithmetic turns into an ordinary NaN, as `undefined` becomes in JS), so
+//~ a `number[]` keeps its holes. Any other element type has no such value and
+//~ takes the conversion of `undefined`, as before.
+fn smelt_list_hole<T: SmeltFromUnknown + 'static>() -> T {
+    let hole: Box<dyn ::std::any::Any> = Box::new(smelt_number_hole());
+    hole.downcast::<T>().map_or_else(|_| T::smelt_from_unknown(SmeltUnknown::Undefined), |hole| *hole)
+}
+
+//~ Whether a typed list's slot holds a hole (`smelt_list_hole`).
+fn smelt_list_value_is_hole<T: 'static>(value: &T) -> bool { (value as &dyn ::std::any::Any).downcast_ref::<f64>().is_some_and(|value| smelt_is_number_hole(*value)) }
+
+//~ A typed list's slot, erased: a hole reads as `undefined`.
+fn smelt_list_slot_unknown<T: IntoSmeltUnknown + 'static>(value: T) -> SmeltUnknown { if smelt_list_value_is_hole(&value) { SmeltUnknown::Undefined } else { value.into_smelt_unknown() } }
 
 /// Whether two erased values hold the same content, ignoring object identity.
 //~

@@ -105,6 +105,11 @@ pub(in crate::lowering) struct ClassRegistry {
     /// Method signatures for classes that are visible before their item is
     /// fully emitted.
     methods: HashMap<String, Vec<MethodSig>>,
+    /// The instance methods of each class (keyed like `methods`) that declare
+    /// their own type parameters (`map<U>(..)`): a subclass overriding one
+    /// dispatches through the polymorphic class handle rather than a callable
+    /// slot, which a `dyn Fn` cannot carry generically.
+    generic_methods: HashMap<String, HashSet<Symbol>>,
     /// Base-class metadata for classes lowered so far.
     bases: HashMap<String, BaseClass>,
     /// Base-class metadata keyed by the SYMBOL of the class the current module
@@ -349,6 +354,23 @@ impl ClassRegistry {
     /// Replace the recorded method signatures of the class named `name`.
     pub(in crate::lowering) fn set_methods(&mut self, name: String, methods: Vec<MethodSig>) {
         self.methods.insert(name, methods);
+    }
+
+    /// Record which instance methods of the class named `name` are generic.
+    pub(in crate::lowering) fn set_generic_methods(
+        &mut self,
+        name: String,
+        methods: HashSet<Symbol>,
+    ) {
+        self.generic_methods.insert(name, methods);
+    }
+
+    /// Return whether the class named `name` declares `method` with its own
+    /// type parameters.
+    pub(in crate::lowering) fn is_generic_method(&self, name: &str, method: Symbol) -> bool {
+        self.generic_methods
+            .get(name)
+            .is_some_and(|methods| methods.contains(&method))
     }
 
     /// Return the base class recorded for the class named `name`.

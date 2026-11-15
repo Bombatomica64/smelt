@@ -386,7 +386,11 @@ impl FunctionEmitter<'_> {
             },
             _ => return Ok(None),
         };
-        if !self.context.carries_class_identity(static_class)
+        // A polymorphic handle's cell IS an instance of the constructed
+        // class, which names itself (`crate::class_polymorphism`); a value
+        // hierarchy carries the tag field instead (`crate::class_identity`).
+        let polymorphic = self.context.is_polymorphic_class(static_class);
+        if !(polymorphic || self.context.carries_class_identity(static_class))
             || self.class_extends_or_equals(static_class, class)
             || !self.class_extends_or_equals(class, static_class)
         {
@@ -396,7 +400,9 @@ impl FunctionEmitter<'_> {
             crate::class_identity::identity_literals_extending(self.mir, class).join(" | ");
         let field = crate::class_identity::CLASS_IDENTITY_FIELD;
         let tag_of = |base: &str| {
-            if self.context.is_reference_class(static_class) {
+            if polymorphic {
+                Self::polymorphic_class_name_expr(base)
+            } else if self.context.is_reference_class(static_class) {
                 format!("{base}.0.borrow().{field}")
             } else {
                 format!("{base}.{field}")

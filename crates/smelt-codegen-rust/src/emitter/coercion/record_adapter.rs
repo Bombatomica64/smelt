@@ -91,7 +91,17 @@ impl FunctionEmitter<'_> {
         let source_fields = self.structural_record_fields(source)?;
         let target_fields = self.structural_record_fields(target)?;
         if target_fields.is_empty() {
-            return None;
+            // A field-less base class is still a distinct struct, and an
+            // instance of a class extending it converts to it (`function
+            // f(): Model { return new User(); }` with neither declaring a
+            // field): nothing to pair, but the value must be rebuilt as the
+            // base or the result is `expected Model, found User`.
+            let subclass_of_target = matches!(
+                (self.mir.types.get(source), self.mir.types.get(target)),
+                (Some(Type::Class { name: from, .. }), Some(Type::Class { name: to, .. }))
+                    if crate::classes::class_chain_contains(self.mir, *from, *to)
+            );
+            return subclass_of_target.then(Vec::new);
         }
         let field_key =
             |field: &MirField| Some(self.context.names().field_text(self.mir, field.name));
@@ -173,6 +183,12 @@ impl FunctionEmitter<'_> {
             )
         {
             return Ok(Some(value_text.cloned_value()));
+        }
+        // An instance of a subclass viewed as a polymorphic ancestor is the
+        // SAME object: the upcast re-views its shared cell
+        // (`crate::class_polymorphism`), never copies it.
+        if let Some(upcast) = self.polymorphic_upcast_expr(value_text, source, target)? {
+            return Ok(Some(upcast));
         }
         // A MODELED HOST class has no generated fields to pair up — its data
         // lives behind the prelude struct's accessors — but it still EXPOSES
@@ -305,9 +321,25 @@ impl FunctionEmitter<'_> {
         // subclass that adds no members); it copies the members into a new
         // instance.
         if self.is_reference_class_type(target) {
+            let inner = crate::class_polymorphism::inner_literal(
+                self.mir,
+                self.context,
+                *name,
+                &field_text,
+            )?;
+            let copied =
+                format!("{target_name}(::std::rc::Rc::new(::std::cell::RefCell::new({inner})))");
+            // A downcast checks whether the instance IS one of the target's
+            // classes first and keeps it when it is; the field-wise copy is
+            // only the answer for an instance of another class.
+            if let Some(downcast) = self.polymorphic_downcast_expr(source, target)? {
+                return Ok(Some(RustExpr::atom(format!(
+                    "{{ let smelt_struct_value = {value_text}.clone(); match {downcast} {{ Some(smelt_downcast) => smelt_downcast, None => {copied} }} }}",
+                    value_text = value_text.tight()
+                ))));
+            }
             return Ok(Some(RustExpr::atom(format!(
-                "{{ let smelt_struct_value = {value_text}.clone(); {target_name}(::std::rc::Rc::new(::std::cell::RefCell::new({target_name}Inner {{ {} }}))) }}",
-                field_text.join(", "),
+                "{{ let smelt_struct_value = {value_text}.clone(); {copied} }}",
                 value_text = value_text.tight()
             ))));
         }
@@ -689,16 +721,40 @@ impl FunctionEmitter<'_> {
         // object -- so the rebuild is only the answer for a view with no origin
         // (a literal, a JSON value, a spread copy). See `reference_origin`.
         if self.context.is_reference_class(*name) {
-            let rebuild = RustExpr::atom(target_name.clone()).postfix(format!(
-                "(::std::rc::Rc::new(::std::cell::RefCell::new({target_name}Inner {{ {} }})))",
-                field_text.join(", ")
+            let inner = crate::class_polymorphism::inner_literal(
+                self.mir,
+                self.context,
+                *name,
+                &field_text,
+            )?;
+            let rebuild = RustExpr::atom(target_name).postfix(format!(
+                "(::std::rc::Rc::new(::std::cell::RefCell::new({inner})))"
             ));
             // Only an erased-valued `SmeltRecord` view can share an erased
             // object's store; a concretely typed dictionary never carries one.
             let body = if source_is_erased && self.dict_uses_smelt_record(source_key) {
-                crate::reference_origin::restore_or_rebuild_expr(
+                // A polymorphic class also takes back an erased instance of
+                // a subclass, as the same object (`crate::class_polymorphism`).
+                let subclass_origins = match crate::classes::find_class(self.mir, *name) {
+                    Some(class) if self.context.is_polymorphic_class(*name) => {
+                        let arg_texts = args
+                            .iter()
+                            .map(|arg| Ok(self.rendered_type(*arg)?.as_str().to_owned()))
+                            .collect::<Result<Vec<_>, EmitError>>()?;
+                        crate::class_polymorphism::subclass_origins_at(
+                            self.mir,
+                            self.context,
+                            class,
+                            &arg_texts,
+                            &|index, ty| args.get(index) == Some(&ty),
+                        )?
+                    }
+                    _ => Vec::new(),
+                };
+                crate::reference_origin::restore_subclass_or_rebuild_expr(
                     &RustExpr::path("smelt_record_map"),
                     &rebuild,
+                    &subclass_origins,
                     self.context.is_live_record(*name),
                 )
             } else {

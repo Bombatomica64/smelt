@@ -339,8 +339,14 @@ fn generic_key(object: SmeltUnknown, key: JsString) -> bool"
 
 #[test]
 fn lowers_for_in_over_generic_object_receiver() {
-    // `for...in` over an erased object receiver iterates its keys; the signature keeps the
+    // `for...in` over a type-parameter receiver iterates its keys; the signature keeps the
     // concrete `string[]` result. Behaviour is in the `generics_behaviour` node-parity fixture.
+    //
+    // Old requirement: `keys_of(object: SmeltUnknown)`, because the key walk renders through the
+    // erased carrier. New requirement: `keys_of<T>(object: T)`. The walk erases the bare `T`
+    // once through `IntoSmeltUnknown` (the boundary adapter every lifted parameter carries) and
+    // only reads its keys, so nothing a caller observes changes, and callers keep their concrete
+    // argument type. Checked against Node: `keysOf({ a: 1, b: 2 })` prints `a,b` in both.
     let source = source_for(
         r"
 export function keysOf<T>(object: T): string[] {
@@ -355,7 +361,7 @@ export function keysOf<T>(object: T): string[] {
 
     assert_eq!(
         rust_items(&source, &["sig keys_of"]),
-        r"fn keys_of(object: SmeltUnknown) -> SmeltList<JsString>"
+        r"fn keys_of<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(object: T) -> SmeltList<JsString>"
     );
 }
 
@@ -629,11 +635,17 @@ const r = scan(['a', 'b'], (s) => 'k');
     );
 }
 
-/// A type parameter moved into a differently-typed container does not lift: moving a `T`
-/// into an `unknown[]` slot erases it, and the erased list could not reach a
-/// `Fn(SmeltList<T>)` bound.
+/// A type parameter moved into an `unknown[]` slot still lifts.
+///
+/// Old requirement: `collect` stayed erased, because the erased list could not reach the
+/// `Fn(SmeltList<T>)` bound (es-toolkit's `unzipWith` failed to compile that way). New
+/// requirement: `collect<T, F0: Fn(&SmeltList<T>)>`. Each bare `T` crosses into the
+/// `unknown[]` slot through `IntoSmeltUnknown`, and the erased list is recovered at the
+/// callback through `SmeltFromUnknown`. `group` is a fresh local the body never reads after
+/// handing it on, so the recovered copy is unobservable. Checked against Node: a callback that
+/// keeps and mutates its argument sees the same lengths in both.
 #[test]
-fn type_param_moved_into_an_erased_container_does_not_lift() {
+fn type_param_moved_into_an_erased_container_lifts() {
     let source = source_for(
         r"
 function collect<T, K extends string>(rows: T[][], key: (vals: T[]) => K): K[] {
@@ -651,7 +663,7 @@ const r = collect([[1, 2]], (v) => 'k');
 
     assert_eq!(
         rust_items(&source, &["sig collect"]),
-        r"fn collect(rows: SmeltList<SmeltList<SmeltUnknown>>, key: &dyn Fn(&SmeltList<SmeltUnknown>) -> SmeltUnknown) -> SmeltList<SmeltUnknown>"
+        r"fn collect<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F0: Fn(&SmeltList<T>) -> SmeltUnknown + ?Sized>(rows: SmeltList<SmeltList<T>>, key: &F0) -> SmeltList<SmeltUnknown>"
     );
 }
 

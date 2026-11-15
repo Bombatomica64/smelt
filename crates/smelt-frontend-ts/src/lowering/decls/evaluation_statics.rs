@@ -109,6 +109,35 @@ pub(in crate::lowering) struct EvaluationStatics {
     /// The class declaration's source range, which the checker names as the
     /// declaration of the class's constructor type (`typeof Box`).
     pub(in crate::lowering) declared_at: (u32, u32),
+    /// The bindings of the enclosing body the class's members read or write,
+    /// each kept in a frame field (see "Captures" below).
+    pub(in crate::lowering) captures: Vec<CapturedBinding>,
+}
+
+/// One binding of the body a per-evaluation class is declared in that the
+/// class's members use (a parameter or local of that body).
+///
+/// # Captures
+///
+/// JavaScript closes a class's methods over the environment the class was
+/// evaluated in: `function mk(n) { let calls = 0; return class { get() {
+/// calls++; return n + calls } } }` gives each call of `mk` its own `n` and
+/// `calls`, shared by every instance of that evaluation and by `mk`'s own code
+/// after the declaration. The statics frame is that environment: it gets one
+/// field per captured binding, initialized from the binding where the frame is
+/// constructed, and from then on the name stands for the frame field
+/// (`local_scope::FrameAlias`) in the members, in closures they create, and in
+/// the enclosing body itself, so a write through any of them is seen by all.
+/// A class needing nothing else per evaluation becomes per-evaluation for its
+/// captures alone.
+#[derive(Debug, Clone)]
+pub(in crate::lowering) struct CapturedBinding {
+    /// The binding's source name.
+    pub(in crate::lowering) name: String,
+    /// The frame field holding it.
+    pub(in crate::lowering) field: smelt_hir::Symbol,
+    /// Its type.
+    pub(in crate::lowering) ty: smelt_hir::TypeId,
 }
 
 /// One static field a per-evaluation subclass inherits from its base.
@@ -147,8 +176,15 @@ impl ModuleBuilder<'_> {
         type_params: &[smelt_hir::TypeParamDef],
         base: Option<EvaluationStatics>,
     ) -> Option<EvaluationStatics> {
+        let capture_uses = if self.classes.in_body() {
+            self.member_capture_uses(class)
+        } else {
+            Vec::new()
+        };
         if base.is_none()
-            && (!self.classes.in_body() || !self.static_initializers_read_enclosing_locals(class))
+            && (!self.classes.in_body()
+                || (!self.static_initializers_read_enclosing_locals(class)
+                    && capture_uses.is_empty()))
         {
             return None;
         }
@@ -180,6 +216,18 @@ impl ModuleBuilder<'_> {
             self.classes
                 .set_base(frame_text.clone(), frame, base.frame, Vec::new());
         }
+        let depth_for_captures = base.as_ref().map_or(0, |base| base.depth + 1);
+        let mut captures = Vec::new();
+        for (name, (start, end)) in capture_uses {
+            let Some(ty) = self.checker_binding_type(start, end) else {
+                continue;
+            };
+            let field = self.intern_synthesized_name(&level_name(
+                &format!("__smelt_capture_{name}"),
+                depth_for_captures,
+            ));
+            captures.push(CapturedBinding { name, field, ty });
+        }
         let evaluation = EvaluationStatics {
             owner: class_name,
             binding: class.id.as_ref().map(|id| id.name.to_string()),
@@ -193,6 +241,7 @@ impl ModuleBuilder<'_> {
             depth,
             inherited: Vec::new(),
             declared_at: (class.span.start, class.span.end),
+            captures,
         };
         self.evaluation_statics
             .insert(class_name, evaluation.clone());
@@ -234,6 +283,56 @@ impl ModuleBuilder<'_> {
             let (start, end) = evaluation.declared_at;
             (start <= declaration.start && declaration.end <= end).then_some(evaluation.owner)
         })
+    }
+
+    /// The bindings of the body `class` is declared in that its members use
+    /// (method, accessor and constructor bodies, instance field initializers,
+    /// and static methods), each with the span of its first use (where the
+    /// checker types it). A name a member binds itself only makes the answer
+    /// conservative: a frame field nobody reads.
+    fn member_capture_uses(&self, class: &oxc::ast::ast::Class<'_>) -> Vec<(String, (u32, u32))> {
+        let mut uses = Vec::new();
+        for element in &class.body.body {
+            // Each member's own references, less the names the member binds
+            // itself (its parameters and locals shadow the enclosing body's).
+            let mut member_uses = Vec::new();
+            let mut bound = HashSet::new();
+            let mut collector = IdentifierSpanCollector {
+                uses: &mut member_uses,
+                bound: &mut bound,
+            };
+            match element {
+                ClassElement::PropertyDefinition(property) if !property.r#static => {
+                    if let Some(value) = &property.value {
+                        oxc::ast_visit::Visit::visit_expression(&mut collector, value);
+                    }
+                }
+                ClassElement::MethodDefinition(method) => {
+                    oxc::ast_visit::Visit::visit_function(
+                        &mut collector,
+                        &method.value,
+                        oxc::syntax::scope::ScopeFlags::empty(),
+                    );
+                }
+                ClassElement::AccessorProperty(accessor) if !accessor.r#static => {
+                    if let Some(value) = &accessor.value {
+                        oxc::ast_visit::Visit::visit_expression(&mut collector, value);
+                    }
+                }
+                _ => {}
+            }
+            uses.extend(
+                member_uses
+                    .into_iter()
+                    .filter(|(name, _)| !bound.contains(name)),
+            );
+        }
+        let mut seen = HashSet::new();
+        uses.into_iter()
+            .filter(|(name, _)| {
+                name != "this" && self.scope.is_bound(name) && seen.insert(name.clone())
+            })
+            .collect()
     }
 
     /// Whether a static field initializer of `class` reads a binding of the
@@ -387,7 +486,28 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Option<Param> {
         let evaluation = self.lowering_evaluation_statics.clone()?;
+        // The captured bindings, as fields of this evaluation's frame
+        // ("Captures"): the frame is `this` in a frame (static) method, the
+        // frame parameter in the constructor, and `this`'s hidden frame field
+        // in an instance member.
+        let bind_captures =
+            |this: &mut Self,
+             base: smelt_hir::LocalId,
+             via: Option<(smelt_hir::Symbol, smelt_hir::TypeId)>| {
+                for capture in &evaluation.captures {
+                    this.scope.bind_alias(
+                        capture.name.clone(),
+                        crate::lowering::state::local_scope::FrameAlias {
+                            base,
+                            via,
+                            field: capture.field,
+                            ty: capture.ty,
+                        },
+                    );
+                }
+            };
         if class_name == evaluation.frame {
+            bind_captures(self, this_local, None);
             // A static method runs with `this` = the class it was called on,
             // which for an inherited one is a SUBCLASS frame, but its source
             // names its own class lexically: `Box.n` in `Box`'s static method
@@ -468,6 +588,7 @@ impl ModuleBuilder<'_> {
             if let Some(binding) = &evaluation.binding {
                 self.scope.bind(binding.clone(), local);
             }
+            bind_captures(self, local, None);
             // `super(...)` passes the base class's frame, which this frame
             // links to (`Self::base_frame_argument`).
             self.scope.bind(CONSTRUCTOR_FRAME_BINDING.to_owned(), local);
@@ -507,6 +628,11 @@ impl ModuleBuilder<'_> {
                 span,
             });
         }
+        bind_captures(
+            self,
+            this_local,
+            Some((evaluation.frame_field, evaluation.frame_ty)),
+        );
         self.bind_ancestor_frames(
             &evaluation,
             named,
@@ -567,36 +693,49 @@ impl ModuleBuilder<'_> {
     /// Bind the name of the per-evaluation class being lowered to a frame
     /// local of `body`, for an expression lowered only to learn its type (an
     /// unannotated instance field's initializer). Returns what to restore.
+    ///
+    /// The class's captured bindings ("Captures") are bound to the scratch
+    /// frame's fields too, as the constructor binds them to its frame.
     pub(in crate::lowering) fn bind_scratch_evaluation_frame(
         &mut self,
         body: &mut Body,
         span: Span,
-    ) -> Option<(String, Option<smelt_hir::LocalId>)> {
+    ) -> Option<crate::lowering::state::local_scope::LocalBindings> {
         let evaluation = self.lowering_evaluation_statics.clone()?;
-        let binding = evaluation.binding?;
+        if evaluation.binding.is_none() && evaluation.captures.is_empty() {
+            return None;
+        }
+        let saved = self.scope.snapshot_bindings();
         let local = body.push_local(LocalDecl {
             name: Some(evaluation.frame_field),
             ty: evaluation.frame_ty,
             mutable: false,
             span,
         });
-        let previous = self.scope.bind(binding.clone(), local);
-        Some((binding, previous))
+        if let Some(binding) = evaluation.binding {
+            self.scope.bind(binding, local);
+        }
+        for capture in &evaluation.captures {
+            self.scope.bind_alias(
+                capture.name.clone(),
+                crate::lowering::state::local_scope::FrameAlias {
+                    base: local,
+                    via: None,
+                    field: capture.field,
+                    ty: capture.ty,
+                },
+            );
+        }
+        Some(saved)
     }
 
     /// Undo [`Self::bind_scratch_evaluation_frame`].
     pub(in crate::lowering) fn restore_scratch_evaluation_frame(
         &mut self,
-        saved: Option<(String, Option<smelt_hir::LocalId>)>,
+        saved: Option<crate::lowering::state::local_scope::LocalBindings>,
     ) {
-        let Some((binding, previous)) = saved else {
-            return;
-        };
-        match previous {
-            Some(previous) => {
-                self.scope.bind(binding, previous);
-            }
-            None => self.scope.unbind(&binding),
+        if let Some(saved) = saved {
+            self.scope.restore_bindings(saved);
         }
     }
 
@@ -1416,6 +1555,39 @@ impl ModuleBuilder<'_> {
                 },
             );
         }
+        // The captured bindings move into the frame here ("Captures"): each
+        // field starts at the binding's current value, and from now on the
+        // enclosing body reads and writes the field, so it and the class's
+        // members share one variable.
+        for capture in &evaluation.captures {
+            let value =
+                self.identifier_expression(&capture.name, class.span.start, class.span.end, body)?;
+            let receiver = body.push_expr(Expr {
+                kind: ExprKind::Local(frame_local),
+                ty: evaluation.frame_ty,
+                span,
+            });
+            let target = body.push_expr(Expr {
+                kind: ExprKind::Field {
+                    receiver,
+                    field: capture.field,
+                },
+                ty: capture.ty,
+                span,
+            });
+            self.push_stmt_to_sink(body, Stmt::Assign { target, value });
+        }
+        for capture in &evaluation.captures {
+            self.scope.bind_alias(
+                capture.name.clone(),
+                crate::lowering::state::local_scope::FrameAlias {
+                    base: frame_local,
+                    via: None,
+                    field: capture.field,
+                    ty: capture.ty,
+                },
+            );
+        }
         if let Some(binding) = &evaluation.binding {
             self.scope.bind(binding.clone(), frame_local);
         }
@@ -1729,6 +1901,31 @@ impl ModuleBuilder<'_> {
 }
 
 /// Collects every identifier reference under the visited node.
+/// Every identifier reference under a node, with its span, in source order,
+/// and every name the node binds (parameters, declarations).
+struct IdentifierSpanCollector<'uses> {
+    /// The references.
+    uses: &'uses mut Vec<(String, (u32, u32))>,
+    /// The bound names.
+    bound: &'uses mut HashSet<String>,
+}
+
+impl<'a> oxc::ast_visit::Visit<'a> for IdentifierSpanCollector<'_> {
+    /// Records one identifier reference.
+    fn visit_identifier_reference(&mut self, identifier: &oxc::ast::ast::IdentifierReference<'a>) {
+        self.uses.push((
+            identifier.name.to_string(),
+            (identifier.span.start, identifier.span.end),
+        ));
+    }
+
+    /// Records one bound name.
+    fn visit_binding_identifier(&mut self, identifier: &oxc::ast::ast::BindingIdentifier<'a>) {
+        self.bound.insert(identifier.name.to_string());
+    }
+}
+
+/// Every identifier reference under a node, by name.
 struct IdentifierCollector<'names> {
     /// The referenced names.
     names: &'names mut HashSet<String>,

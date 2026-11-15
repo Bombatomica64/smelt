@@ -336,6 +336,17 @@ impl ModuleBuilder<'_> {
                 let mut frame_fields = Vec::new();
                 let mut frame_methods = Vec::new();
                 if let Some(evaluation) = &evaluation {
+                    // The bindings of the enclosing body the members use live
+                    // in the frame (`decls::evaluation_statics`, "Captures").
+                    for capture in &evaluation.captures {
+                        frame_fields.push(Field {
+                            name: capture.field,
+                            ty: capture.ty,
+                            visibility: Visibility::Hidden,
+                            optional: false,
+                            span: class_span,
+                        });
+                    }
                     fields.push(Field {
                         name: evaluation.frame_field,
                         ty: evaluation.frame_ty,
@@ -774,8 +785,14 @@ impl ModuleBuilder<'_> {
                 this.classes
                     .push_statics_in_flight(class_source_name.clone(), static_fields.clone());
                 let method_sigs = this.class_method_signatures(&class.body.body)?;
-                let virtual_method_fields =
+                let generic_methods = this.generic_method_names(&class.body.body)?;
+                let mut virtual_method_fields =
                     this.virtual_method_field_names(&class.body.body, class.r#abstract);
+                // A generic method with a body is dispatched through the
+                // polymorphic class handle (codegen's `class_polymorphism`),
+                // never through a `dyn Fn` slot that would erase its own type
+                // parameters.
+                virtual_method_fields.retain(|name| !generic_methods.contains(name));
                 this.add_virtual_class_method_fields(
                     &mut fields,
                     &method_sigs,
@@ -818,6 +835,8 @@ impl ModuleBuilder<'_> {
                     .set_fields(class_text.to_owned(), fields.clone());
                 this.classes
                     .set_methods(class_text.to_owned(), method_sigs.clone());
+                this.classes
+                    .set_generic_methods(class_text.to_owned(), generic_methods);
                 if let Some(evaluation) = &mut evaluation {
                     // A subclass frame links to its base frame and shadows each
                     // static it inherits (`evaluation_inherited_fields`).
@@ -925,7 +944,9 @@ impl ModuleBuilder<'_> {
                                 static_methods.push(item);
                                 continue;
                             }
-                            if method.r#type == MethodDefinitionType::TSAbstractMethodDefinition {
+                            if method.r#type == MethodDefinitionType::TSAbstractMethodDefinition
+                                && !Self::abstract_method_lowers_as_method(method)
+                            {
                                 if !matches!(method.kind, MethodDefinitionKind::Method) {
                                     return Err(SmeltError::unsupported(
                                         this.span(method.span.start, method.span.end),

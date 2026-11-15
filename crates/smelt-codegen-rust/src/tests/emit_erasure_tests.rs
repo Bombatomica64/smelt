@@ -772,9 +772,19 @@ console.log(new App<number>().onError('x').handler);
         .nth(1)
         .and_then(|rest| rest.split("\n    fn ").next())
         .unwrap_or_default();
+    // Old requirement: the returned receiver was REBUILT at the base type
+    // (a new `RouterInner` cell, a copy of the instance). New requirement
+    // (`crate::class_polymorphism`): `Router` has a subclass, so it is a
+    // polymorphic handle and the receiver is the SAME instance viewed at the
+    // base type, as JavaScript's `return this` is; the original E0271 stays
+    // fixed because the conversion still produces a `Router`.
     assert!(
-        init.contains("Router(::std::rc::Rc::new(::std::cell::RefCell::new(RouterInner {"),
-        "the returned receiver is rebuilt at the base type: {source}"
+        init.contains("Router(") && init.contains(".0.clone())"),
+        "the returned receiver is the same instance viewed at the base type: {source}"
+    );
+    assert!(
+        !init.contains("RefCell::new(RouterInner {"),
+        "the returned receiver is not copied into a new cell: {source}"
     );
 }
 

@@ -509,6 +509,17 @@ impl ModuleBuilder<'_> {
         &self,
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
     ) -> Option<StaticWriteTarget> {
+        // `this.x = v` in a static method writes the RECEIVER's `x`, which is
+        // its own from then on whichever class declared it.
+        if let Some((class_text, class)) = self.static_method_receiver(&member.object) {
+            let (field, _own) =
+                self.class_static_field_named(&class_text, member.property.name.as_str())?;
+            return field.mutable.then_some(StaticWriteTarget::Receiver {
+                class,
+                field: field.name,
+                ty: field.ty,
+            });
+        }
         let class_name = self.static_class_receiver(&member.object)?;
         let (field, own) =
             self.class_static_field_named(&class_name, member.property.name.as_str())?;
@@ -571,6 +582,42 @@ impl ModuleBuilder<'_> {
         (!self.scope.is_bound("this")).then_some(class)
     }
 
+    /// The receiver class `object` names when it is `this` inside a static
+    /// method whose `this` is the class it was called on
+    /// (`ModuleBuilder::static_method_this`): the method's class (registry key
+    /// and symbol), which bounds the receiver.
+    pub(in crate::lowering) fn static_method_receiver(
+        &self,
+        object: &Expression<'_>,
+    ) -> Option<(String, smelt_hir::Symbol)> {
+        if !matches!(object, Expression::ThisExpression(_)) || self.scope.is_bound("this") {
+            return None;
+        }
+        self.static_method_this.clone()
+    }
+
+    /// A [`ExprKind::StaticDispatch`] on the static method's own receiver
+    /// (`receiver: None`) bounded by `class`.
+    pub(in crate::lowering) fn static_dispatch_expr(
+        class: smelt_hir::Symbol,
+        member: smelt_hir::StaticMember,
+        args: Vec<smelt_hir::ExprId>,
+        ty: smelt_hir::TypeId,
+        span: Span,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        body.push_expr(Expr {
+            kind: ExprKind::StaticDispatch {
+                receiver: None,
+                class,
+                member,
+                args,
+            },
+            ty,
+            span,
+        })
+    }
+
     /// The class a static-member receiver names: a class identifier no
     /// lexical binding shadows, or `this` inside a static field initializer
     /// (see `ModuleBuilder::static_initializer_class`).
@@ -602,6 +649,21 @@ impl ModuleBuilder<'_> {
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        // `this.x` in a static method reads the RECEIVER's `x`.
+        if let Some((class_text, class)) = self.static_method_receiver(&member.object)
+            && let Some((field, _own)) =
+                self.class_static_field_named(&class_text, member.property.name.as_str())
+        {
+            let span = self.span(member.span.start, member.span.end);
+            return Ok(Some(Self::static_dispatch_expr(
+                class,
+                smelt_hir::StaticMember::Get(field.name),
+                Vec::new(),
+                field.ty,
+                span,
+                body,
+            )));
+        }
         let Some(class_name) = self.static_class_receiver(&member.object) else {
             return Ok(None);
         };
@@ -961,10 +1023,6 @@ mod tests {
 /// Where a static-member write (`Class.x = v`, `Class.x += v`, `Class.x++`)
 /// lands; see [`ModuleBuilder::static_field_write_storage`].
 #[derive(Debug, Clone, Copy)]
-#[expect(
-    variant_size_differences,
-    reason = "both variants are a few `Copy` ids; boxing one would cost an allocation per write"
-)]
 pub(in crate::lowering) enum StaticWriteTarget {
     /// A mutable global: a static the class declares, or a lifted module
     /// variable.
@@ -974,6 +1032,16 @@ pub(in crate::lowering) enum StaticWriteTarget {
     Inherited {
         /// The class's accessor pair.
         access: smelt_hir::InheritedStaticAccess,
+        /// The static's type.
+        ty: smelt_hir::TypeId,
+    },
+    /// A static of the receiver class of the static method being lowered
+    /// (`this.x = v`), written and read through `ExprKind::StaticDispatch`.
+    Receiver {
+        /// The static method's class, which bounds the receiver.
+        class: smelt_hir::Symbol,
+        /// The static's name.
+        field: smelt_hir::Symbol,
         /// The static's type.
         ty: smelt_hir::TypeId,
     },

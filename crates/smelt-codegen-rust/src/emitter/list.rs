@@ -985,6 +985,37 @@ impl FunctionEmitter<'_> {
         dest_ty: TypeId,
     ) -> Result<RustExpr, EmitError> {
         let list_ty = self.operand_ty(list)?;
+        // A narrowed optional list (`T[] | undefined` proven present): the
+        // receiver is unwrapped exactly as the narrowing copy it replaces would
+        // (`ListCopyElision` forwards that copy into this one), converted when
+        // the copy lands in a list of another element type, then copied.
+        if let Some(Type::Optional(inner_ty)) = self.mir.types.get(list_ty)
+            && matches!(self.mir.types.get(*inner_ty), Some(Type::List(_)))
+        {
+            let present = self.use_expr(list, *inner_ty)?;
+            if *inner_ty == dest_ty {
+                return Ok(present.postfix(".fresh_copy()"));
+            }
+            let converted =
+                self.rendered_at_type(&present, *inner_ty, dest_ty, &self.render_scope())?;
+            return Ok(RustExpr::atom(format!(
+                "SmeltList::fresh_copy(&{})",
+                converted.delimited()
+            )));
+        }
+        // A list copied into a list of another element type (a `T[]` copy
+        // joined into an `unknown[]` binding): converted, then copied, so the
+        // result is a new array whichever the conversion returns.
+        if matches!(self.mir.types.get(list_ty), Some(Type::List(_)))
+            && matches!(self.mir.types.get(dest_ty), Some(Type::List(_)))
+            && list_ty != dest_ty
+        {
+            let converted = self.value_at_type(list, dest_ty)?;
+            return Ok(RustExpr::atom(format!(
+                "SmeltList::fresh_copy(&{})",
+                converted.delimited()
+            )));
+        }
         // `[...erased]` / `Array.from(erased)` (an erased, type-parameter,
         // union or optional operand): the value is read as
         // the destination list (an array, a live view of a typed one, a

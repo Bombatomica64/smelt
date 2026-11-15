@@ -35,7 +35,7 @@
 //!   ([`with_origin_expr`]);
 //! * narrowing an erased value to a reference record downcasts the slot to the
 //!   target handle type first, and only rebuilds from the snapshot when the
-//!   value did not come from an erasure of that type ([`restore_or_rebuild_expr`]).
+//!   value did not come from an erasure of that type ([`restore_subclass_or_rebuild_expr`]).
 //!
 //! The slot is strong on purpose. A JavaScript reference keeps its object
 //! alive, so an erased view must too: `const x: unknown = new C()` drops the
@@ -80,22 +80,36 @@ pub(crate) fn with_origin_expr(object_ctor: &str, handle: &str) -> RustExpr {
 /// The handle type is inferred from `rebuild`'s type — both arms of the match
 /// must agree — so a generic record needs no spelled type arguments here.
 ///
+/// A polymorphic record type also takes back an erased instance of a subclass
+/// as the same object: each pair of `subclass_origins` is a subclass handle
+/// type and the upcast of the recovered `smelt_subclass_origin`
+/// (`crate::class_polymorphism::subclass_origins_at`); empty for every other
+/// record type.
+///
 /// With `adopt` (a live record, see `emitter::live_view`) the rebuilt record
 /// adopts the object behind the view, so the two are one object from then on.
-pub(crate) fn restore_or_rebuild_expr(
+pub(crate) fn restore_subclass_or_rebuild_expr(
     record: &RustExpr,
     rebuild: &RustExpr,
+    subclass_origins: &[(String, String)],
     adopt: bool,
 ) -> RustExpr {
     let view = record.parenthesized_if_needed();
     let fresh = rebuild.delimited();
-    if adopt {
-        return RustExpr::atom(format!(
-            "match {view}.smelt_origin() {{ Some(smelt_origin) => smelt_origin, None => {{ let smelt_rebuilt = {fresh}; {view}.smelt_adopt(&smelt_rebuilt); smelt_rebuilt }} }}"
-        ));
+    let mut fallback = if adopt {
+        format!(
+            "{{ let smelt_rebuilt = {fresh}; {view}.smelt_adopt(&smelt_rebuilt); smelt_rebuilt }}"
+        )
+    } else {
+        fresh.to_owned()
+    };
+    for (subclass, upcast) in subclass_origins.iter().rev() {
+        fallback = format!(
+            "match {view}.smelt_origin::<{subclass}>() {{ Some(smelt_subclass_origin) => {upcast}, None => {fallback} }}"
+        );
     }
     RustExpr::atom(format!(
-        "match {view}.smelt_origin() {{ Some(smelt_origin) => smelt_origin, None => {fresh} }}"
+        "match {view}.smelt_origin() {{ Some(smelt_origin) => smelt_origin, None => {fallback} }}"
     ))
 }
 
@@ -117,6 +131,9 @@ pub(crate) fn restore_or_rebuild_expr(
 /// Fields are rebuilt under the same whitelist as the value-record recovery
 /// (`type_supports_from_unknown`); anything else keeps its `Default`.
 ///
+/// `subclass_origins` pairs each subclass handle type a polymorphic handle can
+/// recover (`Sub`) with the upcast of the recovered `smelt_subclass_origin` into `Self`.
+///
 /// For a `live` record (`emitter::live_view`) the rebuilt record then ADOPTS
 /// the object it was read from: a plain erased object cast to the record type
 /// is that record from then on, with one identity, shared writes and the
@@ -129,6 +146,7 @@ pub(crate) fn emit_reference_from_smelt_unknown_impl(
     impl_generics: &str,
     type_args: &str,
     fields: &[smelt_mir::MirField],
+    subclass_origins: &[(String, String)],
     live: bool,
 ) {
     let mut assigns = Vec::new();
@@ -178,6 +196,13 @@ pub(crate) fn emit_reference_from_smelt_unknown_impl(
             impl_writer.block("fn smelt_from_unknown(value: SmeltUnknown) -> Self", |fn_writer| {
                 fn_writer.line(format!("let SmeltUnknown::Object(smelt_object) = value.clone() else {{ smelt_throw_not_a_record({name:?}, &value) }};"));
                 fn_writer.line("if let Some(origin) = smelt_object.smelt_origin::<Self>() { return origin; }");
+                // A polymorphic handle also takes back an erased instance of a
+                // subclass, as the same object (`crate::class_polymorphism`).
+                for (subclass, upcast) in subclass_origins {
+                    fn_writer.line(format!(
+                        "if let Some(smelt_subclass_origin) = smelt_object.smelt_origin::<{subclass}>() {{ return {upcast}; }}"
+                    ));
+                }
                 fn_writer.line("let result = Self::default();");
                 for assign in &assigns {
                     fn_writer.line(assign);

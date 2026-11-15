@@ -315,7 +315,13 @@ impl FunctionEmitter<'_> {
                 .iter()
                 .enumerate()
                 .map(|(index, param)| {
-                    if self.param_passed_by_mut_ref(&function_ty, index) {
+                    // The stored callable and this adapter are rendered from
+                    // the same slot type, so a parameter the adapter takes by
+                    // reference (a bare type parameter, `&T`) is handed on as
+                    // that reference.
+                    if self.param_passed_by_mut_ref(&function_ty, index)
+                        || self.callback_param_is_shared_reference(&function_ty, index, *param)
+                    {
                         Ok(RustExpr::path(format!("smelt_arg{index}")))
                     } else {
                         self.rendered_at_type(
@@ -381,8 +387,18 @@ impl FunctionEmitter<'_> {
                 )?,
             ));
         };
-        // Same deliberate erasure as the dispatches-to-source-field arm above.
-        let field_substitution = TypeSubstitution::erased();
+        // Same deliberate erasure as the dispatches-to-source-field arm above,
+        // except for a class binding its OWN slots in its constructor: the
+        // slot field is declared at the class's own parameters
+        // (`Rc<dyn Fn(&T) -> ..>` inside `impl<T> Base<T>`), which are in
+        // scope there, so the closure takes them as declared rather than
+        // erased (`Fn(&SmeltUnknown)` did not coerce to the field's type).
+        let lexical = self.render_scope();
+        let field_substitution = if matches!(receiver, SlotReceiver::WeakSelf { .. }) {
+            lexical.substitution()
+        } else {
+            TypeSubstitution::erased()
+        };
         let params = self
             .callback_arg_decls(&function_ty, &field_substitution, MutablePrefix::Apply)?
             .join(", ");
@@ -515,12 +531,32 @@ impl FunctionEmitter<'_> {
         } else {
             call
         };
-        let body = self.rendered_at_type(
-            &adjusted_call,
-            source_return_ty,
+        let scope = self.render_scope();
+        // A slot declared over its class's parameters renders them erased
+        // here when the target instantiates them at `any`/`unknown`
+        // (`Parser<number>` stored as a `Parser<any>`): the source method's
+        // concrete answer (`Result<number>`) crosses that erased boundary,
+        // so it is erased and recovered at the slot's own spelling.
+        let mut mentioned = HashSet::new();
+        crate::generic_bindings::collect_type_param_occurrences(
+            self.mir,
             function_ty.return_ty,
-            &self.render_scope(),
-        )?;
+            &mut mentioned,
+        );
+        let body = if source_return_ty != function_ty.return_ty
+            && !mentioned.is_empty()
+            && mentioned.iter().any(|name| !scope.spells(*name))
+        {
+            let erased = self.erase_rendered(&adjusted_call, source_return_ty)?;
+            self.extract_rendered(&erased, function_ty.return_ty, &scope)?
+        } else {
+            self.rendered_at_type(
+                &adjusted_call,
+                source_return_ty,
+                function_ty.return_ty,
+                &scope,
+            )?
+        };
         let return_ty = if function_ty.may_throw {
             format!(
                 "Result<{}, {ERROR_BOX}>",
@@ -553,7 +589,7 @@ impl FunctionEmitter<'_> {
     }
 
     /// Find a concrete method implementation on a class or its base chain.
-    fn find_class_method_function(
+    pub(super) fn find_class_method_function(
         &self,
         class_name: Symbol,
         method: Symbol,

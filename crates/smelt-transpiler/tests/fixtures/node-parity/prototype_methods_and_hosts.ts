@@ -20,6 +20,14 @@ class Dog extends Animal {
   }
 }
 
+// A class below `Dog` overriding `bark`: `Dog.prototype.bark` still runs
+// `Dog`'s own body on it, and a plain call reaches the override.
+class Puppy extends Dog {
+  bark(): string {
+    return `${this.name} yips`;
+  }
+}
+
 function constructorOf(value: unknown): unknown {
   return (value as any).constructor;
 }
@@ -37,6 +45,9 @@ function main(): void {
   const copy: any = Object.assign(Object.create(Object.getPrototypeOf(rex)), rex);
   console.log("clone", copy.bark(), copy.bark === a.bark, copy.name);
   console.log("call", Dog.prototype.bark.call(b), Animal.prototype.speak.call(rex));
+  const pup: Dog = new Puppy("pup");
+  const erasedPup: unknown = pup;
+  console.log("override", Dog.prototype.bark.call(erasedPup), pup.bark(), Animal.prototype.speak.call(erasedPup));
 
   const date: unknown = new Date(0);
   const blob: unknown = new Blob(["hi"]);

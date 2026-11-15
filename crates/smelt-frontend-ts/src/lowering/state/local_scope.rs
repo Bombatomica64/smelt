@@ -106,9 +106,40 @@ impl CallableLocalProps {
     }
 }
 
-/// Source-name to local-id bindings saved while a nested body is lowered.
+/// A source name that stands for a field of a per-evaluation class's statics
+/// frame (`decls::evaluation_statics`, "Captures"): a binding of the function
+/// a class is declared in, which the class's members read and write.
+///
+/// JavaScript closes a class's methods over the environment the class was
+/// evaluated in, so `function mk(n) { let calls = 0; return class { get() {
+/// calls++; return n + calls } } }` gives each evaluation its own `n` and
+/// `calls`, shared by every instance of that evaluation and by `mk`'s own
+/// later code. The frame is that environment: one reference-class object per
+/// evaluation, reached from a member through `this` (an instance's hidden frame
+/// field, or the frame itself in a static method) or the constructor's frame
+/// parameter, and from the enclosing body through the frame local.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::lowering) struct FrameAlias {
+    /// The local the frame is reached from.
+    pub(in crate::lowering) base: LocalId,
+    /// The hidden field of `base` holding the frame (and the frame's type),
+    /// when `base` is an instance rather than the frame itself.
+    pub(in crate::lowering) via: Option<(Symbol, TypeId)>,
+    /// The frame field holding the binding.
+    pub(in crate::lowering) field: Symbol,
+    /// The binding's type.
+    pub(in crate::lowering) ty: TypeId,
+}
+
+/// Source-name bindings saved while a nested body is lowered: each name is a
+/// local, or a frame field (`FrameAlias`).
 #[derive(Debug, Clone, Default)]
-pub(in crate::lowering) struct LocalBindings(HashMap<String, LocalId>);
+pub(in crate::lowering) struct LocalBindings {
+    /// Names bound to locals.
+    locals: HashMap<String, LocalId>,
+    /// Names bound to statics-frame fields.
+    aliases: HashMap<String, FrameAlias>,
+}
 
 impl LocalBindings {
     /// Return the local a saved scope bound to `name`.
@@ -117,7 +148,12 @@ impl LocalBindings {
     /// the nested body's are installed, which is the one place a saved frame is
     /// inspected rather than just handed back.
     pub(in crate::lowering) fn lookup(&self, name: &str) -> Option<LocalId> {
-        self.0.get(name).copied()
+        self.locals.get(name).copied()
+    }
+
+    /// Return the frame field a saved scope bound to `name`.
+    pub(in crate::lowering) fn alias(&self, name: &str) -> Option<FrameAlias> {
+        self.aliases.get(name).copied()
     }
 }
 
@@ -288,22 +324,47 @@ impl LocalScope {
     /// Bind a source name to a lowered local, returning the binding it replaced
     /// so a caller restoring a lexical scope can put the previous one back.
     pub(in crate::lowering) fn bind(&mut self, name: String, local: LocalId) -> Option<LocalId> {
-        self.bindings.0.insert(name, local)
+        self.bindings.aliases.remove(&name);
+        self.bindings.locals.insert(name, local)
+    }
+
+    /// Bind a source name to a statics-frame field ([`FrameAlias`]), which
+    /// shadows a local of the same name.
+    pub(in crate::lowering) fn bind_alias(&mut self, name: String, alias: FrameAlias) {
+        self.bindings.locals.remove(&name);
+        self.bindings.aliases.insert(name, alias);
+    }
+
+    /// Return the frame field bound to `name` in the current scope.
+    pub(in crate::lowering) fn alias(&self, name: &str) -> Option<FrameAlias> {
+        self.bindings.aliases.get(name).copied()
+    }
+
+    /// Every name currently bound to a frame field, to put back after a
+    /// nested body rebinds names in place.
+    pub(in crate::lowering) fn alias_snapshot(&self) -> Vec<(String, FrameAlias)> {
+        self.bindings
+            .aliases
+            .iter()
+            .map(|(name, alias)| (name.clone(), *alias))
+            .collect()
     }
 
     /// Return the local bound to `name` in the current scope.
     pub(in crate::lowering) fn lookup(&self, name: &str) -> Option<LocalId> {
-        self.bindings.0.get(name).copied()
+        self.bindings.locals.get(name).copied()
     }
 
-    /// Return whether `name` is bound in the current scope.
+    /// Return whether `name` is bound in the current scope, to a local or a
+    /// frame field.
     pub(in crate::lowering) fn is_bound(&self, name: &str) -> bool {
-        self.bindings.0.contains_key(name)
+        self.bindings.locals.contains_key(name) || self.bindings.aliases.contains_key(name)
     }
 
     /// Drop the binding for `name`, if any.
     pub(in crate::lowering) fn unbind(&mut self, name: &str) {
-        self.bindings.0.remove(name);
+        self.bindings.locals.remove(name);
+        self.bindings.aliases.remove(name);
     }
 
     /// Copy the current bindings so a temporary scope can be rolled back.
@@ -339,7 +400,11 @@ impl LocalScope {
     ) {
         for name in declared {
             if let Some(outer) = saved.lookup(name) {
-                self.bindings.0.insert(name.clone(), outer);
+                self.bindings.aliases.remove(name);
+                self.bindings.locals.insert(name.clone(), outer);
+            } else if let Some(outer) = saved.alias(name) {
+                self.bindings.locals.remove(name);
+                self.bindings.aliases.insert(name.clone(), outer);
             }
         }
     }

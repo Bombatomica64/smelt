@@ -106,6 +106,28 @@ impl FunctionEmitter<'_> {
         // callee parameter type it instantiated and the concrete type it bound;
         // the return conversion needs both.
         let mut monomorphized_arg: Option<(TypeId, TypeId)> = None;
+        // What the monomorphized list arguments bind: `addAll<T>(xs: T[], ys:
+        // T[])` called with a `number[]` for the `&mut xs` binds `T = number`,
+        // so `ys` must be rendered at `number[]`. Rendered at the callee's
+        // unbound `T[]` it erases to `SmeltList<SmeltUnknown>`, which the
+        // instantiated `SmeltList<f64>` parameter rejects (E0308).
+        let mut monomorphized_declared = Vec::new();
+        let mut monomorphized_actual = Vec::new();
+        for (index, (arg, target_ty)) in args.iter().zip(&target_tys).enumerate() {
+            if let Some((place, MutListArgKind::Monomorphized)) =
+                self.mut_list_adapter_arg(function, index, arg, *target_ty, &callee_generics)?
+            {
+                monomorphized_declared.push(*target_ty);
+                monomorphized_actual.push(Some(self.place_ty(&place)?));
+            }
+        }
+        let list_bindings = crate::generic_bindings::collect_bindings_from_types_in_scope(
+            self.mir,
+            &callee_generics.iter().copied().collect::<Vec<_>>(),
+            &monomorphized_declared,
+            &monomorphized_actual,
+            &caller_scope,
+        );
         for (index, arg) in args.iter().enumerate() {
             let target_ty = target_tys[index];
             if let Some((place, kind)) =
@@ -239,7 +261,20 @@ impl FunctionEmitter<'_> {
                 };
                 rendered_args.push(self.value_at_type(arg, bound_ty)?.into_string());
             } else {
-                rendered_args.push(self.value_at_type(arg, target_ty)?.into_string());
+                // A position spelling the callee's generics takes the type the
+                // monomorphized list arguments bound; one they leave unbound
+                // keeps its declared (erased) rendering.
+                let bound_target = if self.type_mentions_any(target_ty, &callee_generics) {
+                    crate::generic_bindings::substituted_type_id(
+                        self.mir,
+                        target_ty,
+                        &list_bindings,
+                    )
+                    .unwrap_or(target_ty)
+                } else {
+                    target_ty
+                };
+                rendered_args.push(self.value_at_type(arg, bound_target)?.into_string());
             }
         }
         let arg_values = rendered_args.join(", ");

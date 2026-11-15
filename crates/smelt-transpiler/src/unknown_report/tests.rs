@@ -830,6 +830,18 @@ fn program_methods_beside_an_adapter_method_stay_avoidable() {
     );
 }
 
+/// A polymorphic class's erasure body moved into an inherent method
+/// (`codegen::class_polymorphism`) is adapter code; the program method beside
+/// it is not.
+#[test]
+fn moved_erasure_methods_are_adapters() {
+    let text = "impl Shape {\n    fn __smelt_project_into_smelt_unknown(self) -> SmeltUnknown {\n        let mut __smelt_entries: Vec<(String, SmeltUnknown)> = Vec::new();\n    }\n    fn __smelt_own_into_smelt_unknown(self) -> SmeltUnknown { SmeltUnknown::Null }\n    fn area(&self) -> SmeltUnknown {\n        SmeltUnknown::Null\n    }\n}\n";
+    assert_eq!(
+        adapter_lines(text),
+        [false, true, true, true, true, false, false, false, false]
+    );
+}
+
 /// Naming the trait in a bound does not make an item an adapter.
 #[test]
 fn a_generic_bound_is_not_an_adapter() {

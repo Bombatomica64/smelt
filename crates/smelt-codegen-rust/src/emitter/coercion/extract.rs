@@ -1079,6 +1079,63 @@ impl FunctionEmitter<'_> {
         scope: &RenderScope,
         smelt_owned_text: &RustExpr,
     ) -> Result<RustExpr, EmitError> {
+        self.extract_function_in(
+            target,
+            function,
+            &scope.substitution(),
+            function.return_ty,
+            scope,
+            smelt_owned_text,
+        )
+    }
+
+    /// Extraction of an erased value at a callee's DECLARED callback type
+    /// under a call site's bindings (`function` is `target`'s function type).
+    ///
+    /// The declaration decides the callable's ABI (which parameters it takes
+    /// by reference, `&T`), the bindings decide its types: an erased method
+    /// value handed to `new ValueSetter<Value>(.., this.set, ..)` becomes a
+    /// `Rc<dyn Fn(&mut SmeltDate, Flags, &f64)>` inside `YearParser`'s copy,
+    /// which extracting at the substituted type (`f64` by value) or at the
+    /// declared one without bindings (`&SmeltUnknown`) both miss (E0308).
+    pub(in crate::emitter) fn extract_function_with_bindings(
+        &self,
+        text: &RustExpr,
+        target: TypeId,
+        function: &FunctionType,
+        bindings: &CalleeTypeParamBindings,
+    ) -> Result<RustExpr, EmitError> {
+        let caller_scope = self.current_function_type_params();
+        let substitution = callee_substitution(&caller_scope, Some(bindings));
+        let return_target = crate::generic_bindings::substituted_type_id_interning(
+            self.mir,
+            function.return_ty,
+            bindings,
+        )
+        .unwrap_or(function.return_ty);
+        let owned = text.cloned_value();
+        self.extract_function_in(
+            target,
+            function,
+            &substitution,
+            return_target,
+            &self.render_scope(),
+            &owned,
+        )
+    }
+
+    /// [`Self::extract_function`] with its rendering environment explicit:
+    /// `substitution` spells the callable's type and parameters, the result
+    /// is extracted at `return_target` in `scope`.
+    fn extract_function_in(
+        &self,
+        target: TypeId,
+        function: &FunctionType,
+        substitution: &TypeSubstitution<'_>,
+        return_target: TypeId,
+        scope: &RenderScope,
+        smelt_owned_text: &RustExpr,
+    ) -> Result<RustExpr, EmitError> {
         if self.is_erased_unknown_rest_function(function) && !function.may_throw {
             let length = function
                 .required_params
@@ -1094,10 +1151,8 @@ impl FunctionEmitter<'_> {
         // same environment the return value is extracted in below, so a
         // type parameter the scope spells (a generic union enum's own
         // parameter inside its `from_smelt_unknown`) stays spelled.
-        let target_text = self
-            .rust_type(target, false, &scope.substitution())?
-            .into_string();
-        let rendered_return = self.rust_type(function.return_ty, false, &scope.substitution())?;
+        let target_text = self.rust_type(target, false, substitution)?.into_string();
+        let rendered_return = self.rust_type(function.return_ty, false, substitution)?;
         let return_ty = rendered_return.as_str();
         // The adapter closure is cast to `target_text`, so its
         // PARAMETER types render in the same `scope`: a parameter the
@@ -1106,7 +1161,7 @@ impl FunctionEmitter<'_> {
         // erased through `IntoSmeltUnknown`, which every spelled
         // parameter's bound provides.
         let params = self
-            .callback_arg_decls(function, &scope.substitution(), MutablePrefix::Apply)?
+            .callback_arg_decls(function, substitution, MutablePrefix::Apply)?
             .join(", ");
         let args = self.unknown_function_call_args_expr(function)?;
         let call_text = if function.may_throw {
@@ -1118,7 +1173,7 @@ impl FunctionEmitter<'_> {
             )
         };
         let converted_return_text = if let Some(Type::Future(item)) =
-            self.mir.types.get(function.return_ty)
+            self.mir.types.get(return_target)
         {
             drop(self.rendered_type(*item)?);
             // JavaScript `await` flattens promise chains: an erased
@@ -1140,7 +1195,7 @@ impl FunctionEmitter<'_> {
         } else if rendered_return.shape() == RustShape::Erased {
             "smelt_result".to_owned()
         } else {
-            self.extract_rendered(&RustExpr::path("smelt_result"), function.return_ty, scope)?
+            self.extract_rendered(&RustExpr::path("smelt_result"), return_target, scope)?
                 .into_string()
         };
         let return_text = if function.may_throw {

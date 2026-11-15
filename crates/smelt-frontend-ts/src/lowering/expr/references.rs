@@ -196,6 +196,29 @@ impl ModuleBuilder<'_> {
                 span: self.span(start, end),
             }));
         }
+        // A binding of the function a per-evaluation class was declared in,
+        // which lives in that evaluation's frame (`FrameAlias`).
+        if let Some(alias) = self.scope.alias(name) {
+            return Ok(Self::frame_alias_expr(alias, self.span(start, end), body));
+        }
+        // `this` in a static method is the class it was called on
+        // (`ModuleBuilder::static_method_this`), a class value like any.
+        if name == "this"
+            && !self.scope.is_bound("this")
+            && let Some((class_text, class)) = self.static_method_this.clone()
+        {
+            let value = self.class_value_expression(&class_text, start, end, body)?;
+            let ty = Self::expr_ty(body, value);
+            let span = self.span(start, end);
+            return Ok(Self::static_dispatch_expr(
+                class,
+                smelt_hir::StaticMember::ClassValue,
+                Vec::new(),
+                ty,
+                span,
+                body,
+            ));
+        }
         // `this` in a static field initializer is the class being defined.
         if name == "this"
             && let Some(class) = self.static_initializer_this()
@@ -482,6 +505,32 @@ impl ModuleBuilder<'_> {
             ty,
             span: self.span(start, end),
         });
+        // A class local narrowed to a subclass (`if (s instanceof Rect)` on an
+        // `s: Shape`) is read as the subclass: a typed view the backend
+        // converts (a checked downcast of a polymorphic handle), so a read
+        // AND a write of a subclass member (`s.h = 7`) address the
+        // subclass's field instead of a field the base type does not have.
+        if ty != base_ty
+            && let (
+                Some(Type::Class {
+                    name: base_class, ..
+                }),
+                Some(Type::Class {
+                    name: narrowed_class,
+                    ..
+                }),
+            ) = (
+                self.ctx.krate.types.get(base_ty),
+                self.ctx.krate.types.get(ty),
+            )
+            && base_class != narrowed_class
+        {
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::TypeAssert { value: local_expr },
+                ty,
+                span: self.span(start, end),
+            }));
+        }
         if ty != base_ty
             && matches!(
                 self.ctx.krate.types.get(base_ty),
@@ -529,6 +578,40 @@ impl ModuleBuilder<'_> {
             ));
         }
         Ok(local_expr)
+    }
+
+    /// The place a [`FrameAlias`] names: the frame field, reached from its
+    /// base local (through the instance's hidden frame field when the base is
+    /// an instance). A read and an assignment target alike.
+    pub(in crate::lowering) fn frame_alias_expr(
+        alias: crate::lowering::state::local_scope::FrameAlias,
+        span: Span,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let base_ty = Self::local_ty(body, alias.base);
+        let mut receiver = body.push_expr(Expr {
+            kind: ExprKind::Local(alias.base),
+            ty: base_ty,
+            span,
+        });
+        if let Some((frame_field, frame_ty)) = alias.via {
+            receiver = body.push_expr(Expr {
+                kind: ExprKind::Field {
+                    receiver,
+                    field: frame_field,
+                },
+                ty: frame_ty,
+                span,
+            });
+        }
+        body.push_expr(Expr {
+            kind: ExprKind::Field {
+                receiver,
+                field: alias.field,
+            },
+            ty: alias.ty,
+            span,
+        })
     }
 
     /// A read of optional `local` at the surviving arm `ty`: the unwrap at the
