@@ -1178,7 +1178,10 @@ impl FunctionEmitter<'_> {
 
     /// [`Self::string_like_operand_expr`]'s value as a Rust `String`, except
     /// for an operand that is already a string or is erased (see there).
-    pub(super) fn string_like_operand_rust_text(&self, operand: &Operand) -> Result<RustExpr, EmitError> {
+    pub(super) fn string_like_operand_rust_text(
+        &self,
+        operand: &Operand,
+    ) -> Result<RustExpr, EmitError> {
         match self.mir.types.get(self.operand_ty(operand)?) {
             Some(Type::String | Type::PyStr) => match operand {
                 Operand::Copy(place) => Ok(self.place_expr(place)?.cloned_value()),
@@ -1897,10 +1900,16 @@ impl FunctionEmitter<'_> {
     /// are `[object Set]` and `[object Map]`; a record or class instance is
     /// `[object Object]`. `depth` bounds the recursion through nested element
     /// types and is not a value depth.
-    pub(super) fn join_item_text(&self, item_ty: TypeId, depth: usize) -> Result<String, EmitError> {
+    pub(super) fn join_item_text(
+        &self,
+        item_ty: TypeId,
+        depth: usize,
+    ) -> Result<String, EmitError> {
         let number_to_string = smelt_stdlib::runtime_symbols::number_text::NUMBER_TO_STRING_FN;
         if depth > 32 {
-            return Err(EmitError::new("array element type nests too deeply to stringify"));
+            return Err(EmitError::new(
+                "array element type nests too deeply to stringify",
+            ));
         }
         Ok(match self.mir.types.get(item_ty) {
             Some(Type::String | Type::PyStr) if self.indexes_utf16() => {
@@ -1949,7 +1958,9 @@ impl FunctionEmitter<'_> {
             }
             Some(Type::Set(_)) => "\"[object Set]\".to_owned()".to_owned(),
             Some(Type::JsMap(_, _)) => "\"[object Map]\".to_owned()".to_owned(),
-            Some(Type::Dict(_, _) | Type::Class { .. }) => "\"[object Object]\".to_owned()".to_owned(),
+            Some(Type::Dict(_, _) | Type::Class { .. }) => {
+                "\"[object Object]\".to_owned()".to_owned()
+            }
             _ => {
                 return Err(EmitError::new(
                     "array join over an element type with no modelled string form",

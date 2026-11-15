@@ -41,7 +41,9 @@ impl ModuleBuilder<'_> {
         let mut replacer = None;
         for (index, extra) in call.arguments.iter().enumerate().skip(1) {
             let lowered = self.argument(extra, body)?;
-            if index == 1 && !matches!(Self::expr_ty(body, lowered), ty if matches!(self.ctx.krate.types.get(ty), Some(Type::None))) {
+            if index == 1
+                && !matches!(Self::expr_ty(body, lowered), ty if matches!(self.ctx.krate.types.get(ty), Some(Type::None)))
+            {
                 replacer = Some(lowered);
             }
             if index == 2 {

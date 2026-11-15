@@ -82,8 +82,10 @@ impl ModuleBuilder<'_> {
                 Some(Type::Generator { next_ty, .. }) => *next_ty,
                 _ => returned,
             };
-            if matches!(self.ctx.krate.types.get(returned), Some(Type::Generator { .. }))
-                && !self.type_mentions_unknown(next_ty)
+            if matches!(
+                self.ctx.krate.types.get(returned),
+                Some(Type::Generator { .. })
+            ) && !self.type_mentions_unknown(next_ty)
             {
                 self.ctx.krate.erasures.truncate(records_before);
                 return Some(next_ty);

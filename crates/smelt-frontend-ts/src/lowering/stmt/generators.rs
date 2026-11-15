@@ -302,7 +302,10 @@ impl ModuleBuilder<'_> {
                     if function.params.is_empty()
                         && matches!(
                             self.ctx.krate.types.get(function.return_ty),
-                            Some(Type::Generator { is_async: false, .. })
+                            Some(Type::Generator {
+                                is_async: false,
+                                ..
+                            })
                         ) =>
                 {
                     Some(function.return_ty)

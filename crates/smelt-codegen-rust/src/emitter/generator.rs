@@ -110,7 +110,9 @@ impl FunctionEmitter<'_> {
         // `next(5)` into a `number | undefined` channel is `Some(5.0)`, and
         // into an erased one the erased number.
         let next_ty = match self.mir.types.get(self.operand_ty(generator)?) {
-            Some(Type::Generator { next_ty, .. }) if kind == smelt_hir::GeneratorResumeKind::Next => {
+            Some(Type::Generator { next_ty, .. })
+                if kind == smelt_hir::GeneratorResumeKind::Next =>
+            {
                 Some(*next_ty)
             }
             _ => None,

@@ -821,7 +821,13 @@ impl ModuleBuilder<'_> {
             let value_ty = Self::expr_ty(body, value);
             if matches!(
                 self.ctx.krate.types.get(value_ty),
-                Some(Type::Set(_) | Type::Generator { is_async: false, .. })
+                Some(
+                    Type::Set(_)
+                        | Type::Generator {
+                            is_async: false,
+                            ..
+                        }
+                )
             ) {
                 let span = self.span(call.span.start, call.span.end);
                 value = self.array_from_elements(value, value_ty, false, span, body);

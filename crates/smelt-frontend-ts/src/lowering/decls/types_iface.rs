@@ -910,9 +910,16 @@ impl ModuleBuilder<'_> {
                                 ),
                                 may_throw: false,
                             }));
+                        // An optional method may be absent, exactly as an
+                        // optional property may: its field holds the function
+                        // or nothing (`p.greet?.()`), so `{}` builds the record.
+                        // A bare function slot had to be filled with a default
+                        // callback the source never wrote, and `{}` could not
+                        // build the record at all.
+                        let field_ty = self.ctx.krate.types.intern(Type::Optional(function_ty));
                         fields.push(Field {
                             name: self.property_key_symbol(&method.key)?,
-                            ty: function_ty,
+                            ty: field_ty,
                             visibility: Visibility::Public,
                             optional: true,
                             span: self.span(method.span.start, method.span.end),

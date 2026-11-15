@@ -4,8 +4,8 @@
 
 use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::{
-    Argument, Body, Expr, ExprKind, Expression, ListCallbackOp, Literal,
-    ModuleBuilder, SmeltError, Type,
+    Argument, Body, Expr, ExprKind, Expression, ListCallbackOp, Literal, ModuleBuilder, SmeltError,
+    Type,
 };
 use oxc::span::GetSpan;
 use smelt_hir::ErasureReason;

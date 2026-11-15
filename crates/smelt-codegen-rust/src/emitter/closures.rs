@@ -1045,11 +1045,20 @@ impl FunctionEmitter<'_> {
             .iter()
             .filter_map(|capture| {
                 let local = self.local_decl(capture.source_local).ok()?;
+                // A callback parameter the function BORROWS (`&dyn Fn`) is read
+                // through that borrow and is not cloned. One the function OWNS
+                // (an `Rc`, as every parameter of a closure body is) is cloned
+                // like any other by-value capture: rendering the same closure
+                // twice (its binding and a list operation's inlined copy) moved
+                // the one `Rc` into both (E0382).
                 if matches!(self.mir.types.get(local.ty), Some(Type::Function(_)))
                     && matches!(local.kind, LocalKind::Param { .. })
                     && !self
                         .function_parameter_requires_owned(capture.source_local)
                         .ok()?
+                    && self
+                        .capture_is_borrowed_callback_param(capture.source_local)
+                        .unwrap_or(false)
                     // A shadowed source name is rewritten to an alias in the
                     // nested body, so that alias must still be bound.
                     && !capture_aliases.contains_key(&capture.source_local)

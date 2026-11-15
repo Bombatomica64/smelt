@@ -5,7 +5,6 @@ use crate::lowering::ModuleBuilder;
 use crate::lowering::js_text::js_str_literal;
 use oxc::ast::ast::Argument;
 use oxc::span::GetSpan;
-use oxc::syntax::operator::BinaryOperator;
 use smelt_hir::{Body, ErasureReason, Expr, ExprKind, Literal, Type};
 
 impl ModuleBuilder<'_> {
@@ -107,15 +106,17 @@ impl ModuleBuilder<'_> {
             Argument::Super(super_expr) => {
                 self.identifier_expression("this", super_expr.span.start, super_expr.span.end, body)
             }
-            Argument::BinaryExpression(binary) => {
-                if binary.operator == BinaryOperator::Instanceof {
-                    return self.instanceof_expression(binary, body);
-                }
-                if binary.operator == BinaryOperator::In {
-                    return self.in_expression(binary, body);
-                }
-                self.binary_expression(binary, body)
-            }
+            // A binary argument is lowered by the one expression dispatch, so
+            // it takes every rule a binary expression anywhere else takes:
+            // `instanceof`, `in`, the `typeof` and nullish comparisons (a
+            // `T | null` is never `=== undefined`), `**`. A copy of that
+            // dispatch here once lacked the comparison rules, so
+            // `console.log(m === undefined)` answered differently from
+            // `const t = m === undefined`.
+            Argument::BinaryExpression(binary) => match argument.as_expression() {
+                Some(expression) => self.expression_with_hint(expression, body, None),
+                None => self.binary_expression(binary, body),
+            },
             Argument::ConditionalExpression(conditional) => {
                 self.conditional_expression(conditional, body, None)
             }

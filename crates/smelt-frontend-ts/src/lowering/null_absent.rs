@@ -47,16 +47,10 @@ impl ModuleBuilder<'_> {
         };
         if is_string(self, lhs) {
             let span = binary.right.span();
-            (
-                lhs,
-                self.to_string_operand(rhs, span.start, span.end, body),
-            )
+            (lhs, self.to_string_operand(rhs, span.start, span.end, body))
         } else if is_string(self, rhs) {
             let span = binary.left.span();
-            (
-                self.to_string_operand(lhs, span.start, span.end, body),
-                rhs,
-            )
+            (self.to_string_operand(lhs, span.start, span.end, body), rhs)
         } else {
             (lhs, rhs)
         }
@@ -194,8 +188,10 @@ impl ModuleBuilder<'_> {
                 span: self.span(start, end),
             });
         }
-        if matches!(self.ctx.krate.types.get(operand_ty), Some(Type::Class { .. }))
-            && self.declares_to_string(operand_ty)
+        if matches!(
+            self.ctx.krate.types.get(operand_ty),
+            Some(Type::Class { .. })
+        ) && self.declares_to_string(operand_ty)
         {
             let method = self.intern_source_name("toString");
             let string_ty = self.ctx.krate.types.intern(Type::String);
@@ -307,7 +303,10 @@ impl ModuleBuilder<'_> {
     ) -> Option<smelt_hir::ExprId> {
         let operand_ty = Self::expr_ty(body, operand);
         let absent_only = matches!(self.ctx.krate.types.get(operand_ty), Some(Type::None));
-        let optional = matches!(self.ctx.krate.types.get(operand_ty), Some(Type::Optional(_)));
+        let optional = matches!(
+            self.ctx.krate.types.get(operand_ty),
+            Some(Type::Optional(_))
+        );
         if !(absent_only || optional) || !self.checker_absent_is_null(start, end) {
             return None;
         }

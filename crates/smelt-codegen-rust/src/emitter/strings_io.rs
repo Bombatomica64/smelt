@@ -292,8 +292,12 @@ impl FunctionEmitter<'_> {
         match self.mir.types.get(ty) {
             Some(Type::Int | Type::Float) => Ok(value_text.to_owned()),
             Some(Type::Bool) => Ok(RustExpr::loose(format!("if {value_text} {{ 1.0 }} else {{ 0.0 }}", value_text = value_text.delimited()))),
+            // A date-time string: RFC 3339 with an offset, `Date.prototype.toString`'s
+            // form, an ISO date-time WITHOUT an offset (local time, which the
+            // generated date model keeps at UTC, as `getHours` reads it), an ISO
+            // or slashed date (midnight), else a number's text.
             Some(Type::String | Type::PyStr) => Ok(RustExpr::atom(format!(
-                "{{ let smelt_date_text = {date_text}; chrono::DateTime::parse_from_rfc3339(&smelt_date_text).or_else(|_| chrono::DateTime::parse_from_str(&smelt_date_text, \"%a %b %d %Y %H:%M:%S GMT%z\")).map(|smelt_date| smelt_date.timestamp_millis() as f64).or_else(|_| chrono::NaiveDate::parse_from_str(&smelt_date_text, \"%Y/%m/%d\").or_else(|_| chrono::NaiveDate::parse_from_str(&smelt_date_text, \"%Y-%m-%d\")).map(|smelt_date| smelt_date.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp_millis() as f64)).unwrap_or_else(|_| smelt_date_text.parse::<f64>().unwrap_or(f64::NAN)) }}", date_text = self.host_utf8_text(value_text.clone()).delimited()))),
+                "{{ let smelt_date_text = {date_text}; chrono::DateTime::parse_from_rfc3339(&smelt_date_text).or_else(|_| chrono::DateTime::parse_from_str(&smelt_date_text, \"%a %b %d %Y %H:%M:%S GMT%z\")).map(|smelt_date| smelt_date.timestamp_millis() as f64).or_else(|_| chrono::NaiveDateTime::parse_from_str(&smelt_date_text, \"%Y-%m-%dT%H:%M:%S%.f\").or_else(|_| chrono::NaiveDateTime::parse_from_str(&smelt_date_text, \"%Y-%m-%dT%H:%M\")).map(|smelt_date| smelt_date.and_utc().timestamp_millis() as f64)).or_else(|_| chrono::NaiveDate::parse_from_str(&smelt_date_text, \"%Y/%m/%d\").or_else(|_| chrono::NaiveDate::parse_from_str(&smelt_date_text, \"%Y-%m-%d\")).map(|smelt_date| smelt_date.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp_millis() as f64)).unwrap_or_else(|_| smelt_date_text.parse::<f64>().unwrap_or(f64::NAN)) }}", date_text = self.host_utf8_text(value_text.clone()).delimited()))),
             Some(Type::Optional(inner)) => {
                 let inner_text = self.date_timestamp_value(&RustExpr::path("smelt_value"), *inner)?;
                 Ok(RustExpr::atom(format!(

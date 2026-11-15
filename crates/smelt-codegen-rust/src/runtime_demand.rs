@@ -1218,6 +1218,7 @@ pub(crate) fn backend_dependencies(demand: &RuntimeDemand) -> Vec<BackendDepende
         (Need::DepSerdeJson, BackendDependency::SerdeJson),
         (Need::DepRegex, BackendDependency::Regex),
         (Need::DepRegress, BackendDependency::Regress),
+        (Need::LocaleCompare, BackendDependency::IcuCollator),
         (Need::DepRand, BackendDependency::Rand),
         (Need::DepChrono, BackendDependency::Chrono),
         (Need::DepChronoTz, BackendDependency::ChronoTz),
