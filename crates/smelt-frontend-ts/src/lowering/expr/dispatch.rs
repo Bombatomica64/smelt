@@ -248,6 +248,12 @@ impl ModuleBuilder<'_> {
                     rhs = self.peel_narrowing_cast_for_identity(body, rhs);
                 }
                 (lhs, rhs) = self.null_absent_concat_operands(op, lhs, rhs, binary, body);
+                // An absent `number` operand is `ToNumber(undefined)`, `NaN`,
+                // exactly as in `binary_expression`.
+                if self.binary_operands_are_numeric(op, lhs, rhs, body) {
+                    lhs = self.optional_number_operand(lhs, body);
+                    rhs = self.optional_number_operand(rhs, body);
+                }
                 let lhs_ty = Self::expr_ty(body, lhs);
                 let rhs_ty = Self::expr_ty(body, rhs);
                 let op = self.loose_equality_op(op, lhs_ty, rhs_ty);

@@ -176,6 +176,7 @@ fn smelt_test_snapshot_text(value: &SmeltUnknown, indent: usize) -> String {
         SmeltUnknown::Object(object) if object.contains_key("__smelt_date") => value.to_iso_string(),
         SmeltUnknown::Object(object) if object.contains_key("__smelt_regexp") => format!("/{}/{}", smelt_erased_to_js_string(&smelt_get_unknown_field(value, "source")).to_string_lossy(), smelt_erased_to_js_string(&smelt_get_unknown_field(value, "flags")).to_string_lossy()),
         SmeltUnknown::Object(object) if object.contains_key("__smelt_map") || object.contains_key("__smelt_set") => {
+            /*@if live_containers*/smelt_live_container_refresh(object);/*@end*/
             let name = if object.contains_key("__smelt_map") { "Map" } else { "Set" };
             if smelt_test_is_empty(value) { return format!("{name} {{}}"); }
             let inner = "  ".repeat(indent + 1);

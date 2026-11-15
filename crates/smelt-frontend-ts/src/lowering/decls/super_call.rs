@@ -200,6 +200,11 @@ impl ModuleBuilder<'_> {
                 &base_name, &arguments, this_local, class_ty, class_text, span, body,
             );
         } else {
+            // A per-evaluation base takes its frame first: the one this
+            // class's own frame links to (`decls::evaluation_statics`).
+            if let Some(frame) = self.base_frame_argument(base, body, span) {
+                arguments.insert(0, frame);
+            }
             Self::lower_base_constructor_init(base, &arguments, this_local, class_ty, span, body);
         }
         Ok(())

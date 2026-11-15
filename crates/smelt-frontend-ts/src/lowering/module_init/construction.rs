@@ -71,6 +71,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             evaluation_statics: HashMap::new(),
             evaluation_frames: HashMap::new(),
             lowering_evaluation_statics: None,
+            module_class_frames: HashMap::new(),
             fn_ctx: FnCtx::default(),
             array_view_receivers: Vec::new(),
             pinned_nodes: Vec::new(),

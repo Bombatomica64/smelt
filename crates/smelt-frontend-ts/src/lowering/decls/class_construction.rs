@@ -78,7 +78,13 @@ impl ModuleBuilder<'_> {
             // A per-evaluation class's constructor takes its frame first
             // (`decls::evaluation_statics`).
             let frame_param = this.bind_evaluation_frame(
-                class_name, class_ty, this_local, true, false, span, &mut body,
+                class_name,
+                class_ty,
+                this_local,
+                true,
+                &std::collections::HashSet::new(),
+                span,
+                &mut body,
             );
             let forwarded = if has_base {
                 this.reproducible_base_constructor_signature(class_text)
@@ -93,7 +99,13 @@ impl ModuleBuilder<'_> {
                 // `super(...)` all run exactly once and in source order.
                 let mut params = Vec::new();
                 let mut arguments = Vec::new();
-                for parameter in &forwarded.parameters {
+                // A per-evaluation base's constructor takes its frame first;
+                // this constructor passes the base frame its own frame links
+                // to, and forwards only the source parameters after it.
+                let base_frame = this.base_frame_argument(forwarded.base, &mut body, span);
+                let skipped = usize::from(base_frame.is_some());
+                arguments.extend(base_frame);
+                for parameter in forwarded.parameters.iter().skip(skipped) {
                     let local = body.push_local(LocalDecl {
                         name: Some(parameter.0),
                         ty: parameter.1,
@@ -123,7 +135,12 @@ impl ModuleBuilder<'_> {
                     span,
                     &mut body,
                 );
-                (params, forwarded.required_params)
+                (
+                    params,
+                    forwarded
+                        .required_params
+                        .map(|required| required.saturating_sub(skipped)),
+                )
             } else if let Some(base_name) =
                 this.error_like_base_name(class_text).filter(|_| has_base)
             {

@@ -78,7 +78,7 @@ impl FunctionEmitter<'_> {
         base: LocalId,
         field: Symbol,
     ) -> Result<Option<RustExpr>, EmitError> {
-        let base_ty = self.local_decl(base)?.ty;
+        let base_ty = self.descriptor_receiver_ty(base, field)?;
         let Some((owner, descriptor)) = self.descriptor_for_field(base_ty, field) else {
             return Ok(None);
         };
@@ -164,7 +164,7 @@ impl FunctionEmitter<'_> {
         field: Symbol,
         value: &Rvalue,
     ) -> Result<Option<String>, EmitError> {
-        let base_ty = self.local_decl(base)?.ty;
+        let base_ty = self.descriptor_receiver_ty(base, field)?;
         let Some((owner, descriptor)) = self.descriptor_for_field(base_ty, field) else {
             return Ok(None);
         };
@@ -246,6 +246,71 @@ impl FunctionEmitter<'_> {
         )))
     }
 
+    /// The class type a descriptor of `field` is looked up on for a place
+    /// based at `base`.
+    ///
+    /// That is `base`'s declared type, except for the receiver of an
+    /// inherited method copy: MIR types it at the DECLARING base, but in the
+    /// copy it is the class whose `impl` receives it, and JavaScript resolves
+    /// `this.x` on that class first. So when that class has its own accessor
+    /// for `field` (an override, or a statics frame's inherited-static
+    /// accessor), the copy calls it rather than reading the base's storage.
+    fn descriptor_receiver_ty(&self, base: LocalId, field: Symbol) -> Result<TypeId, EmitError> {
+        let declared = self.local_decl(base)?.ty;
+        let Some(owner) = self.role.inherited_impl_owner() else {
+            return Ok(declared);
+        };
+        if self.function.params.first() != Some(&base)
+            || !matches!(self.function.origin, HirOrigin::ClassMethod { .. })
+        {
+            return Ok(declared);
+        }
+        let Some(owner_ty) = crate::classes::class_self_type(self.mir, owner) else {
+            return Ok(declared);
+        };
+        Ok(
+            if self
+                .descriptor_for_field(owner_ty, field)
+                .is_some_and(|(found, _)| found.name == owner)
+            {
+                owner_ty
+            } else {
+                declared
+            },
+        )
+    }
+
+    /// The handle an in-place mutation of `base.field` goes through when the
+    /// field is an inherited static of a subclass statics frame
+    /// (`crate::classes::inherited_static_slots`) holding a shared handle
+    /// (a list, map, set or reference record): the accessor's read, as a
+    /// parenthesized temporary the mutation borrows. `None` for any other
+    /// field.
+    fn inherited_static_handle(
+        &self,
+        base: LocalId,
+        field: Symbol,
+    ) -> Result<Option<RustExpr>, EmitError> {
+        let base_ty = self.descriptor_receiver_ty(base, field)?;
+        let Some((owner, descriptor)) = self.descriptor_for_field(base_ty, field) else {
+            return Ok(None);
+        };
+        if owner.statics_of.is_none() {
+            return Ok(None);
+        }
+        let shared = match self.mir.types.get(descriptor.read_ty) {
+            Some(Type::List(_) | Type::JsMap(_, _) | Type::Set(_) | Type::Dict(_, _)) => true,
+            Some(Type::Class { name, .. }) => self.context.is_reference_class(*name),
+            _ => false,
+        };
+        if !shared {
+            return Ok(None);
+        }
+        Ok(self
+            .descriptor_getter_expr(base, field)?
+            .map(|read| RustExpr::atom(format!("({})", read.delimited()))))
+    }
+
     /// Finds a descriptor through the concrete class inheritance chain.
     pub(super) fn descriptor_for_field(
         &self,
@@ -270,13 +335,21 @@ impl FunctionEmitter<'_> {
             // same class (Hono's `context.ts`) intern the same symbol, so the
             // accessor pair was ignored and `ctx.res = r` wrote the private slot
             // directly, skipping the setter's body.
+            //
+            // A statics frame is the exception that proves the rule: a
+            // subclass frame flattens its base frame's static fields, but
+            // those are the BASE's properties, reached through the frame's
+            // inherited-static accessor (`decls::evaluation_statics`), so only
+            // the frame's own fields shadow its accessors.
+            let candidates = if class.statics_of.is_some() {
+                class.fields.clone()
+            } else {
+                crate::classes::effective_class_fields(self.mir, class)
+            };
             let instance_storage_shadows = !descriptor.data_descriptor
-                && crate::classes::effective_class_fields(self.mir, class)
-                    .iter()
-                    .any(|candidate| {
-                        candidate.name == field
-                            && candidate.visibility != smelt_hir::Visibility::Hidden
-                    });
+                && candidates.iter().any(|candidate| {
+                    candidate.name == field && candidate.visibility != smelt_hir::Visibility::Hidden
+                });
             if !instance_storage_shadows {
                 return Some((class, descriptor));
             }
@@ -418,6 +491,16 @@ impl FunctionEmitter<'_> {
                 }
             }
             Place::Field { base, field } => {
+                // An inherited static of a subclass statics frame is the
+                // BASE's property until the subclass writes its own, so an
+                // in-place mutation of it (`this.counts.set(k, v)` in a static
+                // method run on the subclass) mutates the container the
+                // accessor answers, never the frame's flattened copy. The
+                // container is a shared handle, so mutating the handle the
+                // getter returns is mutating the base's value.
+                if let Some(handle) = self.inherited_static_handle(*base, *field)? {
+                    return Ok(PlaceTarget::Direct(handle));
+                }
                 let declared_ty = self.local_decl(*base)?.ty;
                 // A receiver whose type is still optional at the WRITE. `tsc`
                 // proved it present (the source either narrowed it or asserted

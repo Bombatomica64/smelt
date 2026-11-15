@@ -209,6 +209,18 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
         type_hint: Option<smelt_hir::TypeId>,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let value = self.argument_with_hint_unadjusted(argument, body, type_hint)?;
+        Ok(self.absent_static_at_slot(value, type_hint, body))
+    }
+
+    /// [`Self::argument_with_hint`] before an absent static read is converted
+    /// for its parameter (`Self::absent_static_at_slot`).
+    fn argument_with_hint_unadjusted(
+        &mut self,
+        argument: &Argument<'_>,
+        body: &mut Body,
+        type_hint: Option<smelt_hir::TypeId>,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
         match argument {
             Argument::ArrayExpression(array) => self.array_expression(array, body, type_hint),
             Argument::ObjectExpression(object) => self.object_expression(object, body, type_hint),
