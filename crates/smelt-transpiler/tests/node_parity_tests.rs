@@ -286,28 +286,52 @@ fn contextual_add_and_symbol_keys() -> TestResult {
     verify_node_parity("contextual_add_and_symbol_keys")
 }
 
+/// Programs that end with an uncaught throw or rejection, with the message
+/// Node prints for each (see `uncaught_throw_exits_one_with_its_message`).
+/// One uncaught-throw case: its name, its source, and the message on stderr.
+type UncaughtCase = (&'static str, &'static str, &'static str);
+
+const UNCAUGHT_PROGRAMS: [UncaughtCase; 6] = [
+    (
+        "returned out of main",
+        "throw new TypeError('top level');\n",
+        "TypeError: top level",
+    ),
+    (
+        "through a callback",
+        "function boom(n: number): number { throw new RangeError('nope ' + n); }\n[1].map(boom);\n",
+        "RangeError: nope 1",
+    ),
+    (
+        "floating rejection",
+        "async function fail(): Promise<void> { throw new Error('floating'); }\nfail();\nsetTimeout(() => console.log('never'), 50);\n",
+        "Error: floating",
+    ),
+    (
+        "floating erased rejection",
+        "const host: any = { async fail(): Promise<void> { throw new Error('erased floating'); } };\nhost.fail();\nsetTimeout(() => console.log('never'), 50);\n",
+        "Error: erased floating",
+    ),
+    (
+        "rejection down an unhandled erased chain",
+        "const host: any = { async fail(): Promise<void> { throw new Error('down an unhandled chain'); } };\nhost.fail().then(() => 1);\nsetTimeout(() => console.log('never'), 50);\n",
+        "Error: down an unhandled chain",
+    ),
+    (
+        "handler attached in a later timer",
+        "const host: any = { async fail(): Promise<void> { throw new Error('caught too late'); } };\nconst p = host.fail();\nsetTimeout(() => p.catch(() => console.log('late')), 10);\nsetTimeout(() => console.log('never'), 50);\n",
+        "Error: caught too late",
+    ),
+];
+
 /// An uncaught throw exits as Node does: status 1, with the thrown class and
-/// message on stderr. Covers a throw returned out of `main` and one that crosses
-/// a callback through the panic route.
+/// message on stderr. Covers a throw returned out of `main`, one that crosses
+/// a callback through the panic route, and a rejection nothing handles by the
+/// time the job queue drains: a floating typed or erased promise, the end of an
+/// erased chain, and a promise whose handler arrives only in a later timer.
 #[test]
 fn uncaught_throw_exits_one_with_its_message() -> TestResult {
-    let programs = [
-        (
-            "returned out of main",
-            "throw new TypeError('top level');\n",
-            "TypeError: top level",
-        ),
-        (
-            "through a callback",
-            "function boom(n: number): number { throw new RangeError('nope ' + n); }\n[1].map(boom);\n",
-            "RangeError: nope 1",
-        ),
-        (
-            "floating rejection",
-            "async function fail(): Promise<void> { throw new Error('floating'); }\nfail();\nsetTimeout(() => console.log('never'), 50);\n",
-            "Error: floating",
-        ),
-    ];
+    let programs = UNCAUGHT_PROGRAMS;
     for (name, source, message) in programs {
         let project = TempProject::new()?;
         let root = project.path();
@@ -1561,4 +1585,21 @@ fn erased_async_calls() -> TestResult {
 #[test]
 fn receiver_frames() -> TestResult {
     verify_node_parity("receiver_frames")
+}
+
+/// A rejection handled before the job queue drains is not reported: a handler
+/// attached later in the same turn, inside a microtask, by awaiting, or on a
+/// derived promise down the chain, for erased and typed promises alike. The
+/// unhandled counterparts exit 1 in `uncaught_throw_exits_one_with_its_message`.
+#[test]
+fn handled_rejections() -> TestResult {
+    verify_node_parity("handled_rejections")
+}
+
+/// A continuation released by a timer runs before the clock reaches the next
+/// timer, inside a `Promise.race` too: work due at 900 ms beats a 1000 ms
+/// timeout, typed or through an erased value (hono's timeout middleware).
+#[test]
+fn race_continuations_before_timers() -> TestResult {
+    verify_node_parity("race_continuations_before_timers")
 }

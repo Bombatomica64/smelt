@@ -276,7 +276,7 @@ export function fireAndForget(cb: () => Promise<string>): void {
         rust_fn(&source, "fire_and_forget"),
         r"fn fire_and_forget(cb: &dyn Fn() -> SmeltFuture<JsString>) -> () {
 let _smelt_tmp_1: SmeltFuture<JsString> = cb();
-let _smelt_tmp_2: () = { smelt_spawn_promise_task(Box::pin(async move { if let Err(smelt_error) = _smelt_tmp_1.await { smelt_report_unhandled_rejection(&*smelt_error); } })); () };
+let _smelt_tmp_2: () = { smelt_spawn_promise_task(Box::pin(async move { if let Err(smelt_error) = _smelt_tmp_1.await { smelt_note_rejection(::std::rc::Rc::new(::std::cell::Cell::new(false)), smelt_thrown_value(&*smelt_error)); } })); () };
 return;
 }"
     );
