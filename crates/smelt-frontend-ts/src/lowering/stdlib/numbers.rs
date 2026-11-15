@@ -71,8 +71,13 @@ impl ModuleBuilder<'_> {
         let non_coercing_optional = !coerces
             && matches!(
                 self.ctx.krate.types.get(operand_ty),
-                Some(Type::Optional(inner, _))
-                    if matches!(self.ctx.krate.types.get(*inner), Some(Type::Int | Type::Float))
+                Some(Type::Optional(..))
+            )
+            && matches!(
+                self.ctx.krate.types.get(
+                    smelt_hir::type_normalize::peel_optional(&self.ctx.krate.types, operand_ty).0
+                ),
+                Some(Type::Int | Type::Float)
             );
         if non_coercing_optional
             || matches!(op, NumericPredicateOp::IsSafeInteger)

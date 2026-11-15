@@ -361,8 +361,12 @@ impl FunctionEmitter<'_> {
         // `Number.*` predicate (the frontend asserts presence for the
         // coercing global ones): absent is "not a number", so the predicate
         // is `false` there and tested on the value where present.
-        if let Some(Type::Optional(inner, _)) = self.mir.types.get(operand_ty)
-            && matches!(self.mir.types.get(*inner), Some(Type::Int | Type::Float))
+        // Every optional layer: a `number | null | undefined` is tested on its
+        // payload too (`flatten` first).
+        let (payload, undefined, null) =
+            smelt_hir::type_normalize::peel_optional(&self.mir.types, operand_ty);
+        if (undefined || null)
+            && matches!(self.mir.types.get(payload), Some(Type::Int | Type::Float))
         {
             let test = match op {
                 smelt_hir::NumericPredicateOp::IsFinite => "smelt_value.is_finite()",
@@ -373,7 +377,10 @@ impl FunctionEmitter<'_> {
                 }
             };
             return Ok({
-                let receiver = self.operand_expr(operand)?;
+                let mut receiver = self.operand_expr(operand)?;
+                if undefined && null {
+                    receiver = receiver.cloned_value().postfix(".flatten()");
+                }
                 receiver.postfix(format!(".map_or(false, |smelt_value| {{ let smelt_value = smelt_value as f64; {test} }})"))
             });
         }

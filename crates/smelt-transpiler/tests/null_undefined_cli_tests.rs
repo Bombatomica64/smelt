@@ -149,6 +149,11 @@ console.log(pick<number>(null), pick<number>(undefined), pick(1));
 function isNotNil<T>(x: T | null | undefined): x is T { return x != null; }
 const mixed = [1, 2, null, 4, undefined];
 console.log(mixed.filter(isNotNil), isNotNil(null), isNotNil(undefined), isNotNil(0));
+const first = <T>(array: readonly T[], defaultValue: T | null | undefined = undefined) =>
+  array?.length > 0 ? array[0] : defaultValue
+const last = <T>(array: readonly T[], defaultValue: T | null | undefined = undefined) =>
+  array?.length > 0 ? array[array.length - 1] : defaultValue
+console.log(first([1, 2]), first([], null), first([]), last(["a", "b"]), last([], 3));
 "#;
 
 /// What Node prints for [`GENERIC_TS`].
@@ -158,6 +163,7 @@ const GENERIC_OUTPUT: &str = concat!(
     "null true object x\n",
     "N U V\n",
     "[ 1, 2, 4 ] false false true\n",
+    "1 null undefined b 3\n",
 );
 
 /// The program of the `defaults` test.

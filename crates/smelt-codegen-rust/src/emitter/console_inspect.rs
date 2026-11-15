@@ -538,10 +538,10 @@ impl FunctionEmitter<'_> {
             ))
         } else if absent == AbsentSpelling::Undefined
             && self.type_has_null_absence(ty)
-            && !matches!(self.mir.types.get(ty), Some(Type::Optional(..)))
             && self.console_inspects(ty, absent)
         {
-            // A container whose elements admit `null` (`(number | null)[]`):
+            // A container whose elements admit `null` (`(number | null)[]`), or a
+            // two-layer `T | null | undefined` over an erased payload:
             // `Option<T>`'s own inspection would draw an empty slot as
             // `undefined`, so the value is drawn through its erasure, which
             // the static type makes say `null`.

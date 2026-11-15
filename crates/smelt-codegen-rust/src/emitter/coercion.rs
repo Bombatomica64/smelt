@@ -539,6 +539,12 @@ impl FunctionEmitter<'_> {
             ) {
                 return self.extract(operand, target, scope);
             }
+            // An erased value carries its own tag: the slot's absence is its
+            // `None` (`extract_optional`). A generic callee's `is_none()`
+            // reads exactly that.
+            if matches!(self.mir.types.get(operand_ty), Some(Type::Unknown)) {
+                return self.extract(operand, target, scope);
+            }
             // An erased value into `T | null | undefined` carries its own tag:
             // each absence lands on its own layer (see `rendered_at_optional`).
             if matches!(self.mir.types.get(*inner), Some(Type::Optional(..)))
@@ -1099,6 +1105,24 @@ impl FunctionEmitter<'_> {
         if source == target && !matches!(self.mir.types.get(target), Some(Type::Function(_))) {
             return Ok(value_text.to_owned());
         }
+        // A value of a type parameter that renders as a real Rust generic (a
+        // lifted `T`) into optional layers over that same `T`: present in
+        // every layer. It is a `T`, not the erased carrier, so it has no tag
+        // to inspect.
+        if matches!(self.mir.types.get(source), Some(Type::TypeParam { .. }))
+            && matches!(self.mir.types.get(target), Some(Type::Optional(..)))
+            && !self.renders_erased(source).unwrap_or(true)
+            && let (base, undefined, null) =
+                smelt_hir::type_normalize::peel_optional(&self.mir.types, target)
+            && base == source
+        {
+            let wrapped = if undefined && null {
+                format!("Some(Some({}))", smelt_owned_value.delimited())
+            } else {
+                format!("Some({})", smelt_owned_value.delimited())
+            };
+            return Ok(RustExpr::chain(wrapped));
+        }
         // Text crossing between the two languages of a mixed crate: a
         // JavaScript string is UTF-16 (`JsString`), a Python `str` is UTF-8
         // (`String`). A frontend marks each crossing with a `TypeAssert` to the
@@ -1578,11 +1602,15 @@ impl FunctionEmitter<'_> {
                 "match {smelt_owned_value} {{ SmeltUnknown::Undefined => None, SmeltUnknown::Null => Some(None), smelt_value => Some(Some({mapped_value})) }}", smelt_owned_value = smelt_owned_value.delimited(), mapped_value = mapped_value.delimited()
             ))));
         }
+        // A type parameter that renders as a real Rust generic (a lifted `T`)
+        // is a value of its own type, not the carrier: it takes the plain
+        // wrapping below.
         if let Some(Type::Optional(inner, _)) = self.mir.types.get(target)
-            && matches!(
+            && (matches!(
                 self.mir.types.get(source),
-                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-            )
+                Some(Type::Unknown | Type::Union(_))
+            ) || (matches!(self.mir.types.get(source), Some(Type::TypeParam { .. }))
+                && (source != *inner || self.renders_erased(source).unwrap_or(true))))
         {
             let mapped_value =
                 self.rendered_at_type(&RustExpr::path("smelt_value"), source, *inner, scope)?;
