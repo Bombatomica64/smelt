@@ -1,16 +1,16 @@
 module examples/typescript/end-to-end/126_optional_presence_through_assertion/input.ts (ModuleId(0))
-  body BodyId(3)
+  body BodyId(4)
   items
+    global mut base: HandlerSet
     interface HandlerSet fields [Public handler: String, Public score: Float] methods []
     interface HandlerParamsSet fields [Public handler: String, Public score: Float, Public params: Dict<String, String>] methods []
-    class Table fields [Public methods: List<Dict<String, HandlerSet>>] constructor Some(ItemId(4)) methods [ItemId(2), ItemId(3)] implements []
+    class Table fields [Public methods: List<Dict<String, HandlerSet>>] constructor Some(ItemId(5)) methods [ItemId(3), ItemId(4)] implements []
   locals
     %0 const table: Table
     %1 const entries: Dict<String, HandlerSet>
     %2 const picked: Optional<HandlerSet>
     %3 const absent: Optional<HandlerSet>
-    %4 const base: HandlerSet
-    %5 const full: HandlerParamsSet
+    %4 const full: HandlerParamsSet
   exprs
     #0: Table = new Table()
     #1: Table = %0
@@ -41,7 +41,7 @@ module examples/typescript/end-to-end/126_optional_presence_through_assertion/in
     #26: List<String> = #24.lookup(#25)
     #27: String = ","
     #28: String = string_join #26, #27
-    #29: None = @6(console_log)
+    #29: None = @7(console_log)
     #30: None = call #29(#28)
     #31: Table = %0
     #32: fn(String) -> List<String> = #31.lookup
@@ -50,7 +50,7 @@ module examples/typescript/end-to-end/126_optional_presence_through_assertion/in
     #35: List<String> = #33.lookup(#34)
     #36: String = ","
     #37: String = string_join #35, #36
-    #38: None = @7(console_log)
+    #38: None = @8(console_log)
     #39: None = call #38(#37)
     #40: Table = %0
     #41: fn(String) -> List<String> = #40.lookup
@@ -59,7 +59,7 @@ module examples/typescript/end-to-end/126_optional_presence_through_assertion/in
     #44: List<String> = #42.lookup(#43)
     #45: String = ","
     #46: String = string_join #44, #45
-    #47: None = @8(console_log)
+    #47: None = @9(console_log)
     #48: None = call #47(#46)
     #49: String = "a"
     #50: String = "handler"
@@ -82,7 +82,7 @@ module examples/typescript/end-to-end/126_optional_presence_through_assertion/in
     #67: String = #66.handler
     #68: String = "none"
     #69: String = if #65 then #67 else #68
-    #70: None = @9(console_log)
+    #70: None = @10(console_log)
     #71: None = call #70(#69)
     #72: Dict<String, HandlerSet> = %1
     #73: String = "missing"
@@ -98,33 +98,29 @@ module examples/typescript/end-to-end/126_optional_presence_through_assertion/in
     #83: String = #82.handler
     #84: String = "none"
     #85: String = if #81 then #83 else #84
-    #86: None = @10(console_log)
+    #86: None = @11(console_log)
     #87: None = call #86(#85)
-    #88: String = "handler"
-    #89: String = "h"
-    #90: String = "score"
-    #91: Float = 1.0
-    #92: HandlerSet = {#88: #89, #90: #91}
-    #93: HandlerSet = %4
-    #94: HandlerParamsSet = assert_type #93
-    #95: HandlerParamsSet = %5
-    #96: Dict<String, String> = #95.params
-    #97: Dict<String, String> = {}
-    #98: HandlerParamsSet = %5
-    #99: Dict<String, String> = #98.params
-    #100: String = "k"
-    #101: String = #99[#100]
-    #102: String = "v"
-    #103: HandlerParamsSet = %5
-    #104: String = #103.handler
-    #105: HandlerParamsSet = %5
-    #106: Float = #105.score
-    #107: HandlerParamsSet = %5
-    #108: Dict<String, String> = #107.params
-    #109: String = "k"
-    #110: String = #108[#109]
-    #111: None = @11(console_log)
-    #112: None = call #111(#104, #106, #110)
+    #88: None = global_get @0(base)
+    #89: HandlerSet = global_get @0(base)
+    #90: HandlerParamsSet = assert_type #89
+    #91: HandlerParamsSet = %4
+    #92: Dict<String, String> = #91.params
+    #93: Dict<String, String> = {}
+    #94: HandlerParamsSet = %4
+    #95: Dict<String, String> = #94.params
+    #96: String = "k"
+    #97: String = #95[#96]
+    #98: String = "v"
+    #99: HandlerParamsSet = %4
+    #100: String = #99.handler
+    #101: HandlerParamsSet = %4
+    #102: Float = #101.score
+    #103: HandlerParamsSet = %4
+    #104: Dict<String, String> = #103.params
+    #105: String = "k"
+    #106: String = #104[#105]
+    #107: None = @13(console_log)
+    #108: None = call #107(#100, #102, #106)
   stmts
     s0: let %0: Table = #0
     s1: #7
@@ -138,11 +134,11 @@ module examples/typescript/end-to-end/126_optional_presence_through_assertion/in
     s9: #71
     s10: let %3: Optional<HandlerSet> = #78
     s11: #87
-    s12: let %4: HandlerSet = #92
-    s13: let %5: HandlerParamsSet = #94
-    s14: #96 = #97
-    s15: #101 = #102
-    s16: #112
+    s12: #88
+    s13: let %4: HandlerParamsSet = #90
+    s14: #92 = #93
+    s15: #97 = #98
+    s16: #108
 
 interned types
   t0 = None

@@ -6,10 +6,19 @@ mod __smelt_module_source_main;
 pub(crate) use __smelt_module_source_main::*;
 
 
+/// The bits a hole of a `number[]` is stored as: a signaling NaN.
+const SMELT_NUMBER_HOLE_BITS: u64 = 0x7FF4_0000_0000_0000;
+
+/// A hole of a `number[]`; see `SMELT_NUMBER_HOLE_BITS`.
+const fn smelt_number_hole() -> f64 { f64::from_bits(SMELT_NUMBER_HOLE_BITS) }
+
+/// Whether `value` is a hole of a `number[]`.
+const fn smelt_is_number_hole(value: f64) -> bool { value.to_bits() == SMELT_NUMBER_HOLE_BITS }
+
 /// `Number::toString(value, 10)`: JavaScript's number formatting.
 fn smelt_number_to_string<N: ::std::borrow::Borrow<f64>>(value: N) -> String {
     let value = *value.borrow();
-    if value.is_nan() { return "NaN".to_owned(); }
+    if value.is_nan() { return if smelt_is_number_hole(value) { "undefined" } else { "NaN" }.to_owned(); }
     if value == 0.0 { return "0".to_owned(); }
     if value < 0.0 { return format!("-{}", smelt_number_to_string(-value)); }
     if value.is_infinite() { return "Infinity".to_owned(); }
@@ -1803,18 +1812,31 @@ trait SmeltLiveList {
     fn replace_elements(&self, values: Vec<SmeltUnknown>);
     fn typed_list(&self) -> &dyn ::std::any::Any;
     fn holds(&self, value: &SmeltUnknown) -> bool;
+    fn grow_with_holes(&self, len: usize);
+    fn is_hole(&self, index: usize) -> bool;
 }
 
 impl<T: IntoSmeltUnknown + SmeltFromUnknown + Clone + 'static> SmeltLiveList for SmeltList<T> {
     fn element_count(&self) -> usize { self.borrow().len() }
-    fn element(&self, index: usize) -> Option<SmeltUnknown> { self.borrow().get(index).cloned().map(IntoSmeltUnknown::into_smelt_unknown) }
-    fn set_element(&self, index: usize, value: SmeltUnknown) { let mut values = self.borrow_mut(); if index >= values.len() { values.resize_with(index.saturating_add(1), || T::smelt_from_unknown(SmeltUnknown::Undefined)); } values[index] = T::smelt_from_unknown(value); }
-    fn elements(&self) -> Vec<SmeltUnknown> { self.borrow().iter().cloned().map(IntoSmeltUnknown::into_smelt_unknown).collect() }
+    fn element(&self, index: usize) -> Option<SmeltUnknown> { self.borrow().get(index).cloned().map(smelt_list_slot_unknown) }
+    fn set_element(&self, index: usize, value: SmeltUnknown) { let mut values = self.borrow_mut(); if index >= values.len() { values.resize_with(index.saturating_add(1), smelt_list_hole::<T>); } values[index] = T::smelt_from_unknown(value); }
+    fn elements(&self) -> Vec<SmeltUnknown> { self.borrow().iter().cloned().map(smelt_list_slot_unknown).collect() }
     fn splice_elements(&self, start: usize, delete: usize, items: Vec<SmeltUnknown>) -> Vec<SmeltUnknown> { let mut values = self.borrow_mut(); let start = start.min(values.len()); let end = start.saturating_add(delete).min(values.len()); values.splice(start..end, items.into_iter().map(T::smelt_from_unknown)).map(IntoSmeltUnknown::into_smelt_unknown).collect() }
     fn replace_elements(&self, values: Vec<SmeltUnknown>) { *self.borrow_mut() = values.into_iter().map(T::smelt_from_unknown).collect(); }
     fn typed_list(&self) -> &dyn ::std::any::Any { self }
     fn holds(&self, value: &SmeltUnknown) -> bool { smelt_live_same_content(&T::smelt_from_unknown(value.clone()).into_smelt_unknown(), value, 0) }
+    fn grow_with_holes(&self, len: usize) { let mut values = self.borrow_mut(); if len > values.len() { values.resize_with(len, smelt_list_hole::<T>); } }
+    fn is_hole(&self, index: usize) -> bool { self.borrow().get(index).is_some_and(smelt_list_value_is_hole) }
 }
+
+fn smelt_list_hole<T: SmeltFromUnknown + 'static>() -> T {
+    let hole: Box<dyn ::std::any::Any> = Box::new(smelt_number_hole());
+    hole.downcast::<T>().map_or_else(|_| T::smelt_from_unknown(SmeltUnknown::Undefined), |hole| *hole)
+}
+
+fn smelt_list_value_is_hole<T: 'static>(value: &T) -> bool { (value as &dyn ::std::any::Any).downcast_ref::<f64>().is_some_and(|value| smelt_is_number_hole(*value)) }
+
+fn smelt_list_slot_unknown<T: IntoSmeltUnknown + 'static>(value: T) -> SmeltUnknown { if smelt_list_value_is_hole(&value) { SmeltUnknown::Undefined } else { value.into_smelt_unknown() } }
 
 /// Whether two erased values hold the same content, ignoring object identity.
 fn smelt_live_same_content(left: &SmeltUnknown, right: &SmeltUnknown, depth: usize) -> bool {
@@ -2229,7 +2251,8 @@ impl SmeltArray {
     fn set_index(&self, index: usize, value: SmeltUnknown) { if let Some(live) = self.live_view_for(::std::slice::from_ref(&value)) { live.set_element(index, value); return; } let mut values = self.values.borrow_mut(); if index >= values.len() { values.resize(index.saturating_add(1), SmeltUnknown::Undefined); } values[index] = value; }
     fn push(&self, value: SmeltUnknown) { if let Some(live) = self.live_view_for(::std::slice::from_ref(&value)) { let end = live.element_count(); live.splice_elements(end, 0, vec![value]); return; } self.values.borrow_mut().push(value); }
     fn splice(&self, start: usize, delete: usize, items: Vec<SmeltUnknown>) -> Vec<SmeltUnknown> { if let Some(live) = self.live_view_for(&items) { return live.splice_elements(start, delete, items); } let mut values = self.values.borrow_mut(); let start = start.min(values.len()); let end = start.saturating_add(delete).min(values.len()); values.splice(start..end, items).collect() }
-    fn set_len(&self, len: usize) { let current = self.len(); if len < current { self.splice(len, current - len, Vec::new()); } else if len > current { self.splice(current, 0, vec![SmeltUnknown::Undefined; len - current]); } }
+    fn set_len(&self, len: usize) { let current = self.len(); if len > current && let Some(live) = self.live_view() { live.grow_with_holes(len); return; } if len < current { self.splice(len, current - len, Vec::new()); } else if len > current { self.splice(current, 0, vec![SmeltUnknown::Undefined; len - current]); } }
+    fn is_hole(&self, index: usize) -> bool { if let Some(live) = self.live_view() { return live.is_hole(index); } let _ = index; false }
     fn replace_all(&self, values: Vec<SmeltUnknown>) { if let Some(live) = self.live_view_for(&values) { live.replace_elements(values); return; } *self.values.borrow_mut() = values; }
     fn named_property(&self, key: &str) -> Option<SmeltUnknown> { smelt_array_named_property(self.id, key) }
     fn set_named_property(&self, key: String, value: SmeltUnknown) { if key == "length" { if let SmeltUnknown::Number(len) = value && len >= 0.0 && len.fract() == 0.0 && len <= f64::from(u32::MAX) { self.set_len(smelt_erased_relative_position(Some(&value), usize::MAX, 0)); } return; } smelt_array_store_named_property(self, key, value, false); }
@@ -3159,7 +3182,7 @@ fn smelt_has_own_property(value: &SmeltUnknown, key: &(impl SmeltHostText + ?Siz
     match value {
         SmeltUnknown::Object(map) if smelt_host_buffer_marker(map).is_some() => smelt_host_buffer_element(map, key).is_some(),
         SmeltUnknown::Object(map) => map.contains_key(key) || smelt_boxed_string_own_property(map, key),
-        SmeltUnknown::Array(values) => key == "length" || values.named_keys().contains(&key.to_owned()) || key.parse::<usize>().is_ok_and(|index| index < values.len()),
+        SmeltUnknown::Array(values) => key == "length" || values.named_keys().contains(&key.to_owned()) || key.parse::<usize>().is_ok_and(|index| index < values.len() && !values.is_hole(index)),
         SmeltUnknown::String(text) => key == "length" || key.parse::<usize>().is_ok_and(|index| index < text.len()),
         _ => false,
     }

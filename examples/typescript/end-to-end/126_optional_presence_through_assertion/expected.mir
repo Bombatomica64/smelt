@@ -86,42 +86,49 @@ fn new (FuncId(2)) -> Table
     %0.field6 = move %1
     return move %0
 
-fn main (FuncId(3)) -> None
+fn smelt_global_init__base__0 (FuncId(3)) -> HandlerSet
+  locals
+    %0 temp: HandlerSet
+  bb0:
+    %0 = {"handler": "h", "score": 1.0}
+    return move %0
+
+fn main (FuncId(4)) -> None
   locals
     %0 user table: Table
     %1 user entries: Dict<String, HandlerSet>
     %2 user picked: Optional<HandlerSet>
     %3 user absent: Optional<HandlerSet>
-    %4 user base: HandlerSet
-    %5 user full: HandlerParamsSet
-    %6 temp: Table
+    %4 user full: HandlerParamsSet
+    %5 temp: Table
+    %6 temp: None
     %7 temp: None
     %8 temp: None
-    %9 temp: None
-    %10 temp: List<String>
-    %11 temp: String
-    %12 temp: None
-    %13 temp: List<String>
-    %14 temp: String
-    %15 temp: None
-    %16 temp: List<String>
-    %17 temp: String
-    %18 temp: None
-    %19 temp: HandlerSet
-    %20 temp: Dict<String, HandlerSet>
+    %9 temp: List<String>
+    %10 temp: String
+    %11 temp: None
+    %12 temp: List<String>
+    %13 temp: String
+    %14 temp: None
+    %15 temp: List<String>
+    %16 temp: String
+    %17 temp: None
+    %18 temp: HandlerSet
+    %19 temp: Dict<String, HandlerSet>
+    %20 temp: Optional<HandlerSet>
     %21 temp: Optional<HandlerSet>
     %22 temp: Optional<HandlerSet>
-    %23 temp: Optional<HandlerSet>
-    %24 temp: Bool
-    %25 temp: String
-    %26 temp: HandlerSet
-    %27 temp: None
+    %23 temp: Bool
+    %24 temp: String
+    %25 temp: HandlerSet
+    %26 temp: None
+    %27 temp: Optional<HandlerSet>
     %28 temp: Optional<HandlerSet>
     %29 temp: Optional<HandlerSet>
-    %30 temp: Optional<HandlerSet>
-    %31 temp: Bool
-    %32 temp: String
-    %33 temp: HandlerSet
+    %30 temp: Bool
+    %31 temp: String
+    %32 temp: HandlerSet
+    %33 temp: None
     %34 temp: None
     %35 temp: HandlerSet
     %36 temp: HandlerParamsSet
@@ -130,71 +137,72 @@ fn main (FuncId(3)) -> None
     %39 temp: Dict<String, String>
     %40 temp: None
   bb0:
-    %6 = call fn2() -> bb1
+    %5 = call fn2() -> bb1
   bb1:
-    %0 = move %6
-    %7 = call fn0(copy %0, "get", "get hello", 1.0) -> bb2
+    %0 = move %5
+    %6 = call fn0(copy %0, "get", "get hello", 1.0) -> bb2
   bb2:
-    %8 = call fn0(copy %0, "post", "post hello", 2.0) -> bb3
+    %7 = call fn0(copy %0, "post", "post hello", 2.0) -> bb3
   bb3:
-    %9 = call fn0(copy %0, "ALL", "any", 3.0) -> bb4
+    %8 = call fn0(copy %0, "ALL", "any", 3.0) -> bb4
   bb4:
-    %10 = call fn1(copy %0, "get") -> bb5
+    %9 = call fn1(copy %0, "get") -> bb5
   bb5:
-    %11 = string_join move %10, ","
-    %12 = call @console_log(move %11) -> bb6
+    %10 = string_join move %9, ","
+    %11 = call @console_log(move %10) -> bb6
   bb6:
-    %13 = call fn1(copy %0, "post") -> bb7
+    %12 = call fn1(copy %0, "post") -> bb7
   bb7:
-    %14 = string_join move %13, ","
-    %15 = call @console_log(move %14) -> bb8
+    %13 = string_join move %12, ","
+    %14 = call @console_log(move %13) -> bb8
   bb8:
-    %16 = call fn1(move %0, "put") -> bb9
+    %15 = call fn1(move %0, "put") -> bb9
   bb9:
-    %17 = string_join move %16, ","
-    %18 = call @console_log(move %17) -> bb10
+    %16 = string_join move %15, ","
+    %17 = call @console_log(move %16) -> bb10
   bb10:
-    %19 = {"handler": "first", "score": 1.0}
-    %1 = {"a": move %19}
-    %21 = copy %1?.["missing"]
-    %22 = copy %1?.["a"]
-    %2 = move %21 ?? move %22
-    %24 = copy %2 != none
-    switch move %24 ? bb11 : bb12
+    %18 = {"handler": "first", "score": 1.0}
+    %1 = {"a": move %18}
+    %20 = copy %1?.["missing"]
+    %21 = copy %1?.["a"]
+    %2 = move %20 ?? move %21
+    %23 = copy %2 != none
+    switch move %23 ? bb11 : bb12
   bb11:
-    %26 = move %2
-    %25 = copy %26.field2
+    %25 = move %2
+    %24 = copy %25.field2
     goto bb13
   bb12:
-    %25 = "none"
+    %24 = "none"
     goto bb13
   bb13:
-    %27 = call @console_log(move %25) -> bb14
+    %26 = call @console_log(move %24) -> bb14
   bb14:
-    %28 = copy %1?.["missing"]
-    %29 = move %1?.["other"]
-    %3 = move %28 ?? move %29
-    %31 = copy %3 != none
-    switch move %31 ? bb15 : bb16
+    %27 = copy %1?.["missing"]
+    %28 = move %1?.["other"]
+    %3 = move %27 ?? move %28
+    %30 = copy %3 != none
+    switch move %30 ? bb15 : bb16
   bb15:
-    %33 = move %3
-    %32 = copy %33.field2
+    %32 = move %3
+    %31 = copy %32.field2
     goto bb17
   bb16:
-    %32 = "none"
+    %31 = "none"
     goto bb17
   bb17:
-    %34 = call @console_log(move %32) -> bb18
+    %33 = call @console_log(move %31) -> bb18
   bb18:
-    %4 = {"handler": "h", "score": 1.0}
-    %5 = move %4
+    %34 = global_get #0
+    %35 = global_get #0
+    %4 = move %35
     %37 = {}
-    %5.field9 = move %37
-    %38 = copy %5.field9
+    %4.field10 = move %37
+    %38 = copy %4.field10
     %38["k"] = "v"
-    %5.field9 = move %38
-    %39 = copy %5.field9
-    %40 = call @console_log(copy %5.field2, copy %5.field3, copy %39["k"]) -> bb19
+    %4.field10 = move %38
+    %39 = copy %4.field10
+    %40 = call @console_log(copy %4.field2, copy %4.field3, copy %39["k"]) -> bb19
   bb19:
     return none
 
