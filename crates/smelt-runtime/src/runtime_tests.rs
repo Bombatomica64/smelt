@@ -1061,6 +1061,25 @@ mod live_view_family {
         object.keys().iter().map(|key| key.to_string_lossy()).collect()
     }
 
+    impl IntoSmeltUnknown for Point {
+        fn into_smelt_unknown(self) -> SmeltUnknown { SmeltUnknown::Object(view(&self)) }
+    }
+
+    /// `expect([p]).toEqual([q])`: two records are deeply equal when their own
+    /// properties are, whichever objects they are; one that a view gave a
+    /// property the other lacks is not; and a record equals itself.
+    #[test]
+    fn deep_equality_compares_own_properties_not_identity() {
+        let (left, right) = (point(1.0, "a"), point(1.0, "a"));
+        assert!(smelt_live_deep_eq(left.clone(), right.clone()), "equal fields");
+        assert!(smelt_live_deep_eq(left.clone(), left.clone()), "one object");
+        assert!(!smelt_live_deep_eq(left.clone(), point(2.0, "a")), "a field differs");
+        view(&right).insert("extra", SmeltUnknown::Number(1.0));
+        assert!(!smelt_live_deep_eq(left.clone(), right.clone()), "an added property differs");
+        view(&left).insert("extra", SmeltUnknown::Number(1.0));
+        assert!(smelt_live_deep_eq(left, right), "the same property added to both");
+    }
+
     /// `function f(p: any) { p.x = 200 }`: the caller's record has the value.
     #[test]
     fn a_write_through_a_view_reaches_the_record() {

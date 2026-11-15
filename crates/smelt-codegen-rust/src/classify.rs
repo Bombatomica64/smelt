@@ -782,6 +782,82 @@ pub(crate) fn for_each_record_flow(mir: &Mir, mut flow: impl FnMut(Symbol, smelt
     }
 }
 
+/// Whether some body compares, with the deep `==`/`!=` ([`BinOp::Eq`],
+/// [`BinOp::NotEq`]: `toEqual` and the structural comparisons, never `===`),
+/// two values whose type is or holds a reference object shape of `references`.
+///
+/// A reference record's own `PartialEq` is identity, so such a comparison is
+/// emitted over the records' views (`binary_ops::structural_leaf_equality_expr`,
+/// `smelt_live_deep_eq`). Views exist only in a program that carries the
+/// erased runtime, so the runtime demand scan asks this to carry it.
+///
+/// "Holds" follows the containers that comparison walks: a list, an optional,
+/// a tuple and a dictionary's values. Only a non-generic shape counts, the
+/// ones that can be live records (`emitter::live_view`).
+///
+/// [`BinOp::Eq`]: smelt_hir::BinOp::Eq
+/// [`BinOp::NotEq`]: smelt_hir::BinOp::NotEq
+pub(crate) fn deep_compares_a_reference_shape(mir: &Mir, references: &HashSet<Symbol>) -> bool {
+    fn holds(mir: &Mir, references: &HashSet<Symbol>, ty: smelt_hir::TypeId, depth: u8) -> bool {
+        if depth > 16 {
+            return false;
+        }
+        let deeper = depth.saturating_add(1);
+        match mir.types.get(ty) {
+            Some(Type::Class { name, args }) => {
+                args.is_empty() && references.contains(name) && !mir.has_class(*name)
+            }
+            Some(Type::List(item) | Type::Optional(item) | Type::Dict(_, item)) => {
+                holds(mir, references, *item, deeper)
+            }
+            Some(Type::Tuple(items)) => items
+                .iter()
+                .any(|item| holds(mir, references, *item, deeper)),
+            _ => false,
+        }
+    }
+    if references.is_empty() {
+        return false;
+    }
+    let compares = |locals: &[smelt_mir::LocalDecl], blocks: &[smelt_mir::BasicBlock]| {
+        blocks
+            .iter()
+            .flat_map(|block| &block.statements)
+            .any(|statement| {
+                let Statement::Assign {
+                    value:
+                        Rvalue::Binary {
+                            op: smelt_hir::BinOp::Eq | smelt_hir::BinOp::NotEq,
+                            lhs,
+                            rhs,
+                        },
+                    ..
+                } = statement
+                else {
+                    return false;
+                };
+                [lhs, rhs].into_iter().any(|operand| {
+                    let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) =
+                        operand
+                    else {
+                        return false;
+                    };
+                    usize::try_from(local.0)
+                        .ok()
+                        .and_then(|index| locals.get(index))
+                        .is_some_and(|decl| holds(mir, references, decl.ty, 0))
+                })
+            })
+    };
+    mir.functions
+        .iter()
+        .any(|function| compares(&function.locals, &function.blocks))
+        || mir
+            .closures
+            .iter()
+            .any(|closure| compares(&closure.locals, &closure.blocks))
+}
+
 /// Whether `interface` is a callable object: a shape with a call signature,
 /// which carries the function in a synthetic `__smelt_call` slot.
 ///

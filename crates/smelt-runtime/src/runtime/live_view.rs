@@ -120,6 +120,20 @@ fn smelt_live_is_open<T: ?Sized>(cell: &::std::rc::Rc<T>) -> bool {
     })
 }
 
+/// Deep equality of two records of one type: what `toEqual` and a
+/// structural `==` ask of a record held inside a typed list, dictionary,
+/// tuple or optional.
+//~
+//~ A record handle's own `PartialEq` is identity (`===`). Deep equality
+//~ compares own properties instead, and a record's own properties are what
+//~ its views enumerate: the declared fields that are present plus whatever a
+//~ view added, less what one deleted. So the comparison is the views', which
+//~ also follows a cycle once. One object equals itself without being read.
+#[allow(dead_code)]
+fn smelt_live_deep_eq<T: SmeltLiveObject + IntoSmeltUnknown>(left: T, right: T) -> bool {
+    left.smelt_live_address() == right.smelt_live_address() || left.into_smelt_unknown() == right.into_smelt_unknown()
+}
+
 //~ Change the open shape of `object`'s cell, creating it on first use with
 //~ the record's present declared keys as the order so far.
 fn smelt_open_shape_write<R>(object: &dyn SmeltLiveObject, write: impl FnOnce(&mut SmeltOpenShape) -> R) -> R {

@@ -2545,6 +2545,14 @@ fn smelt_live_is_open<T: ?Sized>(cell: &::std::rc::Rc<T>) -> bool {
     })
 }
 
+/// Deep equality of two records of one type: what `toEqual` and a
+/// structural `==` ask of a record held inside a typed list, dictionary,
+/// tuple or optional.
+#[allow(dead_code)]
+fn smelt_live_deep_eq<T: SmeltLiveObject + IntoSmeltUnknown>(left: T, right: T) -> bool {
+    left.smelt_live_address() == right.smelt_live_address() || left.into_smelt_unknown() == right.into_smelt_unknown()
+}
+
 fn smelt_open_shape_write<R>(object: &dyn SmeltLiveObject, write: impl FnOnce(&mut SmeltOpenShape) -> R) -> R {
     let cell = object.smelt_live_cell();
     let exists = smelt_open_shape_read(object.smelt_live_address(), |_| ()).is_some();

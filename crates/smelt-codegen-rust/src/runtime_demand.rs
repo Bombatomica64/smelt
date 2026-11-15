@@ -450,7 +450,10 @@ pub(crate) struct RuntimeDemand {
 impl RuntimeDemand {
     /// Scans `mir` once and closes what it found over the `requires` graph.
     #[must_use]
-    pub(crate) fn of(mir: &Mir) -> Self {
+    pub(crate) fn of(
+        mir: &Mir,
+        reference_classes: &std::collections::HashSet<smelt_hir::Symbol>,
+    ) -> Self {
         let mut demand = Self::default();
         demand.scan_declarations(mir);
         demand.scan_types(mir);
@@ -496,6 +499,12 @@ impl RuntimeDemand {
                 demand.add(Need::Unknown);
             }
         });
+        // A deep `==` over reference records reads them through their views
+        // (`classify::deep_compares_a_reference_shape`), which only a program
+        // with the erased runtime has.
+        if crate::classify::deep_compares_a_reference_shape(mir, reference_classes) {
+            demand.add(Need::Unknown);
+        }
         demand.close();
         // Which container a dict renders as depends on whether the carrier is
         // present, so this reads the closed demand and adds a leaf need.

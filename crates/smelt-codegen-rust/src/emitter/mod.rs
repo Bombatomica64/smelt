@@ -422,7 +422,7 @@ impl EmitContext {
             }
         }
         let owned_callback_params = compute_owned_callback_params(mir)?;
-        let demand = RuntimeDemand::of(mir);
+        let demand = RuntimeDemand::of(mir, &reference_classes);
 
         Ok(Self {
             none_ty,
