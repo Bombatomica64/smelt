@@ -2018,6 +2018,15 @@ impl SmeltRecord<JsString, SmeltUnknown> {
     #[allow(dead_code)]
     fn smelt_adopt<T: SmeltLiveObject + Clone + 'static>(&self, record: &T) { SmeltObject::from_unknown_record(self.clone()).smelt_adopt(record); }
 }
+impl<V: 'static> SmeltRecord<JsString, V> {
+    #[allow(dead_code)]
+    fn smelt_adopt_typed<T: SmeltLiveObject + Clone + 'static>(&self, record: &T, wrap: impl Fn(SmeltUnknown) -> V + 'static, unwrap: impl Fn(&V) -> SmeltUnknown + 'static) {
+        if self.store.is_live() || self.store.origin().is_some() { return; }
+        let entries = { let store = self.store.borrow(); if store.has_internal_keys() { return; } store.entries().iter().map(|entry| (entry.key.clone(), unwrap(&entry.value))).collect::<Vec<_>>() };
+        smelt_live_adopt(record, self.id, entries);
+        *self.store.live.borrow_mut() = Some(SmeltLiveLink { object: ::std::rc::Rc::new(record.clone()), key: |name| name, wrap: ::std::rc::Rc::new(wrap), unwrap: ::std::rc::Rc::new(unwrap), same: |_, _| false, apply: |store, entries, same| store.resync(entries, same) });
+    }
+}
 
 /// Return whether an erased object key is visible to JavaScript `for...in` iteration.
 fn smelt_object_has_host_marker(object: &SmeltObject) -> bool { object.store.borrow().has_internal_keys() && ["__smelt_abortcontroller", "__smelt_abortsignal", "__smelt_arraybuffer", "__smelt_sharedarraybuffer", "__smelt_int8array", "__smelt_uint8array", "__smelt_uint8clampedarray", "__smelt_int16array", "__smelt_uint16array", "__smelt_int32array", "__smelt_uint32array", "__smelt_float32array", "__smelt_float64array", "__smelt_bigint64array", "__smelt_biguint64array", "__smelt_buffer", "__smelt_dataview", "__smelt_weakmap", "__smelt_weakset", "__smelt_file", "__smelt_blob", "__smelt_headers", "__smelt_urlsearchparams", "__smelt_url", "__smelt_crypto_key", "__smelt_request", "__smelt_response", "__smelt_textencoder", "__smelt_textdecoder", "__smelt_eventemitter", "__smelt_httpserver", "__smelt_incomingmessage", "__smelt_serverresponse", "__smelt_formdata", "__smelt_databasesync", "__smelt_statementsync", "__smelt_readablestream", "__smelt_domexception", "__smelt_intl_collator", "__smelt_intl_displaynames", "__smelt_intl_durationformat", "__smelt_intl_listformat", "__smelt_intl_locale", "__smelt_intl_numberformat", "__smelt_intl_pluralrules", "__smelt_intl_segmenter", "__smelt_number", "__smelt_boolean", "__smelt_string", "__smelt_symbol", "__smelt_builtin_namespace", "__smelt_global_object"].iter().any(|marker| object.contains_key(marker)) }

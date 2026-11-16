@@ -17,12 +17,19 @@
 //!   callee writes the caller's object, and a rebuilt value keeps the callee's
 //!   key order); one stored in a container, returned, or with a record-valued
 //!   property replaced keeps the map;
+//! - `identity-through-record-slots`: the literal is one object at every
+//!   declared record type it lands in: passed to a mutating callee, stored in
+//!   an annotated array, returned, aliased through two interfaces, seen
+//!   through a subset interface, given and stripped of an optional property,
+//!   holding a nested literal, kept a dictionary and handed to a record; an
+//!   annotated record passed to another interface likewise; a spread copy
+//!   stays independent;
 //! - `passed-to-another-record-type`: a literal passed to a parameter of
-//!   another record type is a struct when the two record types share (the
-//!   parameter holds a view of it,
-//!   `smelt-codegen-rust/src/structural_views.rs`) and keeps the map when
-//!   they do not (a property at a wider type, an optional property the
-//!   literal lacks);
+//!   another record type takes that type when it declares exactly the
+//!   literal's properties (optional ones after them allowed), is a struct
+//!   when the two record types share (the parameter holds a view of it,
+//!   `smelt-codegen-rust/src/structural_views.rs`), and keeps the map when
+//!   neither holds (a property at a wider type);
 //! - `stored-at-another-record-type-stays-a-map`: a literal stored in or
 //!   returned at a slot of a record type it does not share with, or whose
 //!   record-valued property is replaced by a class instance, keeps the map.
@@ -72,6 +79,23 @@
 //!   share with keeps the map. Each fixture's `expected.stdout` is still
 //!   Node's output for its source.
 //!
+//! # Expectations corrected when a literal took its slot's record type
+//!
+//! - **Old requirement**: `moved` (passed at `Point`, which declares exactly
+//!   its properties) is a literal record struct, and `annotated` (passed at
+//!   `Roomy`, which declares them and an optional `note` after them) keeps
+//!   the map.
+//! - **Evidence**: a hand port declares such a binding at the parameter's
+//!   type, and so does the rule now (`checker_literal_binding_type`,
+//!   `common_literal_target`): the literal IS a `Point` / a `Roomy`, nothing
+//!   is converted at the call, and the optional property the callee adds is
+//!   that record's own field, enumerated after the literal's keys as on the
+//!   object. Both programs print Node's output, which `expected.stdout`
+//!   (unchanged) checks; `annotated` printed it before too, through the map
+//!   the callee's record adopted.
+//! - **New requirement**: `moved` is declared at `Point` and `annotated` at
+//!   `Roomy`; `widened` (a property at a wider type) keeps the map.
+//!
 //! The fixtures live here and not under `examples/`: a literal that stays a
 //! map is avoidable erasure by definition, and the examples corpus holds none
 //! (`blocker-logs/smelt-unknown-baseline.json`). The literal that takes the
@@ -95,6 +119,9 @@ struct Lowering {
     maps: &'static [&'static str],
     /// Bindings declared from an object literal that must be record structs.
     structs: &'static [&'static str],
+    /// `(binding, type)`: bindings declared from an object literal that must
+    /// take the named record type of the slots they land in.
+    typed: &'static [(&'static str, &'static str)],
 }
 
 /// Every `.rs` file under `dir`, concatenated.
@@ -155,6 +182,14 @@ fn verify_fixture(name: &str, lowering: &Lowering) -> TestResult {
         )?;
     }
 
+    for (binding, ty) in lowering.typed {
+        ensure(
+            declares(&rust, binding, &format!("{ty} "))
+                || declares(&rust, binding, &format!("{ty};")),
+            format!("{name}: `{binding}` must be declared at `{ty}`"),
+        )?;
+    }
+
     let actual = cargo_run_shared(&project_path.join("dist/Cargo.toml"), &shared)?;
     ensure_eq(&actual, &expected, format!("unexpected stdout for {name}"))?;
     ensure_node_agrees(&[("main.ts", source.as_str())], "main.ts", &expected, name)
@@ -172,6 +207,7 @@ fn literal_with_observed_identity_keeps_its_identity() -> TestResult {
         &Lowering {
             maps: &["third"],
             structs: &["origin", "tracked", "first", "second", "present"],
+            typed: &[],
         },
     )
 }
@@ -185,6 +221,7 @@ fn literal_with_observed_keys_stays_a_map() -> TestResult {
         &Lowering {
             maps: &["counters", "scores", "settings", "listed", "mixed"],
             structs: &[],
+            typed: &[],
         },
     )
 }
@@ -201,6 +238,7 @@ fn literal_passed_or_stored_stays_a_map() -> TestResult {
         &Lowering {
             maps: &["first", "made", "outer"],
             structs: &["counter", "unordered", "replacement"],
+            typed: &[],
         },
     )
 }
@@ -215,23 +253,60 @@ fn literal_stored_at_another_record_type_stays_a_map() -> TestResult {
         &Lowering {
             maps: &["kept", "made", "outer"],
             structs: &[],
+            typed: &[],
         },
     )
 }
 
-/// A literal passed to a parameter of another record type is a struct when
-/// the two record types share (`moved`: the same properties under another
-/// name; `first`: an interface naming a subset), and keeps the map, which the
-/// callee's record adopts, when they do not (`widened`: a property at a wider
-/// type; `annotated`: an optional property the literal lacks). `viewed`,
-/// passed only to a `Record<..>` parameter, is a struct.
+/// A literal passed to a parameter of another record type takes that type
+/// when it declares exactly the literal's properties (`moved`: `Point`;
+/// `annotated`: `Roomy`, with an optional property after them), is a struct
+/// the parameter views when the two record types share (`first`: an
+/// interface naming a subset), and keeps the map, which the callee's record
+/// adopts, when neither holds (`widened`: a property at a wider type).
+/// `viewed`, passed only to a `Record<..>` parameter, is a struct.
 #[test]
 fn literal_passed_to_another_record_type_shares_or_stays_a_map() -> TestResult {
     verify_fixture(
         "passed-to-another-record-type",
         &Lowering {
-            maps: &["widened", "annotated"],
-            structs: &["moved", "first", "viewed"],
+            maps: &["widened"],
+            structs: &["first", "viewed"],
+            typed: &[("moved", "Point"), ("annotated", "Roomy")],
+        },
+    )
+}
+
+/// An object literal is one object at every declared record type it lands in
+/// (see the fixture's header). Each binding is declared at the type the rule
+/// gives it: the slot's record when it declares exactly the literal's
+/// properties (trailing optional ones allowed, nested literals matched the
+/// same way), else the literal's own struct, which the other slots view; a
+/// literal whose keys are enumerated stays a dictionary the record adopts;
+/// the spread's source and copy are maps.
+#[test]
+fn literal_is_one_object_through_record_slots() -> TestResult {
+    verify_fixture(
+        "identity-through-record-slots",
+        &Lowering {
+            maps: &["source", "copy"],
+            structs: &["labelled"],
+            typed: &[
+                ("flags", "Flags"),
+                ("stored", "Flags"),
+                ("all", "SmeltList<Flags>"),
+                ("made", "Flags"),
+                ("r", "Flags"),
+                ("again", "Flags"),
+                ("shared", "Flags"),
+                ("f", "Flags"),
+                ("t", "Touchable"),
+                ("point", "Point"),
+                ("opt", "Opt"),
+                ("outer", "Outer"),
+                ("view", "Outer"),
+                ("counts", "SmeltRecord<JsString, f64>"),
+            ],
         },
     )
 }

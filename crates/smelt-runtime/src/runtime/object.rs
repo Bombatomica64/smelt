@@ -185,6 +185,21 @@ impl SmeltRecord<JsString, SmeltUnknown> {
     #[allow(dead_code)]
     fn smelt_adopt<T: SmeltLiveObject + Clone + 'static>(&self, record: &T) { SmeltObject::from_unknown_record(self.clone()).smelt_adopt(record); }
 }
+impl<V: 'static> SmeltRecord<JsString, V> {
+    //~ `SmeltObject::smelt_adopt` for a dictionary of a concrete value type:
+    //~ the typed record just built from its entries becomes the one object,
+    //~ and this dictionary a live typed view of it (`wrap`/`unwrap` convert
+    //~ one value, as `smelt_typed_view`'s do). An object literal kept as a
+    //~ `SmeltRecord<JsString, bool>` and passed where an interface is
+    //~ expected is then written by the callee, not copied for it.
+    #[allow(dead_code)]
+    fn smelt_adopt_typed<T: SmeltLiveObject + Clone + 'static>(&self, record: &T, wrap: impl Fn(SmeltUnknown) -> V + 'static, unwrap: impl Fn(&V) -> SmeltUnknown + 'static) {
+        if self.store.is_live() || self.store.origin().is_some() { return; }
+        let entries = { let store = self.store.borrow(); if store.has_internal_keys() { return; } store.entries().iter().map(|entry| (entry.key.clone(), unwrap(&entry.value))).collect::<Vec<_>>() };
+        smelt_live_adopt(record, self.id, entries);
+        *self.store.live.borrow_mut() = Some(SmeltLiveLink { object: ::std::rc::Rc::new(record.clone()), key: |name| name, wrap: ::std::rc::Rc::new(wrap), unwrap: ::std::rc::Rc::new(unwrap), same: |_, _| false, apply: |store, entries, same| store.resync(entries, same) });
+    }
+}
 // @smelt:end
 // @smelt:item-end
 

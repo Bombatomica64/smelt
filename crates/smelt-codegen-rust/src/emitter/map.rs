@@ -574,6 +574,45 @@ impl FunctionEmitter<'_> {
         )))
     }
 
+    /// `delete record.key` on a reference record whose type declares `key` as
+    /// an optional property: the property becomes absent, which is what an
+    /// optional field holding `None` is (its reads are `undefined`, and key
+    /// enumeration, `in` and `JSON.stringify` skip it). TypeScript only
+    /// allows `delete` of an optional property. `None` for any other receiver
+    /// or key.
+    fn record_optional_field_delete_expr(
+        &self,
+        record: &Operand,
+        key: &Operand,
+        record_ty: TypeId,
+        dest_ty: TypeId,
+    ) -> Result<Option<RustExpr>, EmitError> {
+        let (Some(Type::Class { name, .. }), Some(key_text)) = (
+            self.mir.types.get(record_ty),
+            self.operand_string_literal(key),
+        ) else {
+            return Ok(None);
+        };
+        if !self.context.is_reference_class(*name)
+            || !matches!(self.mir.types.get(dest_ty), Some(Type::Bool))
+        {
+            return Ok(None);
+        }
+        for field in self.class_or_interface_fields(*name) {
+            if self.symbol_source_name(field.name)? != key_text.as_str()
+                || !matches!(self.mir.types.get(field.ty), Some(Type::Optional(_)))
+            {
+                continue;
+            }
+            let field_name = self.context.names().field_text(self.mir, field.name);
+            return Ok(Some(RustExpr::atom(format!(
+                "{{ {record}.0.borrow_mut().{field_name} = None; true }}",
+                record = self.operand_expr(record)?.delimited()
+            ))));
+        }
+        Ok(None)
+    }
+
     /// Converts a dictionary key removal operation to Rust text.
     pub(super) fn dict_remove_key_expr(
         &self,
@@ -626,6 +665,11 @@ impl FunctionEmitter<'_> {
                     return Err(EmitError::new("dict remove destination must be bool"));
                 }
                 return Ok(RustExpr::path("true"));
+            }
+            if let Some(removed) =
+                self.record_optional_field_delete_expr(dict, key, dict_ty, dest_ty)?
+            {
+                return Ok(removed);
             }
             return Err(EmitError::new(format!(
                 "dict remove receiver must be a dict, got {}",

@@ -28,10 +28,13 @@
 //! an object type with properties) holds a view of it too when the two
 //! records share: every property the slot's type declares is a property of
 //! the value's type, at the same type
-//! (`smelt-codegen-rust/src/structural_views.rs`). What still copies is a
-//! record type that does not share (a property at a wider type, an optional
-//! property the value lacks, a class). A literal passed there keeps the map,
-//! where the callee's write reaches the caller as it does in JavaScript.
+//! (`smelt-codegen-rust/src/structural_views.rs`). And a literal whose
+//! declared slots name a record type declaring exactly its properties
+//! (optional ones after them allowed) takes that type and is not converted
+//! there at all (`checker_literal_binding_type`). What still copies is a
+//! record type that does neither (a property at a wider type, a class): a
+//! literal landing there keeps the map, which the record built from it
+//! adopts (`SmeltRecord::smelt_adopt_typed`), so the two stay one object.
 //!
 //! # The rule
 //!
@@ -57,25 +60,29 @@
 //!      array element or `length` (a write only of a primitive property);
 //!    - the initializer of an unannotated, never reassigned alias, or the
 //!      iterable of a `for..of` over an array flow;
-//!    - an argument of a call or a `new` ([`ArgumentUse`], decided by 3);
+//!    - a value landing in a slot of a declared type ([`SlotUse`], decided by
+//!      3): an argument of a call or a `new`, the initializer of an annotated
+//!      alias or an element of an annotated binding's array literal, the
+//!      operand of `as T`, the operand of a `return` from a function with a
+//!      declared return type (`satisfies` hands the value on unchanged);
 //!    - an equality comparison (`===`, `!==`, `==`, `!=`), `typeof`, or a
 //!      statement of its own.
-//! 3. **Every callee it is passed to shares it**
-//!    (`ModuleBuilder::checker_argument_shares`,
-//!    `ModuleBuilder::checker_argument_fits`): at that argument position,
-//!    every signature the checker resolved for the callee takes a slot that
-//!    holds a view of the record, the record's own type, another record type
-//!    it shares with, or cannot hold a record at all. No callee is named:
+//! 3. **Every declared slot it lands in shares it**
+//!    (`ModuleBuilder::literal_slot_targets`): the checker's type for the slot
+//!    holds a view of the record, cannot hold a record at all, or lowers to
+//!    the record type the binding is declared at or one it shares with
+//!    (`ModuleBuilder::record_types_share`). No callee is named:
 //!    `console.log`, `JSON.stringify`, `Object.keys` and the test framework's
 //!    matchers pass because their parameters are `any` or generic, exactly
 //!    like a user function's.
 //!
 //! Anything else disqualifies the binding, classified for reporting as a
 //! [`Disqualifier`]: a key-set or key-order operation spelled on the typed
-//! value, a replaced record-valued property, a callee whose parameter is
-//! another record type (or that the checker cannot type), an escape (returned,
-//! stored, assigned, exported, reassigned), or a use this module does not
-//! model.
+//! value, a replaced record-valued property, a slot of a type that still
+//! copies (a class, a generic record) or that the checker cannot type, an
+//! escape whose slot is not inspected (assigned into another object, thrown,
+//! captured by a closure, exported, reassigned), or a use this module does
+//! not model.
 //!
 //! # Requirements
 //!
@@ -134,7 +141,7 @@ pub(in crate::lowering) enum Disqualifier {
     /// The value is an argument of a call or constructor whose parameter
     /// there does not share the caller's object: a record type it does not
     /// share with, or a callee the checker cannot type
-    /// (`checker_argument_shares`, `checker_argument_fits`).
+    /// (`checker_argument_shares`, `literal_slot_targets`).
     Call,
     /// The value leaves the binding: returned, thrown, stored in a container
     /// or another variable, exported, or the binding is reassigned.
@@ -184,13 +191,57 @@ pub(in crate::lowering) struct ArgumentUse {
     pub(in crate::lowering) value_end: u32,
 }
 
+/// A slot of a declared type the value lands in, whose type the checker
+/// knows and this syntactic pass does not.
+///
+/// A slot that holds a view of the record shares the object, and so does a
+/// slot of another plain object type: the conversion there links the two
+/// records into one object (`smelt-codegen-rust/src/linked_records.rs`). A
+/// slot of the binding's own record type, or of one with exactly its
+/// properties, is where the binding takes its type from
+/// (`checker_literal_binding_type`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::lowering) enum SlotUse {
+    /// An argument of a call or a `new` (see [`ArgumentUse`]).
+    Argument(ArgumentUse),
+    /// The initializer of the annotated binding at `start..end`
+    /// (`const f: Flags = x`), or, with `element`, an element of the array
+    /// literal that initializes it (`const all: Flags[] = [x]`).
+    Annotated {
+        /// Start of the annotated binding identifier.
+        start: u32,
+        /// End of the annotated binding identifier.
+        end: u32,
+        /// The value is an element of the binding's array literal.
+        element: bool,
+    },
+    /// The operand of the type assertion `x as T` spanning `start..end`: the
+    /// value goes on at `T`, a view of the record when `T` holds one
+    /// (`unknown`, `object`), a linked record when `T` is another plain
+    /// object type.
+    Asserted {
+        /// Start of the assertion expression.
+        start: u32,
+        /// End of the assertion expression.
+        end: u32,
+    },
+    /// The operand of a `return` in the function, with a declared return
+    /// type, named by the binding identifier at `start..end`.
+    Returned {
+        /// Start of the function's name.
+        start: u32,
+        /// End of the function's name.
+        end: u32,
+    },
+}
+
 /// The decision for one candidate binding.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::lowering) enum LiteralDecision {
-    /// Every use keeps the value typed or hands it to a callee: lower the
-    /// checker's record type, provided every listed argument position shares
-    /// the object (see [`ArgumentUse`]).
-    Struct(Vec<ArgumentUse>),
+    /// Every use keeps the value typed or hands it to a slot of a declared
+    /// type: lower the checker's record type (or the slots' common one),
+    /// provided every listed slot shares the object (see [`SlotUse`]).
+    Struct(Vec<SlotUse>),
     /// Some use needs the map; the first one found, in source order of the
     /// binding's references.
     Map(Disqualifier),
@@ -407,8 +458,8 @@ struct Analysis<'model, 'ast> {
     nodes: &'model AstNodes<'ast>,
     /// Symbols and their resolved references.
     scoping: &'model Scoping,
-    /// The argument positions the binding being decided is passed at.
-    arguments: RefCell<Vec<ArgumentUse>>,
+    /// The declared slots the binding being decided lands in.
+    arguments: RefCell<Vec<SlotUse>>,
     /// Disqualifiers switched off for a measurement
     /// ([`ignored_disqualifiers`]); empty in every ordinary build.
     ignored: Vec<Disqualifier>,
@@ -523,7 +574,14 @@ impl<'ast> Analysis<'_, 'ast> {
                     return Err(Disqualifier::Other);
                 };
                 if declarator.type_annotation.is_some() {
-                    return Err(Disqualifier::Other);
+                    // The annotated alias holds the value at its declared
+                    // type, which the checker judges (`SlotUse::Annotated`).
+                    self.slot(SlotUse::Annotated {
+                        start: alias.span.start,
+                        end: alias.span.end,
+                        element: false,
+                    });
+                    return Ok(());
                 }
                 let alias = alias.symbol_id.get().ok_or(Disqualifier::Other)?;
                 self.symbol_flows(alias, shape, visiting)
@@ -572,18 +630,55 @@ impl<'ast> Analysis<'_, 'ast> {
                 UnaryOperator::Delete => Err(Disqualifier::Keys),
                 _ => Err(Disqualifier::Other),
             },
+            // `x as T` / `x satisfies T`: the asserted type is a slot like an
+            // annotation (`SlotUse::Annotated` on the assertion's own span);
+            // `as const` re-reads the literal and is not modelled.
+            AstKind::TSAsExpression(assertion) if assertion.expression.span() == span => {
+                if matches!(
+                    &assertion.type_annotation,
+                    oxc::ast::ast::TSType::TSTypeReference(reference)
+                        if matches!(&reference.type_name, oxc::ast::ast::TSTypeName::IdentifierReference(name) if name.name == "const")
+                ) {
+                    return Err(Disqualifier::Other);
+                }
+                self.slot(SlotUse::Asserted {
+                    start: assertion.span.start,
+                    end: assertion.span.end,
+                });
+                Ok(())
+            }
+            AstKind::TSSatisfiesExpression(assertion) if assertion.expression.span() == span => {
+                // `satisfies` checks and hands the value on unchanged.
+                self.classify(parent, shape, visiting)
+            }
             AstKind::ExpressionStatement(_) => Ok(()),
             // `() => x` returns the value.
             AstKind::ArrowFunctionExpression(_) | AstKind::FunctionBody(_) => {
                 Err(Disqualifier::Escape)
             }
             AstKind::SpreadElement(_) => Err(Disqualifier::Keys),
-            AstKind::ReturnStatement(_)
-            | AstKind::ThrowStatement(_)
+            AstKind::ReturnStatement(_) => {
+                let (start, end) = self
+                    .returning_function(parent)
+                    .ok_or(Disqualifier::Escape)?;
+                self.slot(SlotUse::Returned { start, end });
+                Ok(())
+            }
+            AstKind::ArrayExpression(_) => {
+                let (start, end) = self
+                    .annotated_array_binding(parent)
+                    .ok_or(Disqualifier::Escape)?;
+                self.slot(SlotUse::Annotated {
+                    start,
+                    end,
+                    element: true,
+                });
+                Ok(())
+            }
+            AstKind::ThrowStatement(_)
             | AstKind::YieldExpression(_)
             | AstKind::AwaitExpression(_)
             | AstKind::ObjectProperty(_)
-            | AstKind::ArrayExpression(_)
             | AstKind::AssignmentExpression(_)
             | AstKind::ExportSpecifier(_)
             | AstKind::ExportDefaultDeclaration(_) => Err(Disqualifier::Escape),
@@ -681,14 +776,79 @@ impl<'ast> Analysis<'_, 'ast> {
     /// Record that the flow being classified, spelled at `value`, is argument
     /// `index` of the call (or `new`) whose callee spans `callee`.
     fn passed(&self, callee: Span, index: usize, construct: bool, value: Span) {
-        self.arguments.borrow_mut().push(ArgumentUse {
+        self.slot(SlotUse::Argument(ArgumentUse {
             callee_start: callee.start,
             callee_end: callee.end,
             index,
             construct,
             value_start: value.start,
             value_end: value.end,
-        });
+        }));
+    }
+
+    /// Record that the flow being classified lands in the declared `slot`.
+    fn slot(&self, slot: SlotUse) {
+        self.arguments.borrow_mut().push(slot);
+    }
+
+    /// The name of the function a `return` at `statement` returns from, when
+    /// that function declares its return type and is named by a binding
+    /// identifier: a function declaration or expression's own name, or the
+    /// unannotated `const`/`let` an arrow or function expression initializes.
+    fn returning_function(&self, statement: NodeId) -> Option<(u32, u32)> {
+        let mut node = statement;
+        loop {
+            let parent = self.nodes.parent_id(node);
+            if parent == node {
+                return None;
+            }
+            node = parent;
+            match self.nodes.kind(node) {
+                AstKind::Function(function) => {
+                    function.return_type.as_ref()?;
+                    if let Some(id) = &function.id {
+                        return Some((id.span.start, id.span.end));
+                    }
+                    return self.initialized_binding(node);
+                }
+                AstKind::ArrowFunctionExpression(arrow) => {
+                    arrow.return_type.as_ref()?;
+                    return self.initialized_binding(node);
+                }
+                AstKind::Class(_) | AstKind::StaticBlock(_) => return None,
+                _ => {}
+            }
+        }
+    }
+
+    /// The unannotated binding identifier the expression at `node` (through
+    /// parentheses) initializes.
+    fn initialized_binding(&self, node: NodeId) -> Option<(u32, u32)> {
+        let node = self.unwrapped(node);
+        match self.nodes.parent_kind(node) {
+            AstKind::VariableDeclarator(declarator) if declarator.type_annotation.is_none() => {
+                match &declarator.id {
+                    BindingPattern::BindingIdentifier(id) => Some((id.span.start, id.span.end)),
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
+
+    /// The annotated binding identifier the array literal at `array` (through
+    /// parentheses) initializes.
+    fn annotated_array_binding(&self, array: NodeId) -> Option<(u32, u32)> {
+        let array = self.unwrapped(array);
+        match self.nodes.parent_kind(array) {
+            AstKind::VariableDeclarator(declarator) if declarator.type_annotation.is_some() => {
+                match &declarator.id {
+                    BindingPattern::BindingIdentifier(id) => Some((id.span.start, id.span.end)),
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
     }
 
     /// Classify a flow at `span` passed as an argument of `call`.
@@ -717,7 +877,7 @@ mod tests {
     use oxc::parser::Parser;
     use oxc::span::SourceType;
 
-    use super::{ArgumentUse, Disqualifier, LiteralDecision, LiteralRecordUses};
+    use super::{ArgumentUse, Disqualifier, LiteralDecision, LiteralRecordUses, SlotUse};
 
     /// The decision for the first binding named `x` in `source`; `None` when
     /// it is not a candidate.
@@ -748,7 +908,15 @@ mod tests {
             "`x` must be a struct candidate: {source}"
         );
         let arguments = match decision {
-            Some(LiteralDecision::Struct(arguments)) => arguments,
+            Some(LiteralDecision::Struct(slots)) => slots
+                .into_iter()
+                .filter_map(|slot| match slot {
+                    SlotUse::Argument(argument) => Some(argument),
+                    SlotUse::Annotated { .. }
+                    | SlotUse::Asserted { .. }
+                    | SlotUse::Returned { .. } => None,
+                })
+                .collect(),
             _ => Vec::new(),
         };
         assert_eq!(
@@ -936,6 +1104,70 @@ mod tests {
         assert_map("export const x = { a: 1, s: 'v' };", Disqualifier::Escape);
     }
 
+    /// A value that lands in a slot of a declared type (an annotated alias,
+    /// an element of an annotated binding's array literal, the operand of a
+    /// `return` from a function with a declared return type) is recorded for
+    /// the checker with the slot's binding; one whose slot has no declared
+    /// type to judge stays an escape.
+    #[test]
+    fn declared_slots_are_left_to_the_checker() {
+        let slots = |source: &str| match decide(source) {
+            Some(LiteralDecision::Struct(slots)) => slots,
+            _ => Vec::new(),
+        };
+        let span_of = |source: &str, name: &str| {
+            let start = source
+                .find(name)
+                .and_then(|at| u32::try_from(at).ok())
+                .unwrap_or(0);
+            (start, start + u32::try_from(name.len()).unwrap_or(0))
+        };
+        let annotated = "const x = { a: 1, s: 'v' }; const held: object = x;";
+        let (start, end) = span_of(annotated, "held");
+        assert_eq!(
+            slots(annotated),
+            [SlotUse::Annotated {
+                start,
+                end,
+                element: false
+            }]
+        );
+        let element = "const x = { a: 1, s: 'v' }; const all: T[] = [x, x];";
+        let (all_start, all_end) = span_of(element, "all");
+        let in_all = SlotUse::Annotated {
+            start: all_start,
+            end: all_end,
+            element: true,
+        };
+        assert_eq!(slots(element), [in_all, in_all]);
+        let returned = "function make(): T { const x = { a: 1, s: 'v' }; return x; }";
+        let (make_start, make_end) = span_of(returned, "make");
+        assert_eq!(
+            slots(returned),
+            [SlotUse::Returned {
+                start: make_start,
+                end: make_end
+            }]
+        );
+        let arrow = "const make = (): T => { const x = { a: 1, s: 'v' }; return x; };";
+        let (arrow_start, arrow_end) = span_of(arrow, "make");
+        assert_eq!(
+            slots(arrow),
+            [SlotUse::Returned {
+                start: arrow_start,
+                end: arrow_end
+            }]
+        );
+        assert_map(
+            "const f = () => { const x = { a: 1, s: 'v' }; return x; };",
+            Disqualifier::Escape,
+        );
+        assert_map(
+            "const x = { a: 1, s: 'v' }; const all = [[x]];",
+            Disqualifier::Escape,
+        );
+    }
+
     #[test]
     fn unmodelled_uses_disqualify() {
         assert_map(
@@ -951,13 +1183,10 @@ mod tests {
             Disqualifier::Other,
         );
         assert_map(
-            "const x = { a: 1, s: 'v' }; const y = x as unknown;",
+            "const x = { a: 1, s: 'v' }; const y = x as const;",
             Disqualifier::Other,
         );
-        assert_map(
-            "const x = { a: 1, s: 'v' }; const y: object = x;",
-            Disqualifier::Other,
-        );
+
         assert_map(
             "const x = { a: 1, s: 'v' }; const { a } = x;",
             Disqualifier::Other,
