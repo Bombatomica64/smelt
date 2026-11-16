@@ -6,8 +6,7 @@ use crate::lowering::{ModuleBuilder, SmeltError};
 use oxc::ast::ast::{Argument, CallExpression, Expression};
 use oxc::span::GetSpan;
 use smelt_hir::{
-    Body, ErasureReason, Expr, ExprKind, ListCallbackOp, ListProjectionOp, ListSpliceItem, Stmt,
-    Type,
+    Body, ErasureReason, Expr, ExprKind, ListCallbackOp, ListProjectionOp, ListSpliceItem, Type,
 };
 
 impl ModuleBuilder<'_> {
@@ -374,31 +373,30 @@ impl ModuleBuilder<'_> {
         // list, each scalar pushes one element; the value of the call is the last
         // mutation's `Float` length result.
         let number_ty = self.ctx.krate.types.intern(Type::Float);
-        let mut result = None;
+        let list_value_ty = self.ctx.krate.types.intern(Type::List(element_ty));
+        let span = self.span(call.span.start, call.span.end);
+        // `push(a, b, ...xs)` evaluates every argument, then appends them all
+        // in order: one `ListExtend` with the items gathered as an array
+        // literal gathers them (`[a, b, ...xs]`, a `list_concat` chain).
+        // Separate pushes would interleave evaluation and appending
+        // (`out.push(1, out.length)` is `[1, 0]`, not `[1, 1]`), and the
+        // pushes before the last were once stored as statements of the
+        // body's ENTRY block, so a push of a loop-local ran before the loop.
+        let mut items: Option<smelt_hir::ExprId> = None;
+        let mut single = None;
         for item_argument in &call.arguments {
-            // Every push before the last is a sequenced side effect; the call's
-            // value is the final push's `Float` length result.
-            if let Some(previous) = result.take() {
-                body.push_stmt(Stmt::Expr(previous));
-            }
-            let pushed = if let Argument::SpreadElement(spread) = item_argument {
+            let piece = if let Argument::SpreadElement(spread) = item_argument {
                 let other = self.expression(&spread.argument, body)?;
                 let other_ty = Self::expr_ty(body, other);
-                let other = if matches!(self.ctx.krate.types.get(other_ty), Some(Type::List(_))) {
+                if matches!(self.ctx.krate.types.get(other_ty), Some(Type::List(_))) {
                     other
                 } else {
-                    let list_value_ty = self.ctx.krate.types.intern(Type::List(element_ty));
                     body.push_expr(Expr {
                         kind: ExprKind::TypeAssert { value: other },
                         ty: list_value_ty,
                         span: self.span(spread.span.start, spread.span.end),
                     })
-                };
-                body.push_expr(Expr {
-                    kind: ExprKind::ListExtend { list, other },
-                    ty: number_ty,
-                    span: self.span(call.span.start, call.span.end),
-                })
+                }
             } else {
                 // Lower the pushed value with the array's element type as a
                 // contextual hint. This lets a bare literal argument adopt the
@@ -408,15 +406,41 @@ impl ModuleBuilder<'_> {
                 // as a `(Float, String)` tuple literal rather than a
                 // `List<Unknown>` that could never be re-typed into the tuple.
                 let item = self.list_element_argument(item_argument, element_ty, "push", body)?;
+                if call.arguments.len() == 1 {
+                    single = Some(item);
+                    break;
+                }
                 body.push_expr(Expr {
-                    kind: ExprKind::ListPush { list, item },
-                    ty: number_ty,
-                    span: self.span(call.span.start, call.span.end),
+                    kind: ExprKind::ListLit(vec![item]),
+                    ty: list_value_ty,
+                    span,
                 })
             };
-            result = Some(pushed);
+            items = Some(items.map_or(piece, |earlier| {
+                body.push_expr(Expr {
+                    kind: ExprKind::ListConcat {
+                        left: earlier,
+                        right: piece,
+                    },
+                    ty: list_value_ty,
+                    span,
+                })
+            }));
         }
-        Ok(result)
+        let result = match (single, items) {
+            (Some(item), _) => body.push_expr(Expr {
+                kind: ExprKind::ListPush { list, item },
+                ty: number_ty,
+                span,
+            }),
+            (None, Some(other)) => body.push_expr(Expr {
+                kind: ExprKind::ListExtend { list, other },
+                ty: number_ty,
+                span,
+            }),
+            (None, None) => return Ok(None),
+        };
+        Ok(Some(result))
     }
 
     /// Lower modern TypeScript array APIs that materialize lists directly.
