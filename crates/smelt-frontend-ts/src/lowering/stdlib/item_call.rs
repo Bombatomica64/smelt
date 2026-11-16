@@ -130,14 +130,35 @@ impl ModuleBuilder<'_> {
                 "generic return fed by an erased value",
             )
         } else if selected_overload.is_none() {
-            self.instantiated_call_return(
-                &callee.type_params,
-                &callee.params,
-                &args,
-                return_ty,
-                call,
-                body,
-            )?
+            // A declared return that indexes a type parameter (`T[K]`) is
+            // evaluated for this call from the return the item's callers read
+            // (`ty/deferred_index.rs`); the erased declared return otherwise.
+            let evaluated = self
+                .ctx
+                .deferred_returns
+                .get(&callee.item)
+                .copied()
+                .and_then(|deferred| {
+                    self.deferred_call_return(
+                        &callee.type_params,
+                        &callee.params,
+                        &args,
+                        deferred,
+                        call,
+                        body,
+                    )
+                });
+            match evaluated {
+                Some(evaluated) => evaluated,
+                None => self.instantiated_call_return(
+                    &callee.type_params,
+                    &callee.params,
+                    &args,
+                    return_ty,
+                    call,
+                    body,
+                )?,
+            }
         } else {
             return_ty
         };

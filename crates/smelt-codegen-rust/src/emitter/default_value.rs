@@ -54,6 +54,7 @@ impl FunctionEmitter<'_> {
         {
             Type::Bool => Ok(RustExpr::path("false")),
             Type::Int | Type::FixedInt(_) => Ok(RustExpr::path("0")),
+            Type::PyInt => Ok(crate::py_int::literal_expr("0")),
             Type::BigInt => Ok(RustExpr::atom(format!(
                 "{}::default()",
                 crate::bigint_prelude::BIGINT_TYPE
@@ -66,7 +67,7 @@ impl FunctionEmitter<'_> {
             // source value is ever this default.
             Type::Symbol => Ok(RustExpr::atom("SmeltSymbol::default()").delegating_default()),
             Type::PropKey => Ok(RustExpr::atom("SmeltPropKey::default()").delegating_default()),
-            Type::Unknown => Ok(self.null_value()?),
+            Type::Unknown | Type::IndexedAccess { .. } => Ok(self.null_value()?),
             Type::Never => Ok(self.null_value()?),
             Type::None => Ok(RustExpr::unit()),
             // Annotate the element type: a bare `Vec::new()` is uninferable when
@@ -302,6 +303,10 @@ impl FunctionEmitter<'_> {
     }
 
     /// Gets a default value while preserving explicitly scoped type parameters.
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "only the types that can spell a scoped type parameter need their own default; every other type defaults as `default_value` does"
+    )]
     pub(super) fn default_value_with_scoped_type_params(
         &self,
         ty: TypeId,

@@ -632,7 +632,7 @@ impl ModuleBuilder<'_> {
             }
             smelt_specialize::GraphValueKind::Int(integer) => integer
                 .parse::<i64>()
-                .map(|parsed| (Literal::Int(parsed), Type::Int))
+                .map(|parsed| (Literal::Int(parsed), Type::PyInt))
                 .map_err(|error| {
                     SmeltError::unsupported(
                         span,
@@ -1082,7 +1082,7 @@ impl ModuleBuilder<'_> {
         let hir = match ty {
             smelt_specialize::StaticType::Null => Type::None,
             smelt_specialize::StaticType::Bool => Type::Bool,
-            smelt_specialize::StaticType::Int => Type::Int,
+            smelt_specialize::StaticType::Int => Type::PyInt,
             smelt_specialize::StaticType::Float => Type::Float,
             smelt_specialize::StaticType::String => Type::PyStr,
             smelt_specialize::StaticType::Bytes => Type::Class {
@@ -1375,7 +1375,7 @@ impl ModuleBuilder<'_> {
                         format!("materialized integer is too large: {error}"),
                     )
                 })?),
-                Type::Int,
+                Type::PyInt,
             ),
             smelt_specialize::GraphValueKind::Float(number) => {
                 (Literal::Float(number), Type::Float)

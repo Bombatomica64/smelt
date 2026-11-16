@@ -25,9 +25,9 @@ use smelt_hir::{
     FunctionType, Import, Item, ItemId, Language, ListCallbackOp, Literal, LocalDecl, MatchArm,
     MethodSig, Module, ModuleId, NumericExtremaOp, NumericPredicateOp, NumericRoundOp,
     NumericUnaryFuncOp, Param, ParamSig, Pattern as HirPattern, PrimitiveCastOp, PropertyLookup,
-    PythonDivisionOp, RegexMatchOp, SetProjectionOp, SourceFile, Span, Stmt as HirStmt,
-    StringAffixOp, StringCaseOp, StringPredicateOp, StringReplaceOp, StringSearchOp,
-    StringTrimSide, Symbol, Type, TypeId, TypeParamDef, UnaryOp, Visibility,
+    PyNumericOp, PythonDivisionOp, RegexMatchOp, SetProjectionOp, SourceFile, Span,
+    Stmt as HirStmt, StringAffixOp, StringCaseOp, StringPredicateOp, StringReplaceOp,
+    StringSearchOp, StringTrimSide, Symbol, Type, TypeId, TypeParamDef, UnaryOp, Visibility,
 };
 use smelt_stdlib::RuleId;
 
@@ -154,6 +154,14 @@ pub(crate) struct ModuleBuilder<'ctx> {
     module_namespaces: HashMap<String, HashMap<String, ItemId>>,
     /// What each imported local name is bound to, as a fully qualified name.
     import_aliases: HashMap<String, String>,
+    /// Module-level definitions (functions, classes) whose lowering failed.
+    /// Their diagnostic is already reported; a later statement that fails
+    /// only because it uses one is a cascade, not a second problem.
+    failed_definitions: HashSet<String>,
+    /// For each enclosing loop, innermost last: the flag its `break`s set
+    /// when the loop has an `else` clause (which runs only when the loop was
+    /// not left by a `break`), `None` when it has none.
+    loop_break_flags: Vec<Option<smelt_hir::LocalId>>,
     /// Pytest fixture functions available to tests in this module.
     pytest_fixtures: IndexMap<String, PytestFixture>,
     /// Whether this module should use pytest-specific test discovery rules.
@@ -239,6 +247,14 @@ enum PythonArithmetic {
     Plain(BinOp),
     /// `/`, `//` or `%`, with Python's division rules.
     Division(PythonDivisionOp),
+    /// `**`: an exact `int` for two `int`s whose exponent is not provably
+    /// negative, a `float` otherwise.
+    Power,
+    /// `<<` or `>>` on two `int`s (the op is [`PyNumericOp::Shl`] or
+    /// [`PyNumericOp::Shr`]).
+    Shift(PyNumericOp),
+    /// `&`, `|` or `^` on two `int`s: infinite two's-complement bitwise ops.
+    Bitwise(BinOp),
 }
 
 /// A Python `*args` parameter represented as one list argument.
@@ -385,6 +401,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
             type_param_names: Vec::new(),
             module_namespaces,
             import_aliases: HashMap::new(),
+            failed_definitions: HashSet::new(),
+            loop_break_flags: Vec::new(),
             pytest_fixtures: IndexMap::new(),
             function_variadics: HashMap::new(),
             specialization,
@@ -479,11 +497,28 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 continue;
             }
             if let Err(err) = self.statement(stmt, &mut body) {
-                errors.push(err);
+                let cascade = self.uses_failed_definition(stmt);
+                // A module variable whose initializer failed is a failed
+                // definition too: its later uses cascade from this error.
+                if let Stmt::Assign(StmtAssign { targets, .. }) = stmt {
+                    for target in targets {
+                        if let Expr::Name(name) = target {
+                            self.failed_definitions.insert(name.id.as_str().to_owned());
+                        }
+                    }
+                }
+                if let Stmt::AnnAssign(StmtAnnAssign { target, .. }) = stmt
+                    && let Expr::Name(name) = target.as_ref()
+                {
+                    self.failed_definitions.insert(name.id.as_str().to_owned());
+                }
+                if !cascade && !err.is_cascade() {
+                    errors.push(err);
+                }
             }
         }
 
-        if !errors.is_empty() {
+        if !errors.is_empty() || !self.failed_definitions.is_empty() {
             return Err(errors);
         }
         hir_module.items.append(&mut self.pending_module_items);
@@ -500,6 +535,30 @@ impl<'ctx> ModuleBuilder<'ctx> {
 }
 
 impl ModuleBuilder<'_> {
+    /// Whether `stmt` reads a module-level definition whose own lowering
+    /// failed (see `failed_definitions`).
+    fn uses_failed_definition(&self, stmt: &Stmt) -> bool {
+        /// Collects the names a statement loads.
+        struct Loads<'a>(Vec<&'a str>);
+        impl<'a> ruff_python_ast::visitor::Visitor<'a> for Loads<'a> {
+            fn visit_expr(&mut self, expr: &'a Expr) {
+                if let Expr::Name(name) = expr {
+                    self.0.push(name.id.as_str());
+                }
+                ruff_python_ast::visitor::walk_expr(self, expr);
+            }
+        }
+        if self.failed_definitions.is_empty() {
+            return false;
+        }
+        let mut loads = Loads(Vec::new());
+        ruff_python_ast::visitor::Visitor::visit_stmt(&mut loads, stmt);
+        loads
+            .0
+            .iter()
+            .any(|name| self.failed_definitions.contains(*name))
+    }
+
     /// Pass 1 of [`Self::module`] for one top-level statement: lower it if it
     /// is a declaration later statements may reference, recording a failure in
     /// `errors`.
@@ -518,13 +577,21 @@ impl ModuleBuilder<'_> {
                 if !self.is_materialized_decorator_factory(func, module) {
                     match self.specialized_function_defs(func, module) {
                         Ok(item_ids) => hir_module.items.extend(item_ids),
-                        Err(err) => errors.push(err),
+                        Err(err) => {
+                            self.failed_definitions
+                                .insert(func.name.as_str().to_owned());
+                            if !err.is_cascade() {
+                                errors.push(err);
+                            }
+                        }
                     }
                 }
                 true
             }
             Stmt::ClassDef(class) if self.exception_classes.contains_key(class.name.as_str()) => {
                 if let Err(err) = self.exception_class_def(class) {
+                    self.failed_definitions
+                        .insert(class.name.as_str().to_owned());
                     errors.push(err);
                 }
                 true
@@ -533,6 +600,8 @@ impl ModuleBuilder<'_> {
                 if !self.is_materialized_metaclass_definition(class, module)
                     && let Err(err) = self.class_def(class, module, hir_module)
                 {
+                    self.failed_definitions
+                        .insert(class.name.as_str().to_owned());
                     errors.push(err);
                 }
                 true

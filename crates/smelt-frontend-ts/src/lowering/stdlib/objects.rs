@@ -812,7 +812,42 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         }
         if let [argument] = call.arguments.as_slice() {
-            let value = self.argument(argument, body)?;
+            let mut value = self.argument(argument, body)?;
+            // `Object.fromEntries(null)` does not type-check, so an optional
+            // argument (a field a guard proved present, `this.#var`) holds its
+            // payload: read it as that payload.
+            if let Some(Type::Optional(inner, _)) = self
+                .ctx
+                .krate
+                .types
+                .get(Self::expr_ty(body, value))
+                .cloned()
+            {
+                value = body.push_expr(Expr {
+                    kind: ExprKind::TypeAssert { value },
+                    ty: inner,
+                    span: self.span(call.span.start, call.span.end),
+                });
+            }
+            // `Object.fromEntries` takes any iterable of entries: a generator,
+            // a `Set`, an iterator such as `map.entries()`. It reads them as
+            // `Array.from` does (`array_from_elements`), and the list of entries
+            // is then built like an entries array. Without this an iterable
+            // fell through to the empty-object fallback below and answered `{}`.
+            let entries_ty = Self::expr_ty(body, value);
+            if matches!(
+                self.ctx.krate.types.get(entries_ty),
+                Some(
+                    Type::Set(_)
+                        | Type::Generator {
+                            is_async: false,
+                            ..
+                        }
+                )
+            ) {
+                let span = self.span(call.span.start, call.span.end);
+                value = self.array_from_elements(value, entries_ty, false, span, body);
+            }
             match self
                 .ctx
                 .krate
@@ -914,15 +949,14 @@ impl ModuleBuilder<'_> {
                 }
                 _ => {}
             }
+            // An entries value of any other type is not modelled: answering an
+            // empty object here discarded its entries without a word.
             if !matches!(argument, Argument::ArrayExpression(_)) {
-                let key_ty = self.ctx.krate.types.intern(Type::String);
-                let value_ty = self.erase_with(ErasureReason::UntypedBuiltin, "Object.fromEntries");
-                let ty = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
-                return Ok(Some(body.push_expr(Expr {
-                    kind: ExprKind::DictLit(Vec::new()),
-                    ty,
-                    span: self.span(call.span.start, call.span.end),
-                })));
+                let shown = smelt_hir::type_display(&self.ctx.krate, Self::expr_ty(body, value));
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    format!("Object.fromEntries over a `{shown}` value is not modelled"),
+                ));
             }
         }
         let [Argument::ArrayExpression(entries_array)] = call.arguments.as_slice() else {

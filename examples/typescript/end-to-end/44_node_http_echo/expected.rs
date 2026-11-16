@@ -1162,10 +1162,6 @@ pub struct SmeltRecord<K, V> {
     store: ::std::rc::Rc<SmeltStoreCell<K, V>>,
 }
 
-thread_local! {
-    static SMELT_PROMISE_IDENTITIES: ::std::cell::RefCell<::std::collections::HashMap<usize, usize>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
-}
-
 /// Whether the allocation an address-table key names is still alive.
 trait SmeltAllocationGuard { fn is_live(&self) -> bool; }
 
@@ -1285,32 +1281,6 @@ fn smelt_finish_reference_view(id: usize, view: SmeltObject, entries: Vec<(Strin
     SMELT_OPEN_REFERENCE_VIEWS.with(|views| views.borrow_mut().remove(&id));
     for (key, value) in entries { view.insert(key, value); }
     SmeltUnknown::Object(view)
-}
-
-/// Return a stable erased promise id for a source future local.
-fn smelt_promise_identity(source_key: usize) -> usize {
-    SMELT_PROMISE_IDENTITIES.with(|identities| {
-        let mut identities = identities.borrow_mut();
-        if let Some(id) = identities.get(&source_key) { return *id; }
-        let id = smelt_next_object_id();
-        identities.insert(source_key, id);
-        id
-    })
-}
-
-thread_local! {
-    static SMELT_LIST_IDENTITIES: ::std::cell::RefCell<::std::collections::HashMap<usize, usize>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
-}
-
-/// Return a stable erased-array id for a source list keyed on its `Vec` address.
-fn smelt_list_identity(source_key: usize) -> usize {
-    SMELT_LIST_IDENTITIES.with(|identities| {
-        let mut identities = identities.borrow_mut();
-        if let Some(id) = identities.get(&source_key) { return *id; }
-        let id = smelt_next_object_id();
-        identities.insert(source_key, id);
-        id
-    })
 }
 
 #[derive(Default)]
@@ -1694,10 +1664,10 @@ impl<K: SmeltJsKeyEq + Clone, V: PartialEq + Clone> PartialEq for SmeltJsMap<K, 
     fn eq(&self, other: &Self) -> bool { let store = self.store.borrow(); store.entries.len() == other.store.borrow().entries.len() && store.entries.iter().all(|(key, value)| other.get(key).is_some_and(|other_value| other_value == *value)) }
 }
 impl<K: SmeltJsKeyEq + Clone, V: Eq + Clone> Eq for SmeltJsMap<K, V> {}
-impl<K: IntoSmeltUnknown + Clone, V: IntoSmeltUnknown + Clone> IntoSmeltUnknown for SmeltJsMap<K, V> { fn into_smelt_unknown(self) -> SmeltUnknown { self.into_smelt_unknown_with(K::into_smelt_unknown, V::into_smelt_unknown) } }
+impl<K: IntoSmeltUnknown + Clone, V: IntoSmeltUnknown + Clone> IntoSmeltUnknown for SmeltJsMap<K, V> { fn into_smelt_unknown(self) -> SmeltUnknown { self.into_smelt_unknown_with(&K::into_smelt_unknown, &V::into_smelt_unknown) } }
 
 impl<K: Clone, V: Clone> SmeltJsMap<K, V> {
-    fn into_smelt_unknown_with(self, key_to: fn(K) -> SmeltUnknown, value_to: fn(V) -> SmeltUnknown) -> SmeltUnknown { let id = self.id; let pairs = self.store.borrow().entries.clone().into_iter().map(|(key, value)| SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id(), vec![key_to(key), value_to(value)]))).collect::<Vec<_>>(); let object = Vec::from([("__smelt_map".to_owned(), SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id(), pairs)))]); SmeltUnknown::Object(SmeltObject::with_id(id, object)) }
+    fn into_smelt_unknown_with(self, erase_key: &dyn Fn(K) -> SmeltUnknown, erase_value: &dyn Fn(V) -> SmeltUnknown) -> SmeltUnknown { let id = self.id; let pairs = self.store.borrow().entries.clone().into_iter().map(|(key, value)| SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id(), vec![erase_key(key), erase_value(value)]))).collect::<Vec<_>>(); let object = Vec::from([("__smelt_map".to_owned(), SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id(), pairs)))]); SmeltUnknown::Object(SmeltObject::with_id(id, object)) }
 }
 
 pub struct SmeltJsSet<T> {
@@ -1812,10 +1782,10 @@ impl<T: Clone + IntoSmeltUnknown> PartialEq for SmeltJsSet<T> { fn eq(&self, oth
 
 /// Take the members out of a set store, reusing them when this is the last handle.
 fn smelt_js_set_into_members<T: Clone>(store: ::std::rc::Rc<::std::cell::RefCell<SmeltJsSetStore<T>>>) -> Vec<T> { match ::std::rc::Rc::try_unwrap(store) { Ok(store) => store.into_inner().entries, Err(shared) => shared.borrow().entries.clone() } }
-impl<T: IntoSmeltUnknown + Clone> IntoSmeltUnknown for SmeltJsSet<T> { fn into_smelt_unknown(self) -> SmeltUnknown { self.into_smelt_unknown_with(T::into_smelt_unknown) } }
+impl<T: IntoSmeltUnknown + Clone> IntoSmeltUnknown for SmeltJsSet<T> { fn into_smelt_unknown(self) -> SmeltUnknown { self.into_smelt_unknown_with(&T::into_smelt_unknown) } }
 
 impl<T: Clone> SmeltJsSet<T> {
-    fn into_smelt_unknown_with(self, to: fn(T) -> SmeltUnknown) -> SmeltUnknown { let id = self.id; let members = smelt_js_set_into_members(self.store).into_iter().map(to).collect::<Vec<_>>(); let object = Vec::from([("__smelt_set".to_owned(), SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id(), members)))]); SmeltUnknown::Object(SmeltObject::with_id(id, object)) }
+    fn into_smelt_unknown_with(self, erase: &dyn Fn(T) -> SmeltUnknown) -> SmeltUnknown { let id = self.id; let members = smelt_js_set_into_members(self.store).into_iter().map(erase).collect::<Vec<_>>(); let object = Vec::from([("__smelt_set".to_owned(), SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id(), members)))]); SmeltUnknown::Object(SmeltObject::with_id(id, object)) }
 }
 
 fn smelt_js_hash_one<H: ::std::hash::Hash>(value: &H) -> u64 { let mut hasher = SmeltFieldHasher::default(); value.hash(&mut hasher); ::std::hash::Hasher::finish(&hasher) }
@@ -2398,79 +2368,167 @@ impl<T: serde::Serialize> serde::Serialize for SmeltList<T> { fn serialize<S: se
 impl<'de, T: serde::Deserialize<'de>> serde::Deserialize<'de> for SmeltList<T> { fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> { <Vec<T> as serde::Deserialize>::deserialize(deserializer).map(SmeltList::new) } }
 type SmeltPromiseFuture = ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<SmeltUnknown, Box<dyn std::error::Error>>>>>;
 
-fn smelt_eager_poll_waker() -> ::std::task::Waker {
-    unsafe fn clone(_: *const ()) -> ::std::task::RawWaker { raw() }
-    unsafe fn wake(_: *const ()) {}
-    unsafe fn wake_by_ref(_: *const ()) {}
-    unsafe fn drop(_: *const ()) {}
-    fn raw() -> ::std::task::RawWaker { ::std::task::RawWaker::new(::std::ptr::null(), &::std::task::RawWakerVTable::new(clone, wake, wake_by_ref, drop)) }
-    unsafe { ::std::task::Waker::from_raw(raw()) }
+type SmeltJobFuture = ::std::pin::Pin<Box<dyn ::std::future::Future<Output = ()>>>;
+struct SmeltJob {
+    future: Option<SmeltJobFuture>,
+    queued: bool,
+    waker: ::std::task::Waker,
+}
+struct SmeltJobs {
+    next_id: u64,
+    tasks: ::std::collections::HashMap<u64, SmeltJob>,
+    ready: ::std::collections::VecDeque<u64>,
+}
+struct SmeltJobWaker(u64);
+impl ::std::task::Wake for SmeltJobWaker {
+    fn wake(self: ::std::sync::Arc<Self>) { smelt_wake_job(self.0); }
+    fn wake_by_ref(self: &::std::sync::Arc<Self>) { smelt_wake_job(self.0); }
+}
+thread_local! {
+    static SMELT_JOBS: ::std::cell::RefCell<SmeltJobs> = ::std::cell::RefCell::new(SmeltJobs { next_id: 1, tasks: ::std::collections::HashMap::new(), ready: ::std::collections::VecDeque::new() });
+    static SMELT_JOB_DEPTH: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(0) };
+    static SMELT_IO_IN_FLIGHT: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(0) };
+    static SMELT_PENDING_REJECTIONS: ::std::cell::RefCell<Vec<(::std::rc::Rc<::std::cell::Cell<bool>>, SmeltUnknown)>> = const { ::std::cell::RefCell::new(Vec::new()) };
+}
+
+fn smelt_wake_job(id: u64) {
+    let woke = SMELT_JOBS.try_with(|jobs| {
+        let jobs = &mut *jobs.borrow_mut();
+        match jobs.tasks.get_mut(&id) {
+            Some(job) if !job.queued => { job.queued = true; jobs.ready.push_back(id); true }
+            _ => false,
+        }
+    }).unwrap_or(false);
+    if woke { smelt_loop_notify(); }
+    let _ = woke;
+}
+
+fn smelt_job_insert(task: SmeltJobFuture, queued: bool) -> u64 {
+    let id = SMELT_JOBS.with(|jobs| {
+        let jobs = &mut *jobs.borrow_mut();
+        let id = jobs.next_id;
+        jobs.next_id = jobs.next_id.saturating_add(1);
+        let waker = ::std::task::Waker::from(::std::sync::Arc::new(SmeltJobWaker(id)));
+        jobs.tasks.insert(id, SmeltJob { future: Some(task), queued, waker });
+        if queued { jobs.ready.push_back(id); }
+        id
+    });
+    if queued { smelt_loop_notify(); }
+    id
+}
+
+fn smelt_spawn_promise_task(task: SmeltJobFuture) { let _ = smelt_job_insert(task, true); }
+
+fn smelt_spawn_now(task: SmeltJobFuture) { let id = smelt_job_insert(task, false); smelt_run_job(id); }
+
+fn smelt_run_job(id: u64) {
+    struct SmeltJobDepthGuard;
+    impl Drop for SmeltJobDepthGuard { fn drop(&mut self) { SMELT_JOB_DEPTH.with(|depth| depth.set(depth.get().saturating_sub(1))); } }
+    let taken = SMELT_JOBS.with(|jobs| {
+        let mut jobs = jobs.borrow_mut();
+        let job = jobs.tasks.get_mut(&id)?;
+        job.queued = false;
+        let future = job.future.take()?;
+        Some((future, job.waker.clone()))
+    });
+    let Some((mut future, waker)) = taken else { return };
+    SMELT_JOB_DEPTH.with(|depth| depth.set(depth.get().saturating_add(1)));
+    let guard = SmeltJobDepthGuard;
+    let ready = future.as_mut().poll(&mut ::std::task::Context::from_waker(&waker)).is_ready();
+    drop(guard);
+    if ready {
+        let finished = SMELT_JOBS.with(|jobs| jobs.borrow_mut().tasks.remove(&id));
+        drop(finished);
+        drop(future);
+    } else {
+        let orphan = SMELT_JOBS.with(|jobs| match jobs.borrow_mut().tasks.get_mut(&id) { Some(job) => { job.future = Some(future); None } None => Some(future) });
+        drop(orphan);
+    }
+}
+
+fn smelt_run_jobs() {
+    while let Some(id) = SMELT_JOBS.with(|jobs| jobs.borrow_mut().ready.pop_front()) { smelt_run_job(id); }
+}
+
+fn smelt_in_job() -> bool { SMELT_JOB_DEPTH.with(::std::cell::Cell::get) > 0 }
+
+#[allow(dead_code)]
+fn smelt_reset_jobs() {
+    let dropped = SMELT_JOBS.with(|jobs| { let jobs = &mut *jobs.borrow_mut(); jobs.ready.clear(); ::std::mem::take(&mut jobs.tasks) });
+    drop(dropped);
+    SMELT_IO_IN_FLIGHT.with(|io| io.set(0));
+    SMELT_PENDING_REJECTIONS.with(|pending| pending.borrow_mut().clear());
+}
+
+#[allow(dead_code)]
+struct SmeltIoGuard;
+#[allow(dead_code)]
+impl SmeltIoGuard { fn new() -> Self { SMELT_IO_IN_FLIGHT.with(|io| io.set(io.get().saturating_add(1))); Self } }
+impl Drop for SmeltIoGuard { fn drop(&mut self) { let _ = SMELT_IO_IN_FLIGHT.try_with(|io| io.set(io.get().saturating_sub(1))); } }
+
+#[allow(dead_code)]
+fn smelt_report_unhandled_rejection(error: &(dyn ::std::error::Error + 'static)) {
+    eprintln!("{error:?}");
+    if !cfg!(test) { ::std::process::exit(1); }
+}
+
+#[allow(dead_code)]
+fn smelt_note_rejection(handled: ::std::rc::Rc<::std::cell::Cell<bool>>, reason: SmeltUnknown) {
+    SMELT_PENDING_REJECTIONS.with(|pending| pending.borrow_mut().push((handled, reason)));
+}
+
+fn smelt_check_rejections() {
+    let noted = SMELT_PENDING_REJECTIONS.with(|pending| ::std::mem::take(&mut *pending.borrow_mut()));
+    for (handled, reason) in noted {
+        if !handled.get() {
+            smelt_report_unhandled_rejection(&*smelt_throw(reason));
+        }
+    }
+}
+
+async fn smelt_run_until(done: &dyn Fn() -> bool) -> bool {
+    loop {
+        smelt_run_jobs();
+        smelt_check_rejections();
+        if done() { return true; }
+        if smelt_fire_next_timers() {
+            tokio::task::yield_now().await;
+            continue;
+        }
+        if SMELT_IO_IN_FLIGHT.with(::std::cell::Cell::get) > 0 || smelt_live_handles() > 0 {
+            let wake = SMELT_LOOP_WAKE.with(::std::rc::Rc::clone);
+            tokio::select! { _ = wake.notified() => {}, _ = tokio::time::sleep(::std::time::Duration::from_millis(5)) => {} }
+            continue;
+        }
+        return false;
+    }
+}
+
+fn smelt_unsettled_await() -> Box<dyn std::error::Error> {
+    if !cfg!(test) {
+        eprintln!("Warning: Detected unsettled top-level await");
+        ::std::process::exit(13);
+    }
+    smelt_throw(SmeltUnknown::String("the awaited promise can never settle: the event loop is idle".into()))
 }
 
 #[derive(Clone)]
 pub struct SmeltPromise {
     id: usize,
-    state: ::std::rc::Rc<::std::cell::RefCell<Option<Result<SmeltUnknown, SmeltUnknown>>>>,
-    future: ::std::rc::Rc<::std::cell::RefCell<Option<SmeltPromiseFuture>>>,
-    handled: ::std::rc::Rc<::std::cell::Cell<bool>>,
-    reactions: ::std::rc::Rc<::std::cell::RefCell<Vec<::std::pin::Pin<Box<dyn ::std::future::Future<Output = ()>>>>>>,
-    driven: ::std::rc::Rc<::std::cell::Cell<bool>>,
-    parked: ::std::rc::Rc<::std::cell::Cell<bool>>,
+    future: SmeltFuture<SmeltUnknown>,
 }
 
 impl SmeltPromise {
-    fn pending() -> Self { Self { id: smelt_next_object_id(), state: ::std::rc::Rc::new(::std::cell::RefCell::new(None)), future: ::std::rc::Rc::new(::std::cell::RefCell::new(None)), handled: ::std::rc::Rc::new(::std::cell::Cell::new(false)), reactions: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new())), driven: ::std::rc::Rc::new(::std::cell::Cell::new(false)), parked: ::std::rc::Rc::new(::std::cell::Cell::new(false)) } }
-    fn pending_with_id(id: usize) -> Self { Self { id, state: ::std::rc::Rc::new(::std::cell::RefCell::new(None)), future: ::std::rc::Rc::new(::std::cell::RefCell::new(None)), handled: ::std::rc::Rc::new(::std::cell::Cell::new(false)), reactions: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new())), driven: ::std::rc::Rc::new(::std::cell::Cell::new(false)), parked: ::std::rc::Rc::new(::std::cell::Cell::new(false)) } }
-    fn resolved(value: SmeltUnknown) -> Self { Self { id: smelt_next_object_id(), state: ::std::rc::Rc::new(::std::cell::RefCell::new(Some(Ok(value)))), future: ::std::rc::Rc::new(::std::cell::RefCell::new(None)), handled: ::std::rc::Rc::new(::std::cell::Cell::new(false)), reactions: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new())), driven: ::std::rc::Rc::new(::std::cell::Cell::new(false)), parked: ::std::rc::Rc::new(::std::cell::Cell::new(false)) } }
-    fn from_future(future: SmeltPromiseFuture) -> Self { Self { id: smelt_next_object_id(), state: ::std::rc::Rc::new(::std::cell::RefCell::new(None)), future: ::std::rc::Rc::new(::std::cell::RefCell::new(Some(future))), handled: ::std::rc::Rc::new(::std::cell::Cell::new(false)), reactions: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new())), driven: ::std::rc::Rc::new(::std::cell::Cell::new(false)), parked: ::std::rc::Rc::new(::std::cell::Cell::new(false)) } }
+    fn of(future: SmeltFuture<SmeltUnknown>) -> Self { Self { id: smelt_next_object_id(), future } }
+    fn resolved(value: SmeltUnknown) -> Self { Self::of(SmeltFuture::resolved(value)) }
+    fn from_future(future: SmeltPromiseFuture) -> Self { Self::of(SmeltFuture::from_future(future)) }
     #[allow(dead_code)]
-    fn scheduled(future: SmeltPromiseFuture) -> Self {
-        let promise = Self::from_future(future);
-        promise.smelt_drive();
-        promise
-    }
+    fn smelt_settled(&self) -> Option<Result<SmeltUnknown, SmeltUnknown>> { self.future.smelt_settled() }
     #[allow(dead_code)]
-    fn settled_rejection(reason: SmeltUnknown) -> Self {
-        let promise = Self::pending();
-        smelt_note_rejection(promise.handled.clone(), reason.clone());
-        *promise.state.borrow_mut() = Some(Err(reason));
-        promise
-    }
+    fn smelt_react(&self, future: SmeltPromiseFuture) -> SmeltUnknown { SmeltUnknown::Promise(Self::of(self.future.reaction(future))) }
+    fn smelt_await(&self) -> ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<SmeltUnknown, Box<dyn std::error::Error>>> + '_>> { Box::pin(self.future.smelt_await()) }
     #[allow(dead_code)]
-    fn smelt_drive(&self) {
-        if self.driven.get() || self.future.borrow().is_none() { return; }
-        self.driven.set(true);
-        let driver = self.clone();
-        smelt_spawn_promise_task(Box::pin(async move { let _ = driver.smelt_settle().await; }));
-    }
-    #[allow(dead_code)]
-    fn smelt_react(&self, future: SmeltPromiseFuture) -> SmeltUnknown {
-        let derived = Self::from_future(future);
-        { derived.driven.set(true); let driver = derived.clone(); let job: ::std::pin::Pin<Box<dyn ::std::future::Future<Output = ()>>> = Box::pin(async move { driver.parked.set(false); let _ = driver.smelt_settle().await; }); if self.state.borrow().is_some() { smelt_spawn_promise_task(job); } else { derived.parked.set(true); self.reactions.borrow_mut().push(job); self.smelt_drive(); } }
-        SmeltUnknown::Promise(derived)
-    }
-    fn smelt_await(&self) -> ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<SmeltUnknown, Box<dyn std::error::Error>>> + '_>> {
-        self.handled.set(true);
-        Box::pin(self.smelt_settle())
-    }
-    async fn smelt_settle(&self) -> Result<SmeltUnknown, Box<dyn std::error::Error>> {
-        if self.state.borrow().is_none() && !self.parked.get() {
-            let taken = self.future.borrow_mut().take();
-            if let Some(future) = taken {
-                let settled = future.await.map_err(|error| smelt_thrown_value(&*error));
-                if let Err(reason) = &settled { smelt_note_rejection(self.handled.clone(), reason.clone()); }
-                *self.state.borrow_mut() = Some(settled);
-                { let released = ::std::mem::take(&mut *self.reactions.borrow_mut()); for job in released { smelt_spawn_promise_task(job); } }
-            }
-        }
-        loop {
-            if let Some(result) = self.state.borrow().clone() {
-                return result.map_err(smelt_throw);
-            }
-            if SMELT_PROMISE_TASK_DEPTH.with(::std::cell::Cell::get) == 0 { smelt_sleep_ms(0.0).await; }
-            tokio::task::yield_now().await;
-        }
-    }
+    fn smelt_reaction_read(&self) -> ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<SmeltUnknown, Box<dyn std::error::Error>>> + '_>> { Box::pin(self.future.smelt_reaction_read()) }
 }
 impl ::std::fmt::Debug for SmeltPromise { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.debug_struct("SmeltPromise").field("id", &self.id).finish() } }
 
@@ -2497,9 +2555,9 @@ async fn smelt_promise_continue(handler: Option<SmeltUnknown>, value: SmeltUnkno
 #[allow(dead_code)]
 fn smelt_promise_member(promise: &SmeltPromise, field: &str) -> SmeltUnknown {
     let member: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = match field {
-        "then" => { promise.handled.set(true); let source = promise.clone(); let reaction_source = promise.clone(); ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| { let source = source.clone(); let on_fulfilled = smelt_args.first().cloned(); let on_rejected = smelt_args.get(1).cloned(); Ok(reaction_source.smelt_react(Box::pin(async move { match source.smelt_await().await { Ok(value) => smelt_promise_continue(on_fulfilled, value).await, Err(error) => match on_rejected { Some(handler) => smelt_promise_continue(Some(handler), smelt_thrown_value(&*error)).await, None => Err(error) } } }))) }) }
-        "catch" => { promise.handled.set(true); let source = promise.clone(); let reaction_source = promise.clone(); ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| { let source = source.clone(); let on_rejected = smelt_args.first().cloned(); Ok(reaction_source.smelt_react(Box::pin(async move { match source.smelt_await().await { Ok(value) => Ok(value), Err(error) => smelt_promise_continue(on_rejected, smelt_thrown_value(&*error)).await } }))) }) }
-        "finally" => { promise.handled.set(true); let source = promise.clone(); let reaction_source = promise.clone(); ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| { let source = source.clone(); let on_settled = smelt_args.first().cloned(); Ok(reaction_source.smelt_react(Box::pin(async move { let settled = source.smelt_await().await; if let Some(SmeltUnknown::Function(handler)) = on_settled { (handler)(::std::vec![])?; } settled }))) }) }
+        "then" => { let source = promise.clone(); ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| { let reader = source.clone(); let on_fulfilled = smelt_args.first().cloned(); let on_rejected = smelt_args.get(1).cloned(); Ok(source.smelt_react(Box::pin(async move { match reader.smelt_reaction_read().await { Ok(value) => smelt_promise_continue(on_fulfilled, value).await, Err(error) => match on_rejected { Some(handler) => smelt_promise_continue(Some(handler), smelt_thrown_value(&*error)).await, None => Err(error) } } }))) }) }
+        "catch" => { let source = promise.clone(); ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| { let reader = source.clone(); let on_rejected = smelt_args.first().cloned(); Ok(source.smelt_react(Box::pin(async move { match reader.smelt_reaction_read().await { Ok(value) => Ok(value), Err(error) => smelt_promise_continue(on_rejected, smelt_thrown_value(&*error)).await } }))) }) }
+        "finally" => { let source = promise.clone(); ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| { let reader = source.clone(); let on_settled = smelt_args.first().cloned(); Ok(source.smelt_react(Box::pin(async move { let settled = reader.smelt_reaction_read().await; if let Some(SmeltUnknown::Function(handler)) = on_settled { (handler)(::std::vec![])?; } settled }))) }) }
         _ => return SmeltUnknown::Undefined,
     };
     SmeltUnknown::Function(member)
@@ -2508,43 +2566,57 @@ fn smelt_promise_member(promise: &SmeltPromise, field: &str) -> SmeltUnknown {
 #[allow(dead_code)]
 enum SmeltFutureState<T> {
     Pending(::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<T, Box<dyn std::error::Error>>>>>),
+    Running,
     Resolved(T),
     Rejected(SmeltUnknown),
-    Taken,
 }
-thread_local! {
-    static SMELT_PRIME_DEPTH: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(0) };
+enum SmeltWaiter {
+    Reaction(SmeltJobFuture),
+    Await(::std::task::Waker),
+    Mirror(Box<dyn FnOnce()>),
 }
 pub struct SmeltFuture<T> {
     state: ::std::rc::Rc<::std::cell::RefCell<SmeltFutureState<T>>>,
-    reactions: ::std::rc::Rc<::std::cell::RefCell<Vec<::std::pin::Pin<Box<dyn ::std::future::Future<Output = ()>>>>>>,
-    driven: ::std::rc::Rc<::std::cell::Cell<bool>>,
-    tick: ::std::rc::Rc<::std::cell::Cell<bool>>,
-    parked: ::std::rc::Rc<::std::cell::Cell<bool>>,
+    waiters: ::std::rc::Rc<::std::cell::RefCell<Vec<SmeltWaiter>>>,
+    handled: ::std::rc::Rc<::std::cell::Cell<bool>>,
+    notes_rejection: bool,
+    erased: ::std::rc::Rc<::std::cell::RefCell<Option<SmeltPromise>>>,
 }
-impl<T> Clone for SmeltFuture<T> { fn clone(&self) -> Self { Self { state: self.state.clone(), reactions: self.reactions.clone(), driven: self.driven.clone(), tick: self.tick.clone(), parked: self.parked.clone() } } }
+impl<T> Clone for SmeltFuture<T> { fn clone(&self) -> Self { Self { state: self.state.clone(), waiters: self.waiters.clone(), handled: self.handled.clone(), notes_rejection: self.notes_rejection, erased: self.erased.clone() } } }
+impl<T> PartialEq for SmeltFuture<T> { fn eq(&self, other: &Self) -> bool { ::std::rc::Rc::ptr_eq(&self.state, &other.state) } }
 impl<T: Default> Default for SmeltFuture<T> { fn default() -> Self { Self::resolved(T::default()) } }
 impl<T> ::std::fmt::Debug for SmeltFuture<T> { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.write_str("SmeltFuture") } }
 #[allow(dead_code)]
 impl<T> SmeltFuture<T> {
+    fn with_state(state: SmeltFutureState<T>) -> Self { Self { state: ::std::rc::Rc::new(::std::cell::RefCell::new(state)), waiters: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new())), handled: ::std::rc::Rc::new(::std::cell::Cell::new(false)), notes_rejection: true, erased: ::std::rc::Rc::new(::std::cell::RefCell::new(None)) } }
     fn from_future(future: ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<T, Box<dyn std::error::Error>>>>>) -> Self { Self::with_state(SmeltFutureState::Pending(future)) }
-    fn with_state(state: SmeltFutureState<T>) -> Self { Self { state: ::std::rc::Rc::new(::std::cell::RefCell::new(state)), reactions: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new())), driven: ::std::rc::Rc::new(::std::cell::Cell::new(false)), tick: ::std::rc::Rc::new(::std::cell::Cell::new(false)), parked: ::std::rc::Rc::new(::std::cell::Cell::new(false)) } }
-    fn from_future_primed(mut future: ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<T, Box<dyn std::error::Error>>>>>) -> Self {
-        struct SmeltPrimeGuard;
-        impl Drop for SmeltPrimeGuard { fn drop(&mut self) { SMELT_PRIME_DEPTH.with(|depth| depth.set(depth.get().saturating_sub(1))); } }
-        SMELT_PRIME_DEPTH.with(|depth| depth.set(depth.get().saturating_add(1)));
-        let _smelt_prime_guard = SmeltPrimeGuard;
-        let waker = smelt_eager_poll_waker();
-        let mut cx = ::std::task::Context::from_waker(&waker);
-        let state = match ::std::future::Future::poll(future.as_mut(), &mut cx) {
-            ::std::task::Poll::Ready(Ok(value)) => SmeltFutureState::Resolved(value),
-            ::std::task::Poll::Ready(Err(error)) => SmeltFutureState::Rejected(smelt_thrown_value(&*error)),
-            ::std::task::Poll::Pending => SmeltFutureState::Pending(future),
-        };
-        Self::with_state(state)
+    fn from_future_primed(future: ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<T, Box<dyn std::error::Error>>>>>) -> Self where T: 'static {
+        let promise = Self::with_state(SmeltFutureState::Running);
+        let settle = promise.smelt_detached();
+        smelt_spawn_now(Box::pin(async move { let settled = future.await; settle.smelt_settle_result(settled); }));
+        promise
     }
     fn resolved(value: T) -> Self { Self::with_state(SmeltFutureState::Resolved(value)) }
-    fn resolved_after_tick(value: T) -> Self { let future = Self::with_state(SmeltFutureState::Resolved(value)); future.tick.set(true); future }
+    fn settled(settled: Result<T, SmeltUnknown>) -> Self {
+        let promise = Self::with_state(SmeltFutureState::Running);
+        promise.smelt_settle(settled);
+        promise
+    }
+    fn rejected(error: &(dyn std::error::Error + 'static)) -> Self { Self::settled(Err(smelt_thrown_value(error))) }
+    fn with_resolvers() -> (Self, Self) { let promise = Self::with_state(SmeltFutureState::Running); let settle = promise.smelt_detached(); (promise, settle) }
+    fn from_erased(value: SmeltUnknown, convert: impl FnOnce(SmeltUnknown) -> Result<T, Box<dyn std::error::Error>> + 'static) -> Self where T: 'static {
+        let SmeltUnknown::Promise(promise) = value else {
+            let promise = Self::with_state(SmeltFutureState::Running);
+            promise.smelt_settle_result(convert(value));
+            return promise;
+        };
+        promise.future.smelt_view(move |settled, view: &Self| match settled {
+            Ok(SmeltUnknown::Promise(inner)) => { let target = view.smelt_detached(); smelt_spawn_promise_task(Box::pin(async move { let flattened = smelt_await_flatten(SmeltUnknown::Promise(inner)).await; target.smelt_settle_result(flattened.and_then(convert)); })); }
+            Ok(value) => view.smelt_settle_result(convert(value)),
+            Err(reason) => view.smelt_settle(Err(reason)),
+        })
+    }
+    fn smelt_detached(&self) -> Self { Self { state: self.state.clone(), waiters: self.waiters.clone(), handled: self.handled.clone(), notes_rejection: self.notes_rejection, erased: ::std::rc::Rc::new(::std::cell::RefCell::new(None)) } }
     fn smelt_settled(&self) -> Option<Result<T, SmeltUnknown>> where T: Clone {
         match &*self.state.borrow() {
             SmeltFutureState::Resolved(value) => Some(Ok(value.clone())),
@@ -2552,64 +2624,84 @@ impl<T> SmeltFuture<T> {
             _ => None,
         }
     }
-    fn smelt_promise_with(self, erase: impl FnOnce(T) -> SmeltUnknown + 'static) -> SmeltPromise where T: Clone + 'static {
-        match self.smelt_settled() {
-            Some(Ok(value)) => SmeltPromise::resolved(erase(value)),
-            Some(Err(reason)) => SmeltPromise::settled_rejection(reason),
-            None => SmeltPromise::scheduled(Box::pin(async move { let value = self.smelt_await().await?; Ok::<SmeltUnknown, Box<dyn std::error::Error>>(erase(value)) })),
+    fn smelt_is_settled(&self) -> bool { matches!(&*self.state.borrow(), SmeltFutureState::Resolved(_) | SmeltFutureState::Rejected(_)) }
+    fn smelt_settle(&self, settled: Result<T, SmeltUnknown>) {
+        if self.smelt_is_settled() { return; }
+        if self.notes_rejection && let Err(reason) = &settled { smelt_note_rejection(self.handled.clone(), reason.clone()); }
+        *self.state.borrow_mut() = match settled { Ok(value) => SmeltFutureState::Resolved(value), Err(reason) => SmeltFutureState::Rejected(reason) };
+        let waiters = ::std::mem::take(&mut *self.waiters.borrow_mut());
+        for waiter in waiters {
+            match waiter {
+                SmeltWaiter::Reaction(job) => smelt_spawn_promise_task(job),
+                SmeltWaiter::Await(waker) => waker.wake(),
+                SmeltWaiter::Mirror(settle) => settle(),
+            }
         }
     }
+    fn smelt_settle_result(&self, settled: Result<T, Box<dyn std::error::Error>>) { self.smelt_settle(settled.map_err(|error| smelt_thrown_value(&*error))); }
     fn smelt_drive(&self) where T: Clone + 'static {
-        if self.driven.get() || !matches!(&*self.state.borrow(), SmeltFutureState::Pending(_)) { return; }
-        self.driven.set(true);
-        let driver = self.clone();
-        smelt_spawn_promise_task(Box::pin(async move { let _ = driver.smelt_await().await; }));
+        let body = { let mut state = self.state.borrow_mut(); if !matches!(&*state, SmeltFutureState::Pending(_)) { return; } match ::std::mem::replace(&mut *state, SmeltFutureState::Running) { SmeltFutureState::Pending(body) => body, _ => return } };
+        let settle = self.smelt_detached();
+        smelt_spawn_promise_task(Box::pin(async move { let settled = body.await; settle.smelt_settle_result(settled); }));
     }
-    fn smelt_when_settled(self) -> ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<T, Box<dyn std::error::Error>>>>> where T: Clone + 'static {
+    fn smelt_when_settled_run(&self, job: SmeltJobFuture) where T: Clone + 'static {
+        if self.smelt_is_settled() { smelt_spawn_promise_task(job); return; }
+        self.waiters.borrow_mut().push(SmeltWaiter::Reaction(job));
         self.smelt_drive();
-        Box::pin(async move {
-            loop {
-                match &*self.state.borrow() {
-                    SmeltFutureState::Resolved(value) => return Ok(value.clone()),
-                    SmeltFutureState::Rejected(payload) => return Err(smelt_throw(payload.clone())),
-                    _ => {}
-                }
-                tokio::task::yield_now().await;
-            }
-        })
+    }
+    fn smelt_view<U: 'static>(&self, settle_view: impl FnOnce(Result<T, SmeltUnknown>, &SmeltFuture<U>) + 'static) -> SmeltFuture<U> where T: Clone + 'static {
+        let view = SmeltFuture::<U> { state: ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltFutureState::Running)), waiters: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new())), handled: self.handled.clone(), notes_rejection: false, erased: ::std::rc::Rc::new(::std::cell::RefCell::new(None)) };
+        if let Some(settled) = self.smelt_settled() {
+            settle_view(settled, &view);
+        } else {
+            let target = view.smelt_detached();
+            let source = self.smelt_detached();
+            self.waiters.borrow_mut().push(SmeltWaiter::Mirror(Box::new(move || { if let Some(settled) = source.smelt_settled() { settle_view(settled, &target); } })));
+            self.smelt_drive();
+        }
+        view
+    }
+    fn smelt_promise_with(self, erase: impl FnOnce(T) -> SmeltUnknown + 'static) -> SmeltPromise where T: Clone + 'static {
+        if let Some(view) = self.erased.borrow().as_ref() { return view.clone(); }
+        let view = SmeltPromise::of(self.smelt_view(move |settled, view| view.smelt_settle(settled.map(erase))));
+        *self.erased.borrow_mut() = Some(view.clone());
+        view
     }
     fn reaction<U: Clone + 'static>(&self, body: ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<U, Box<dyn std::error::Error>>>>>) -> SmeltFuture<U> where T: Clone + 'static {
-        let derived = SmeltFuture::from_future(body);
-        self.tick.set(false);
-        { derived.driven.set(true); let driver = derived.clone(); let job: ::std::pin::Pin<Box<dyn ::std::future::Future<Output = ()>>> = Box::pin(async move { driver.parked.set(false); let _ = driver.smelt_await().await; }); if self.smelt_settled().is_some() { smelt_spawn_promise_task(job); } else { derived.parked.set(true); self.reactions.borrow_mut().push(job); self.smelt_drive(); } }
+        self.handled.set(true);
+        let derived = SmeltFuture::with_state(SmeltFutureState::Running);
+        let settle = derived.smelt_detached();
+        self.smelt_when_settled_run(Box::pin(async move { let settled = body.await; settle.smelt_settle_result(settled); }));
         derived
     }
-    async fn smelt_await(&self) -> Result<T, Box<dyn std::error::Error>> where T: Clone {
-        if self.tick.replace(false) { smelt_sleep_ms(0.0).await; }
-        let pending = {
-            let mut guard = self.state.borrow_mut();
-            if matches!(&*guard, SmeltFutureState::Pending(_)) && !self.parked.get() {
-                match ::std::mem::replace(&mut *guard, SmeltFutureState::Taken) {
-                    SmeltFutureState::Pending(future) => Some(future),
-                    _ => None,
+    async fn smelt_await(&self) -> Result<T, Box<dyn std::error::Error>> where T: Clone + 'static {
+        self.handled.set(true);
+        self.smelt_wait(true).await
+    }
+    fn smelt_reaction_read(&self) -> impl ::std::future::Future<Output = Result<T, Box<dyn std::error::Error>>> + '_ where T: Clone + 'static { self.smelt_wait(false) }
+    async fn smelt_wait(&self, tick: bool) -> Result<T, Box<dyn std::error::Error>> where T: Clone + 'static {
+        let body = { let mut state = self.state.borrow_mut(); if matches!(&*state, SmeltFutureState::Pending(_)) { match ::std::mem::replace(&mut *state, SmeltFutureState::Running) { SmeltFutureState::Pending(body) => Some(body), _ => None } } else { None } };
+        if let Some(body) = body {
+            let settled = body.await;
+            self.smelt_settle_result(settled);
+        } else if !smelt_in_job() {
+            if !smelt_run_until(&|| self.smelt_is_settled()).await { return Err(smelt_unsettled_await()); }
+        } else {
+            let mut ticked = !tick;
+            let mut parked = false;
+            ::std::future::poll_fn(|cx| {
+                if self.smelt_is_settled() {
+                    if ticked { return ::std::task::Poll::Ready(()); }
+                    ticked = true;
+                    cx.waker().wake_by_ref();
+                    return ::std::task::Poll::Pending;
                 }
-            } else { None }
-        };
-        if let Some(future) = pending {
-            let settled = future.await;
-            *self.state.borrow_mut() = match &settled { Ok(value) => SmeltFutureState::Resolved(value.clone()), Err(error) => SmeltFutureState::Rejected(smelt_thrown_value(&**error)) };
-            { let released = ::std::mem::take(&mut *self.reactions.borrow_mut()); for job in released { smelt_spawn_promise_task(job); } }
-            return settled;
+                ticked = true;
+                if !parked { parked = true; self.waiters.borrow_mut().push(SmeltWaiter::Await(cx.waker().clone())); }
+                ::std::task::Poll::Pending
+            }).await;
         }
-        loop {
-            match &*self.state.borrow() {
-                SmeltFutureState::Resolved(value) => return Ok(value.clone()),
-                SmeltFutureState::Rejected(payload) => return Err(smelt_throw(payload.clone())),
-                _ => {}
-            }
-            if SMELT_PROMISE_TASK_DEPTH.with(::std::cell::Cell::get) == 0 { smelt_sleep_ms(0.0).await; }
-            tokio::task::yield_now().await;
-        }
+        self.smelt_settled().map_or_else(|| Err(smelt_unsettled_await()), |settled| settled.map_err(smelt_throw))
     }
 }
 impl<T: Clone + 'static> ::std::future::IntoFuture for SmeltFuture<T> {
@@ -2619,6 +2711,18 @@ impl<T: Clone + 'static> ::std::future::IntoFuture for SmeltFuture<T> {
 }
 impl<T: IntoSmeltUnknown + Clone + 'static> IntoSmeltUnknown for SmeltFuture<T> {
     fn into_smelt_unknown(self) -> SmeltUnknown { SmeltUnknown::Promise(self.smelt_promise_with(IntoSmeltUnknown::into_smelt_unknown)) }
+}
+
+#[allow(dead_code)]
+fn smelt_promise_race<T: Clone + 'static>(racers: Vec<SmeltFuture<T>>) -> SmeltFuture<T> {
+    let (race, settle) = SmeltFuture::with_resolvers();
+    for racer in racers {
+        let settle = settle.clone();
+        let source = racer.smelt_detached();
+        racer.handled.set(true);
+        racer.smelt_when_settled_run(Box::pin(async move { if let Some(settled) = source.smelt_settled() { settle.smelt_settle(settled); } }));
+    }
+    race
 }
 
 /// Collect an erased `[Symbol.iterator]()` result into its item values.
@@ -2798,7 +2902,7 @@ fn smelt_index_assign(target: &mut SmeltUnknown, key: impl Into<JsString>, value
     
     match target {
         SmeltUnknown::Object(map) if smelt_host_buffer_set_element(map, &key.to_string_lossy(), value.clone()) => {}
-        SmeltUnknown::Object(map) => {  map.insert(key, value); }
+        SmeltUnknown::Object(map) => {  smelt_object_put(map, key, value); }
         SmeltUnknown::Function(function) => { smelt_set_function_property(function, &key.to_string_lossy(), value); }
         SmeltUnknown::Array(array) => {
             let key_text = key.to_string_lossy();
@@ -2841,24 +2945,79 @@ fn smelt_map_entry_key_is(entry: &SmeltUnknown, key: &SmeltUnknown) -> bool {
 #[allow(dead_code)]
 fn smelt_record_inherited(record: &SmeltRecord<JsString, SmeltUnknown>, key: &str) -> SmeltUnknown { record.get(&*JsString::from(format!("__smelt_proto:{key}"))).or_else(|| record.get(&*JsString::from(format!("__smelt_method:{key}")))).unwrap_or(SmeltUnknown::Undefined) }
 
-/// What a property read answers for the stored `value`: an accessor record
-/// (`{ __smelt_get: getter }`, an object literal's `get`) is called.
+/// Whether `object` is an accessor marker: the erased form of an object
+/// literal's `get`/`set`, holding its getter under `__smelt_get`, its setter
+/// under `__smelt_setter` (not `__smelt_set`, the erased Set's tag), or both, and nothing else.
 #[allow(dead_code)]
-fn smelt_resolve_accessor(value: SmeltUnknown) -> SmeltUnknown {
+fn smelt_is_accessor(object: &SmeltObject) -> bool {
+    let keys = object.keys();
+    !keys.is_empty() && keys.len() <= 2 && keys.iter().all(|key| key.eq_str("__smelt_get") || key.eq_str("__smelt_setter"))
+}
+
+/// What a property read of an object answers for the stored `value`: an
+/// accessor (`{ __smelt_get: getter }`, an object literal's `get`) is
+/// called, with the object the property was read from as its `this`, as
+/// JavaScript's [[Get]] passes the receiver to a getter; an accessor with a
+/// setter and no getter reads as `undefined`. `receiver` builds that object's
+/// erased view and runs only for a getter.
+#[allow(dead_code)]
+fn smelt_resolve_accessor(value: SmeltUnknown, receiver: impl FnOnce() -> SmeltUnknown) -> SmeltUnknown {
     match value {
-        SmeltUnknown::Object(getter) if getter.contains_key("__smelt_get") => match getter.get("__smelt_get") {
-            Some(SmeltUnknown::Function(smelt_getter)) => (smelt_getter)(Vec::new()).unwrap_or_else(|error| smelt_panic_throw(error)),
-            _ => SmeltUnknown::Null,
+        SmeltUnknown::Object(accessor) if smelt_is_accessor(&accessor) => match accessor.get("__smelt_get") {
+            Some(SmeltUnknown::Function(smelt_getter)) => {
+                drop(receiver);
+                (smelt_getter)(Vec::new()).unwrap_or_else(|error| smelt_panic_throw(error))
+            }
+            _ => SmeltUnknown::Undefined,
         },
         value => value,
     }
+}
+
+/// `object[key] = value` as JavaScript's [[Set]] does it on an object
+/// literal's own properties: a stored accessor runs its setter with `object`
+/// as `this` (an accessor without one ignores the write, as sloppy-mode
+/// JavaScript does), and any other key stores the value.
+#[allow(dead_code)]
+fn smelt_object_put(object: &SmeltObject, key: impl Into<JsString>, value: SmeltUnknown) {
+    let key: JsString = key.into();
+    if let Some(SmeltUnknown::Object(accessor)) = object.get(&*key) && smelt_is_accessor(&accessor) && !matches!(&value, SmeltUnknown::Object(new) if smelt_is_accessor(new)) {
+        if let Some(SmeltUnknown::Function(smelt_setter)) = accessor.get("__smelt_setter") {
+            (smelt_setter)(Vec::from([value])).unwrap_or_else(|error| smelt_panic_throw(error));
+        }
+        return;
+    }
+    object.insert(key, value);
+}
+
+impl SmeltRecord<JsString, SmeltUnknown> {
+    /// This record as an erased object over the SAME store: the identity and
+    /// every write are shared, which is what a getter's or setter's `this`
+    /// must be.
+    #[allow(dead_code)]
+    fn shared_object(&self) -> SmeltObject { SmeltObject { id: self.id, store: self.store.clone() } }
+}
+
+/// `record[key] = value` on a string-keyed record of erased values, with
+/// [[Set]]'s accessor rule (see `smelt_object_put`).
+#[allow(dead_code)]
+fn smelt_record_put(record: &SmeltRecord<JsString, SmeltUnknown>, key: impl Into<JsString>, value: SmeltUnknown) {
+    smelt_object_put(&record.shared_object(), key, value);
+}
+
+/// An own value of the erased record `record`, read as a property read reads
+/// it (`Object.values`, `Object.entries`): an accessor runs with the record as
+/// its `this`, any other value is itself.
+#[allow(dead_code)]
+fn smelt_record_own_value(record: &SmeltRecord<JsString, SmeltUnknown>, value: SmeltUnknown) -> SmeltUnknown {
+    smelt_resolve_accessor(value, || SmeltUnknown::Object(record.shared_object()))
 }
 
 /// A dotted property read on a string-keyed record of erased values: the own
 /// entry, else the prototype entries, with an accessor called.
 #[allow(dead_code)]
 fn smelt_record_property(record: &SmeltRecord<JsString, SmeltUnknown>, key: &(impl SmeltHostText + ?Sized)) -> SmeltUnknown { let key = key.host_text(); let key: &str = &key;
-    smelt_resolve_accessor(record.get(&*JsString::from(key)).unwrap_or_else(|| smelt_record_inherited(record, key)))
+    smelt_resolve_accessor(record.get(&*JsString::from(key)).unwrap_or_else(|| smelt_record_inherited(record, key)), || SmeltUnknown::Object(record.shared_object()))
 }
 fn smelt_get_object_field(map: &SmeltObject, field: &(impl SmeltHostText + ?Sized)) -> SmeltUnknown { let field = field.host_text(); let field: &str = &field;
     if field == "name" && !map.contains_key("name") { if let Some(SmeltUnknown::String(class_name)) = map.get("__smelt_error") { return SmeltUnknown::String(class_name); } }
@@ -2905,7 +3064,7 @@ fn smelt_get_object_field(map: &SmeltObject, field: &(impl SmeltHostText + ?Size
         }
     }
     let smelt_field_value = match map.get(field) { Some(value) => Some(value), None => match map.get(&format!("__smelt_proto:{field}")) { Some(value) => Some(value), None if field.starts_with('#') => None, None => map.get(&format!("__smelt_method:{field}")).or_else(|| match map.get("__smelt_class") { Some(SmeltUnknown::String(tag)) => smelt_class_inherited_method(&tag.to_string_lossy(), field), _ => None }) } };
-    smelt_resolve_accessor(smelt_field_value.unwrap_or(SmeltUnknown::Undefined))
+    smelt_resolve_accessor(smelt_field_value.unwrap_or(SmeltUnknown::Undefined), || SmeltUnknown::Object(map.clone()))
 }
 
 thread_local! {
@@ -3059,12 +3218,38 @@ fn smelt_erased_at_index(value: Option<&SmeltUnknown>, len: usize) -> Option<usi
     (index >= 0.0 && index < len as f64).then_some(index as usize)
 }
 
+/// `Number.isNaN`/`isFinite`/`isInteger`/`isSafeInteger` of an erased value:
+/// whether it is a Number whose value passes `test`. These predicates never
+/// coerce, so a string, `null` or any other tag answers `false`.
+#[allow(dead_code)]
+fn smelt_erased_number_is(value: &SmeltUnknown, test: impl FnOnce(f64) -> bool) -> bool {
+    matches!(value, SmeltUnknown::Number(number) if test(*number))
+}
+
 /// JavaScript `ToString` of an erased value; an array joins its elements with `,`.
 fn smelt_erased_to_js_string(value: &SmeltUnknown) -> JsString {
     match value {
         SmeltUnknown::String(text) => text.clone(),
         SmeltUnknown::Array(values) => JsString::join(values.iter().map(|item| match item { SmeltUnknown::Null | SmeltUnknown::Undefined => JsString::new(), other => smelt_erased_to_js_string(&other) }), &JsString::from(",")),
+        SmeltUnknown::Object(object) if !object.contains_key("__smelt_error") => JsString::from(smelt_erased_object_to_string(object)),
         other => JsString::from(smelt_builtin_receiver_text(other)),
+    }
+}
+
+/// JavaScript `ToString` of an erased plain object: `ToPrimitive` calls its
+/// `toString` (own, inherited through `Object.create`, or its class's method)
+/// with the object as `this`, and the answer is that call's string; an
+/// object with no `toString` of its own is `[object Object]`.
+#[allow(dead_code)]
+fn smelt_erased_object_to_string(object: &SmeltObject) -> String {
+    let method = object.get("toString").or_else(|| object.get("__smelt_proto:toString")).or_else(|| object.get("__smelt_method:toString"));
+    let Some(SmeltUnknown::Function(to_string)) = method else {
+        return "[object Object]".to_owned();
+    };
+    match to_string(Vec::new()).unwrap_or_else(|error| smelt_panic_throw(error)) {
+        SmeltUnknown::String(text) => text.to_string(),
+        SmeltUnknown::Object(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) => "[object Object]".to_owned(),
+        other => smelt_erased_to_js_string(&other).to_string(),
     }
 }
 
@@ -3336,7 +3521,7 @@ fn smelt_throw_not_callable(callee: &str) -> ! { smelt_throw_builtin_error("Type
 /// Throw JavaScript's `TypeError` for a call of a value that holds no function,
 /// where the source spelling of the callee is not known.
 fn smelt_value_not_callable() -> ! { smelt_throw_not_callable("value") }
-fn smelt_erased_member(object: &SmeltObject, key: &str) -> Option<SmeltUnknown> { match object.get(key) { Some(SmeltUnknown::Undefined) => None, Some(SmeltUnknown::Object(getter)) if getter.contains_key("__smelt_get") => Some(smelt_resolve_accessor(SmeltUnknown::Object(getter))), Some(value) => Some(value), None => match smelt_get_unknown_field(&SmeltUnknown::Object(object.clone()), key) { SmeltUnknown::Undefined => None, value => Some(value) } } }
+fn smelt_erased_member(object: &SmeltObject, key: &str) -> Option<SmeltUnknown> { match object.get(key) { Some(SmeltUnknown::Undefined) => None, Some(SmeltUnknown::Object(accessor)) if smelt_is_accessor(&accessor) => Some(smelt_resolve_accessor(SmeltUnknown::Object(accessor), || SmeltUnknown::Object(object.clone()))), Some(value) => Some(value), None => match smelt_get_unknown_field(&SmeltUnknown::Object(object.clone()), key) { SmeltUnknown::Undefined => None, value => Some(value) } } }
 /// [`smelt_erased_member`] on a string-keyed record view of an erased object.
 fn smelt_erased_record_member(record: &SmeltRecord<JsString, SmeltUnknown>, key: &str) -> Option<SmeltUnknown> { smelt_erased_member(&SmeltObject::from_unknown_record(record.clone()), key) }
 /// The placeholder an erased class view holds for a method it cannot bridge
@@ -3525,225 +3710,127 @@ impl Default for SmeltUnknown {
 }
 
 struct SmeltTimer {
-    id: u64,
-    due_ms: u64,
+    seq: u64,
     callback: ::std::rc::Rc<::std::cell::RefCell<dyn FnMut() -> Result<(), Box<dyn std::error::Error>>>>,
     period_ms: Option<u64>,
 }
 
 thread_local! {
     static SMELT_NEXT_TIMER_ID: ::std::cell::Cell<u64> = const { ::std::cell::Cell::new(1) };
-    static SMELT_TIMERS: ::std::cell::RefCell<Vec<SmeltTimer>> = const { ::std::cell::RefCell::new(Vec::new()) };
-    static SMELT_PROMISE_TASK_SETTLED: ::std::cell::Cell<bool> = const { ::std::cell::Cell::new(false) };
-    static SMELT_PROMISE_TASKS: ::std::cell::RefCell<Vec<::std::pin::Pin<Box<dyn ::std::future::Future<Output = ()>>>>> = const { ::std::cell::RefCell::new(Vec::new()) };
-    static SMELT_PROMISE_TASK_DEPTH: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(0) };
-    static SMELT_PENDING_REJECTIONS: ::std::cell::RefCell<Vec<(::std::rc::Rc<::std::cell::Cell<bool>>, SmeltUnknown)>> = const { ::std::cell::RefCell::new(Vec::new()) };
-    static SMELT_RACE_DEPTH: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(0) };
+    static SMELT_NEXT_TIMER_SEQ: ::std::cell::Cell<u64> = const { ::std::cell::Cell::new(1) };
+    static SMELT_TIMERS: ::std::cell::RefCell<::std::collections::HashMap<u64, SmeltTimer>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
+    static SMELT_TIMER_HEAP: ::std::cell::RefCell<::std::collections::BinaryHeap<::std::cmp::Reverse<(u64, u64, u64)>>> = const { ::std::cell::RefCell::new(::std::collections::BinaryHeap::new()) };
     static SMELT_LOOP_WAKE: ::std::rc::Rc<tokio::sync::Notify> = ::std::rc::Rc::new(tokio::sync::Notify::new());
+    static SMELT_LIVE_HANDLES: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(0) };
 }
 
 fn smelt_reset_timers() {
     SMELT_NEXT_TIMER_ID.with(|next| next.set(1));
+    SMELT_NEXT_TIMER_SEQ.with(|next| next.set(1));
     SMELT_VIRTUAL_MS.with(|virtual_ms| virtual_ms.set(0));
     SMELT_TIMER_EPOCH.with(|epoch| epoch.set(None));
-    SMELT_TIMERS.with(|timers| timers.borrow_mut().clear());
-    SMELT_PROMISE_TASKS.with(|tasks| tasks.borrow_mut().clear());
-    SMELT_RACE_DEPTH.with(|depth| depth.set(0));
-    SMELT_PRIME_DEPTH.with(|depth| depth.set(0));
+    let dropped = SMELT_TIMERS.with(|timers| ::std::mem::take(&mut *timers.borrow_mut()));
+    drop(dropped);
+    SMELT_TIMER_HEAP.with(|heap| heap.borrow_mut().clear());
+    smelt_reset_jobs();
 }
 
-fn smelt_noop_waker() -> ::std::task::Waker {
-    unsafe fn clone(_: *const ()) -> ::std::task::RawWaker { smelt_raw_waker() }
-    unsafe fn wake(_: *const ()) { let _ = SMELT_LOOP_WAKE.try_with(|wake| wake.notify_one()); }
-    unsafe fn wake_by_ref(_: *const ()) { let _ = SMELT_LOOP_WAKE.try_with(|wake| wake.notify_one()); }
-    unsafe fn drop(_: *const ()) {}
-    fn smelt_raw_waker() -> ::std::task::RawWaker { ::std::task::RawWaker::new(::std::ptr::null(), &::std::task::RawWakerVTable::new(clone, wake, wake_by_ref, drop)) }
-    unsafe { ::std::task::Waker::from_raw(smelt_raw_waker()) }
-}
+fn smelt_loop_notify() { let _ = SMELT_LOOP_WAKE.try_with(|wake| wake.notify_one()); }
 
-#[allow(dead_code)]
-fn smelt_report_unhandled_rejection(error: &(dyn ::std::error::Error + 'static)) {
-    eprintln!("{error:?}");
-    if !cfg!(test) { ::std::process::exit(1); }
-}
+fn smelt_live_handles() -> usize { SMELT_LIVE_HANDLES.with(::std::cell::Cell::get) }
 
-#[allow(dead_code)]
-fn smelt_note_rejection(handled: ::std::rc::Rc<::std::cell::Cell<bool>>, reason: SmeltUnknown) {
-    SMELT_PENDING_REJECTIONS.with(|pending| pending.borrow_mut().push((handled, reason)));
-}
-
-fn smelt_check_rejections() {
-    let noted = SMELT_PENDING_REJECTIONS.with(|pending| ::std::mem::take(&mut *pending.borrow_mut()));
-    for (handled, reason) in noted {
-        if !handled.get() {
-            smelt_report_unhandled_rejection(&*smelt_throw(reason));
-        }
-    }
-}
-
-fn smelt_spawn_promise_task(task: ::std::pin::Pin<Box<dyn ::std::future::Future<Output = ()>>>) {
-    SMELT_PROMISE_TASKS.with(|tasks| tasks.borrow_mut().push(task));
-    SMELT_LOOP_WAKE.with(|wake| wake.notify_one());
-}
-
-async fn smelt_drain_promise_tasks() {
-    for _ in 0..64 {
-        let mut tasks = SMELT_PROMISE_TASKS.with(|tasks| ::std::mem::take(&mut *tasks.borrow_mut()));
-        if tasks.is_empty() { break; }
-        let waker = smelt_noop_waker();
-        let mut cx = ::std::task::Context::from_waker(&waker);
-        let mut pending = Vec::new();
-        for mut task in tasks.drain(..) {
-            SMELT_PROMISE_TASK_DEPTH.with(|depth| depth.set(depth.get().saturating_add(1)));
-            let ready = task.as_mut().poll(&mut cx).is_ready();
-            SMELT_PROMISE_TASK_DEPTH.with(|depth| depth.set(depth.get().saturating_sub(1)));
-            if ready { SMELT_PROMISE_TASK_SETTLED.with(|settled| settled.set(true)); } else { pending.push(task); }
-        }
-        let queued = SMELT_PROMISE_TASKS.with(|tasks| !tasks.borrow().is_empty());
-        let had_pending = !pending.is_empty();
-        SMELT_PROMISE_TASKS.with(|tasks| tasks.borrow_mut().extend(pending));
-        if !had_pending && !queued { break; }
-        if SMELT_RACE_DEPTH.with(::std::cell::Cell::get) == 0 { tokio::task::yield_now().await; }
-    }
-    if SMELT_PROMISE_TASK_DEPTH.with(::std::cell::Cell::get) == 0 { smelt_check_rejections(); }
-}
-
-fn smelt_set_timeout(callback: ::std::rc::Rc<::std::cell::RefCell<dyn FnMut() -> Result<(), Box<dyn std::error::Error>>>>, delay_ms: f64) -> SmeltUnknown {
-    let id = SMELT_NEXT_TIMER_ID.with(|next| { let id = next.get(); next.set(id.saturating_add(1)); id });
-    let delay_ms = if delay_ms.is_finite() && delay_ms > 0.0 { delay_ms as u64 } else { 0 };
-    let due_ms = smelt_mono_ms().saturating_add(delay_ms);
-    SMELT_TIMERS.with(|timers| timers.borrow_mut().push(SmeltTimer { id, due_ms, callback, period_ms: None }));
-    SmeltUnknown::Number(id as f64)
-}
-
-fn smelt_set_interval(callback: ::std::rc::Rc<::std::cell::RefCell<dyn FnMut() -> Result<(), Box<dyn std::error::Error>>>>, period_ms: f64) -> SmeltUnknown {
-    let id = SMELT_NEXT_TIMER_ID.with(|next| { let id = next.get(); next.set(id.saturating_add(1)); id });
-    let period_ms = if period_ms.is_finite() && period_ms > 0.0 { period_ms as u64 } else { 1 };
-    let due_ms = smelt_mono_ms().saturating_add(period_ms);
-    SMELT_TIMERS.with(|timers| timers.borrow_mut().push(SmeltTimer { id, due_ms, callback, period_ms: Some(period_ms) }));
-    SmeltUnknown::Number(id as f64)
-}
-
-fn smelt_clear_timeout<T: IntoSmeltUnknown>(handle: T) {
-    let SmeltUnknown::Number(id) = handle.into_smelt_unknown() else { return; };
-    let id = id as u64;
-    SMELT_TIMERS.with(|timers| timers.borrow_mut().retain(|timer| timer.id != id));
-}
-
-fn smelt_clear_interval<T: IntoSmeltUnknown>(handle: T) { smelt_clear_timeout(handle) }
-
-fn smelt_drain_due_timers(id_barrier: u64) {
-    loop {
-        let now = smelt_mono_ms();
-        let due = SMELT_TIMERS.with(|timers| {
-            let mut timers = timers.borrow_mut();
-            let mut due = Vec::new();
-            let mut pending = Vec::new();
-            for timer in timers.drain(..) {
-                if timer.due_ms <= now && timer.id < id_barrier { due.push(timer); } else { pending.push(timer); }
-            }
-            *timers = pending;
-            due
-        });
-        if due.is_empty() { break; }
-        for timer in due {
-            if let Some(period_ms) = timer.period_ms {
-                let next_due = now.saturating_add(period_ms);
-                SMELT_TIMERS.with(|timers| timers.borrow_mut().push(SmeltTimer { id: timer.id, due_ms: next_due, callback: timer.callback.clone(), period_ms: Some(period_ms) }));
-            }
-            (&mut *timer.callback.borrow_mut())().unwrap_or_else(|error| smelt_panic_throw(error));
-        }
-    }
-}
-
-async fn smelt_sleep_ms(delay_ms: f64) {
-    while SMELT_PRIME_DEPTH.with(::std::cell::Cell::get) > 0 { tokio::task::yield_now().await; }
-    if !(delay_ms.is_finite() && delay_ms > 0.0) && SMELT_PROMISE_TASK_DEPTH.with(::std::cell::Cell::get) > 0 {
-        tokio::task::yield_now().await;
-        return;
-    }
-    smelt_drain_promise_tasks().await;
-    let delay_ms = if delay_ms.is_finite() && delay_ms > 0.0 { delay_ms as u64 } else { 0 };
-    let target_ms = smelt_mono_ms().saturating_add(delay_ms);
-    if delay_ms > 0 && SMELT_RACE_DEPTH.with(::std::cell::Cell::get) > 0 {
-        let id = SMELT_NEXT_TIMER_ID.with(|next| { let id = next.get(); next.set(id.saturating_add(1)); id });
-        let callback: ::std::rc::Rc<::std::cell::RefCell<dyn FnMut() -> Result<(), Box<dyn std::error::Error>>>> = ::std::rc::Rc::new(::std::cell::RefCell::new(|| Ok(())));
-        SMELT_TIMERS.with(|timers| timers.borrow_mut().push(SmeltTimer { id, due_ms: target_ms, callback, period_ms: None }));
-        while smelt_mono_ms() < target_ms { tokio::task::yield_now().await; }
-        smelt_drain_promise_tasks().await;
-        return;
-    }
-    let id_barrier = if delay_ms == 0 { SMELT_NEXT_TIMER_ID.with(::std::cell::Cell::get) } else { u64::MAX };
-    let mut fired_any = false;
-    loop {
-        let next_due = SMELT_TIMERS.with(|timers| timers.borrow().iter().filter(|timer| timer.due_ms <= target_ms && timer.id < id_barrier).map(|timer| timer.due_ms).min());
-        let Some(next_due) = next_due else { break; };
-        fired_any = true;
-        smelt_virtual_advance_to(next_due);
-        smelt_drain_due_timers(id_barrier);
-        smelt_drain_promise_tasks().await;
-    }
-    smelt_virtual_advance_to(target_ms);
-    'idle: {
-        if delay_ms != 0 || fired_any || SMELT_RACE_DEPTH.with(::std::cell::Cell::get) > 0 { break 'idle; }
-        let tasks_pending = SMELT_PROMISE_TASKS.with(|tasks| !tasks.borrow().is_empty());
-        let tasks_settled = SMELT_PROMISE_TASK_SETTLED.with(|settled| settled.replace(false));
-        if tasks_pending && tasks_settled { break 'idle; }
-        let earliest = SMELT_TIMERS.with(|timers| timers.borrow().iter().filter(|timer| timer.id < id_barrier).map(|timer| timer.due_ms).min());
-        let Some(earliest) = earliest else { break 'idle; };
-        smelt_virtual_advance_to(earliest);
-        smelt_drain_due_timers(id_barrier);
-        smelt_drain_promise_tasks().await;
-    }
-    smelt_drain_promise_tasks().await;
-    if SMELT_RACE_DEPTH.with(::std::cell::Cell::get) == 0 { tokio::task::yield_now().await; }
-}
-
-thread_local! {
-    static SMELT_LIVE_HANDLES: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(0) };
-}
 /// Register a handle that must keep the program from exiting.
 #[allow(dead_code)]
 fn smelt_retain_handle() { SMELT_LIVE_HANDLES.with(|handles| handles.set(handles.get().saturating_add(1))); }
 /// Release a handle registered by `smelt_retain_handle`.
 #[allow(dead_code)]
 fn smelt_release_handle() { SMELT_LIVE_HANDLES.with(|handles| handles.set(handles.get().saturating_sub(1))); }
-/// Run the event loop until the program is allowed to exit.
-#[allow(dead_code)]
-async fn smelt_run_until_exit() {
-    smelt_sleep_ms(0.0).await;
-    while SMELT_TIMERS.with(|timers| !timers.borrow().is_empty()) {
-        smelt_sleep_ms(0.0).await;
-    }
-    while SMELT_LIVE_HANDLES.with(::std::cell::Cell::get) > 0 {
-        smelt_sleep_ms(0.0).await;
-        let smelt_wake = SMELT_LOOP_WAKE.with(::std::rc::Rc::clone);
-        tokio::select! { _ = smelt_wake.notified() => {}, _ = tokio::time::sleep(::std::time::Duration::from_millis(5)) => {} }
+
+fn smelt_schedule_timer(id: u64, due_ms: u64, callback: ::std::rc::Rc<::std::cell::RefCell<dyn FnMut() -> Result<(), Box<dyn std::error::Error>>>>, period_ms: Option<u64>) {
+    let seq = SMELT_NEXT_TIMER_SEQ.with(|next| { let seq = next.get(); next.set(seq.saturating_add(1)); seq });
+    SMELT_TIMERS.with(|timers| timers.borrow_mut().insert(id, SmeltTimer { seq, callback, period_ms }));
+    SMELT_TIMER_HEAP.with(|heap| heap.borrow_mut().push(::std::cmp::Reverse((due_ms, seq, id))));
+}
+
+fn smelt_next_timer_id() -> u64 { SMELT_NEXT_TIMER_ID.with(|next| { let id = next.get(); next.set(id.saturating_add(1)); id }) }
+
+fn smelt_set_timeout(callback: ::std::rc::Rc<::std::cell::RefCell<dyn FnMut() -> Result<(), Box<dyn std::error::Error>>>>, delay_ms: f64) -> SmeltUnknown {
+    let id = smelt_next_timer_id();
+    let delay_ms = if delay_ms.is_finite() && delay_ms > 0.0 { delay_ms as u64 } else { 0 };
+    smelt_schedule_timer(id, smelt_mono_ms().saturating_add(delay_ms), callback, None);
+    SmeltUnknown::Number(id as f64)
+}
+
+fn smelt_set_interval(callback: ::std::rc::Rc<::std::cell::RefCell<dyn FnMut() -> Result<(), Box<dyn std::error::Error>>>>, period_ms: f64) -> SmeltUnknown {
+    let id = smelt_next_timer_id();
+    let period_ms = if period_ms.is_finite() && period_ms > 0.0 { period_ms as u64 } else { 1 };
+    smelt_schedule_timer(id, smelt_mono_ms().saturating_add(period_ms), callback, Some(period_ms));
+    SmeltUnknown::Number(id as f64)
+}
+
+fn smelt_clear_timeout<T: IntoSmeltUnknown>(handle: T) {
+    let SmeltUnknown::Number(id) = handle.into_smelt_unknown() else { return; };
+    let cleared = SMELT_TIMERS.with(|timers| timers.borrow_mut().remove(&(id as u64)));
+    drop(cleared);
+}
+
+fn smelt_clear_interval<T: IntoSmeltUnknown>(handle: T) { smelt_clear_timeout(handle) }
+
+fn smelt_peek_timer() -> Option<(u64, u64, u64)> {
+    loop {
+        let top = SMELT_TIMER_HEAP.with(|heap| heap.borrow().peek().map(|entry| entry.0))?;
+        let live = SMELT_TIMERS.with(|timers| timers.borrow().get(&top.2).is_some_and(|timer| timer.seq == top.1));
+        if live { return Some(top); }
+        SMELT_TIMER_HEAP.with(|heap| heap.borrow_mut().pop());
     }
 }
 
-async fn smelt_promise_race<T>(mut racers: Vec<::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<T, Box<dyn std::error::Error>>>>>>) -> Result<T, Box<dyn std::error::Error>> {
-    struct SmeltRaceGuard;
-    impl Drop for SmeltRaceGuard { fn drop(&mut self) { SMELT_RACE_DEPTH.with(|depth| depth.set(depth.get().saturating_sub(1))); } }
-    SMELT_RACE_DEPTH.with(|depth| depth.set(depth.get().saturating_add(1)));
-    let _smelt_race_guard = SmeltRaceGuard;
-    loop {
-        let waker = smelt_noop_waker();
-        let mut cx = ::std::task::Context::from_waker(&waker);
-        for racer in racers.iter_mut() {
-            if let ::std::task::Poll::Ready(result) = ::std::future::Future::poll(racer.as_mut(), &mut cx) { return result; }
-        }
-        smelt_drain_promise_tasks().await;
-        if SMELT_PRIME_DEPTH.with(::std::cell::Cell::get) > 0 { tokio::task::yield_now().await; continue; }
-        let id_barrier = SMELT_NEXT_TIMER_ID.with(::std::cell::Cell::get);
-        let earliest = SMELT_TIMERS.with(|timers| timers.borrow().iter().filter(|timer| timer.id < id_barrier).map(|timer| timer.due_ms).min());
-        if let Some(earliest) = earliest {
-            smelt_virtual_advance_to(earliest);
-            smelt_drain_due_timers(id_barrier);
-            smelt_drain_promise_tasks().await;
-        }
-        tokio::task::yield_now().await;
+fn smelt_fire_next_timers() -> bool {
+    let Some((earliest, _, _)) = smelt_peek_timer() else { return false };
+    smelt_virtual_advance_to(earliest);
+    let now = smelt_mono_ms();
+    let barrier = SMELT_NEXT_TIMER_SEQ.with(::std::cell::Cell::get);
+    while let Some((due, seq, id)) = smelt_peek_timer() {
+        if due > now || seq >= barrier { break; }
+        SMELT_TIMER_HEAP.with(|heap| heap.borrow_mut().pop());
+        let fired = SMELT_TIMERS.with(|timers| {
+            let mut timers = timers.borrow_mut();
+            let timer = timers.get(&id)?;
+            let callback = timer.callback.clone();
+            let period = timer.period_ms;
+            if period.is_none() { timers.remove(&id); }
+            Some((callback, period))
+        });
+        let Some((callback, period)) = fired else { continue };
+        if let Some(period_ms) = period { smelt_schedule_timer(id, now.saturating_add(period_ms), callback.clone(), Some(period_ms)); }
+        (&mut *callback.borrow_mut())().unwrap_or_else(|error| smelt_panic_throw(error));
+        smelt_run_jobs();
+        smelt_check_rejections();
     }
+    true
+}
+
+async fn smelt_sleep_ms(delay_ms: f64) {
+    let fired = ::std::rc::Rc::new(::std::cell::Cell::new(false));
+    let waker: ::std::rc::Rc<::std::cell::RefCell<Option<::std::task::Waker>>> = ::std::rc::Rc::new(::std::cell::RefCell::new(None));
+    let delay_ms = if delay_ms.is_finite() && delay_ms > 0.0 { delay_ms as u64 } else { 0 };
+    let (on_fire, wake_on_fire) = (fired.clone(), waker.clone());
+    let callback: ::std::rc::Rc<::std::cell::RefCell<dyn FnMut() -> Result<(), Box<dyn std::error::Error>>>> = ::std::rc::Rc::new(::std::cell::RefCell::new(move || { on_fire.set(true); if let Some(waker) = wake_on_fire.borrow_mut().take() { waker.wake(); } Ok(()) }));
+    smelt_schedule_timer(smelt_next_timer_id(), smelt_mono_ms().saturating_add(delay_ms), callback, None);
+    if !smelt_in_job() {
+        let _ = smelt_run_until(&|| fired.get()).await;
+        return;
+    }
+    ::std::future::poll_fn(|cx| {
+        if fired.get() { return ::std::task::Poll::Ready(()); }
+        *waker.borrow_mut() = Some(cx.waker().clone());
+        ::std::task::Poll::Pending
+    }).await;
+}
+
+#[allow(dead_code)]
+async fn smelt_run_until_exit() {
+    let _ = smelt_run_until(&|| false).await;
 }
 
 impl SmeltUnknown {
@@ -4189,9 +4276,69 @@ impl serde::Serialize for SmeltUnknown {
 /// `JSON.stringify(value)`: the JSON text, or the `TypeError` message for a
 /// value JSON cannot hold (a bigint).
 fn smelt_json_stringify(value: &SmeltUnknown) -> Result<String, &'static str> {
+    smelt_json_stringify_with(value, &SmeltUnknown::Undefined)
+}
+
+/// `JSON.stringify(value, replacer)`. The replacer is ECMA-262's: a function
+/// called for every property with its holder as `this` (`key`, `value`) and
+/// whose answer is serialized instead; an array of strings and numbers, the
+/// only keys an object serializes, in that order; anything else is ignored.
+#[allow(dead_code)]
+fn smelt_json_stringify_with(value: &SmeltUnknown, replacer: &SmeltUnknown) -> Result<String, &'static str> {
+    let replacer = SmeltJsonReplacer::of(replacer);
+    let holder = SmeltUnknown::Object(SmeltObject::new(Vec::from([(String::new(), value.clone())])));
+    let value = smelt_json_property(&replacer, &holder, "", value.clone());
     let mut out = String::new();
-    smelt_json_write(value, &mut out)?;
+    smelt_json_write(&value, &replacer, &mut out)?;
     Ok(out)
+}
+
+/// The `replacer` argument of `JSON.stringify`, read once.
+enum SmeltJsonReplacer {
+    /// No replacer (or one that is neither a function nor an array).
+    None,
+    /// The property allowlist of a replacer array, deduplicated, in order.
+    Keys(Vec<String>),
+    /// A replacer function.
+    Function(SmeltDynCallable),
+}
+
+impl SmeltJsonReplacer {
+    /// Reads a source replacer: a function, an array of keys (each string
+    /// or number, others skipped, as `JSON.stringify` does), or nothing.
+    fn of(replacer: &SmeltUnknown) -> Self {
+        match replacer {
+            SmeltUnknown::Function(function) => Self::Function(function.clone()),
+            SmeltUnknown::Array(keys) => {
+                let mut list: Vec<String> = Vec::new();
+                for key in keys {
+                    let key = match key { SmeltUnknown::String(text) => text.to_string(), SmeltUnknown::Number(number) => smelt_number_to_string(number), _ => continue };
+                    if !list.contains(&key) { list.push(key); }
+                }
+                Self::Keys(list)
+            }
+            _ => Self::None,
+        }
+    }
+}
+
+/// The value `SerializeJSONProperty` serializes for `value`, the property
+/// `key` of `holder`: a `Date` is its ISO text (`Date.prototype.toJSON`), an
+/// object with a `toJSON` method is that method's answer (called with the
+/// object as `this` and `key`), and then a replacer function's answer (called
+/// with `holder` as `this`).
+fn smelt_json_property(replacer: &SmeltJsonReplacer, holder: &SmeltUnknown, key: &str, value: SmeltUnknown) -> SmeltUnknown {
+    let mut value = value;
+    if let SmeltUnknown::Object(object) = &value {
+        if let Some(SmeltUnknown::Function(to_json)) = object.get("toJSON").or_else(|| object.get("__smelt_proto:toJSON")).or_else(|| object.get("__smelt_method:toJSON")) {
+            value = to_json(Vec::from([SmeltUnknown::String(key.into())])).unwrap_or_else(|error| smelt_panic_throw(error));
+        }
+    }
+    if let SmeltJsonReplacer::Function(function) = replacer {
+        let _ = holder;
+        value = function(Vec::from([SmeltUnknown::String(key.into()), value])).unwrap_or_else(|error| smelt_panic_throw(error));
+    }
+    value
 }
 
 fn smelt_json_quote(text: &JsStr, out: &mut String) {
@@ -4215,7 +4362,7 @@ fn smelt_json_quote(text: &JsStr, out: &mut String) {
 }
 
 /// Appends the JSON text of `value` (see `smelt_json_stringify`).
-fn smelt_json_write(value: &SmeltUnknown, out: &mut String) -> Result<(), &'static str> {
+fn smelt_json_write(value: &SmeltUnknown, replacer: &SmeltJsonReplacer, out: &mut String) -> Result<(), &'static str> {
     match value {
         SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Function(_) => out.push_str("null"),
         SmeltUnknown::Bool(flag) => out.push_str(if *flag { "true" } else { "false" }),
@@ -4226,7 +4373,8 @@ fn smelt_json_write(value: &SmeltUnknown, out: &mut String) -> Result<(), &'stat
             out.push('[');
             for (index, element) in values.iter().enumerate() {
                 if index > 0 { out.push(','); }
-                smelt_json_write(&element, out)?;
+                let element = smelt_json_property(replacer, value, &index.to_string(), element);
+                smelt_json_write(&element, replacer, out)?;
             }
             out.push(']');
         }
@@ -4237,21 +4385,29 @@ fn smelt_json_write(value: &SmeltUnknown, out: &mut String) -> Result<(), &'stat
                     if index > 0 { out.push(','); }
                     smelt_json_quote(&JsString::from(index.to_string()), out);
                     out.push(':');
-                    smelt_json_write(element, out)?;
+                    smelt_json_write(element, replacer, out)?;
                 }
                 out.push('}');
                 return Ok(());
             }
             let shape = smelt_for_in_object_shape(values);
-            let store = values.store.borrow();
+            let entries: Vec<(JsString, SmeltUnknown)> = 'entries: {
+                if let SmeltJsonReplacer::Keys(keys) = replacer {
+                    break 'entries keys.iter().filter_map(|key| values.get(key.as_str()).map(|entry| (JsString::from(key.as_str()), entry))).collect();
+                }
+                let store = values.store.borrow();
+                store.entries().iter().filter(|entry| smelt_is_for_in_shape_key(shape, &entry.key)).map(|entry| (entry.key.clone(), entry.value.clone())).collect()
+            };
             let mut first = true;
-            for entry in store.entries() {
-                if matches!(entry.value, SmeltUnknown::Undefined | SmeltUnknown::Function(_) | SmeltUnknown::Symbol(_)) || !smelt_is_for_in_shape_key(shape, &entry.key) { continue; }
+            for (key, entry) in entries {
+                let entry = smelt_resolve_accessor(entry, || value.clone());
+                let entry = smelt_json_property(replacer, value, &key.to_string_lossy(), entry);
+                if matches!(entry, SmeltUnknown::Undefined | SmeltUnknown::Function(_) | SmeltUnknown::Symbol(_)) { continue; }
                 if !first { out.push(','); }
                 first = false;
-                smelt_json_quote(&entry.key, out);
+                smelt_json_quote(&key, out);
                 out.push(':');
-                smelt_json_write(&entry.value, out)?;
+                smelt_json_write(&entry, replacer, out)?;
             }
             out.push('}');
         }
@@ -5335,6 +5491,21 @@ trait SmeltInspect {
     fn smelt_console_text(&self) -> String { self.smelt_inspect(&mut SmeltInspectContext::default(), 0) }
 }
 
+/// How one entry of a container is inspected, when not by its Rust type's own impl.
+type SmeltInspector<'a, T> = &'a dyn Fn(&T, &mut SmeltInspectContext, usize) -> String;
+
+/// One container entry, drawn by an inspector (`SmeltInspector`).
+struct SmeltInspectWith<'a, T> {
+    value: &'a T,
+    inspect: SmeltInspector<'a, T>,
+}
+
+impl<T: SmeltInspect> SmeltInspect for SmeltInspectWith<'_, T> {
+    fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String { (self.inspect)(self.value, ctx, depth) }
+    fn smelt_inspect_is_number(&self) -> bool { self.value.smelt_inspect_is_number() }
+    fn smelt_inspect_is_hole(&self) -> bool { self.value.smelt_inspect_is_hole() }
+}
+
 /// The JavaScript `.length` of rendered text, in UTF-16 code units.
 fn smelt_inspect_len(text: &str) -> usize { text.encode_utf16().count() }
 
@@ -5660,37 +5831,53 @@ smelt_inspect_tuple!(A 0, B 1, C 2, D 3, E 4, F 5, G 6, H 7, I 8, J 9, K 10);
 smelt_inspect_tuple!(A 0, B 1, C 2, D 3, E 4, F 5, G 6, H 7, I 8, J 9, K 10, L 11);
 
 impl<T: SmeltInspect> SmeltInspect for SmeltList<T> {
-    fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String {
-        let values = self.borrow();
-        let named = smelt_array_named_properties(self.id()); let keyed = named.iter().map(|(key, value)| SmeltInspectKeyed { key, value }).collect::<Vec<_>>();
-        let entries = values.iter().map(|value| value as &dyn SmeltInspect).chain(keyed.iter().map(|entry| entry as &dyn SmeltInspect)).collect::<Vec<_>>();
-        smelt_inspect_array(ctx, depth, &entries)
-    }
+    fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String { smelt_inspect_list_with(self, ctx, depth, &T::smelt_inspect) }
+}
+
+/// A typed array, each element drawn by `inspect`.
+fn smelt_inspect_list_with<T: SmeltInspect>(list: &SmeltList<T>, ctx: &mut SmeltInspectContext, depth: usize, inspect: SmeltInspector<'_, T>) -> String {
+    let values = list.borrow();
+    let elements = values.iter().map(|value| SmeltInspectWith { value, inspect }).collect::<Vec<_>>();
+    let named = smelt_array_named_properties(list.id()); let keyed = named.iter().map(|(key, value)| SmeltInspectKeyed { key, value }).collect::<Vec<_>>();
+    let entries = elements.iter().map(|value| value as &dyn SmeltInspect).chain(keyed.iter().map(|entry| entry as &dyn SmeltInspect)).collect::<Vec<_>>();
+    smelt_inspect_array(ctx, depth, &entries)
 }
 
 impl<V: SmeltInspect + Clone> SmeltInspect for SmeltRecord<JsString, V> {
-    fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String {
-        let pairs = self.iter().filter(|(key, _)| !key.eq_str_prefix("__smelt")).collect::<Vec<_>>();
-        let key_texts = pairs.iter().map(|(key, _)| key.to_string_lossy()).collect::<Vec<_>>();
-                let entries = pairs.iter().zip(&key_texts).map(|((_, value), key)| (key.as_str(), value as &dyn SmeltInspect)).collect::<Vec<_>>();
-        smelt_inspect_object(ctx, depth, "", &entries)
-    }
+    fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String { smelt_inspect_record_with(self, ctx, depth, &V::smelt_inspect) }
+}
+
+/// A string-keyed record, each value drawn by `inspect`.
+fn smelt_inspect_record_with<V: SmeltInspect + Clone>(record: &SmeltRecord<JsString, V>, ctx: &mut SmeltInspectContext, depth: usize, inspect: SmeltInspector<'_, V>) -> String {
+    let pairs = record.iter().filter(|(key, _)| !key.eq_str_prefix("__smelt")).collect::<Vec<_>>();
+    let key_texts = pairs.iter().map(|(key, _)| key.to_string_lossy()).collect::<Vec<_>>();
+    let values = pairs.iter().map(|(_, value)| SmeltInspectWith { value, inspect }).collect::<Vec<_>>();
+    let entries = values.iter().zip(&key_texts).map(|(value, key)| (key.as_str(), value as &dyn SmeltInspect)).collect::<Vec<_>>();
+    smelt_inspect_object(ctx, depth, "", &entries)
 }
 
 impl<K: SmeltInspect + SmeltJsKeyEq + Clone, V: SmeltInspect + Clone> SmeltInspect for SmeltJsMap<K, V> {
-    fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String {
-        let pairs = self.iter().collect::<Vec<_>>();
-        let entries = pairs.iter().map(|(key, value)| (key as &dyn SmeltInspect, Some(value as &dyn SmeltInspect))).collect::<Vec<_>>();
-        smelt_inspect_collection(ctx, depth, "Map", &entries)
-    }
+    fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String { smelt_inspect_map_with(self, ctx, depth, &K::smelt_inspect, &V::smelt_inspect) }
+}
+
+/// A `Map`, each key and value drawn by `inspect_key`/`inspect_value`.
+fn smelt_inspect_map_with<K: SmeltInspect + SmeltJsKeyEq + Clone, V: SmeltInspect + Clone>(map: &SmeltJsMap<K, V>, ctx: &mut SmeltInspectContext, depth: usize, inspect_key: SmeltInspector<'_, K>, inspect_value: SmeltInspector<'_, V>) -> String {
+    let pairs = map.iter().collect::<Vec<_>>();
+    let drawn = pairs.iter().map(|(key, value)| (SmeltInspectWith { value: key, inspect: inspect_key }, SmeltInspectWith { value, inspect: inspect_value })).collect::<Vec<_>>();
+    let entries = drawn.iter().map(|(key, value)| (key as &dyn SmeltInspect, Some(value as &dyn SmeltInspect))).collect::<Vec<_>>();
+    smelt_inspect_collection(ctx, depth, "Map", &entries)
 }
 
 impl<T: SmeltInspect + Clone + IntoSmeltUnknown> SmeltInspect for SmeltJsSet<T> {
-    fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String {
-        let members = self.iter().collect::<Vec<_>>();
-        let entries = members.iter().map(|value| (value as &dyn SmeltInspect, None)).collect::<Vec<_>>();
-        smelt_inspect_collection(ctx, depth, "Set", &entries)
-    }
+    fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String { smelt_inspect_set_with(self, ctx, depth, &T::smelt_inspect) }
+}
+
+/// A `Set` of non-primitives, each member drawn by `inspect`.
+fn smelt_inspect_set_with<T: SmeltInspect + Clone + IntoSmeltUnknown>(set: &SmeltJsSet<T>, ctx: &mut SmeltInspectContext, depth: usize, inspect: SmeltInspector<'_, T>) -> String {
+    let members = set.iter().collect::<Vec<_>>();
+    let drawn = members.iter().map(|value| SmeltInspectWith { value, inspect }).collect::<Vec<_>>();
+    let entries = drawn.iter().map(|value| (value as &dyn SmeltInspect, None)).collect::<Vec<_>>();
+    smelt_inspect_collection(ctx, depth, "Set", &entries)
 }
 
 /// One `key: value` entry of an array's own named properties.
@@ -5722,6 +5909,7 @@ impl SmeltInspect for SmeltUnknown {
                 let entries = values.iter().map(|value| value as &dyn SmeltInspect).chain(keyed.iter().map(|entry| entry as &dyn SmeltInspect)).collect::<Vec<_>>();
                 smelt_inspect_array(ctx, depth, &entries)
             }
+            Self::Object(object) if smelt_is_accessor(object) => match (object.contains_key("__smelt_get"), object.contains_key("__smelt_setter")) { (true, true) => "[Getter/Setter]", (true, false) => "[Getter]", _ => "[Setter]" }.to_owned(),
             Self::Object(object) => {
                 
                 if let Some(Self::Array(members)) = object.get("__smelt_set") {
@@ -5875,24 +6063,24 @@ smelt_local.block_on(&smelt_runtime, async move {
     let base: JsString;
     let posted: SmeltResponse;
     let plain: SmeltResponse;
-    let mut _smelt_tmp_13: bool;
-    let _smelt_tmp_14: bool;
-    let mut _smelt_tmp_16: f64;
-    let _smelt_tmp_17: AddressInfo;
-    let _smelt_tmp_19: JsString;
-    let _smelt_tmp_20: JsString;
-    let _smelt_tmp_21: SmeltRequest;
-    let _smelt_tmp_24: f64;
+    let mut _smelt_tmp_11: bool;
+    let _smelt_tmp_12: bool;
+    let mut _smelt_tmp_14: f64;
+    let _smelt_tmp_15: AddressInfo;
+    let _smelt_tmp_17: JsString;
+    let _smelt_tmp_18: JsString;
+    let _smelt_tmp_19: SmeltRequest;
+    let _smelt_tmp_22: f64;
+    let _smelt_tmp_25: JsString;
     let _smelt_tmp_27: JsString;
-    let _smelt_tmp_29: JsString;
-    let _smelt_tmp_30: JsString;
-    let _smelt_tmp_33: f64;
-    let _smelt_tmp_36: JsString;
-    let _smelt_tmp_38: SmeltHttpServer;
-    let _smelt_tmp_39: Option<AddressInfo>;
-    let _smelt_tmp_40: f64;
-    let _smelt_tmp_41: SmeltUnion22;
-    let _smelt_tmp_44: ();
+    let _smelt_tmp_28: JsString;
+    let _smelt_tmp_31: f64;
+    let _smelt_tmp_34: JsString;
+    let _smelt_tmp_36: SmeltHttpServer;
+    let _smelt_tmp_37: Option<AddressInfo>;
+    let _smelt_tmp_38: f64;
+    let _smelt_tmp_39: SmeltUnion22;
+    let _smelt_tmp_42: ();
     let _smelt_tmp_6 = ::std::rc::Rc::new(|closure_arg_0: SmeltIncomingMessage, closure_arg_1: SmeltServerResponse| {
     let smelt_capture_received: ::std::rc::Rc<::std::cell::RefCell<JsString>> = ::std::rc::Rc::new(::std::cell::RefCell::new(JsString::new()));
     let _smelt_tmp_3 = ::std::rc::Rc::new({
@@ -5959,50 +6147,43 @@ smelt_local.block_on(&smelt_runtime, async move {
     });
     let _smelt_tmp_9: SmeltHttpServer = server.clone().listen(0.0, Some((JsString::from("127.0.0.1")).to_string()), Some({ let smelt_listening = _smelt_tmp_8; ::std::rc::Rc::new(move || { let _ = smelt_listening(); Ok(()) }) as ::std::rc::Rc<dyn Fn() -> Result<(), Box<dyn ::std::error::Error>>> }))?;
     let address: Option<AddressInfo> = server.clone().address().map(|(smelt_address, smelt_family, smelt_port)| AddressInfo { address: JsString::from(smelt_address), family: JsString::from(smelt_family), port: smelt_port });
-    let _smelt_tmp_11: bool = address.clone().is_none();
-    let _smelt_tmp_12: bool = !(_smelt_tmp_11);
-    let mut _smelt_tmp_13: bool = false;
-    if _smelt_tmp_12 {
-    _smelt_tmp_14 = address.clone().is_none();
-    _smelt_tmp_13 = !(_smelt_tmp_14);
+    _smelt_tmp_12 = address.clone().is_none();
+    _smelt_tmp_11 = !(_smelt_tmp_12);
+    let mut _smelt_tmp_14: f64 = 0.0;
+    if _smelt_tmp_11 {
+    _smelt_tmp_15 = address.clone().expect("optional value was absent after narrowing");
+    _smelt_tmp_14 = _smelt_tmp_15.port;
     } else {
-    _smelt_tmp_13 = false;
+    _smelt_tmp_14 = 0.0;
     }
-    let mut _smelt_tmp_16: f64 = 0.0;
-    if _smelt_tmp_13 {
-    _smelt_tmp_17 = address.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_16 = _smelt_tmp_17.port;
-    } else {
-    _smelt_tmp_16 = 0.0;
-    }
-    port = _smelt_tmp_16;
+    port = _smelt_tmp_14;
     base = JsString::from("http://127.0.0.1:") + &JsString::from(smelt_number_to_string(port));
-    _smelt_tmp_19 = JsString::new() + &base.clone();
-    _smelt_tmp_20 = _smelt_tmp_19 + &JsString::from("/echo?q=1");
-    _smelt_tmp_21 = SmeltRequest::from_parts_with_init(&_smelt_tmp_20, (JsString::from("POST")).to_string(), SmeltHeaders::new(), SmeltBody::from_text(&JsString::from("hello body")), { let mut smelt_request_init = SmeltRequestInit::default(); smelt_request_init.referrer = "about:client".to_owned(); smelt_request_init.referrer_policy = String::new(); smelt_request_init });
-    let _smelt_tmp_22: SmeltFuture<SmeltResponse> = SmeltFuture::from_future(Box::pin(async move { let smelt_request = _smelt_tmp_21; let smelt_method = reqwest::Method::from_bytes(smelt_request.method().as_bytes()).unwrap_or(reqwest::Method::GET); let mut smelt_builder = reqwest::Client::new().request(smelt_method, smelt_request.url()); for (smelt_name, smelt_value) in smelt_request.headers().entries_in_insertion_order() { smelt_builder = smelt_builder.header(smelt_name, smelt_value); } let smelt_sent = smelt_request.body().take_bytes()?; if !smelt_sent.is_empty() { smelt_builder = smelt_builder.body(smelt_sent); } let smelt_http = smelt_builder.send().await.expect("HTTP request failed"); let smelt_status = f64::from(smelt_http.status().as_u16()); let smelt_reason = smelt_http.status().canonical_reason().unwrap_or_default().to_owned(); let smelt_pairs: Vec<(String, String)> = smelt_http.headers().iter().map(|(smelt_name, smelt_value)| (smelt_name.as_str().to_owned(), smelt_value.to_str().unwrap_or_default().to_owned())).collect(); let smelt_bytes = smelt_http.bytes().await.expect("HTTP response body read failed").to_vec(); Ok::<_, Box<dyn std::error::Error>>(SmeltResponse::from_parts(smelt_status, smelt_reason, SmeltHeaders::from_pairs(smelt_pairs), SmeltBody::from_bytes(smelt_bytes))) }));
-    posted = _smelt_tmp_22.await?;
-    _smelt_tmp_24 = posted.clone().status();
-    let _ = { println!("{}", smelt_console_number(_smelt_tmp_24)); };
-    let _smelt_tmp_26: SmeltFuture<JsString> = { let smelt_response = posted.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(JsString::from(smelt_response.take_text()?)) })) };
-    _smelt_tmp_27 = _smelt_tmp_26.await?;
-    let _ = { println!("{}", _smelt_tmp_27); };
-    _smelt_tmp_29 = JsString::new() + &base;
-    _smelt_tmp_30 = _smelt_tmp_29 + &JsString::from("/again");
-    let _smelt_tmp_31: SmeltFuture<SmeltResponse> = SmeltFuture::from_future(Box::pin(async move {                      let smelt_http = reqwest::get(_smelt_tmp_30.to_string()).await.expect("HTTP request failed");                      let smelt_status = f64::from(smelt_http.status().as_u16());                      let smelt_reason = smelt_http.status().canonical_reason().unwrap_or_default().to_owned();                      let smelt_pairs: Vec<(String, String)> = smelt_http.headers().iter().map(|(smelt_name, smelt_value)| (smelt_name.as_str().to_owned(), smelt_value.to_str().unwrap_or_default().to_owned())).collect();                      let smelt_bytes = smelt_http.bytes().await.expect("HTTP response body read failed").to_vec();                      Ok::<_, Box<dyn std::error::Error>>(SmeltResponse::from_parts(smelt_status, smelt_reason, SmeltHeaders::from_pairs(smelt_pairs), SmeltBody::from_bytes(smelt_bytes))) }));
-    plain = _smelt_tmp_31.await?;
-    _smelt_tmp_33 = plain.clone().status();
-    let _ = { println!("{}", smelt_console_number(_smelt_tmp_33)); };
-    let _smelt_tmp_35: SmeltFuture<JsString> = { let smelt_response = plain.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(JsString::from(smelt_response.take_text()?)) })) };
-    _smelt_tmp_36 = _smelt_tmp_35.await?;
-    let _ = { println!("{}", _smelt_tmp_36); };
-    _smelt_tmp_38 = server.clone().close()?;
-    _smelt_tmp_39 = server.address().map(|(smelt_address, smelt_family, smelt_port)| AddressInfo { address: JsString::from(smelt_address), family: JsString::from(smelt_family), port: smelt_port });
-    _smelt_tmp_40 = -1.0;
-    _smelt_tmp_41 = _smelt_tmp_39.map_or_else(|| SmeltUnion22::M0(_smelt_tmp_40), |smelt_value| SmeltUnion22::M1(smelt_value));
-    let _ = { println!("{}", SmeltInspect::smelt_console_text(&_smelt_tmp_41)); };
-    let _smelt_tmp_43: SmeltFuture<()> = SmeltFuture::from_future(Box::pin(async move { smelt_run_until_exit().await; Ok::<_, Box<dyn std::error::Error>>(()) }));
-    _smelt_tmp_44 = _smelt_tmp_43.await?;
+    _smelt_tmp_17 = JsString::new() + &base.clone();
+    _smelt_tmp_18 = _smelt_tmp_17 + &JsString::from("/echo?q=1");
+    _smelt_tmp_19 = SmeltRequest::from_parts_with_init(&_smelt_tmp_18, (JsString::from("POST")).to_string(), SmeltHeaders::new(), SmeltBody::from_text(&JsString::from("hello body")), { let mut smelt_request_init = SmeltRequestInit::default(); smelt_request_init.referrer = "about:client".to_owned(); smelt_request_init.referrer_policy = String::new(); smelt_request_init });
+    let _smelt_tmp_20: SmeltFuture<SmeltResponse> = SmeltFuture::from_future(Box::pin(async move { let smelt_request = _smelt_tmp_19; let smelt_method = reqwest::Method::from_bytes(smelt_request.method().as_bytes()).unwrap_or(reqwest::Method::GET); let mut smelt_builder = reqwest::Client::new().request(smelt_method, smelt_request.url()); for (smelt_name, smelt_value) in smelt_request.headers().entries_in_insertion_order() { smelt_builder = smelt_builder.header(smelt_name, smelt_value); } let smelt_sent = smelt_request.body().take_bytes()?; if !smelt_sent.is_empty() { smelt_builder = smelt_builder.body(smelt_sent); } let smelt_http = smelt_builder.send().await.expect("HTTP request failed"); let smelt_status = f64::from(smelt_http.status().as_u16()); let smelt_reason = smelt_http.status().canonical_reason().unwrap_or_default().to_owned(); let smelt_pairs: Vec<(String, String)> = smelt_http.headers().iter().map(|(smelt_name, smelt_value)| (smelt_name.as_str().to_owned(), smelt_value.to_str().unwrap_or_default().to_owned())).collect(); let smelt_bytes = smelt_http.bytes().await.expect("HTTP response body read failed").to_vec(); Ok::<_, Box<dyn std::error::Error>>(SmeltResponse::from_parts(smelt_status, smelt_reason, SmeltHeaders::from_pairs(smelt_pairs), SmeltBody::from_bytes(smelt_bytes))) }));
+    posted = _smelt_tmp_20.await?;
+    _smelt_tmp_22 = posted.clone().status();
+    let _ = { println!("{}", smelt_console_number(_smelt_tmp_22)); };
+    let _smelt_tmp_24: SmeltFuture<JsString> = { let smelt_response = posted.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(JsString::from(smelt_response.take_text()?)) })) };
+    _smelt_tmp_25 = _smelt_tmp_24.await?;
+    let _ = { println!("{}", _smelt_tmp_25); };
+    _smelt_tmp_27 = JsString::new() + &base;
+    _smelt_tmp_28 = _smelt_tmp_27 + &JsString::from("/again");
+    let _smelt_tmp_29: SmeltFuture<SmeltResponse> = SmeltFuture::from_future(Box::pin(async move { let _smelt_io = SmeltIoGuard::new();                      let smelt_http = reqwest::get(_smelt_tmp_28.to_string()).await.expect("HTTP request failed");                      let smelt_status = f64::from(smelt_http.status().as_u16());                      let smelt_reason = smelt_http.status().canonical_reason().unwrap_or_default().to_owned();                      let smelt_pairs: Vec<(String, String)> = smelt_http.headers().iter().map(|(smelt_name, smelt_value)| (smelt_name.as_str().to_owned(), smelt_value.to_str().unwrap_or_default().to_owned())).collect();                      let smelt_bytes = smelt_http.bytes().await.expect("HTTP response body read failed").to_vec();                      Ok::<_, Box<dyn std::error::Error>>(SmeltResponse::from_parts(smelt_status, smelt_reason, SmeltHeaders::from_pairs(smelt_pairs), SmeltBody::from_bytes(smelt_bytes))) }));
+    plain = _smelt_tmp_29.await?;
+    _smelt_tmp_31 = plain.clone().status();
+    let _ = { println!("{}", smelt_console_number(_smelt_tmp_31)); };
+    let _smelt_tmp_33: SmeltFuture<JsString> = { let smelt_response = plain.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(JsString::from(smelt_response.take_text()?)) })) };
+    _smelt_tmp_34 = _smelt_tmp_33.await?;
+    let _ = { println!("{}", _smelt_tmp_34); };
+    _smelt_tmp_36 = server.clone().close()?;
+    _smelt_tmp_37 = server.address().map(|(smelt_address, smelt_family, smelt_port)| AddressInfo { address: JsString::from(smelt_address), family: JsString::from(smelt_family), port: smelt_port });
+    _smelt_tmp_38 = -1.0;
+    _smelt_tmp_39 = _smelt_tmp_37.map_or_else(|| SmeltUnion22::M0(_smelt_tmp_38), |smelt_value| SmeltUnion22::M1(smelt_value));
+    let _ = { println!("{}", SmeltInspect::smelt_console_text(&_smelt_tmp_39)); };
+    let _smelt_tmp_41: SmeltFuture<()> = SmeltFuture::from_future(Box::pin(async move { smelt_run_until_exit().await; Ok::<_, Box<dyn std::error::Error>>(()) }));
+    _smelt_tmp_42 = _smelt_tmp_41.await?;
     return Ok(());
 })
 }

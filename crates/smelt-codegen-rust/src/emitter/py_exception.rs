@@ -55,7 +55,13 @@ impl FunctionEmitter<'_> {
     fn type_has_py_json(&self, ty: TypeId) -> bool {
         match self.mir.types.get(ty) {
             Some(
-                Type::Int | Type::Float | Type::Bool | Type::PyStr | Type::String | Type::None,
+                Type::Int
+                | Type::PyInt
+                | Type::Float
+                | Type::Bool
+                | Type::PyStr
+                | Type::String
+                | Type::None,
             ) => true,
             Some(Type::Optional(inner, _) | Type::List(inner)) => self.type_has_py_json(*inner),
             Some(Type::Tuple(items)) => {
@@ -67,7 +73,14 @@ impl FunctionEmitter<'_> {
                 !self.dict_uses_js_key_map(*key)
                     && matches!(
                         self.mir.types.get(*key),
-                        Some(Type::PyStr | Type::String | Type::Int | Type::Float | Type::Bool)
+                        Some(
+                            Type::PyStr
+                                | Type::String
+                                | Type::Int
+                                | Type::PyInt
+                                | Type::Float
+                                | Type::Bool
+                        )
                     )
                     && self.type_has_py_json(*value)
             }

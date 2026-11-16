@@ -247,7 +247,7 @@ pub(super) fn classify_program_line(line: &str) -> Category {
 }
 
 /// Spellings that put a line at a genuine dynamic boundary; each entry says why.
-const BOUNDARY_MARKERS: [&str; 49] = [
+const BOUNDARY_MARKERS: [&str; 50] = [
     boundary::FUNCTION_TAG,
     boundary::PROMISE_TAG,
     // A JavaScript SYMBOL value. `Symbol()` mints a value whose whole
@@ -466,6 +466,15 @@ const BOUNDARY_MARKERS: [&str; 49] = [
     boundary::PUSH_THIS_LAZY_CALL,
     boundary::THIS_CALL,
     boundary::BIND_THIS_CALL,
+    // A non-coercing `Number.isNaN`/`isFinite`/`isInteger`/`isSafeInteger`
+    // over an erased operand (`smelt_erased_number_is`): the predicate's
+    // whole answer is the runtime tag of a value whose static type is
+    // `unknown` (es-toolkit's `isEqualsSameValueZero(value: unknown, ..)`),
+    // which is the "values inspected through runtime narrowing" case
+    // verbatim. A concretely typed operand is tested as its `f64`, so no
+    // concrete type, union arm or scoped generic could replace the tag test.
+    // Proven in `erased_number_predicate_is_a_boundary` below.
+    boundary::ERASED_NUMBER_IS,
     // The erased class-prototype slot
     // (`crates/smelt-codegen-rust/src/class_proto.rs`). A generated class
     // keeps its concrete struct and its precisely typed inherent methods;

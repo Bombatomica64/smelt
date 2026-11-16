@@ -4,6 +4,15 @@
 //! generics (`struct Container<T>`, `impl<T: ...> Container<T>`) and that use
 //! sites (`new Container<number>(...)`, `b.get()`) keep the instantiation
 //! concrete instead of erasing the generic arguments to `SmeltUnknown`.
+//!
+//! A program here that holds no erased value bounds its type parameters
+//! `Clone + Default + 'static`: the erasure traits exist only with the erased
+//! carrier (`classes::generated_type_param_bounds`). These tests used to pin the
+//! full set (`+ IntoSmeltUnknown + SmeltFromUnknown`), which every generic item
+//! carried because the carrier was then demanded by any generic item at all;
+//! the carrier-free emission is checked against its own text
+//! (`crate_builder::emit_root`), so the shorter set cannot reach a body that
+//! converts a `T`.
 
 use super::*;
 
@@ -44,7 +53,10 @@ fn get(&self) -> T
 
 fn set(&self, value: T) -> ()"
     );
-    assert!(source.contains("impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Container<T> {"), "{source}");
+    assert!(
+        source.contains("impl<T: Clone + Default + 'static> Container<T> {"),
+        "{source}"
+    );
     assert!(
         source.contains("Container(::std::rc::Rc::clone(&self.0))"),
         "identity `Clone` shares the cell:\n{source}"
@@ -135,7 +147,7 @@ export function identity<T>(x: T): T {
 
     assert_eq!(
         rust_items(&source, &["sig identity"]),
-        r"fn identity<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(x: T) -> T"
+        r"fn identity<T: Clone + Default + 'static>(x: T) -> T"
     );
 }
 
@@ -176,7 +188,7 @@ export function pair<A, B>(first: A, second: B): B {
 
     assert_eq!(
         rust_items(&source, &["sig pair"]),
-        r"fn pair<A: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, B: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(first: A, second: B) -> B"
+        r"fn pair<A: Clone + Default + 'static, B: Clone + Default + 'static>(first: A, second: B) -> B"
     );
 }
 
@@ -193,7 +205,7 @@ export function first<T>(xs: T[]): T {
 
     assert_eq!(
         rust_items(&source, &["sig first"]),
-        r"fn first<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(xs: SmeltList<T>) -> T"
+        r"fn first<T: Clone + Default + 'static>(xs: SmeltList<T>) -> T"
     );
 }
 
@@ -418,9 +430,7 @@ class Box<T> {
     );
 
     assert!(
-        source.contains(
-            "impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Box_<T> {"
-        ),
+        source.contains("impl<T: Clone + Default + 'static> Box_<T> {"),
         "the impl block keeps the minimal bound set:\n{source}"
     );
 }
@@ -503,7 +513,7 @@ export function usePair(): number[] {
 
     assert_eq!(
         rust_items(&source, &["sig pair", "fn use_pair"]),
-        r"fn pair<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(xs: SmeltList<T>) -> SmeltList<T>
+        r"fn pair<T: Clone + Default + 'static>(xs: SmeltList<T>) -> SmeltList<T>
 
 fn use_pair() -> SmeltList<f64> {
 let data: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0, 3.0]; smelt_list_items }));
@@ -696,7 +706,7 @@ export function takeWhile<T>(xs: T[], keep: (item: T) => boolean): T[] {
 
     assert_eq!(
         rust_items(&source, &["sig take_while"]),
-        r"fn take_while<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F0: Fn(&T) -> bool + ?Sized>(xs: SmeltList<T>, keep: &F0) -> SmeltList<T>"
+        r"fn take_while<T: Clone + Default + 'static, F0: Fn(&T) -> bool + ?Sized>(xs: SmeltList<T>, keep: &F0) -> SmeltList<T>"
     );
 }
 
@@ -714,7 +724,7 @@ export function takeWhile<F0>(xs: F0[], keep: (item: F0) => boolean): F0[] {
 
     assert_eq!(
         rust_items(&source, &["sig take_while"]),
-        r"fn take_while<F0: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F1: Fn(&F0) -> bool + ?Sized>(xs: SmeltList<F0>, keep: &F1) -> SmeltList<F0>"
+        r"fn take_while<F0: Clone + Default + 'static, F1: Fn(&F0) -> bool + ?Sized>(xs: SmeltList<F0>, keep: &F1) -> SmeltList<F0>"
     );
 }
 
@@ -731,7 +741,7 @@ export function both<T>(xs: T[], a: (item: T) => boolean, b: (item: T) => boolea
 
     assert_eq!(
         rust_items(&source, &["sig both"]),
-        r"fn both<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F0: Fn(&T) -> bool + ?Sized, F1: Fn(&T) -> bool + ?Sized>(xs: SmeltList<T>, a: &F0, b: &F1) -> SmeltList<T>"
+        r"fn both<T: Clone + Default + 'static, F0: Fn(&T) -> bool + ?Sized, F1: Fn(&T) -> bool + ?Sized>(xs: SmeltList<T>, a: &F0, b: &F1) -> SmeltList<T>"
     );
 }
 
@@ -795,7 +805,7 @@ export function attempt<T>(make: () => T): T[] {
 
     assert_eq!(
         rust_items(&source, &["sig attempt"]),
-        r"fn attempt<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F0: Fn() -> T + ?Sized>(make: &F0) -> SmeltList<T>"
+        r"fn attempt<T: Clone + Default + 'static, F0: Fn() -> T + ?Sized>(make: &F0) -> SmeltList<T>"
     );
 }
 
@@ -813,7 +823,7 @@ export function unionBy<T, U>(arr1: T[], arr2: T[], mapper: (item: T) => U): T[]
 
     assert_eq!(
         rust_items(&source, &["sig union_by"]),
-        r"fn union_by<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, U: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F0: Fn(&T) -> U + ?Sized>(arr1: SmeltList<T>, arr2: SmeltList<T>, mapper: &F0) -> SmeltList<T>"
+        r"fn union_by<T: Clone + Default + 'static, U: Clone + Default + 'static, F0: Fn(&T) -> U + ?Sized>(arr1: SmeltList<T>, arr2: SmeltList<T>, mapper: &F0) -> SmeltList<T>"
     );
 }
 
@@ -830,7 +840,7 @@ export function feed<T>(cb: (item: T) => boolean): boolean {
 
     assert_eq!(
         rust_items(&source, &["sig feed"]),
-        r"fn feed<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F0: Fn(&T) -> bool + ?Sized>(cb: &F0) -> bool"
+        r"fn feed<T: Clone + Default + 'static, F0: Fn(&T) -> bool + ?Sized>(cb: &F0) -> bool"
     );
 }
 
@@ -1074,7 +1084,7 @@ fn constrained_type_param_erases_alone_with_callback() {
     // decided per parameter.
     let source = source_for(
         r"
-export function groupBy<T, K extends string>(xs: T[], key: (x: T) => K): K[] {
+export function groupBy<T, K extends PropertyKey>(xs: T[], key: (x: T) => K): K[] {
   return xs.map(key);
 }
 ",
@@ -1127,7 +1137,7 @@ export function uniqWith<T>(xs: T[], same: (a: T, b: T) => boolean): T[] {
 
     assert_eq!(
         rust_items(&source, &["sig uniq_with"]),
-        r"fn uniq_with<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F0: Fn(&T, &T) -> bool + ?Sized>(xs: SmeltList<T>, same: &F0) -> SmeltList<T>"
+        r"fn uniq_with<T: Clone + Default + 'static, F0: Fn(&T, &T) -> bool + ?Sized>(xs: SmeltList<T>, same: &F0) -> SmeltList<T>"
     );
     let body = rust_fn(&source, "uniq_with");
     assert!(
@@ -1273,7 +1283,7 @@ export function make<T>(x: T): (v: T) => boolean {
 
     assert_eq!(
         rust_items(&source, &["sig make"]),
-        r"fn make<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(x: T) -> ::std::rc::Rc<dyn Fn(&T) -> bool>"
+        r"fn make<T: Clone + Default + 'static>(x: T) -> ::std::rc::Rc<dyn Fn(&T) -> bool>"
     );
 }
 
@@ -1401,7 +1411,12 @@ class Holder<T> {
 ",
     );
 
-    assert!(source.contains("impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Default for HolderInner<T> where Leaf<T>: Default {"), "{source}");
+    assert!(
+        source.contains(
+            "impl<T: Clone + Default + 'static> Default for HolderInner<T> where Leaf<T>: Default {"
+        ),
+        "{source}"
+    );
 }
 
 #[test]
@@ -1421,7 +1436,12 @@ class Chain<T> {
 ",
     );
 
-    assert!(source.contains("impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Default for ChainInner<T> where T: Default {"), "the impl header has no where clause over the callable field:\n{source}");
+    assert!(
+        source.contains(
+            "impl<T: Clone + Default + 'static> Default for ChainInner<T> where T: Default {"
+        ),
+        "the impl header has no where clause over the callable field:\n{source}"
+    );
 }
 
 #[test]
@@ -1772,4 +1792,52 @@ console.log(mapValue(digits("ab"), (n) => n * 2)?.value);
         !erased(&map_value) && !erased(&digits),
         "{map_value}\n{digits}"
     );
+}
+
+/// A type parameter bounded by an interface stays a Rust generic when it
+/// reaches the function inside a container: the call site's argument binds it
+/// arm by arm (`User[]` at `xs: T[]` binds `T` to `User`, which implements the
+/// bound's trait), so a hand port's `fn max_id<T: HasIdLike>(xs: SmeltList<T>)
+/// -> T` is emitted instead of `SmeltList<SmeltUnknown> -> SmeltUnknown`.
+/// Behaviour: `fixtures/node-parity/bounded_generic_containers.ts`.
+#[test]
+fn a_bounded_type_parameter_inside_a_container_stays_generic() {
+    let source = source_for(
+        r##"
+interface HasId { id: number; }
+interface User extends HasId { name: string; }
+function maxId<T extends HasId>(xs: T[]): T {
+  let best = xs[0];
+  for (const x of xs) { if (x.id > best.id) { best = x; } }
+  return best;
+}
+function idsOf<T extends HasId>(byKey: Record<string, T>): number[] {
+  const ids: number[] = [];
+  for (const key of Object.keys(byKey)) { ids.push(byKey[key].id); }
+  return ids;
+}
+function labelled<T extends HasId>(pair: [T, string]): string { return pair[1] + "#" + pair[0].id; }
+const users: User[] = [{ id: 1, name: "ada" }, { id: 3, name: "grace" }];
+console.log(maxId(users).name);
+console.log(idsOf({ a: users[0] }).join(","));
+console.log(labelled([users[1], "x"]));
+"##,
+    );
+    for (signature, parameter) in [
+        ("fn max_id<T: HasIdLike", "(xs: SmeltList<T>) -> T {"),
+        (
+            "fn ids_of<T: HasIdLike",
+            "(by_key: SmeltRecord<JsString, T>) -> SmeltList<f64> {",
+        ),
+        (
+            "fn labelled<T: HasIdLike",
+            "(pair: (T, JsString)) -> JsString {",
+        ),
+    ] {
+        let line = source
+            .lines()
+            .find(|line| line.contains(signature))
+            .unwrap_or_else(|| panic!("`{signature}` is not generic over the bound:\n{source}"));
+        assert!(line.ends_with(parameter), "{line}");
+    }
 }

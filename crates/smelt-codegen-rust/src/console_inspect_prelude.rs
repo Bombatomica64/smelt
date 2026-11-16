@@ -65,9 +65,10 @@
 //! * An erased object carrying runtime markers (`__smelt_*`, a `Map`/`Set`/
 //!   `Error` view, a class view with prototype methods) or a function prints
 //!   through `Display for SmeltUnknown` as before.
-//! * An absent optional inside a container prints `undefined`; `T | null`
-//!   and `T | undefined` share one Rust `Option` (see
-//!   `console_optional_expr`).
+//! * `T | null` and `T | undefined` share one Rust `Option`, whose impl prints
+//!   `undefined`. The type tells them apart (`TypeInterner::absent_is_null`),
+//!   and the emitter hands a `T | null` position its own inspector
+//!   (`emitter::absent_value`); a `T | null | undefined` prints `undefined`.
 //! * Record struct fields print in DECLARATION order. A literal written in a
 //!   different key order than its interface declares prints in the
 //!   interface's order, where Node prints the literal's.
@@ -98,6 +99,20 @@ pub(crate) struct InspectField {
     /// type literal): `None` means the property is absent, so it is skipped
     /// instead of printed as `undefined`.
     pub skip_when_absent: bool,
+    /// How the field's value (the present value, for a skipped-when-absent
+    /// one) is drawn, when its Rust type's impl would draw it wrong: a closure
+    /// from `FunctionEmitter::console_inspector` (a `T | null` inside it).
+    pub inspector: Option<String>,
+}
+
+/// What inspecting a view target needs beyond its own fields (see
+/// [`struct_impl_text`]).
+pub(crate) struct ViewInspect {
+    /// The Rust type names of the other records whose cell the handle can
+    /// hold and that are inspectable themselves, tried in order.
+    pub records: Vec<String>,
+    /// The accessor of each inspected field, in the fields' order.
+    pub getters: Vec<String>,
 }
 
 /// Render `impl SmeltInspect` for one non-generic generated record struct.
@@ -110,6 +125,11 @@ pub(crate) struct InspectField {
 /// property, or the object's key order is not the declaration's, the fields
 /// no longer describe what Node prints, and the record is inspected through
 /// its erased view instead.
+///
+/// `view` marks a view target (`crate::structural_views`): its handle may
+/// hold another record's cell, which is inspected as that record (Node prints
+/// the object, not the static type it is seen through), and its own cell's
+/// fields are read through its accessors.
 #[must_use]
 pub(crate) fn struct_impl_text(
     rust_name: &str,
@@ -117,6 +137,7 @@ pub(crate) fn struct_impl_text(
     fields: &[InspectField],
     reference: bool,
     live: bool,
+    view: Option<&ViewInspect>,
 ) -> String {
     let receiver = if reference { "__smelt_inner" } else { "self" };
     let mut text = format!(
@@ -125,14 +146,76 @@ pub(crate) fn struct_impl_text(
     if live {
         text.push_str("        if smelt_live_is_open(&self.0) { return SmeltInspect::smelt_inspect(&IntoSmeltUnknown::into_smelt_unknown(self.clone()), ctx, depth); }\n");
     }
+    if let Some(found) = view {
+        if !found.records.is_empty() {
+            text.push_str(
+                "        let smelt_view_any = ::std::rc::Rc::clone(&self.0).smelt_any();\n",
+            );
+        }
+        for record in &found.records {
+            text.push_str(&format!(
+                "        if let Ok(smelt_cell) = ::std::rc::Rc::clone(&smelt_view_any).downcast::<::std::cell::RefCell<{record}Inner>>() {{ return SmeltInspect::smelt_inspect(&{record}(smelt_cell), ctx, depth); }}\n"
+            ));
+        }
+        for (index, getter) in found.getters.iter().enumerate() {
+            text.push_str(&format!(
+                "        let smelt_field_{index} = self.0.{getter}();\n"
+            ));
+        }
+        text.push_str("        let mut entries: Vec<(&str, &dyn SmeltInspect)> = Vec::new();\n");
+        for (index, field) in fields.iter().enumerate() {
+            let key = &field.key;
+            if field.skip_when_absent {
+                text.push_str(&format!(
+                    "        if let Some(value) = &*smelt_field_{index} {{ entries.push(({key:?}, value)); }}\n"
+                ));
+            } else {
+                text.push_str(&format!(
+                    "        entries.push(({key:?}, &*smelt_field_{index}));\n"
+                ));
+            }
+        }
+        text.push_str(&format!(
+            "        smelt_inspect_object(ctx, depth, {constructor:?}, &entries)\n    }}\n}}\n"
+        ));
+        return text;
+    }
     if reference {
         text.push_str("        let __smelt_inner = self.0.borrow();\n");
     }
+    // A field drawn by an inspector is wrapped first, so the entry list can
+    // borrow the wrapper for the rest of the call.
+    for (index, field) in fields.iter().enumerate() {
+        let Some(inspector) = &field.inspector else {
+            continue;
+        };
+        let name = &field.rust_name;
+        text.push_str(&format!(
+            "        let smelt_inspect_{index}: SmeltInspector<'_, _> = &{inspector};\n"
+        ));
+        if field.skip_when_absent {
+            text.push_str(&format!(
+                "        let smelt_field_{index} = {receiver}.{name}.as_ref().map(|value| SmeltInspectWith {{ value, inspect: smelt_inspect_{index} }});\n"
+            ));
+        } else {
+            text.push_str(&format!(
+                "        let smelt_field_{index} = SmeltInspectWith {{ value: &{receiver}.{name}, inspect: smelt_inspect_{index} }};\n"
+            ));
+        }
+    }
     text.push_str("        let mut entries: Vec<(&str, &dyn SmeltInspect)> = Vec::new();\n");
-    for field in fields {
+    for (index, field) in fields.iter().enumerate() {
         let key = &field.key;
         let name = &field.rust_name;
-        if field.skip_when_absent {
+        if field.inspector.is_some() && field.skip_when_absent {
+            text.push_str(&format!(
+                "        if let Some(value) = &smelt_field_{index} {{ entries.push(({key:?}, value)); }}\n"
+            ));
+        } else if field.inspector.is_some() {
+            text.push_str(&format!(
+                "        entries.push(({key:?}, &smelt_field_{index}));\n"
+            ));
+        } else if field.skip_when_absent {
             text.push_str(&format!(
                 "        if let Some(value) = &{receiver}.{name} {{ entries.push(({key:?}, value)); }}\n"
             ));
@@ -150,19 +233,39 @@ pub(crate) fn struct_impl_text(
 
 /// Render `impl SmeltInspect` for one non-generic concrete union enum: every
 /// method delegates to the member the value holds.
+///
+/// `inspectors` has one entry per member: the closure that draws it when its
+/// Rust type's impl would draw it wrong (`FunctionEmitter::console_inspector`),
+/// else `None`.
 #[must_use]
-pub(crate) fn union_impl_text(rust_name: &str, member_count: usize) -> String {
-    let arms = |call: &str| {
-        (0..member_count)
-            .map(|index| format!("Self::M{index}(value) => value.{call}"))
+pub(crate) fn union_impl_text(rust_name: &str, inspectors: &[Option<String>]) -> String {
+    let arms = |draw: &dyn Fn(&str) -> String, own: &str| {
+        inspectors
+            .iter()
+            .enumerate()
+            .map(|(index, member)| match member {
+                Some(inspector) => format!("Self::M{index}(value) => {}", draw(inspector)),
+                None => format!("Self::M{index}(value) => value.{own}"),
+            })
             .collect::<Vec<_>>()
             .join(", ")
     };
     format!(
         "impl {INSPECT_TRAIT} for {rust_name} {{\n    fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String {{ match self {{ {} }} }}\n    fn smelt_inspect_is_number(&self) -> bool {{ match self {{ {} }} }}\n    fn {CONSOLE_TEXT_METHOD}(&self) -> String {{ match self {{ {} }} }}\n}}\n",
-        arms("smelt_inspect(ctx, depth)"),
-        arms("smelt_inspect_is_number()"),
-        arms(&format!("{CONSOLE_TEXT_METHOD}()")),
+        arms(
+            &|inspector| format!("({inspector})(value, ctx, depth)"),
+            "smelt_inspect(ctx, depth)"
+        ),
+        arms(
+            &|_| "value.smelt_inspect_is_number()".to_owned(),
+            "smelt_inspect_is_number()"
+        ),
+        arms(
+            &|inspector| format!(
+                "{{ let mut smelt_ctx = SmeltInspectContext::default(); ({inspector})(value, &mut smelt_ctx, 0) }}"
+            ),
+            &format!("{CONSOLE_TEXT_METHOD}()"),
+        ),
     )
 }
 
@@ -209,15 +312,18 @@ mod tests {
                     key: "x".to_owned(),
                     rust_name: "x".to_owned(),
                     skip_when_absent: false,
+                    inspector: None,
                 },
                 InspectField {
                     key: "label".to_owned(),
                     rust_name: "label".to_owned(),
                     skip_when_absent: true,
+                    inspector: None,
                 },
             ],
             false,
             false,
+            None,
         );
         assert_eq!(
             text,
@@ -238,9 +344,11 @@ mod tests {
                 key: "next".to_owned(),
                 rust_name: "next".to_owned(),
                 skip_when_absent: false,
+                inspector: None,
             }],
             true,
             false,
+            None,
         );
         assert_eq!(
             reference,

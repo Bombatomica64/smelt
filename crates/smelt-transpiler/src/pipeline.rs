@@ -117,10 +117,7 @@ pub(crate) fn build_rust_crate_with_erasure(
         typedness_report::programs_of(&smelt_codegen_rust::measure_typedness(&mir)?, manifest_dir),
     );
     let output_dir = resolve_manifest_path(manifest_dir, config.output_target());
-    let crate_name = config
-        .output_crate_name()
-        .unwrap_or_else(|| config.project_name())
-        .replace('-', "_");
+    let crate_name = config.generated_crate_name();
     let backend_erasures = timing::measure("rust.emit_crate", || {
         smelt_codegen_rust::emit_crate_with_modules_reporting(
             &mir,

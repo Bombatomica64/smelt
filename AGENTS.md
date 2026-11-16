@@ -15,9 +15,11 @@ Use [corgi](https://corgi.build/) (`cargo install corgi-build`, one shared cache
 instead of `cargo` for every build, check, clippy and run, from the workspace root. Tight loop (`--lib` skips inline tests):
 corgi check --workspace --lib
 corgi clippy --workspace --lib
-ONLY on the TypeScript path, add `--no-default-features` (drops the `ty` Python stack):
-corgi check --workspace --lib --no-default-features
-corgi clippy --workspace --lib --no-default-features
+ONLY on the TypeScript path, drop the `ty` Python stack with `--no-default-features` but keep the TypeScript checker
+(`ts7`): plain `--no-default-features` also drops `ts7`, which skips the checker code (`#[cfg(feature = "ts7")]` in
+`ts_facts.rs`) and builds a `smelt` that refuses every TypeScript build by default (`type_gate.rs`: unverified sources):
+corgi check --workspace --lib --no-default-features --features smelt-transpiler/ts7
+corgi clippy --workspace --lib --no-default-features --features smelt-transpiler/ts7
 Also `corgi build --workspace`, `corgi run -p smelt-transpiler --bin smelt -- <args>`. Full check before a commit only:
 cargo clippy --workspace --all-targets
 cargo test

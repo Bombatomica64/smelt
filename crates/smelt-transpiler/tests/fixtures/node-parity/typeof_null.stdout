@@ -1,0 +1,9 @@
+object undefined
+object string
+undefined string
+obj obj
+null! num 3
+false false
+true false
+object,undefined,number,string,object,object,function
+false true object

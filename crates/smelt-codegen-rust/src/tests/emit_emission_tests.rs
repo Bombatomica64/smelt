@@ -793,7 +793,7 @@ def read(value: Optional[Optional[int]]) -> Optional[int]:
 
     assert_eq!(
         rust_items(&source, &["sig read"]),
-        r"fn read(value: Option<i64>) -> Option<i64>"
+        r"fn read(value: Option<SmeltPyInt>) -> Option<SmeltPyInt>"
     );
 }
 
@@ -945,8 +945,8 @@ def update(model: Model) -> int:
     // emitter's reserved `__smelt` namespace; the dispatch is unchanged.
     assert_eq!(
         rust_items(&emitted, &["fn update"]),
-        r"fn update(mut model: Model) -> i64 {
-model.src_smelt_set_value(7);
+        r"fn update(mut model: Model) -> SmeltPyInt {
+model.src_smelt_set_value(SmeltPyInt::Small(7));
 return model.src_smelt_get_value();
 }"
     );
@@ -962,8 +962,8 @@ return model.src_smelt_get_value();
     // shared cell of this reference class.
     assert_eq!(
         rust_items(&shadowing, &["fn update"]),
-        r"fn update(mut model: Model) -> i64 {
-model.0.borrow_mut().value = 7;
+        r"fn update(mut model: Model) -> SmeltPyInt {
+model.0.borrow_mut().value = SmeltPyInt::Small(7);
 return model.0.borrow().value.clone();
 }"
     );

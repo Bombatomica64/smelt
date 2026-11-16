@@ -110,9 +110,11 @@ fn rewrite_block(
 
     for (stmt, live_after) in block.statements.iter_mut().zip(&live.after_statement) {
         let counts = statement_read_counts(stmt);
-        stmt.value_mut().reads_mut(|operand| {
-            changed |= try_convert(operand, live_after, &counts, convertible);
-        });
+        if let Some(value) = stmt.value_mut() {
+            value.reads_mut(|operand| {
+                changed |= try_convert(operand, live_after, &counts, convertible);
+            });
+        }
     }
 
     if let Some(terminator) = &mut block.terminator {
@@ -177,7 +179,7 @@ fn convertible_locals(function: &MirFunction) -> HashSet<LocalId> {
 
     for block in &function.blocks {
         for stmt in &block.statements {
-            if let Rvalue::Closure { captures, .. } = stmt.value() {
+            if let Some(Rvalue::Closure { captures, .. }) = stmt.value() {
                 for capture in captures {
                     capture.read_locals(&mut |local| {
                         excluded.insert(local);

@@ -269,9 +269,10 @@ impl FunctionEmitter<'_> {
 
     /// Converts a constant to its match label text.
     pub(super) fn match_label_expr(&self, constant: &Constant) -> RustExpr {
-        match constant {
-            Constant::String(value) => RustExpr::chain(format!("{value:?}")),
-            _ => constant_expr(constant, self.indexes_utf16()),
+        if let Constant::String(value) = constant {
+            RustExpr::chain(format!("{value:?}"))
+        } else {
+            constant_expr(constant, self.indexes_utf16())
         }
     }
 

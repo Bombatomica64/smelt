@@ -24,7 +24,10 @@
 //! this module, not in the user's program: [`ModuleGraph::resolved_specifier`]
 //! lets the diagnostics turn it into an internal error.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+#[cfg(feature = "ts7")]
+use std::collections::BTreeSet;
+use std::collections::{BTreeMap, HashMap};
+#[cfg(feature = "ts7")]
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
@@ -65,6 +68,7 @@ impl<'run> ModuleGraph<'run> {
 
     /// Whether `importer` (a source path as the checker reports it) has an
     /// import of `specifier` that Smelt resolved.
+    #[cfg(feature = "ts7")]
     pub(crate) fn resolved_specifier(&self, importer: &Path, specifier: &str) -> bool {
         self.source_at(importer).is_some_and(|source| {
             source
@@ -182,6 +186,7 @@ impl CrossLanguageStubs {
     }
 
     /// The `.pyi` stubs, each at the path a Python import of its provider looks.
+    #[cfg(feature = "python")]
     pub(crate) fn python_declarations(&self) -> Vec<(PathBuf, &str)> {
         self.python
             .iter()
@@ -192,6 +197,7 @@ impl CrossLanguageStubs {
 
 /// Where a stub of `provider` goes: beside it with `extension`, or, for a
 /// package's `__init__.py` / `index.ts`, as the package's `package_entry`.
+#[cfg(any(feature = "python", feature = "ts7", test))]
 fn stub_path(provider: &Path, extension: &str, package_entry: &str) -> PathBuf {
     let is_entry = provider
         .file_stem()
@@ -214,6 +220,7 @@ fn stub_path(provider: &Path, extension: &str, package_entry: &str) -> PathBuf {
 /// resolve `./x` to `link/src/x.ts`, a second copy of the program's
 /// `real/src/x.ts`, and the two copies' types did not meet. The name the
 /// facts are filed under stays the spelled path ([`SourceInput::new`]).
+#[cfg(feature = "ts7")]
 pub(crate) fn checker_location(source: &ManifestSource) -> PathBuf {
     let absolute = canonical(&source.path);
     if source.lang != SourceLang::TypeScript {
@@ -239,6 +246,7 @@ fn canonical(path: &Path) -> PathBuf {
 }
 
 /// Whether `specifier` is bare (a package name), not relative or absolute.
+#[cfg(any(feature = "ts7", test))]
 fn is_bare(specifier: &str) -> bool {
     !(specifier.starts_with('.') || specifier.starts_with('/'))
 }

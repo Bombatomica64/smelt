@@ -105,8 +105,23 @@ impl FunctionEmitter<'_> {
         kind: smelt_hir::GeneratorResumeKind,
         method: &str,
     ) -> Result<RustExpr, EmitError> {
+        // The value `next(value)` sends is converted to the generator's
+        // resume type (`TNext`), as any argument is to its parameter's type:
+        // `next(5)` into a `number | undefined` channel is `Some(5.0)`, and
+        // into an erased one the erased number.
+        let next_ty = match self.mir.types.get(self.operand_ty(generator)?) {
+            Some(Type::Generator { next_ty, .. })
+                if kind == smelt_hir::GeneratorResumeKind::Next =>
+            {
+                Some(*next_ty)
+            }
+            _ => None,
+        };
         let raw_value = value
-            .map(|value| self.operand_expr(value))
+            .map(|sent| match next_ty {
+                Some(sent_ty) => self.value_at_type(sent, sent_ty),
+                None => self.operand_expr(sent),
+            })
             .transpose()?
             .unwrap_or_else(|| RustExpr::atom("Default::default()"));
         let command = match kind {

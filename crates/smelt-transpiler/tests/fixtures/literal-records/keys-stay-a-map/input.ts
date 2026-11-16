@@ -9,9 +9,11 @@
 // lowering it always had (`literal_record_uses`, `Disqualifier::Keys` and
 // `Disqualifier::Shape`).
 //
-// This family is a precaution: lowered as record structs, these particular
-// lines print the same. Only these instances were checked, so the fixture
-// pins the map lowering and Node's answers.
+// A WRITE through a computed key is the case that needs it: lowered as a
+// record struct, the line marked (*) prints `1 {"hits":1,"name":"scores"}`,
+// the write lost. The reads below print the same either way; only these
+// instances were checked, so the fixture pins the map lowering and Node's
+// answers for them too.
 //
 // Every line below is diffed against Node.
 
@@ -22,6 +24,10 @@ function computedKeys(): void {
     console.log(name, counters[name]);
   }
   console.log("hits" in counters, "misses" in counters);
+  const scores = { hits: 1, name: "scores" };
+  const which: "hits" = "hits";
+  scores[which] += 10;
+  console.log(scores.hits, JSON.stringify(scores)); // (*)
 }
 
 function enumeration(): void {

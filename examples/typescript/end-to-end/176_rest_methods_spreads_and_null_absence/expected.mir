@@ -57,17 +57,16 @@ fn add (FuncId(3)) -> Float
     %1 param first: Float
     %2 param more: List<Float>
     %3 temp: List<Float>
-    %4 temp: Float
+    %4 temp: List<Float>
     %5 temp: List<Float>
     %6 temp: Float
     %7 temp: Float
   bb0:
     %3 = copy %0.field6
-    %4 = list_push copy %3, copy %1
+    %4 = [copy %1]
+    %5 = list_concat move %4, copy %2
+    %6 = list_extend copy %3, move %5
     %0.field6 = move %3
-    %5 = copy %0.field6
-    %6 = list_extend copy %5, copy %2
-    %0.field6 = move %5
     %7 = len copy %0.field6
     return move %7
 

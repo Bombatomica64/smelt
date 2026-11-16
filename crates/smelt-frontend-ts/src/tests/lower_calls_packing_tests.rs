@@ -5680,7 +5680,9 @@ export function reachedOptional(value: Slots | undefined): string {
     ensure_signature(
         &ctx,
         "reached_optional",
-        "reached_optional(value: (String, String) | (String) | None) -> String",
+        // Old requirement: `(String, String) | (String) | None`. Two present
+        // arms and a nullish one are the optional of the present union.
+        "reached_optional(value: Optional<(String, String) | (String)>) -> String",
     )?;
     ensure_exprs!(&ctx, PrimitiveCast);
     Ok(())
@@ -7551,10 +7553,16 @@ export const clean = (rule: string) => rule.trim().split(' ').filter(negate(isEm
     Ok(())
 }
 
+/// A getter of an object literal with no record type is stored as the
+/// accessor marker `{ __smelt_get: getter }` in a map of ERASED values, the
+/// only map whose property read calls an accessor (`smelt_record_property`).
+/// A getter-only literal used to join its marker values into a map of marker
+/// maps (`Dict<String, Dict<String, ..>>`), whose `router.routes` read
+/// answered the marker itself.
 #[test]
-fn lowers_complex_object_getters_as_opaque_values() -> Result<(), String> {
+fn object_literal_getter_is_an_accessor_entry_of_an_erased_map() -> Result<(), String> {
     let mut ctx = HirCtx::new();
-    lower_ok(
+    let module_id = lower_ok(
         ts!(r"
 let cached: string[];
 
@@ -7571,6 +7579,34 @@ const router = {
         &mut ctx,
     )?;
     ensure_exprs!(&ctx, Closure, DictProjection, UnaryOp);
+    let body = module_body(&ctx, module(&ctx, module_id)?)?;
+    let router = body
+        .locals
+        .iter()
+        .find(|local| {
+            local
+                .name
+                .is_some_and(|symbol| symbol_is(&ctx, symbol, "router"))
+        })
+        .ok_or("no `router` local")?;
+    let router_ty = smelt_hir::type_display(&ctx.krate, router.ty);
+    ensure_eq!(router_ty.as_str(), "Dict<String, Unknown>");
+    let marker_wraps_closure = body.exprs.iter().any(|expr| match &expr.kind {
+        ExprKind::DictLit(pairs) => pairs.iter().any(|(key, value)| {
+            matches!(
+                usize::try_from(key.0).ok().and_then(|index| body.exprs.get(index)).map(|key| &key.kind),
+                Some(ExprKind::Literal(Literal::String(text))) if text == "__smelt_get"
+            ) && matches!(
+                usize::try_from(value.0).ok().and_then(|index| body.exprs.get(index)).map(|value| &value.kind),
+                Some(ExprKind::Closure(_))
+            )
+        }),
+        _ => false,
+    });
+    ensure!(
+        marker_wraps_closure,
+        "the getter is not an accessor marker over its closure"
+    );
     Ok(())
 }
 
@@ -10404,11 +10440,19 @@ function pad(values: number[]): unknown {
 
 #[test]
 fn lowers_matches_property_array_iteratee_callback() -> Result<(), String> {
-    // The lodash array iteratee shorthand `[path, srcValue]` is a
-    // matchesProperty predicate (es-toolkit memoize.spec's
-    // `lodashStable.find(this.__data__, ['key', key])`); it must classify as a
-    // callback instead of failing with "array callback methods currently
-    // require arrow function callbacks".
+    // The lodash array iteratee shorthand `[path, srcValue]` passed to a
+    // namespace member (es-toolkit memoize.spec's
+    // `lodashStable.find(this.__data__, ['key', key])`) must lower instead of
+    // failing with "array callback methods currently require arrow function
+    // callbacks".
+    //
+    // Old requirement: the call was lowered as `Array.prototype.find` with the
+    // shorthand turned into a synthesized closure, and its result was a
+    // fabricated `None` (the namespace's own `find` never ran). New
+    // requirement: a namespace member is that module's function, called as
+    // written, with the iteratee array passed as the list it is; the module
+    // implements the shorthand. Asserting the synthesized closure pinned the
+    // placeholder, not JavaScript's behaviour.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
         ts!(r#"
@@ -10422,8 +10466,11 @@ function lookup(entries: Array<{ key: string; value: string }>, key: string): un
     )?;
     let _module = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
-    ensure_exprs!(&ctx, Closure, ListLit, BinOp);
-    ensure!(crate_has_field(&ctx, "key"), "no read of field `key`");
+    ensure_exprs!(&ctx, ListLit);
+    ensure!(
+        !crate_has_expr(&ctx, |kind| matches!(kind, ExprKind::ListCallback { .. })),
+        "a namespace member call is not `Array.prototype.find`"
+    );
     Ok(())
 }
 

@@ -418,7 +418,7 @@ function link(value: unknown): unknown {
     assert!(source.contains("let smelt_value ="), "{source}");
     assert!(source.contains("match &mut value"), "{source}");
     assert!(
-        source.contains("map.insert(\"self\".to_owned(), smelt_value);"),
+        source.contains("smelt_object_put(smelt_map, \"self\".to_owned(), smelt_value);"),
         "{source}"
     );
 }

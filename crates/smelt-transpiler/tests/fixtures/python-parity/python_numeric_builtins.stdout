@@ -1,0 +1,13 @@
+2 4 0 -2 2.67 1200.0 0.0
+1200 1400 -1200 5 1e+300 0.0 -0.0
+inf 1180591620717411303500 0.3 1.0
+A 😀 65 233 (-4, 1) (3.0, 1.5) (393530540239137101141, 1)
+1024 0.25 1 4 1.4142135623730951
+ValueError: cannot convert float NaN to integer
+OverflowError: cannot convert float infinity to integer
+ValueError: chr() arg not in range(0x110000)
+TypeError: ord() expected a character, but string of length 2 found
+ZeroDivisionError: division by zero
+1 4 [2] 3 [2]
+IndexError: pop index out of range
+IndexError: pop from empty list

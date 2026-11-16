@@ -24,16 +24,23 @@ impl FunctionEmitter<'_> {
         let field_ty = self.field_access_type(inner_ty, field)?;
         if is_optional {
             let value = self.field_access_expr(&RustExpr::path("_smelt_value"), inner_ty, field)?;
-            if let Some(Type::Optional(dest_inner, _)) = self.mir.types.get(dest_ty) {
-                if let Some(Type::Optional(field_inner, _)) = self.mir.types.get(field_ty) {
-                    let mapped = self.optional_inner_map_expr(&value, *field_inner, *dest_inner)?;
+            if let Some(&Type::Optional(dest_inner, dest_absence)) = self.mir.types.get(dest_ty) {
+                // A field whose absent value is the chain's own (`undefined`
+                // for `?.`) folds into the chain's `None`; one of the other
+                // absence (`parent: string | null`) is a present value of the
+                // chain, mapped whole: its `null` stays the inner layer.
+                if let Some(&Type::Optional(field_inner, field_absence)) =
+                    self.mir.types.get(field_ty)
+                    && field_absence == dest_absence
+                {
+                    let mapped = self.optional_inner_map_expr(&value, field_inner, dest_inner)?;
                     return Ok(receiver_text.postfix(format!(
                         ".as_ref().and_then(|_smelt_value| {mapped})",
                         mapped = mapped.delimited()
                     )));
                 }
                 if let Some(erased) =
-                    self.erased_field_optional_map_expr(&value, field_ty, *dest_inner)?
+                    self.erased_field_optional_map_expr(&value, field_ty, dest_inner)?
                 {
                     return Ok(receiver_text.postfix(format!(
                         ".as_ref().and_then(|_smelt_value| {erased})",
@@ -41,7 +48,7 @@ impl FunctionEmitter<'_> {
                     )));
                 }
                 let mapped =
-                    self.rendered_at_type(&value, field_ty, *dest_inner, &self.render_scope())?;
+                    self.rendered_at_type(&value, field_ty, dest_inner, &self.render_scope())?;
                 return Ok(receiver_text.postfix(format!(
                     ".as_ref().map(|_smelt_value| {mapped})",
                     mapped = mapped.delimited()
@@ -55,17 +62,21 @@ impl FunctionEmitter<'_> {
             )))
         } else {
             let value = self.field_access_expr(&receiver_text, inner_ty, field)?;
-            if let Some(Type::Optional(dest_inner, _)) = self.mir.types.get(dest_ty) {
-                if let Some(Type::Optional(field_inner, _)) = self.mir.types.get(field_ty) {
-                    return self.optional_inner_map_expr(&value, *field_inner, *dest_inner);
+            if let Some(&Type::Optional(dest_inner, dest_absence)) = self.mir.types.get(dest_ty) {
+                // As above: only a field of the chain's own absence folds.
+                if let Some(&Type::Optional(field_inner, field_absence)) =
+                    self.mir.types.get(field_ty)
+                    && field_absence == dest_absence
+                {
+                    return self.optional_inner_map_expr(&value, field_inner, dest_inner);
                 }
                 if let Some(erased) =
-                    self.erased_field_optional_map_expr(&value, field_ty, *dest_inner)?
+                    self.erased_field_optional_map_expr(&value, field_ty, dest_inner)?
                 {
                     return Ok(erased);
                 }
                 let mapped =
-                    self.rendered_at_type(&value, field_ty, *dest_inner, &self.render_scope())?;
+                    self.rendered_at_type(&value, field_ty, dest_inner, &self.render_scope())?;
                 return Ok(RustExpr::chain(format!(
                     "Some({mapped})",
                     mapped = mapped.delimited()

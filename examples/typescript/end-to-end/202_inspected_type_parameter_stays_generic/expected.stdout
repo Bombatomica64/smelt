@@ -1,0 +1,12 @@
+false false false false
+false false false
+false false false
+number string boolean object bigint
+true false false true false true
+5 2 x y 2
+1,2,3 a,b
+2 0
+3 number,number string object
+1,2,3,4 true
+5 5 1,2,3,4,5
+2 5 2

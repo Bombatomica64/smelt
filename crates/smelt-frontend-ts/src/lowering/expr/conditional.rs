@@ -186,8 +186,12 @@ impl ModuleBuilder<'_> {
         }
     }
 
-    /// `Some(true)` for a `null` literal arm, `Some(false)` for `undefined`.
-    fn nullish_literal_of(body: &Body, expr: smelt_hir::ExprId) -> Option<bool> {
+    /// `Some(true)` for the `null` literal, `Some(false)` for `undefined`
+    /// (through type assertions), `None` for any other expression.
+    pub(in crate::lowering) fn nullish_literal_of(
+        body: &Body,
+        expr: smelt_hir::ExprId,
+    ) -> Option<bool> {
         match &body.expr_at(expr)?.kind {
             ExprKind::Literal(smelt_hir::Literal::None) => Some(true),
             ExprKind::Literal(smelt_hir::Literal::Undefined) => Some(false),

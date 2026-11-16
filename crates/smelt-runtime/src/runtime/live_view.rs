@@ -49,6 +49,12 @@ pub trait SmeltLiveObject {
     //~ The typed handle itself, so a view narrowed back to the record type
     //~ hands out this record rather than a copy.
     fn smelt_live_handle(&self) -> &dyn ::std::any::Any;
+    //~ Whether every declared property is present in every value of the
+    //~ record type (none is optional). The own keys of such a record are
+    //~ then `smelt_field_names` until a view gives it an open shape, so a
+    //~ view can list them without reading a value (`smelt_live_keys`).
+    //~ Generated `true` where it holds; the default asks the values.
+    fn smelt_fields_always_present(&self) -> bool { false }
 }
 
 /// Where a live record's `smelt_field_get` leaves the one value it reads.
@@ -82,8 +88,11 @@ thread_local! {
     //~ AND length of its literal (literals share storage: `"p"` may be the
     //~ tail of `"tag-p"`, so neither alone names one). A view refresh names
     //~ every field of its record, and a `JsString` built per field per
-    //~ refresh was most of its cost.
-    static SMELT_LIVE_KEYS: ::std::cell::RefCell<::std::collections::HashMap<(usize, usize), JsString>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
+    //~ refresh was most of its cost. The key is two addresses-sized words,
+    //~ so the table hashes them with the address hasher: listing the keys or
+    //~ serializing a view looks every declared name up, and the default
+    //~ (SipHash) lookup was a third of `Object.keys` of a four-property view.
+    static SMELT_LIVE_KEYS: ::std::cell::RefCell<::std::collections::HashMap<(usize, usize), JsString, ::std::hash::BuildHasherDefault<SmeltAddressHasher>>> = ::std::cell::RefCell::new(::std::collections::HashMap::default());
 }
 
 /// The JavaScript string of the declared property name `name`.
@@ -220,6 +229,20 @@ fn smelt_live_entries(object: &::std::rc::Rc<dyn SmeltLiveObject>) -> Vec<(JsStr
     entries
 }
 
+/// The data keys of the record behind a view, in the object's own-key order.
+//~
+//~ What `Object.keys`, a `for..in` and a length ask. A record whose
+//~ properties are all always present and that has no open shape answers
+//~ from its declared names: no field is erased to be dropped again, which is
+//~ what a refresh of the whole view (`SmeltStoreCell::sync`) would do. Any
+//~ other record answers from its entries, as before.
+fn smelt_live_keys(object: &::std::rc::Rc<dyn SmeltLiveObject>) -> Vec<JsString> {
+    if object.smelt_fields_always_present() && smelt_open_shape_read(object.smelt_live_address(), |_| ()).is_none() {
+        return object.smelt_field_names().iter().map(|name| smelt_live_field_name(name)).collect();
+    }
+    smelt_live_entries(object).into_iter().map(|(key, _)| key).collect()
+}
+
 /// Give `record`, just built from the erased object `id` with `entries`, that
 /// object's identity, own-key order and undeclared properties.
 fn smelt_live_adopt(record: &dyn SmeltLiveObject, id: usize, entries: Vec<(JsString, SmeltUnknown)>) {
@@ -245,7 +268,7 @@ impl SmeltLiveLink<JsString, SmeltUnknown> {
     //~ The link of an erased view of `object`.
     fn erased(object: ::std::rc::Rc<dyn SmeltLiveObject>) -> Self {
         let (wrap, unwrap) = SMELT_LIVE_ERASED.with(|(wrap, unwrap)| (::std::rc::Rc::clone(wrap), ::std::rc::Rc::clone(unwrap)));
-        Self { object, key: |name| name, wrap, unwrap, same: |left, right| left.js_strict_eq(right), apply: |store, entries, same| store.resync(entries, same) }
+        Self { object, key: |name| name, wrap, unwrap, same: |left, right| left.js_strict_eq(right), apply: |store, entries, same| store.resync(entries, same), keeps: |value| matches!(value, SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_)) }
     }
 }
 
@@ -259,7 +282,7 @@ impl SmeltObject {
     fn smelt_typed_view<V: 'static>(&self, wrap: impl Fn(SmeltUnknown) -> V + 'static, unwrap: impl Fn(&V) -> SmeltUnknown + 'static) -> Option<SmeltRecord<JsString, V>> {
         let object = self.store.live.borrow().as_ref().map(|link| ::std::rc::Rc::clone(&link.object))?;
         let record = SmeltRecord { id: self.id, store: ::std::rc::Rc::new(SmeltStoreCell::new(SmeltFieldStore::default())) };
-        *record.store.live.borrow_mut() = Some(SmeltLiveLink { object, key: |name| name, wrap: ::std::rc::Rc::new(wrap), unwrap: ::std::rc::Rc::new(unwrap), same: |_, _| false, apply: |store, entries, same| store.resync(entries, same) });
+        *record.store.live.borrow_mut() = Some(SmeltLiveLink { object, key: |name| name, wrap: ::std::rc::Rc::new(wrap), unwrap: ::std::rc::Rc::new(unwrap), same: |_, _| false, apply: |store, entries, same| store.resync(entries, same), keeps: |_| false });
         Some(record)
     }
 }

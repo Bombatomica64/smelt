@@ -2,8 +2,7 @@
 
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
-use oxc::ast::ast::{Argument, Expression};
-use oxc::span::GetSpan;
+use oxc::ast::ast::Expression;
 use smelt_hir::{
     Body, CaptureMode, ClosureCapture, Expr, ExprKind, FunctionType, LocalDecl, Param, Pattern,
     Span, Stmt, Type,
@@ -213,64 +212,5 @@ impl ModuleBuilder<'_> {
             mode: CaptureMode::ByRef,
         });
         body_local
-    }
-
-    /// Fold Remeda partial-bind nested calls into direct closure calls.
-    pub(in crate::lowering) fn partial_bind_nested_call(
-        &mut self,
-        callee_call: &oxc::ast::ast::CallExpression<'_>,
-        outer_call: &oxc::ast::ast::CallExpression<'_>,
-        body: &mut Body,
-    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        let Expression::Identifier(callee) = &callee_call.callee else {
-            return Ok(None);
-        };
-        let append_partial_last = match callee.name.as_str() {
-            "partialBind" => false,
-            "partialLastBind" => true,
-            _ => return Ok(None),
-        };
-        let Some((function_arg, prefix_args)) = callee_call.arguments.split_first() else {
-            return Err(SmeltError::unsupported(
-                self.span(callee_call.span.start, callee_call.span.end),
-                "partialBind requires a function argument",
-            ));
-        };
-        let callee_expr = self.argument(function_arg, body)?;
-        let function_ty = self
-            .ctx
-            .krate
-            .types
-            .get(Self::expr_ty(body, callee_expr))
-            .cloned();
-        let Some(Type::Function(function)) = function_ty else {
-            return Err(SmeltError::unsupported(
-                self.span(function_arg.span().start, function_arg.span().end),
-                "partialBind function argument must be callable",
-            ));
-        };
-        let mut args = Vec::new();
-        let ordered_args: Box<dyn Iterator<Item = &Argument<'_>>> = if append_partial_last {
-            Box::new(outer_call.arguments.iter().chain(prefix_args.iter()))
-        } else {
-            Box::new(prefix_args.iter().chain(outer_call.arguments.iter()))
-        };
-        for arg in ordered_args {
-            args.push(self.argument(arg, body)?);
-        }
-        if args.len() != function.params.len() {
-            return Err(SmeltError::unsupported(
-                self.span(outer_call.span.start, outer_call.span.end),
-                "partialBind folded call argument count does not match function",
-            ));
-        }
-        Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::ClosureCall {
-                callee: callee_expr,
-                args,
-            },
-            ty: function.return_ty,
-            span: self.span(outer_call.span.start, outer_call.span.end),
-        })))
     }
 }

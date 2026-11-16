@@ -1,4 +1,13 @@
 //! Generated Rust for generic functions and type parameters.
+//!
+//! A program here that holds no erased value bounds its type parameters
+//! `Clone + Default + 'static`: the erasure traits exist only with the erased
+//! carrier (`classes::generated_type_param_bounds`). These tests used to pin the
+//! full set (`+ IntoSmeltUnknown + SmeltFromUnknown`), which every generic item
+//! carried because the carrier was then demanded by any generic item at all;
+//! the carrier-free emission is checked against its own text
+//! (`crate_builder::emit_root`), so the shorter set cannot reach a body that
+//! converts a `T`.
 
 use super::*;
 
@@ -186,11 +195,15 @@ function copy<T>(value: T): unknown[] {
     );
 }
 
+/// The bound is a template literal type so that `S` stays erased: a parameter bounded by
+/// the bare `string` keyword is a `JsString` (`lowering/ty/primitive_params.rs`, covered by
+/// `primitive_bounded_type_param_is_the_primitive`), and this test is about the index read
+/// off an ERASED string. It was written with `S extends string` when that erased too.
 #[test]
 fn emits_runtime_index_for_erased_string_generics() {
     let source = source_for(
         r"
-function first<S extends string>(value: S): string {
+function first<S extends `a${string}`>(value: S): string {
   return value[0];
 }
 ",
@@ -465,7 +478,7 @@ export function useDropStrings(): string[] {
             &source,
             &["sig drop_first", "fn use_drop", "fn use_drop_strings"]
         ),
-        r#"fn drop_first<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(mut arr: &mut SmeltList<T>) -> SmeltList<T>
+        r#"fn drop_first<T: Clone + Default + 'static>(mut arr: &mut SmeltList<T>) -> SmeltList<T>
 
 fn use_drop() -> SmeltList<f64> {
 let mut xs: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0, 3.0]; smelt_list_items }));
@@ -506,7 +519,7 @@ export function useTake(): number {
 
     assert_eq!(
         rust_items(&source, &["sig take_held", "fn use_take"]),
-        r"fn take_held<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(mut arr: &mut SmeltList<T>) -> Holder<T>
+        r"fn take_held<T: Clone + Default + 'static>(mut arr: &mut SmeltList<T>) -> Holder<T>
 
 fn use_take() -> f64 {
 let held: Holder<f64>;
@@ -596,7 +609,7 @@ const doubled = mapArr(nums, (x) => x * 2);
 fn constrained_type_param_erases_without_demoting_its_siblings() {
     let source = source_for(
         r"
-function pickFirst<T, K extends string>(arr: T[], key: (item: T) => K, fallback: T): T {
+function pickFirst<T, K extends PropertyKey>(arr: T[], key: (item: T) => K, fallback: T): T {
   if (arr.length > 0) { return arr[0]; }
   return fallback;
 }
@@ -611,18 +624,22 @@ const v = pickFirst(nums, (n) => (n > 1 ? 'big' : 'small'), 0);
     );
 }
 
-/// A type parameter inspected inside a closure body does not lift even when the enclosing
-/// function body only moves it, because the emitted inspection runs against the erased
-/// carrier.
+/// A type parameter COMPARED inside a closure body does not lift even when the enclosing
+/// function body only moves it, because the comparison runs against the erased carrier.
+///
+/// The closure used to ask `typeof item === 'string'`. That question is now a scalar
+/// inspection answered on an erased copy (`crate::generic_inspection`, covered by
+/// `scalar_inspection_of_a_type_param_keeps_it_generic`), so the closure here compares two
+/// `T` values instead, which no erased copy of one value answers.
 #[test]
 fn type_param_inspected_inside_a_closure_does_not_lift() {
     // The generic parameter list must be absent and the inspected `T` must not reach the
     // parameters.
     let source = source_for(
         r"
-function scan<T, K extends string>(arr: T[], key: (item: T) => K): T[] {
+function scan<T, K extends PropertyKey>(arr: T[], key: (item: T) => K): T[] {
   const out: T[] = [];
-  arr.forEach((item) => { if (typeof item === 'string') { out.push(item); } });
+  arr.forEach((item) => { if (item === arr[0]) { out.push(item); } });
   return out;
 }
 const r = scan(['a', 'b'], (s) => 'k');
@@ -632,6 +649,57 @@ const r = scan(['a', 'b'], (s) => 'k');
     assert_eq!(
         rust_items(&source, &["sig scan"]),
         r"fn scan(arr: SmeltList<SmeltUnknown>, key: &dyn Fn(&SmeltUnknown) -> SmeltUnknown) -> SmeltList<SmeltUnknown>"
+    );
+}
+
+/// A scalar inspection of a bare `T` value keeps `T` generic (`crate::generic_inspection`):
+/// absence, `typeof` (directly and as a guard inside a closure) and truthiness. A member read
+/// and a comparison of two `T` values are not scalar inspections and keep the function erased.
+///
+/// Planted defect: with `is_scalar_inspection` answering `false`, `is_nil`, `kind`, `truthy`
+/// and `strings` lose their generics and this test fails.
+#[test]
+fn scalar_inspection_of_a_type_param_keeps_it_generic() {
+    let source = source_for(
+        r"
+export function isNil<T>(value: T): boolean { return value == null; }
+export function kind<T>(value: T): string { return typeof value; }
+export function truthy<T>(value: T, fallback: T): T { return value ? value : fallback; }
+export function strings<T>(items: T[]): T[] {
+  const out: T[] = [];
+  items.forEach((item) => { if (typeof item === 'string') { out.push(item); } });
+  return out;
+}
+export function same<T>(left: T, right: T): boolean { return left === right; }
+console.log(isNil(1), kind(2), truthy(0, 3), strings(['a']).length, same(1, 2));
+",
+    );
+
+    assert_eq!(
+        rust_items(
+            &source,
+            &[
+                "sig is_nil",
+                "sig kind",
+                "sig truthy",
+                "sig strings",
+                "sig same"
+            ]
+        ),
+        r"fn is_nil<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(value: T) -> bool
+
+fn kind<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(value: T) -> JsString
+
+fn truthy<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(value: T, fallback: T) -> T
+
+fn strings<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(items: SmeltList<T>) -> SmeltList<T>
+
+fn same(left: SmeltUnknown, right: SmeltUnknown) -> bool"
+    );
+    // The absent side of the test is never recovered as a `T`.
+    assert!(
+        source.contains("matches!((value.clone()).into_smelt_unknown(), SmeltUnknown::Null | SmeltUnknown::Undefined)"),
+        "{source}"
     );
 }
 
@@ -648,7 +716,7 @@ const r = scan(['a', 'b'], (s) => 'k');
 fn type_param_moved_into_an_erased_container_lifts() {
     let source = source_for(
         r"
-function collect<T, K extends string>(rows: T[][], key: (vals: T[]) => K): K[] {
+function collect<T, K extends PropertyKey>(rows: T[][], key: (vals: T[]) => K): K[] {
   const out: K[] = [];
   for (let i = 0; i < rows.length; i++) {
     const group = new Array(rows.length);
@@ -739,7 +807,10 @@ export function hold<T>(trunk: Trunk<T>): Trunk<T> {
             "expected a spelled-out `{spelled}` impl: {source}"
         );
     }
-    assert!(source.contains("impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Default for Trunk<T>"), "a generic value class takes the generated bound set on `Default`: {source}");
+    assert!(
+        source.contains("impl<T: Clone + Default + 'static> Default for Trunk<T>"),
+        "a generic value class takes the generated bound set on `Default`: {source}"
+    );
 }
 
 #[test]
@@ -755,7 +826,7 @@ export function repeat<T>(x: T, n: number): T { return n > 0 ? repeat(x, n - 1) 
 
     assert_eq!(
         rust_items(&source, &["fn repeat"]),
-        r"fn repeat<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(x: T, n: f64) -> T {
+        r"fn repeat<T: Clone + Default + 'static>(x: T, n: f64) -> T {
 let mut _smelt_tmp_3: T;
 let _smelt_tmp_4: f64;
 let _smelt_tmp_2: bool = n > 0.0;
@@ -768,5 +839,54 @@ _smelt_tmp_3 = x.clone();
 }
 return _smelt_tmp_3;
 }"
+    );
+}
+
+/// A function type parameter bounded by one primitive keyword is that primitive
+/// (`smelt_frontend_ts::lowering::ty::primitive_params`); `PropertyKey`, `keyof T` and a union
+/// of primitives are outside the rule and keep the erased value.
+///
+/// Planted defect: with `primitive_bounded_params` returning no parameter, `echo`, `twice`,
+/// `flip` and `bump` take and return `SmeltUnknown` and this test fails.
+#[test]
+fn primitive_bounded_type_param_is_the_primitive() {
+    let source = source_for(
+        r"
+export function echo<S extends string>(text: S): S { return text; }
+export function twice<N extends number>(value: N): N[] { return [value, value]; }
+export function flip<B extends boolean>(flag: B): boolean { return !flag; }
+export function bump<I extends bigint>(value: I): bigint { return value + 1n; }
+export function keyed<K extends PropertyKey>(key: K): K { return key; }
+export function either<U extends string | number>(value: U): U { return value; }
+export function member<T, K extends keyof T>(key: K): K { return key; }
+",
+    );
+
+    assert_eq!(
+        rust_items(
+            &source,
+            &[
+                "sig echo",
+                "sig twice",
+                "sig flip",
+                "sig bump",
+                "sig keyed",
+                "sig either",
+                "sig member"
+            ]
+        ),
+        r"fn echo(text: JsString) -> JsString
+
+fn twice(value: f64) -> SmeltList<f64>
+
+fn flip(flag: bool) -> bool
+
+fn bump(value: ::num_bigint::BigInt) -> ::num_bigint::BigInt
+
+fn keyed(key: SmeltUnknown) -> SmeltUnknown
+
+fn either(value: SmeltUnknown) -> SmeltUnknown
+
+fn member(key: SmeltUnknown) -> SmeltUnknown"
     );
 }

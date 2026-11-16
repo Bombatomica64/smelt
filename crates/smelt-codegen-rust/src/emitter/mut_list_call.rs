@@ -398,9 +398,8 @@ impl FunctionEmitter<'_> {
         if !self.parameter_needs_mutable_reference_in(function, param) {
             return Ok(None);
         }
-        let local = match arg {
-            Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) => *local,
-            _ => return Ok(None),
+        let Some(local) = arg.local() else {
+            return Ok(None);
         };
         let place = Place::Local(local);
         if !self.mut_list_place_is_writable(local)? {

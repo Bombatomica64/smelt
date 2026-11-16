@@ -174,9 +174,10 @@ impl RustExpr {
     /// `text`, a postfix applied to `receiver`: it binds as `receiver` does.
     #[must_use]
     pub fn postfix_on(receiver: &(impl Formed + ?Sized), text: impl Into<String>) -> Self {
-        let precedence = match receiver.precedence() {
-            Precedence::Path => Precedence::Chain,
-            other => other,
+        let precedence = if receiver.precedence() == Precedence::Path {
+            Precedence::Chain
+        } else {
+            receiver.precedence()
         };
         Self::with_precedence(text, precedence)
     }
@@ -815,6 +816,19 @@ pub struct RustType {
     spells_erased: bool,
     /// Whether the rendered type spells a type parameter anywhere inside it.
     spells_type_param: bool,
+    /// For a nominal type spelled with type arguments ([`RustShape::GenericClass`]):
+    /// its path and its argument list, kept apart so an expression position can
+    /// spell the turbofish (`Name::<A, B>`) without re-parsing the text.
+    generic_parts: Option<GenericParts>,
+}
+
+/// The path and the argument texts of a generic nominal type ([`RustType::generic_class`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct GenericParts {
+    /// The type's path, `Name`.
+    path: String,
+    /// The argument texts, in order.
+    args: Vec<String>,
 }
 
 /// What a rendered Rust type is, for a decision that depends on the output type
@@ -855,6 +869,44 @@ impl RustType {
             holds_carrier: shape == RustShape::Erased,
             spells_erased: matches!(shape, RustShape::Erased | RustShape::ErasedFunction),
             spells_type_param: shape == RustShape::Generic,
+            generic_parts: None,
+        }
+    }
+
+    /// The nominal type `path<args..>`, holding what its arguments hold.
+    /// [`Self::expression_path`] spells it in an expression position.
+    #[must_use]
+    pub fn generic_class<'a>(
+        path_text: impl Into<String>,
+        arg_types: impl IntoIterator<Item = &'a Self>,
+    ) -> Self {
+        let path = path_text.into();
+        let args = arg_types.into_iter().collect::<Vec<_>>();
+        let arg_texts = args
+            .iter()
+            .map(|arg| arg.as_str().to_owned())
+            .collect::<Vec<_>>();
+        let mut rendered = Self::with_shape(
+            format!("{path}<{}>", arg_texts.join(", ")),
+            RustShape::GenericClass,
+        )
+        .holding(args);
+        rendered.generic_parts = Some(GenericParts {
+            path,
+            args: arg_texts,
+        });
+        rendered
+    }
+
+    /// This type as a path in an expression position: a generic nominal type
+    /// spells its arguments as a turbofish (`Name::<A, B>`), so a constructor
+    /// call through it never leaves them to inference; any other type is its
+    /// text.
+    #[must_use]
+    pub fn expression_path(&self) -> String {
+        match &self.generic_parts {
+            Some(parts) => format!("{}::<{}>", parts.path, parts.args.join(", ")),
+            None => self.text.clone(),
         }
     }
 

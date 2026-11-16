@@ -187,6 +187,9 @@ impl FunctionEmitter<'_> {
                                 .all(|field| self.inspectable_in(field.ty, records, visiting))
                     })
             }
+            // A union with no generated enum renders as the erased carrier
+            // (`FunctionEmitter::rust_type`) and is drawn by its impl.
+            Some(Type::Union(_)) if self.concrete_union_members(ty).is_none() => needs_unknown,
             Some(Type::Union(_)) => self.union_is_inspectable(ty, records, visiting),
             _ => false,
         };
@@ -322,22 +325,70 @@ pub(crate) fn emit_console_inspect_support(
         if !emitter.inspectable_in(record_ty, &records, &mut HashSet::new()) {
             continue;
         }
+        // A view target is inspected as the record its cell is, when that
+        // record is inspectable (`crate::structural_views`).
+        let view = if context.structural_views().is_target(*symbol) {
+            let mut implementors = Vec::new();
+            for implementor in context.structural_views().implementors(*symbol) {
+                let inspectable = records.contains_key(implementor)
+                    && emitter
+                        .type_id(Type::Class {
+                            name: *implementor,
+                            args: Vec::new(),
+                        })
+                        .is_ok_and(|ty| emitter.inspectable_in(ty, &records, &mut HashSet::new()));
+                if inspectable {
+                    implementors.push(context.names().type_name(*implementor)?.as_str().to_owned());
+                }
+            }
+            let accessors = crate::structural_views::accessor_names(mir, context, &record.fields);
+            Some(console_inspect_prelude::ViewInspect {
+                records: implementors,
+                getters: record
+                    .fields
+                    .iter()
+                    .filter(|field| field.visibility.is_own_property())
+                    .filter_map(|field| accessors.get(&field.name).map(|names| names.get.clone()))
+                    .collect(),
+            })
+        } else {
+            None
+        };
         let fields = record
             .fields
             .iter()
             .filter(|field| field.visibility.is_own_property())
-            .map(|field| InspectField {
-                key: mir
-                    .names
-                    .get(field.name)
-                    .or_else(|| mir.symbols.get(field.name))
-                    .unwrap_or("field")
-                    .to_owned(),
-                rust_name: context.names().field(mir, field.name).into_string(),
-                skip_when_absent: record.is_shape
-                    && matches!(mir.types.get(field.ty), Some(Type::Optional(..))),
+            .map(|field| -> Result<InspectField, EmitError> {
+                Ok(InspectField {
+                    key: mir
+                        .names
+                        .get(field.name)
+                        .or_else(|| mir.symbols.get(field.name))
+                        .unwrap_or("field")
+                        .to_owned(),
+                    rust_name: context.names().field(mir, field.name).into_string(),
+                    // Only an `undefined` layer (an optional property) makes a
+                    // field absent; a `T | null` field holds `null` when empty
+                    // and is printed.
+                    skip_when_absent: record.is_shape
+                        && matches!(
+                            mir.types.get(field.ty),
+                            Some(Type::Optional(_, smelt_hir::Absence::Undefined))
+                        ),
+                    inspector: match mir.types.get(field.ty) {
+                        // A skipped-when-absent field draws only its present
+                        // value, whose own `null` layer (`x?: T | null`) is
+                        // drawn as `null`.
+                        Some(Type::Optional(inner, smelt_hir::Absence::Undefined))
+                            if record.is_shape =>
+                        {
+                            emitter.console_inspector(*inner)?
+                        }
+                        _ => emitter.console_inspector(field.ty)?,
+                    },
+                })
             })
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>, EmitError>>()?;
         text.push('\n');
         text.push_str(&console_inspect_prelude::struct_impl_text(
             &record.rust_name,
@@ -347,6 +398,7 @@ pub(crate) fn emit_console_inspect_support(
             // A live record's views may have given the object properties and
             // a key order its fields do not describe (`emitter::live_view`).
             context.is_live_record(*symbol),
+            view.as_ref(),
         ));
     }
     for index in 0..mir.types.all().len() {
@@ -354,14 +406,18 @@ pub(crate) fn emit_console_inspect_support(
         let Some(members) = emitter.concrete_union_members(ty) else {
             continue;
         };
-        let member_count = members.len();
+        let member_types = members.to_vec();
         if !emitter.union_is_inspectable(ty, &records, &mut HashSet::new()) {
             continue;
         }
+        let inspectors = member_types
+            .iter()
+            .map(|member| emitter.console_inspector(*member))
+            .collect::<Result<Vec<_>, EmitError>>()?;
         text.push('\n');
         text.push_str(&console_inspect_prelude::union_impl_text(
             &union_name(ty),
-            member_count,
+            &inspectors,
         ));
     }
     Ok(text)
@@ -374,7 +430,13 @@ impl FunctionEmitter<'_> {
     pub(super) fn type_has_py_repr(&self, ty: TypeId) -> bool {
         match self.mir.types.get(ty) {
             Some(
-                Type::Int | Type::Float | Type::Bool | Type::String | Type::PyStr | Type::None,
+                Type::Int
+                | Type::PyInt
+                | Type::Float
+                | Type::Bool
+                | Type::String
+                | Type::PyStr
+                | Type::None,
             ) => true,
             Some(Type::Optional(inner, _) | Type::List(inner)) => self.type_has_py_repr(*inner),
             Some(Type::Tuple(items)) => {
@@ -390,6 +452,11 @@ impl FunctionEmitter<'_> {
             Some(Type::Set(item)) => {
                 self.set_container_name(*item) == "SmeltPrimSet" && self.type_has_py_repr(*item)
             }
+            Some(Type::Class { name, .. })
+                if py_text_protocol::class_has_python_repr(self.mir, *name) =>
+            {
+                true
+            }
             _ => self.is_py_exception_type(ty) || self.is_py_exception_args_type(ty),
         }
     }
@@ -397,6 +464,10 @@ impl FunctionEmitter<'_> {
     /// Converts an operand to console.log argument format and returns format string and value.
     /// Python's `repr` of the value `reference` borrows, as a `String`, for a type
     /// built of primitives, lists, tuples and options; `None` for any other type.
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "the types not listed have no Python `repr` the emitter renders statically: the caller falls back"
+    )]
     fn python_repr_expr(&self, reference: &RustExpr, ty: TypeId) -> Option<RustExpr> {
         let item = RustExpr::path("smelt_item");
         Some(match self.mir.types.get(ty)? {
@@ -404,7 +475,7 @@ impl FunctionEmitter<'_> {
                 "smelt_py_str_repr({reference})",
                 reference = reference.delimited()
             )),
-            Type::Int => RustExpr::chain(format!(
+            Type::Int | Type::PyInt => RustExpr::chain(format!(
                 "({reference}).to_string()",
                 reference = reference.delimited()
             )),
@@ -504,55 +575,13 @@ impl FunctionEmitter<'_> {
                     self.operand_expr(operand)?.tight()
                 ),
             ))
-        } else if absent == AbsentSpelling::Undefined
-            && matches!(
-                self.mir.types.get(ty),
-                Some(Type::Optional(_, smelt_hir::Absence::Null))
-            )
-            && self.console_inspects(ty, absent)
-        {
-            // A `T | null` the inspection trait would draw: its `None` is
-            // `null`, which `Option<T>`'s own impl calls `undefined`; the
-            // present payload is drawn as usual.
-            let Some(&Type::Optional(inner, _)) = self.mir.types.get(ty) else {
-                return Err(EmitError::new(
-                    "console optional rendering requires an optional",
-                ));
-            };
-            let present = if self.console_inspects(inner, absent) {
-                format!(
-                    "{}::{}(smelt_value)",
-                    console_inspect_prelude::INSPECT_TRAIT,
-                    console_inspect_prelude::CONSOLE_TEXT_METHOD
-                )
-            } else {
-                self.console_value(&RustExpr::path("smelt_value"), inner, absent)?
-                    .into_string()
-            };
+        } else if self.console_inspects(ty, absent) && self.holds_null_absent(ty) {
+            // A `T | null` inside it draws its absent value as `null`, which
+            // the Rust storage type's impl cannot tell from `undefined`
+            // (`emitter::absent_value`).
             Ok((
                 "{}",
-                format!(
-                    "match &{} {{ Some(smelt_value) => {present}, None => \"null\".to_owned() }}",
-                    self.operand_expr(operand)?.tight()
-                ),
-            ))
-        } else if absent == AbsentSpelling::Undefined
-            && self.type_has_null_absence(ty)
-            && self.console_inspects(ty, absent)
-        {
-            // A container whose elements admit `null` (`(number | null)[]`), or a
-            // two-layer `T | null | undefined` over an erased payload:
-            // `Option<T>`'s own inspection would draw an empty slot as
-            // `undefined`, so the value is drawn through its erasure, which
-            // the static type makes say `null`.
-            Ok((
-                "{}",
-                format!(
-                    "{}::{}(&{})",
-                    console_inspect_prelude::INSPECT_TRAIT,
-                    console_inspect_prelude::CONSOLE_TEXT_METHOD,
-                    self.erase(operand)?.tight()
-                ),
+                self.console_text_of(ty, &format!("&{}", self.operand_expr(operand)?.tight()))?,
             ))
         } else if self.console_inspects(ty, absent) {
             // A container, record or union prints the way Node's
@@ -639,7 +668,7 @@ impl FunctionEmitter<'_> {
             // its suffix, where `String(10n)` (and a template) is `"10"`.
             Ok(("{}n", self.operand_expr(operand)?.into_string()))
         } else if absent == AbsentSpelling::None
-            && matches!(self.mir.types.get(ty), Some(Type::Int))
+            && matches!(self.mir.types.get(ty), Some(Type::Int | Type::PyInt))
         {
             // Python's `int` is an integer, not a JavaScript number: `print`
             // writes its decimal digits, exactly (no `f64` round trip).
@@ -758,7 +787,18 @@ impl FunctionEmitter<'_> {
         absent: AbsentSpelling,
     ) -> Result<RustExpr, EmitError> {
         if ty == self.none_ty {
-            return Ok(RustExpr::chain("\"null\".to_owned()"));
+            return Ok(RustExpr::chain(format!(
+                "{:?}.to_owned()",
+                absent.null_text()
+            )));
+        }
+        // Python's `print` writes `str(value)`: `1.0`, `True`, `['a']`, which
+        // Rust's `Display`/`Debug` spell `1`, `true`, `["a"]`.
+        if absent == AbsentSpelling::None && self.type_has_py_repr(ty) {
+            return Ok(RustExpr::chain(format!(
+                "SmeltPyRepr::py_str({value_text})",
+                value_text = value_text.delimited()
+            )));
         }
         if matches!(
             self.mir.types.get(ty),

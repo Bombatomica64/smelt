@@ -18,7 +18,9 @@ use crate::{
 
 use super::context::LoweringCtx;
 use super::transcribe::transcribed_op_pattern;
-use super::{LowerError, LoweredMutationReceiver, MutationWriteback, lower_literal};
+use super::{
+    LowerError, LoweredMutationReceiver, MutationWriteback, lower_literal, lower_literal_as,
+};
 use crate::AbsentSpelling;
 use crate::NegativeIndex;
 
@@ -31,7 +33,9 @@ impl LoweringCtx<'_> {
 
         let expr = self.hir_expr(expr_id)?.clone();
         let operand = match &expr.kind {
-            ExprKind::Literal(literal) => Operand::Const(lower_literal(literal)),
+            ExprKind::Literal(literal) => {
+                Operand::Const(lower_literal_as(literal, self.krate.types.get(expr.ty)))
+            }
             ExprKind::Local(local) => {
                 if self.volatile_locals.contains(self.body.id, *local) {
                     // Not cached: each evaluation is its own read. The snapshot has
@@ -470,6 +474,27 @@ impl LoweringCtx<'_> {
                 let value = Rvalue::ListPop {
                     list: list_operand,
                     raises_when_empty: *raises_when_empty,
+                };
+                let popped = self.finish_op(&expr, value)?;
+                self.write_back_mutation_receiver(writeback)?;
+                popped
+            }
+            ExprKind::PyFormat { value, spec } => {
+                let formatted = self.lower_expr(*value)?;
+                self.finish_op(
+                    &expr,
+                    Rvalue::PyFormat {
+                        value: formatted,
+                        spec: spec.clone(),
+                    },
+                )?
+            }
+            ExprKind::PyListPopAt { list, index } => {
+                let index_operand = self.lower_expr(*index)?;
+                let (list_operand, writeback) = self.lower_mutation_receiver(*list)?;
+                let value = Rvalue::PyListPopAt {
+                    list: list_operand,
+                    index: index_operand,
                 };
                 let popped = self.finish_op(&expr, value)?;
                 self.write_back_mutation_receiver(writeback)?;

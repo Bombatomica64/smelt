@@ -111,9 +111,26 @@ fn trait_text(mir: &Mir, context: &EmitContext, planned: &BoundTrait) -> Result<
     for implementor in &planned.implementors {
         let type_name = context.names().type_name(implementor.name)?;
         let reference = context.is_reference_class(implementor.name);
+        // A view target reads its properties through its accessors
+        // (`crate::structural_views`): each stored field's getter, by the
+        // field's Rust name.
+        let view_getters: Option<std::collections::HashMap<String, String>> = context
+            .structural_views()
+            .is_target(implementor.name)
+            .then(|| crate::structural_views::is_viewable_shape(mir, implementor.name))
+            .flatten()
+            .map(|shape| {
+                let fields = crate::classes::effective_interface_fields(mir, shape);
+                crate::structural_views::accessor_names(mir, context, &fields)
+                    .into_iter()
+                    .map(|(field, accessors)| {
+                        (context.names().field_text(mir, field), accessors.get)
+                    })
+                    .collect()
+            });
         out.push_str(&format!("impl {} for {type_name} {{\n", planned.trait_name));
         for (member, how) in planned.members.iter().zip(&implementor.members) {
-            let body = member_body(member, how, reference)?;
+            let body = member_body(member, how, reference, view_getters.as_ref())?;
             out.push_str(&format!(
                 "    {} {{ {body} }}\n",
                 member_signature(mir, context, member)?
@@ -127,15 +144,19 @@ fn trait_text(mir: &Mir, context: &EmitContext, planned: &BoundTrait) -> Result<
 /// The body of one member in one implementor's `impl`.
 ///
 /// `reference` selects the handle representation (`self.0.borrow().x`) over the
-/// by-value struct (`self.x`). A stored function is cloned out of the cell
+/// by-value struct (`self.x`); `view_getters` the accessors of a view target
+/// (`(*self.0.x())`). A stored function is cloned out of the cell
 /// before it is called, so the call may borrow the instance again.
 fn member_body(
     member: &crate::bound_traits::BoundMember,
     how: &MemberImpl,
     reference: bool,
+    view_getters: Option<&std::collections::HashMap<String, String>>,
 ) -> Result<String, EmitError> {
     let field_access = |name: &str| {
-        if reference {
+        if let Some(getter) = view_getters.and_then(|getters| getters.get(name)) {
+            format!("(*self.0.{getter}()).clone()")
+        } else if reference {
             format!("self.0.borrow().{name}.clone()")
         } else {
             format!("self.{name}.clone()")

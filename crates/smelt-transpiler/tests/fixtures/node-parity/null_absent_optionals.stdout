@@ -1,0 +1,6 @@
+true true true 1
+[null,null,null,1] null|undefined|null|1
+true true object undefined
+{"a":null,"b":"z"} true
+true true true true
+true {"viaChain":null}

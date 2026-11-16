@@ -31,9 +31,9 @@ enum Token<'a> {
     Punct(char),
 }
 
-/// Returns the emitter-prefixed names (`smelt_*`, `__smelt_*`, `Smelt*`;
-/// see [`crate::names::reserved::has_emitter_prefix`]) `sources` use without
-/// defining, sorted.
+/// Returns the runtime names (the emitter-prefixed `smelt_*`, `__smelt_*`,
+/// `Smelt*`, see [`crate::names::reserved::has_emitter_prefix`], and
+/// [`UNPREFIXED_RUNTIME_TYPES`]) `sources` use without defining, sorted.
 ///
 /// All of a crate's sources are read together: a module may call a helper the
 /// crate root defines.
@@ -67,13 +67,40 @@ pub(crate) fn undefined_runtime_symbols<'a>(
         .collect()
 }
 
+/// Whether `sources` name any part of the erased carrier: the `SmeltUnknown`
+/// value, its conversion traits (`IntoSmeltUnknown`, `SmeltFromUnknown`) or
+/// their methods.
+///
+/// [`undefined_runtime_symbols`] cannot answer this alone: the traits and their
+/// methods are named without the emitter prefix (`IntoSmeltUnknown`,
+/// `.into_smelt_unknown()`), so a bound conversion in a crate that does not
+/// carry them would pass it and fail in rustc. Comments and string literals are
+/// skipped, as there.
+#[must_use]
+pub(crate) fn names_the_carrier<'a>(sources: impl IntoIterator<Item = &'a str>) -> bool {
+    sources.into_iter().any(|source| {
+        tokenize(source).iter().any(|token| {
+            matches!(token, Token::Ident(name) if name.contains("SmeltUnknown")
+                || name.contains("smelt_unknown")
+                || matches!(*name, "SmeltFromUnknown" | "smelt_from_unknown"))
+        })
+    })
+}
+
 /// Whether `name` is one the emitter or runtime mints: the reserved prefixes,
 /// which no source name renders to. The helpers a reservation declines are
 /// `__smelt_*` items, so a check of `smelt_`/`Smelt` alone missed exactly the
 /// reference a released ordinal leaves behind.
+///
+/// The runtime also declares two types without the prefix, the JavaScript
+/// string and its borrowed slice. The name allocator keeps every source name off
+/// them (`tests::reserved_name_tests`), so a use of either is the runtime's too.
 fn is_runtime_symbol(name: &str) -> bool {
-    crate::names::reserved::has_emitter_prefix(name)
+    crate::names::reserved::has_emitter_prefix(name) || UNPREFIXED_RUNTIME_TYPES.contains(&name)
 }
+
+/// The runtime types whose names carry no emitter prefix.
+const UNPREFIXED_RUNTIME_TYPES: &[&str] = &["JsString", "JsStr"];
 
 /// Whether an identifier in this position introduces a name.
 fn binds_a_name(
@@ -83,10 +110,14 @@ fn binds_a_name(
 ) -> bool {
     if let Some(Token::Ident(
         "fn" | "struct" | "enum" | "union" | "trait" | "type" | "const" | "static" | "mod" | "let"
-        | "mut" | "ref" | "for" | "macro_rules",
+        | "mut" | "ref" | "macro_rules",
     )) = previous
     {
         return true;
+    }
+    // `for x in ..` binds `x`; `impl Trait for Type` names a type it does not define.
+    if previous == Some(Token::Ident("for")) {
+        return next == Some(Token::Ident("in"));
     }
     // A parameter, field or typed binding, but not a path.
     if next == Some(Token::Punct(':')) && after_next != Some(Token::Punct(':')) {
@@ -100,14 +131,17 @@ fn binds_a_name(
 /// Whether an identifier in this position needs a definition in the crate.
 ///
 /// A `smelt_*` name is checked where it is called: bare, it can be a local a
-/// lowered body bound in a shape this lexer does not model. A `Smelt*` name is a
-/// type, trait or constructor wherever it stands. A name after `.` or `::` is a
+/// lowered body bound in a shape this lexer does not model. A `Smelt*` name, and
+/// an [`UNPREFIXED_RUNTIME_TYPES`] name, is a type, trait or constructor wherever
+/// it stands. A name after `.` or `::` is a
 /// member of something else.
 fn is_a_use(name: &str, previous: Option<Token<'_>>, next: Option<Token<'_>>) -> bool {
     if matches!(previous, Some(Token::Punct('.' | ':'))) {
         return false;
     }
-    name.starts_with("Smelt") || next == Some(Token::Punct('('))
+    name.starts_with("Smelt")
+        || UNPREFIXED_RUNTIME_TYPES.contains(&name)
+        || next == Some(Token::Punct('('))
 }
 
 /// Splits Rust text into identifiers and punctuation, dropping comments and
@@ -338,6 +372,18 @@ mod tests {
     }
 
     /// A method or a path segment belongs to its receiver, not the crate root.
+    #[test]
+    fn the_unprefixed_runtime_types_are_checked_and_an_impl_target_is_not_a_definition() {
+        let missing = undefined_runtime_symbols([
+            "impl SmeltInspect for JsString { fn f(value: &JsStr) {} }",
+        ]);
+        assert_eq!(missing, ["JsStr", "JsString", "SmeltInspect"]);
+        let defined = undefined_runtime_symbols([
+            "struct JsString; struct JsStr; trait SmeltInspect {} impl SmeltInspect for JsString {} fn g(v: &JsStr) { for smelt_x in 0..1 {} }",
+        ]);
+        assert!(defined.is_empty(), "{defined:?}");
+    }
+
     #[test]
     fn members_are_not_uses() {
         let missing =

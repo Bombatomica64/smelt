@@ -3,7 +3,7 @@ module examples/python/end-to-end/11_numbers_and_module_state/input.py (ModuleId
   items
     fn __init__ owner Constructor { class: Symbol(0) }
     fn tick owner ClassMethod { class: Symbol(0), method: Symbol(1) }
-    class Counter fields [Public value: Int] constructor Some(ItemId(3)) methods [ItemId(1)] implements []
+    class Counter fields [Public value: PyInt] constructor Some(ItemId(3)) methods [ItemId(1)] implements []
     fn smelt_global_init$counter$4 owner Module
     global mut counter: Counter
     fn bump owner Module
@@ -26,11 +26,11 @@ module examples/python/end-to-end/11_numbers_and_module_state/input.py (ModuleId
 
 interned types
   t0 = Counter
-  t1 = Int
+  t1 = PyInt
   t2 = None
   t3 = PyStr
   t4 = __SmeltPyException
   t5 = Float
   t6 = Bool
-  t7 = fn() -> Int
+  t7 = fn() -> PyInt
   t8 = fn() -> None

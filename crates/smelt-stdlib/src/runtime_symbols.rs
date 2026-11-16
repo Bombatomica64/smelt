@@ -62,31 +62,15 @@ pub mod timers {
     /// of generated `main`/entry wrappers so each run starts clean.
     pub const RESET_TIMERS: &str = "smelt_reset_timers";
 
-    /// Pushes a detached future onto the cooperative promise-task queue; backs
-    /// fire-and-forget async calls.
+    /// Queues a job (a detached future) at the back of the FIFO job queue;
+    /// backs fire-and-forget async calls.
     pub const SPAWN_PROMISE_TASK: &str = "smelt_spawn_promise_task";
 
-    /// Drains queued promise tasks by polling them to completion. Defined in
-    /// the prelude and referenced only by other prelude helpers.
-    pub const DRAIN_PROMISE_TASKS: &str = "smelt_drain_promise_tasks";
-
-    /// Fires all timers whose due time has elapsed. Defined in the prelude and
-    /// referenced only by other prelude helpers.
-    pub const DRAIN_DUE_TIMERS: &str = "smelt_drain_due_timers";
-
-    /// Builds a no-op `Waker` used to poll detached futures. Defined in the
-    /// prelude and referenced only by other prelude helpers.
-    pub const NOOP_WAKER: &str = "smelt_noop_waker";
-
-    /// Settles with the racer that finishes FIRST; backs `Promise.race`.
+    /// Settles with the racer that settles FIRST; backs `Promise.race`.
     ///
-    /// `tokio::select!` cannot back `Promise.race` on the virtual clock: it
-    /// polls its branches in a randomized order and returns whichever branch
-    /// first reports `Ready` in a poll round, while each generated promise
-    /// spin-loop advances the virtual clock by one timer step per poll. Two
-    /// racers therefore settle in the same round and the winner is a coin flip.
-    /// This helper polls the racers in source order instead, so the racer whose
-    /// timer fired earlier is observed first.
+    /// It registers a reaction on every racer, as JavaScript's `race` calls
+    /// `then` on each: the first racer to settle has its reaction run first in
+    /// the job queue and settles the race. Losing racers keep running.
     pub const PROMISE_RACE: &str = "smelt_promise_race";
 }
 
@@ -566,6 +550,9 @@ pub mod markers {
     pub const SMELT_SERVERRESPONSE: &str = "__smelt_serverresponse";
     /// `__smelt_set`.
     pub const SMELT_SET: &str = "__smelt_set";
+    /// `__smelt_setter`: an object literal's setter in an accessor marker
+    /// (`__smelt_set` is the erased Set's tag).
+    pub const SMELT_SETTER: &str = "__smelt_setter";
     /// `__smelt_new_proxy`.
     pub const SMELT_NEW_PROXY: &str = "__smelt_new_proxy";
     /// `__smelt_proxy_call`.
@@ -711,6 +698,7 @@ pub mod markers {
         SMELT_RESPONSE,
         SMELT_SERVERRESPONSE,
         SMELT_SET,
+        SMELT_SETTER,
         SMELT_NEW_PROXY,
         SMELT_PROXY_CALL,
         SMELT_PROXY_HANDLER,
@@ -806,6 +794,8 @@ pub mod boundary {
     pub const PUSH_THIS_LAZY_CALL: &str = "smelt_push_this_lazy(";
     /// Reading the dynamic `this`.
     pub const THIS_CALL: &str = "smelt_this()";
+    /// A non-coercing `Number.*` predicate inspecting an erased value's tag.
+    pub const ERASED_NUMBER_IS: &str = "smelt_erased_number_is(";
     /// Binding a receiver.
     pub const BIND_THIS_CALL: &str = "smelt_bind_this(";
     /// The running frame's own `this`, taken off the channel at entry.

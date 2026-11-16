@@ -13,6 +13,15 @@
 //! Each caller is compared whole because the rendered argument forms are the
 //! requirement here; what the programs compute is in the
 //! `function_value_semantics` Node-parity fixture.
+//!
+//! A program here that holds no erased value bounds its type parameters
+//! `Clone + Default + 'static`: the erasure traits exist only with the erased
+//! carrier (`classes::generated_type_param_bounds`). These tests used to pin the
+//! full set (`+ IntoSmeltUnknown + SmeltFromUnknown`), which every generic item
+//! carried because the carrier was then demanded by any generic item at all;
+//! the carrier-free emission is checked against its own text
+//! (`crate_builder::emit_root`), so the shorter set cannot reach a body that
+//! converts a `T`.
 
 use super::*;
 
@@ -38,7 +47,7 @@ export function useFill(): number[] {
 
     assert_eq!(
         rust_fn(&source, "fill_with"),
-        r"fn fill_with<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F0: Fn(f64) -> T + ?Sized>(mut xs: &mut SmeltList<T>, make: &F0) -> () {
+        r"fn fill_with<T: Clone + Default + 'static, F0: Fn(f64) -> T + ?Sized>(mut xs: &mut SmeltList<T>, make: &F0) -> () {
 let _smelt_tmp_2: T = make(0.0);
 let _smelt_tmp_3: f64 = { let smelt_push_item = _smelt_tmp_2; xs.borrow_mut().push(smelt_push_item); xs.len() as f64 };
 return;
@@ -75,7 +84,7 @@ export function useApply(): number[] {
 
     assert_eq!(
         rust_fn(&source, "apply_to"),
-        r"fn apply_to<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, F0: Fn(&T) -> T + ?Sized>(xs: SmeltList<T>, fn_: &F0) -> SmeltList<T> {
+        r"fn apply_to<T: Clone + Default + 'static, F0: Fn(&T) -> T + ?Sized>(xs: SmeltList<T>, fn_: &F0) -> SmeltList<T> {
 let _smelt_tmp_2: SmeltList<T> = Into::<SmeltList<_>>::into({ let smelt_callback = fn_; xs.borrow().iter().enumerate().map(|(smelt_index, smelt_item)| { (smelt_callback)(smelt_item) }).collect::<Vec<_>>() });
 return _smelt_tmp_2;
 }"

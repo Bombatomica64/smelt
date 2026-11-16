@@ -314,8 +314,22 @@ impl ModuleBuilder<'_> {
         // has no concrete representation and erased every record of the alias.
         let mut value_tys = Vec::new();
         let mut nullable = false;
+        // The absent values the members admit (`Type::Optional`'s tag): the
+        // record's value type admits them too, so a member's `null` stays
+        // `null`. A bare nullish arm outside an optional is `undefined`.
+        let (mut admits_undefined, mut admits_null) = (false, false);
         for member_ty in member_tys {
+            let (_, member_undefined, member_null) =
+                smelt_hir::type_normalize::peel_optional(&self.ctx.krate.types, member_ty);
+            admits_undefined |= member_undefined;
+            admits_null |= member_null;
             for arm in self.flatten_union_member_types(member_ty) {
+                if matches!(self.ctx.krate.types.get(arm), Some(Type::None))
+                    && !member_undefined
+                    && !member_null
+                {
+                    admits_undefined = true;
+                }
                 if matches!(self.ctx.krate.types.get(arm), Some(Type::None)) {
                     nullable = true;
                 } else if !value_tys.contains(&arm) {
@@ -335,10 +349,12 @@ impl ModuleBuilder<'_> {
         };
         let value_ty =
             if nullable && !matches!(self.ctx.krate.types.get(value_ty), Some(Type::None)) {
-                self.ctx
-                    .krate
-                    .types
-                    .intern(Type::Optional(value_ty, smelt_hir::Absence::Undefined))
+                smelt_hir::type_normalize::rebuild_optional(
+                    &mut self.ctx.krate.types,
+                    value_ty,
+                    admits_undefined || !admits_null,
+                    admits_null,
+                )
             } else {
                 value_ty
             };

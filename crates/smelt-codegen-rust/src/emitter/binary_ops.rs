@@ -1,6 +1,7 @@
 //! JavaScript binary-operator semantics: optional/unknown/erased arithmetic, equality, and relational comparison text emission.
 
 use super::*;
+use crate::deep_equality::Scope;
 use crate::rust::RustExpr;
 
 /// Whether `op` is an equality operator, in either polarity.
@@ -31,6 +32,10 @@ impl FunctionEmitter<'_> {
     /// rules). The element type must be one that cannot itself hold a
     /// nullish value; an optional or erased element keeps the existing
     /// nullish-tag comparisons, which already see a present `undefined`.
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "single-shape recogniser: only the four equality operators against a nullish constant compare presence"
+    )]
     pub(super) fn element_presence_comparison_expr(
         &self,
         op: smelt_hir::BinOp,
@@ -556,6 +561,10 @@ impl FunctionEmitter<'_> {
     /// `===` tells the two apart (`x === null` is the present case), while `==`
     /// holds for both. `None` when `inner` is not the unit or the other side is
     /// not a nullish constant, which keeps the ordinary presence rule.
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "single-shape recogniser: only a `null` or `undefined` constant is a nullish singleton"
+    )]
     fn null_or_undefined_equality_expr(
         &self,
         option_text: &RustExpr,
@@ -601,7 +610,7 @@ impl FunctionEmitter<'_> {
         let literal = match singleton {
             Operand::Const(Constant::None) => smelt_hir::Absence::Null,
             Operand::Const(Constant::Undefined) => smelt_hir::Absence::Undefined,
-            _ => return None,
+            Operand::Const(_) | Operand::Copy(_) | Operand::Move(_) => return None,
         };
         let (base, undefined, null) =
             smelt_hir::type_normalize::peel_optional(&self.mir.types, optional_ty);
@@ -782,10 +791,17 @@ impl FunctionEmitter<'_> {
         if !lhs_erased && !rhs_erased {
             return Ok(None);
         }
-        // Every side must be either numeric or erased so `ToNumber` coercion is
+        // A `bigint` side compares by mathematical value, never through
+        // `f64` (`2n ** 64n < x` must not round): the runtime relational
+        // helper does that for an erased pair, so the bigint side crosses
+        // into the carrier for the comparison only. The other operand is
+        // already erased, so no typed value loses its type here.
+        let lhs_bigint = matches!(self.mir.types.get(lhs_ty), Some(Type::BigInt));
+        let rhs_bigint = matches!(self.mir.types.get(rhs_ty), Some(Type::BigInt));
+        // Every side must be numeric, a bigint or erased so the coercion is
         // well-defined; anything else falls through to the remaining arms.
-        if !(lhs_erased || self.is_numeric_type(lhs_ty))
-            || !(rhs_erased || self.is_numeric_type(rhs_ty))
+        if !(lhs_erased || lhs_bigint || self.is_numeric_type(lhs_ty))
+            || !(rhs_erased || rhs_bigint || self.is_numeric_type(rhs_ty))
         {
             return Ok(None);
         }
@@ -796,12 +812,16 @@ impl FunctionEmitter<'_> {
         // searches (remeda's `sortedIndex`, `firstBy`, `sortBy`, …). Route these
         // through the runtime abstract-relational helper, which stays lexical for
         // two strings and falls back to `ToNumber` for every other pairing.
-        if lhs_erased && rhs_erased {
+        if (lhs_erased && rhs_erased) || lhs_bigint || rhs_bigint {
             let lhs_text = self.erase(lhs)?;
             let rhs_text = self.erase(rhs)?;
             // The guard at the top of this function restricts `op` to the four
             // relational operators, so the `Gte` wildcard is the only remaining
             // case (`match` cannot see through that earlier guard).
+            #[expect(
+                clippy::wildcard_enum_match_arm,
+                reason = "sub-dispatch: the guard at the top of this function admits only the four relational operators"
+            )]
             let ordering_pattern = match op {
                 smelt_hir::BinOp::Lt => "::std::cmp::Ordering::Less",
                 smelt_hir::BinOp::Lte => "::std::cmp::Ordering::Less | ::std::cmp::Ordering::Equal",
@@ -1065,9 +1085,10 @@ impl FunctionEmitter<'_> {
     /// preservation: both operands keep their types; no value is erased to be
     /// compared.
     ///
-    /// Not covered: a reference record that is not live (generic, callable,
-    /// accessor-backed) and a by-value struct holding a record still compare
-    /// with their `PartialEq`.
+    /// A record that is not live (a generic reference record, a by-value
+    /// struct holding a record) compares field with field through its
+    /// generated `impl SmeltDeepEq` (`crate::deep_equality`, which also lists
+    /// what still compares with its `PartialEq`).
     ///
     /// Rust's derived `PartialEq` compares an `f64` leaf with IEEE `==`, so
     /// `SmeltList<f64> == SmeltList<f64>` answers `false` for two lists that
@@ -1089,7 +1110,12 @@ impl FunctionEmitter<'_> {
         }
         let lhs_ty = self.operand_ty(lhs)?;
         if lhs_ty != self.operand_ty(rhs)?
-            || !(self.type_nests_float(lhs_ty) || self.type_holds_live_record(lhs_ty, 0))
+            || !(self.type_nests_float(lhs_ty)
+                || self.type_holds_live_record(lhs_ty, 0)
+                || self
+                    .context
+                    .deep_equality()
+                    .holds_trait_record(self.mir, lhs_ty, 0))
         {
             return Ok(None);
         }
@@ -1174,12 +1200,29 @@ impl FunctionEmitter<'_> {
     ///   ordinary IEEE comparison in JavaScript too, and the test matchers
     ///   already route a scalar `toEqual(NaN)` through the SameValue path;
     /// * a **live record** leaf compares own properties through its views
-    ///   (`smelt_live_deep_eq`): the handle's `PartialEq` is identity.
+    ///   (`smelt_live_deep_eq`): the handle's `PartialEq` is identity;
+    /// * a **record with an `impl SmeltDeepEq`** leaf compares field with
+    ///   field through it (`crate::deep_equality`).
     fn structural_leaf_equality_expr(
         &self,
         left: &RustExpr,
         right: &RustExpr,
         ty: TypeId,
+    ) -> Result<RustExpr, EmitError> {
+        self.structural_leaf_equality_in(left, right, ty, Scope::Body)
+    }
+
+    /// [`Self::structural_leaf_equality_expr`] written in `scope`: a function
+    /// body, or a record's own `impl SmeltDeepEq`
+    /// (`emitter::deep_equality`), where the comparison continues the one it
+    /// is part of and a field of the record's type parameter is compared
+    /// through the parameter's bound.
+    pub(in crate::emitter) fn structural_leaf_equality_in(
+        &self,
+        left: &RustExpr,
+        right: &RustExpr,
+        ty: TypeId,
+        scope: Scope,
     ) -> Result<RustExpr, EmitError> {
         let (left_operand, right_operand) = (left.as_binary_operand(), right.as_binary_operand());
         let (left_receiver, right_receiver) = (
@@ -1193,16 +1236,28 @@ impl FunctionEmitter<'_> {
             Some(Type::Class { .. }) if self.is_live_record_type(ty) => RustExpr::atom(format!(
                 "smelt_live_deep_eq({left_receiver}.clone(), {right_receiver}.clone())"
             )),
+            Some(Type::Class { .. })
+                if self
+                    .context
+                    .deep_equality()
+                    .compares_through_trait(self.mir, ty, scope) =>
+            {
+                Self::trait_deep_equality_expr(left, right, scope)
+            }
+            Some(Type::TypeParam { .. }) if scope == Scope::Impl => {
+                Self::trait_deep_equality_expr(left, right, scope)
+            }
             Some(Type::Float) => RustExpr::atom(format!(
                 "({left_operand} == {right_operand} || ({left_receiver}.is_nan() && {right_receiver}.is_nan()))"
             )),
             Some(Type::Tuple(items)) => {
                 let mut parts = Vec::with_capacity(items.len());
                 for (index, item) in items.iter().enumerate() {
-                    let part = self.structural_leaf_equality_expr(
+                    let part = self.structural_leaf_equality_in(
                         &RustExpr::tuple_field(left, index),
                         &RustExpr::tuple_field(right, index),
                         *item,
+                        scope,
                     )?;
                     parts.push(part.as_binary_operand());
                 }
@@ -1213,10 +1268,11 @@ impl FunctionEmitter<'_> {
                 }
             }
             Some(Type::List(item)) => {
-                let item_equal = self.structural_leaf_equality_expr(
+                let item_equal = self.structural_leaf_equality_in(
                     &RustExpr::path("smelt_left_item"),
                     &RustExpr::path("smelt_right_item"),
                     *item,
+                    scope,
                 )?;
                 // `.len()` is the list's own inherent method; `.iter()` reads
                 // the shared buffer. Both are shared borrows, so comparing a
@@ -1235,10 +1291,11 @@ impl FunctionEmitter<'_> {
                 if self.mir.types.get(*key).is_some_and(Type::is_text)
                     || self.is_prop_key_record_key(*key) =>
             {
-                let value_equal = self.structural_leaf_equality_expr(
+                let value_equal = self.structural_leaf_equality_in(
                     &RustExpr::path("smelt_left_value"),
                     &RustExpr::path("smelt_right_value"),
                     *value,
+                    scope,
                 )?;
                 RustExpr::loose(format!(
                     "{left_receiver}.len() == {right_receiver}.len() && {left_receiver}.iter().all(|(smelt_key, smelt_left_value)| {right_receiver}.get(&smelt_key).is_some_and(|smelt_right_value| {value_equal}))",
@@ -1246,10 +1303,11 @@ impl FunctionEmitter<'_> {
                 ))
             }
             Some(Type::Optional(inner, _)) => {
-                let item_equal = self.structural_leaf_equality_expr(
+                let item_equal = self.structural_leaf_equality_in(
                     &RustExpr::path("smelt_left_value"),
                     &RustExpr::path("smelt_right_value"),
                     *inner,
+                    scope,
                 )?;
                 RustExpr::atom(format!(
                     "match ({left_receiver}.as_ref(), {right_receiver}.as_ref()) {{ (Some(smelt_left_value), Some(smelt_right_value)) => {item_equal}, (None, None) => true, _ => false }}",
@@ -1345,6 +1403,10 @@ impl FunctionEmitter<'_> {
     /// id today, so there is no identity to read and this returns `None` rather
     /// than inventing one. A class compared by `===` is lifted to the handle
     /// representation by `classify::reference_classes` for exactly that reason.
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "single-shape recogniser: only class handles and the stdlib containers with an object id carry a JavaScript identity"
+    )]
     fn reference_identity_expr(&self, text: &RustExpr, ty: TypeId) -> Option<RustExpr> {
         match self.mir.types.get(ty)? {
             Type::List(_) => Some(text.postfix(".id()")),
@@ -1525,6 +1587,10 @@ impl FunctionEmitter<'_> {
     /// both operands erased and compared by the runtime's IsLooselyEqual
     /// (`smelt_js_loose_eq`), so `2n == 2`, `"1" == 1` and `null == undefined`
     /// answer as in JavaScript whatever arm a union holds.
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "single-shape recogniser: only `JsLooseEq`/`JsLooseNotEq` compare by IsLooselyEqual"
+    )]
     fn js_loose_equality_expr(
         &self,
         op: smelt_hir::BinOp,
@@ -1965,6 +2031,10 @@ impl FunctionEmitter<'_> {
     /// allocates nothing. Equality of code units and of UTF-8 text agree for
     /// every constant, since a constant that holds a lone surrogate is not a
     /// `Constant::String`.
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "single-shape recogniser: only the equality operators against a string constant compare text"
+    )]
     fn js_string_literal_equality_expr(
         &self,
         op: smelt_hir::BinOp,
@@ -2011,6 +2081,14 @@ impl FunctionEmitter<'_> {
         }
         // A bigint against a number has its typed rule, which `==` shares.
         if let Some(text) = self.bigint_binary_expr(op, lhs, rhs, dest_ty)? {
+            return Ok(text);
+        }
+        if let Some(text) = self.py_int_binary_expr(op, lhs, rhs, dest_ty)? {
+            return Ok(text);
+        }
+        // An absence test of a lifted type parameter value reads its erased
+        // copy (`emitter::generic_scrutinee`).
+        if let Some(text) = self.lifted_param_absence_expr(op, lhs, rhs)? {
             return Ok(text);
         }
         if let Some(text) = self.js_loose_equality_expr(op, lhs, rhs)? {
@@ -2235,6 +2313,12 @@ impl FunctionEmitter<'_> {
                 self.truthy_operand_expr(operand)?.delimited()
             ))),
             smelt_hir::UnaryOp::Neg => {
+                if self.is_py_int_type(self.operand_ty(operand)?) {
+                    return Ok(RustExpr::loose(format!(
+                        "-{}",
+                        self.py_int_ref_expr(operand)?.tight()
+                    )));
+                }
                 if let Some(text) = self.bigint_negation_expr(operand)? {
                     if self.mir.types.get(dest_ty) == Some(&Type::Unknown) {
                         return self.erase_rendered(&text, self.type_id(Type::BigInt)?);

@@ -41,7 +41,7 @@ impl ModuleBuilder<'_> {
         let operand_ty = Self::expr_ty(body, operand);
         if !matches!(
             self.ctx.krate.types.get(operand_ty),
-            Some(Type::Int | Type::Float)
+            Some(Type::PyInt | Type::Float)
         ) {
             return Err(SmeltError::unsupported(
                 span,
@@ -78,7 +78,7 @@ impl ModuleBuilder<'_> {
                 let operand = self.expression(&call.arguments.args[0], body)?;
                 if !matches!(
                     self.ctx.krate.types.get(Self::expr_ty(body, operand)),
-                    Some(Type::Int | Type::Float)
+                    Some(Type::PyInt | Type::Float)
                 ) {
                     return Err(SmeltError::unsupported(
                         span,
@@ -118,7 +118,7 @@ impl ModuleBuilder<'_> {
                 if [base, exponent].iter().any(|arg| {
                     !matches!(
                         self.ctx.krate.types.get(Self::expr_ty(body, *arg)),
-                        Some(Type::Int | Type::Float)
+                        Some(Type::PyInt | Type::Float)
                     )
                 }) {
                     return Err(SmeltError::unsupported(
@@ -145,7 +145,7 @@ impl ModuleBuilder<'_> {
                 if [y_coord, x_coord].iter().any(|arg| {
                     !matches!(
                         self.ctx.krate.types.get(Self::expr_ty(body, *arg)),
-                        Some(Type::Int | Type::Float)
+                        Some(Type::PyInt | Type::Float)
                     )
                 }) {
                     return Err(SmeltError::unsupported(
@@ -171,11 +171,16 @@ impl ModuleBuilder<'_> {
                     ));
                 }
                 let operand = self.expression(&call.arguments.args[0], body)?;
-                if self.ctx.krate.types.get(Self::expr_ty(body, operand)) != Some(&Type::Float) {
-                    return Err(SmeltError::unsupported(
-                        span,
-                        format!("math.{member}() requires a float argument"),
-                    ));
+                match self.ctx.krate.types.get(Self::expr_ty(body, operand)) {
+                    // An `int` is already whole: `math.floor(n)` is `n`.
+                    Some(Type::PyInt) => return Ok(Some(operand)),
+                    Some(Type::Float) => {}
+                    _ => {
+                        return Err(SmeltError::unsupported(
+                            span,
+                            format!("math.{member}() requires a float or int argument"),
+                        ));
+                    }
                 }
                 let op = match member {
                     "floor" => NumericRoundOp::Floor,
@@ -183,12 +188,16 @@ impl ModuleBuilder<'_> {
                     "trunc" => NumericRoundOp::Trunc,
                     _ => return Ok(None),
                 };
-                let ty = self.intern_type(Type::Int);
-                Ok(Some(body.push_expr(HirExpr {
+                // The whole `float`, then the `int` of it, exact at every
+                // magnitude (`math.floor(1e300)` has 301 digits); `NaN` and the
+                // infinities raise as `CPython`'s do.
+                let float_ty = self.intern_type(Type::Float);
+                let rounded = body.push_expr(HirExpr {
                     kind: ExprKind::NumericRound { op, operand },
-                    ty,
+                    ty: float_ty,
                     span,
-                })))
+                });
+                Ok(Some(self.py_numeric_call(PyNumericOp::FromFloat, vec![rounded], span, body)))
             }
             "isfinite" | "isnan" => {
                 if call.arguments.args.len() != 1 {
@@ -275,20 +284,17 @@ impl ModuleBuilder<'_> {
                 }
                 let start = self.expression(&call.arguments.args[0], body)?;
                 let end = self.expression(&call.arguments.args[1], body)?;
-                if self.ctx.krate.types.get(Self::expr_ty(body, start)) != Some(&Type::Int)
-                    || self.ctx.krate.types.get(Self::expr_ty(body, end)) != Some(&Type::Int)
+                if self.ctx.krate.types.get(Self::expr_ty(body, start)) != Some(&Type::PyInt)
+                    || self.ctx.krate.types.get(Self::expr_ty(body, end)) != Some(&Type::PyInt)
                 {
                     return Err(SmeltError::unsupported(
                         span,
                         "random.randint() requires integer bounds",
                     ));
                 }
-                let ty = self.intern_type(Type::Int);
-                Ok(Some(body.push_expr(HirExpr {
-                    kind: ExprKind::NumericRandomInt { start, end },
-                    ty,
-                    span,
-                })))
+                let low = self.py_int_as_size(start, body);
+                let high = self.py_int_as_size(end, body);
+                Ok(Some(self.machine_int_as_py_int(ExprKind::NumericRandomInt { start: low, end: high }, span, body)))
             }
             RuleId::PyRandomChoice => {
                 if call.arguments.args.len() != 1 {
@@ -357,7 +363,7 @@ impl ModuleBuilder<'_> {
         {
             let list = self.order_free_iterable_as_list(*iterable, span, body);
             if let Some(Type::List(item_ty)) = self.ctx.krate.types.get(Self::expr_ty(body, list)).cloned() {
-                if !matches!(self.ctx.krate.types.get(item_ty), Some(Type::Bool | Type::Int | Type::Float | Type::PyStr)) {
+                if !self.is_python_orderable(item_ty) {
                     return Err(SmeltError::unsupported(
                         span,
                         "Python min() and max() of an iterable require bool, int, float or str items",
@@ -371,7 +377,7 @@ impl ModuleBuilder<'_> {
             }
         }
         let ty = Self::expr_ty(body, args[0]);
-        if !matches!(self.ctx.krate.types.get(ty), Some(Type::Int | Type::Float))
+        if !matches!(self.ctx.krate.types.get(ty), Some(Type::PyInt | Type::Float))
             || args.iter().any(|arg| Self::expr_ty(body, *arg) != ty)
         {
             return Err(SmeltError::unsupported(
@@ -428,4 +434,75 @@ impl ModuleBuilder<'_> {
     }
 
     // String formatting helpers continue in `format.rs`.
+
+    /// Lower `round`, `divmod`, `pow`, `chr` and `ord` with `CPython`'s
+    /// semantics: `round(x)` rounds half to even into an `int`, `round(x, n)`
+    /// is correctly rounded at `n` digits (an `int` stays an `int`),
+    /// `divmod(a, b)` is `(a // b, a % b)`, `pow(a, b)` is `a ** b` and
+    /// `pow(a, b, m)` modular exponentiation, `chr`/`ord` convert between a
+    /// code point and a one-character `str`. `None` for any other name.
+    fn numeric_builtin_call_expression(
+        &mut self,
+        name: &str,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+        span: Span,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        if !matches!(name, "round" | "divmod" | "pow" | "chr" | "ord") {
+            return Ok(None);
+        }
+        if !call.arguments.keywords.is_empty() {
+            return Err(SmeltError::unsupported(span, format!("{name}() keyword arguments are not supported")));
+        }
+        let args = call
+            .arguments
+            .args
+            .iter()
+            .map(|arg| if matches!(arg, Expr::NoneLiteral(_)) { Ok(None) } else { self.expression(arg, body).map(Some) })
+            .collect::<Result<Vec<_>, _>>()?;
+        let kind = |this: &Self, value: smelt_hir::ExprId, within: &Body| this.ctx.krate.types.get(Self::expr_ty(within, value)).cloned();
+        let wrong = || SmeltError::unsupported(span, format!("{name}() is not supported for these argument types"));
+        match (name, args.as_slice()) {
+            ("round", [Some(value)] | [Some(value), None]) => match kind(self, *value, body) {
+                Some(Type::PyInt) => Ok(Some(*value)),
+                Some(Type::Float) => Ok(Some(self.py_numeric_call(PyNumericOp::RoundToInt, vec![*value], span, body))),
+                _ => Err(wrong()),
+            },
+            ("round", [Some(value), Some(ndigits)]) => {
+                if kind(self, *ndigits, body) != Some(Type::PyInt) {
+                    return Err(wrong());
+                }
+                let digits = self.py_int_as_clamped_bound(*ndigits, body);
+                match kind(self, *value, body) {
+                    Some(Type::PyInt) => Ok(Some(self.py_numeric_call(PyNumericOp::RoundInt, vec![*value, digits], span, body))),
+                    Some(Type::Float) => Ok(Some(self.py_numeric_call(PyNumericOp::RoundFloat, vec![*value, digits], span, body))),
+                    _ => Err(wrong()),
+                }
+            }
+            ("divmod", [Some(lhs), Some(rhs)]) => {
+                let quotient = self.python_arithmetic(PythonArithmetic::Division(PythonDivisionOp::FloorDiv), *lhs, *rhs, span, body)?;
+                let remainder = self.python_arithmetic(PythonArithmetic::Division(PythonDivisionOp::Mod), *lhs, *rhs, span, body)?;
+                let ty = self.intern_type(Type::Tuple(vec![Self::expr_ty(body, quotient), Self::expr_ty(body, remainder)]));
+                Ok(Some(body.push_expr(HirExpr { kind: ExprKind::TupleLit(vec![quotient, remainder]), ty, span })))
+            }
+            ("pow", [Some(base), Some(exponent)] | [Some(base), Some(exponent), None]) => {
+                self.python_arithmetic(PythonArithmetic::Power, *base, *exponent, span, body).map(Some)
+            }
+            ("pow", [Some(base), Some(exponent), Some(modulus)]) => {
+                if [*base, *exponent, *modulus].iter().any(|value| kind(self, *value, body) != Some(Type::PyInt)) {
+                    return Err(SmeltError::unsupported(span, "pow() with a modulus needs three ints"));
+                }
+                Ok(Some(self.py_numeric_call(PyNumericOp::PowMod, vec![*base, *exponent, *modulus], span, body)))
+            }
+            ("chr", [Some(code)]) if kind(self, *code, body) == Some(Type::PyInt) => {
+                let point = self.py_int_as_clamped_bound(*code, body);
+                Ok(Some(self.py_numeric_call(PyNumericOp::Chr, vec![point], span, body)))
+            }
+            ("ord", [Some(text)]) if kind(self, *text, body) == Some(Type::PyStr) => {
+                let ord = ExprKind::PyNumericCall { op: PyNumericOp::Ord, args: vec![*text] };
+                Ok(Some(self.machine_int_as_py_int(ord, span, body)))
+            }
+            _ => Err(wrong()),
+        }
+    }
 }

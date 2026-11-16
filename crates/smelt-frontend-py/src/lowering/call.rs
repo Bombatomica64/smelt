@@ -52,6 +52,14 @@ impl ModuleBuilder<'_> {
         if let Some(expr) = self.named_item_call_expression(call, body, span)? {
             return Ok(expr);
         }
+        if let Some(error) = self.unmapped_import_use(call.func.as_ref(), span) {
+            return Err(error);
+        }
+        if let Expr::Name(name) = call.func.as_ref()
+            && self.failed_definitions.contains(name.id.as_str())
+        {
+            return Err(SmeltError::cascade(span, name.id.as_str()));
+        }
         if let Some(expr) = self.callable_expression_call(call, body)? {
             return Ok(expr);
         }
@@ -182,6 +190,9 @@ impl ModuleBuilder<'_> {
         call: &ruff_python_ast::ExprCall,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        if let Some(expr) = self.py_str_method_call_expression(call, body)? {
+            return Ok(Some(expr));
+        }
         if let Some(expr) = self.string_case_call_expression(call, body)? {
             return Ok(Some(expr));
         }
@@ -365,6 +376,9 @@ impl ModuleBuilder<'_> {
             if name.id.as_str() == "abs" {
                 return self.numeric_abs_call_expression(call, body).map(Some);
             }
+            if let Some(expr) = self.numeric_builtin_call_expression(name.id.as_str(), call, body, span)? {
+                return Ok(Some(expr));
+            }
             if matches!(name.id.as_str(), "max" | "min") {
                 return self.numeric_extrema_call_expression(call, body).map(Some);
             }
@@ -411,12 +425,19 @@ impl ModuleBuilder<'_> {
                     ty: none_ty,
                     span,
                 });
-                let args: Vec<_> = call
+                let mut args: Vec<_> = call
                     .arguments
                     .args
                     .iter()
                     .map(|a| self.expression(a, body))
                     .collect::<Result<_, _>>()?;
+                // `print(x)` writes `str(x)`: a class instance's own text.
+                for arg in &mut args {
+                    if self.class_text_method(Self::expr_ty(body, *arg), false).is_some() {
+                        let arg_span = Self::expr_span(body, *arg);
+                        *arg = self.python_text_expr(*arg, false, arg_span, body)?;
+                    }
+                }
                 return Ok(Some(body.push_expr(HirExpr {
                     kind: ExprKind::Call { callee, args },
                     ty: none_ty,
@@ -444,12 +465,7 @@ impl ModuleBuilder<'_> {
                         "len() is only supported for list, dict, set, tuple, and str values",
                     ));
                 }
-                let ty = self.intern_type(Type::Int);
-                return Ok(Some(body.push_expr(HirExpr {
-                    kind: ExprKind::Len { operand },
-                    ty,
-                    span,
-                })));
+                return Ok(Some(self.machine_int_as_py_int(ExprKind::Len { operand }, span, body)));
             }
         }
         Ok(None)
@@ -1101,15 +1117,12 @@ impl ModuleBuilder<'_> {
             && call.arguments.keywords.is_empty()
         {
             let receiver = self.expression(&call.arguments.args[0], body)?;
-            if self
-                .class_method_dispatch(Self::expr_ty(body, receiver), "__str__")
-                .is_some()
-            {
+            if let Some(method) = self.class_text_method(Self::expr_ty(body, receiver), false) {
                 return self
                     .protocol_method_expr(
                         ProtocolMethodCall {
                             receiver,
-                            method: "__str__".to_owned(),
+                            method: method.to_owned(),
                             args: Vec::new(),
                         },
                         body,

@@ -122,10 +122,10 @@ fn emit_interface_type(
             mir,
             context,
             &ReferenceRecordShape {
-                name,
+                name: name.clone(),
                 type_params: type_params.clone(),
-                type_args: type_params,
-                impl_generics,
+                type_args: type_params.clone(),
+                impl_generics: impl_generics.clone(),
                 projected_fields: fields.clone(),
                 inherited_statics: Vec::new(),
                 fields,
@@ -142,6 +142,17 @@ fn emit_interface_type(
                 layout: None,
             },
             needs_unknown,
+        )?;
+        emitter::deep_equality::emit_deep_eq_impl(
+            writer,
+            mir,
+            context,
+            interface,
+            &name,
+            &impl_generics,
+            &type_params,
+            &carried_type_param_idents(mir, context, interface)?,
+            true,
         )?;
         return Ok(());
     }
@@ -164,19 +175,7 @@ fn emit_interface_type(
     // `generic_elision` dropped is spelled nowhere, so it must not appear in
     // the `PhantomData` filler or in any hand-written impl's generic list
     // either (see `crate::generic_elision`).
-    let interface_param_idents = context.type_param_elision().retain_carried(
-        interface.name,
-        interface
-            .type_params
-            .iter()
-            .map(|param| {
-                mir.symbols
-                    .get(param.name)
-                    .map(|param_name| crate::names::type_param(param_name).into_string())
-                    .ok_or_else(|| EmitError::new("interface type parameter has unknown symbol"))
-            })
-            .collect::<Result<Vec<_>, _>>()?,
-    );
+    let interface_param_idents = carried_type_param_idents(mir, context, interface)?;
     // A generic record whose field nests one of its type parameters inside a
     // generated nominal type (`setter: ValueSetter<Value>`, a generic union
     // enum) cannot use the derives: each derive bounds `Value` by its own
@@ -265,7 +264,7 @@ fn emit_interface_type(
     if needs_bounded_impls {
         let default_generics = derive_generics_text(
             &interface_param_idents,
-            classes::GENERATED_TYPE_PARAM_BOUNDS,
+            classes::generated_type_param_bounds(context.demand()),
         );
         emit_default_impl_for_storage_type(
             writer,
@@ -344,8 +343,42 @@ fn emit_interface_type(
             None,
         )?;
     }
+    emitter::deep_equality::emit_deep_eq_impl(
+        writer,
+        mir,
+        context,
+        interface,
+        &name,
+        &impl_generics,
+        &type_params,
+        &interface_param_idents,
+        false,
+    )?;
     writer.blank_line();
     Ok(())
+}
+
+/// The type parameters the emitted Rust of `interface` declares, as
+/// identifiers: a position `generic_elision` dropped is spelled nowhere (see
+/// `crate::generic_elision`).
+fn carried_type_param_idents(
+    mir: &Mir,
+    context: &EmitContext,
+    interface: &smelt_mir::MirInterface,
+) -> Result<Vec<String>, EmitError> {
+    Ok(context.type_param_elision().retain_carried(
+        interface.name,
+        interface
+            .type_params
+            .iter()
+            .map(|param| {
+                mir.symbols
+                    .get(param.name)
+                    .map(|param_name| crate::names::type_param(param_name).into_string())
+                    .ok_or_else(|| EmitError::new("interface type parameter has unknown symbol"))
+            })
+            .collect::<Result<Vec<_>, _>>()?,
+    ))
 }
 
 /// Emit one class's storage: the reference handle for a reference class,
@@ -489,7 +522,10 @@ fn emit_class_type(
         // and `classes::GENERATED_TYPE_PARAM_BOUNDS` for why the set is the
         // full one rather than the derive-equivalent `T: Default`.
         let default_generics = if is_generic {
-            derive_generics_text(&class_param_idents, classes::GENERATED_TYPE_PARAM_BOUNDS)
+            derive_generics_text(
+                &class_param_idents,
+                classes::generated_type_param_bounds(context.demand()),
+            )
         } else {
             impl_generics.clone()
         };
@@ -587,7 +623,7 @@ fn emit_class_type(
                             || {
                                 materialized_static_value(
                                     field.value.as_ref(),
-                                    mir.types.get(field.ty) != Some(&smelt_hir::Type::PyStr),
+                                    mir.types.get(field.ty),
                                 )
                             },
                             |global| {

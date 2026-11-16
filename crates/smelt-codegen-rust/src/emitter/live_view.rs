@@ -107,6 +107,10 @@ pub(crate) fn is_live_record(_mir: &Mir, context: &EmitContext, name: Symbol) ->
 /// value, and converting it would store something nobody wrote
 /// (`"[object Object]"`): a live record's setter refuses the write instead,
 /// and the runtime keeps the value on the object (`SmeltOpenShape::extras`).
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "the types not listed have no single runtime tag a write can be checked against: the write is admitted"
+)]
 fn erased_value_fits(mir: &Mir, ty: TypeId) -> Option<String> {
     let tag = |variant: &str| Some(format!("matches!(value, SmeltUnknown::{variant}(_))"));
     match mir.types.get(ty)? {
@@ -157,17 +161,21 @@ impl FunctionEmitter<'_> {
     fn type_directed_field_statements(
         &self,
         name: Symbol,
+        target: TypeId,
     ) -> Result<Vec<(String, String)>, EmitError> {
         self.class_or_interface_fields(name)
             .iter()
             .filter(|field| field.visibility.is_own_property())
             .map(|field| {
                 let key = self.symbol_source_name(field.name)?.to_owned();
-                let field_name = self.context.names().field_text(self.mir, field.name);
                 let value = super::record_coercion::record_field_unknown_expr(
                     self.mir,
-                    &RustExpr::chain(format!("smelt_object_value.0.borrow().{field_name}"))
-                        .cloned_value(),
+                    &RustExpr::chain(self.reference_field_read_place(
+                        "smelt_object_value",
+                        target,
+                        field.name,
+                    )?)
+                    .cloned_value(),
                     field.ty,
                 )
                 .unwrap_or_else(|_| RustExpr::atom("SmeltUnknown::Null"));
@@ -213,7 +221,7 @@ impl FunctionEmitter<'_> {
         // `IntoSmeltUnknown` impl has always used, field by field.
         let statements = match rendered {
             Ok(statements) => statements,
-            Err(_) => self.type_directed_field_statements(name)?,
+            Err(_) => self.type_directed_field_statements(name, target)?,
         };
         let names = statements
             .iter()
@@ -250,17 +258,37 @@ impl FunctionEmitter<'_> {
                 continue;
             };
             let key = self.symbol_source_name(field.name)?;
-            let field_name = self.context.names().field_text(self.mir, field.name);
+            let place = self.reference_field_write_place("self", target, field.name)?;
             // A value of another type than the field's is handed back, not
             // coerced: the runtime keeps it on the object, shadowing the field.
             let guard = erased_value_fits(self.mir, field.ty)
                 .map(|fits| format!("if !{fits} {{ return Err(value); }} "))
                 .unwrap_or_default();
             set_arms.push_str(&format!(
-                "        if *key == {key:?} {{ {guard}let smelt_field_value = {converted}; self.0.borrow_mut().{field_name} = smelt_field_value; return Ok(()); }}\n",
+                "        if *key == {key:?} {{ {guard}let smelt_field_value = {converted}; {place} = smelt_field_value; return Ok(()); }}\n",
                 converted = converted.delimited()
             ));
         }
+        // Every statement that is an unconditional push names a property
+        // no value of the record can lack, so the record's own keys are its
+        // declared names and a view lists them without reading a value
+        // (`smelt_live_keys` in the runtime). A statement that may push
+        // nothing (an optional property) leaves the default, which asks.
+        let always_present = statements
+            .iter()
+            .all(|(_, statement)| statement.starts_with("smelt_object_entries.push(("));
+        let always_present_method = if always_present {
+            "    fn smelt_fields_always_present(&self) -> bool { true }\n"
+        } else {
+            ""
+        };
+        // The cell the object is: a view target's handle holds it as its
+        // trait object (`crate::structural_views`).
+        let live_cell = if self.is_view_target_type(target) {
+            "self.0.clone().smelt_any()"
+        } else {
+            "self.0.clone()"
+        };
         // The whole impl is the typed-to-erased crossing of this record, which
         // `smelt-unknown-report` classifies by the `impl SmeltLiveObject for`
         // marker.
@@ -291,9 +319,10 @@ impl FunctionEmitter<'_> {
                  \x20       {all}\n\
                  \x20       smelt_object_entries\n\
                  \x20   }}\n\
-                 \x20   fn smelt_live_cell(&self) -> ::std::rc::Rc<dyn ::std::any::Any> {{ self.0.clone() }}\n\
+                 \x20   fn smelt_live_cell(&self) -> ::std::rc::Rc<dyn ::std::any::Any> {{ {live_cell} }}\n\
                  \x20   fn smelt_live_address(&self) -> usize {{ ::std::rc::Rc::as_ptr(&self.0) as *const () as usize }}\n\
                  \x20   fn smelt_live_handle(&self) -> &dyn ::std::any::Any {{ self }}\n\
+                 {always_present_method}\
                  }}\n"
             ),
         ))

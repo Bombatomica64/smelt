@@ -5,28 +5,37 @@
 // Where a literal lands when it leaves its binding (an array or object
 // literal, an assignment, a `return`) is not inspected, so every such literal
 // keeps the map lowering (`literal_record_uses`, `Disqualifier::Escape`). The
-// case that needs it is a slot of another record type: a struct stored there
-// is converted to that struct, a copy, while a map is adopted by the record
-// built from it and stays the caller's object.
+// case that needs it is a slot of a record type the literal's type does not
+// share with (a property at a wider type, an optional property the literal
+// lacks, a class): a struct stored there is converted to that struct, a copy,
+// while a map is adopted by the record built from it and stays the caller's
+// object. A slot whose record type shares holds a view of the struct
+// (`smelt-codegen-rust/src/structural_views.rs`) and would print the same
+// either way; it is the slot's type that this rule does not look at.
 //
 // Lowered as record structs, the lines marked (*) print `1`, `kept` and
 // `2 new`.
 //
 // Every line below is diffed against Node.
 
-type Point = { x: number; label: string };
-type Inner = { depth: number; tag: string };
+type Wide = { x: number | string; label: string };
+type Roomy = { x: number; label: string; note?: string };
+
+class Tagged {
+  depth = 2;
+  tag = "new";
+}
 
 function stored(): void {
   const kept = { x: 1, label: "kept" };
-  const all: Point[] = [kept];
+  const all: Wide[] = [kept];
   all[0].x = 5;
   console.log(kept.x); // (*)
 }
 
 function assigned(): void {
   const kept = { x: 1, label: "kept" };
-  const holder: { point: Point | null } = { point: null };
+  const holder: { point: Roomy | null } = { point: null };
   holder.point = kept;
   if (holder.point) {
     holder.point.label = "renamed";
@@ -34,16 +43,17 @@ function assigned(): void {
   console.log(kept.label); // (*)
 }
 
-function returned(): Point {
+function returned(): Wide {
   const made = { x: 7, label: "made" };
   return made;
 }
 
 function replaced(): void {
   // A record-valued property replaced by a value of another record type
-  // (`Disqualifier::PartWrite`): as a struct, `outer.inner` would hold a copy.
+  // (`Disqualifier::PartWrite`), here a class instance: as a struct,
+  // `outer.inner` would hold a copy.
   const outer = { name: "outer", inner: { depth: 1, tag: "in" } };
-  const replacement: Inner = { depth: 2, tag: "new" };
+  const replacement = new Tagged();
   outer.inner = replacement;
   replacement.depth = 3;
   console.log(outer.inner.depth, outer.inner.tag); // (*)

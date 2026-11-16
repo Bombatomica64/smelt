@@ -343,16 +343,6 @@ fn smelt_erased_list_write_back(receiver: &SmeltUnknown, list: SmeltUnknown) {
 fn smelt_optional_unknown_or_undefined(value: Option<SmeltUnknown>) -> SmeltUnknown { value.unwrap_or(SmeltUnknown::Undefined) }
 // @smelt:item-end
 
-// @smelt:item smelt_null_or when unknown & null_codec
-/// Erase a `T | null` optional: absent is the `null` tag, present goes through `present`.
-//~ The `null` counterpart of `map_or(SmeltUnknown::Undefined, ..)`: which
-//~ absent value a `None` is comes from the static type, and this is the one
-//~ spelling of its `null` case.
-#[inline]
-#[allow(dead_code)]
-fn smelt_null_or<T>(value: Option<T>, present: impl FnOnce(T) -> SmeltUnknown) -> SmeltUnknown { value.map_or(SmeltUnknown::Null, present) }
-// @smelt:item-end
-
 // @smelt:item smelt_nullish_unknown_or_undefined when optional_unknown_read & unknown & null_codec
 /// An erased `T | null | undefined` read at the erased carrier: each absence is its own tag.
 #[inline]

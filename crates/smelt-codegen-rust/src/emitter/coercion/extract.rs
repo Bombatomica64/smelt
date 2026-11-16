@@ -39,7 +39,7 @@ impl FunctionEmitter<'_> {
         let source_ty = self.operand_ty(value)?;
         let target_is_primitive = matches!(
             self.mir.types.get(target),
-            Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::PyStr)
+            Some(Type::Bool | Type::Int | Type::PyInt | Type::Float | Type::String | Type::PyStr)
         );
         let source_inner_is_erased = matches!(
             self.mir.types.get(source_ty),
@@ -343,6 +343,11 @@ impl FunctionEmitter<'_> {
                 "match {smelt_owned_text} {{ SmeltUnknown::Number(smelt_value) => smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get(\"{SMELT_DATE}\") {{ Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }}, SmeltUnknown::String(smelt_value) => smelt_js_string_to_number(&smelt_value), SmeltUnknown::Bool(smelt_value) => if smelt_value {{ 1.0 }} else {{ 0.0 }}, {smelt_bigint_arm}SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value),"), smelt_owned_text = smelt_owned_text.delimited()
             )))),
             Some(Type::Int) => self.extract_int(&smelt_owned_text),
+            // A Python `int` read back out of the carrier (a `json.loads`
+            // result, a value through an erased generic): the runtime's adapter.
+            Some(Type::PyInt) => Ok(RustExpr::chain(self.carrier_format(self.carrier()?, format_args!(
+                "<SmeltPyInt as SmeltFromUnknown>::smelt_from_unknown({smelt_owned_text})", smelt_owned_text = smelt_owned_text.delimited()
+            )))),
             // Reading an erased value out into a `String` slot is not the JS
             // `String(x)` CONVERSION -- nothing in the source asked for one; the
             // slot's declared type simply says `string`. So absence must not
@@ -592,9 +597,9 @@ impl FunctionEmitter<'_> {
             // An already-erased `SmeltUnknown` at a `Type::Future` position is a
             // `SmeltUnknown::Promise` (e.g. `await`ing the result of an erased
             // vitest-mock call, or an `x as Promise<T>` cast). It CAN be recovered:
-            // wrap a fresh promise-value handle whose body awaits the erased
-            // promise through `smelt_await_flatten` and extracts its settled value
-            // to the declared `Output`. Discarding it for `SmeltFuture::resolved`
+            // `SmeltFuture::from_erased` is the same promise seen at `T`, settling
+            // when the erased one does (flattening a nested promise) with its value
+            // extracted to the declared `Output`, so its reactions keep their turn. Discarding it for `SmeltFuture::resolved`
             // of a default would drop the real resolved value and leave the shared
             // settle state unobserved (breaking, e.g., mock result matchers and
             // chained awaits on the recovered promise).
@@ -608,7 +613,7 @@ impl FunctionEmitter<'_> {
                 // also what the source does: the promise value already exists at
                 // this point; only the `await` is deferred.
                 Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
-                    "{{ let smelt_erased_future = ({text}).into_smelt_unknown(); SmeltFuture::from_future(Box::pin(async move {{ let smelt_awaited = smelt_await_flatten(smelt_erased_future).await?; Ok::<_, {ERROR_BOX}>({extracted}) }})) }}", text = text.delimited(), extracted = extracted.delimited()
+                    "{{ let smelt_erased_future = ({text}).into_smelt_unknown(); SmeltFuture::from_erased(smelt_erased_future, move |smelt_awaited| Ok::<_, {ERROR_BOX}>({extracted})) }}", text = text.delimited(), extracted = extracted.delimited()
                 ))))
             }
             other => Err(EmitError::new(format!(

@@ -261,6 +261,13 @@ test("generator fallthrough", () => {
     run_generator_fixture(source, "smelt_generator_runtime_fallthrough");
 }
 
+/// Requirement corrected (old → new): this test asserted that a completed
+/// generator's later `next()` repeats its return value; ECMAScript answers
+/// `{ value: undefined, done: true }` (GeneratorResumeAbrupt/GeneratorResume on
+/// a "completed" state, ES2024 27.5.3.3; Node prints `undefined`). The runtime
+/// now answers that. Where `TReturn` admits `undefined` the value is asserted
+/// exactly; a `TReturn` that cannot hold it (`string`, `number`) holds the
+/// type's default, so there only "done and not the repeated value" is asserted.
 #[test]
 #[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
 fn next_value_resumes_yield_expression_and_completion_is_stable() {
@@ -272,6 +279,11 @@ function* exchange(): Generator<number, string, number> {
   return `received:${received}`;
 }
 
+function* maybeExchange(): Generator<number, string | undefined, number> {
+  const received = yield 1;
+  return `received:${received}`;
+}
+
 test("sent values and stable completion", () => {
   const iterator = exchange();
   expect(iterator.next().value).toBe(1);
@@ -279,7 +291,14 @@ test("sent values and stable completion", () => {
   expect(completed.done).toBe(true);
   expect(completed.value).toBe("received:42");
   expect(iterator.next(99).done).toBe(true);
-  expect(iterator.next(100).value).toBe("received:42");
+  expect(iterator.next(100).value).not.toBe("received:42");
+
+  const maybe = maybeExchange();
+  maybe.next();
+  expect(maybe.next(7).value).toBe("received:7");
+  const after = maybe.next(8);
+  expect(after.done).toBe(true);
+  expect(after.value).toBe(undefined);
 });
 "#;
     run_generator_fixture(source, "smelt_generator_runtime_next_value");
@@ -311,6 +330,13 @@ test("yield star forwards sent values", () => {
     run_generator_fixture(source, "smelt_generator_runtime_delegate_next");
 }
 
+/// Requirement corrected (old → new): this test asserted that a completed
+/// generator's later `next()` repeats its return value; ECMAScript answers
+/// `{ value: undefined, done: true }` (GeneratorResumeAbrupt/GeneratorResume on
+/// a "completed" state, ES2024 27.5.3.3; Node prints `undefined`). The runtime
+/// now answers that. Where `TReturn` admits `undefined` the value is asserted
+/// exactly; a `TReturn` that cannot hold it (`string`, `number`) holds the
+/// type's default, so there only "done and not the repeated value" is asserted.
 #[test]
 #[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
 fn generator_return_and_throw_resume_at_the_suspension() {
@@ -328,7 +354,9 @@ test("return and throw protocol methods", () => {
   const completion = returned.return(9);
   expect(completion.done).toBe(true);
   expect(completion.value).toBe(9);
-  expect(returned.next().value).toBe(9);
+  const after = returned.next();
+  expect(after.done).toBe(true);
+  expect(after.value).not.toBe(9);
 
   const thrown = values();
   expect(thrown.next().value).toBe(1);

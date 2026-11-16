@@ -49,6 +49,7 @@ impl ModuleBuilder<'_> {
             Some(
                 Type::Bool
                 | Type::Int
+                | Type::PyInt
                 | Type::FixedInt(_)
                 | Type::BigInt
                 | Type::Float
@@ -60,7 +61,9 @@ impl ModuleBuilder<'_> {
                 | Type::TypeParam { .. }
                 | Type::Class { .. }
                 | Type::Function(_)
-                | Type::None,
+                | Type::None
+                // Not a value's type; the `unknown` it erases to needs no `never`.
+                | Type::IndexedAccess { .. },
             )
             | None => false,
         }

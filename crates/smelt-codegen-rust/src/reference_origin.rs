@@ -138,6 +138,13 @@ pub(crate) fn restore_subclass_or_rebuild_expr(
 /// the object it was read from: a plain erased object cast to the record type
 /// is that record from then on, with one identity, shared writes and the
 /// object's own key order.
+///
+/// `view_accessors` names the accessors of a view target
+/// (`crate::structural_views`), whose rebuilt cell is written through them.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "each argument is an independent fact about the record the caller already holds"
+)]
 pub(crate) fn emit_reference_from_smelt_unknown_impl(
     writer: &mut crate::rust::CodeWriter,
     mir: &smelt_mir::Mir,
@@ -148,6 +155,9 @@ pub(crate) fn emit_reference_from_smelt_unknown_impl(
     fields: &[smelt_mir::MirField],
     subclass_origins: &[(String, String)],
     live: bool,
+    view_accessors: Option<
+        &std::collections::HashMap<smelt_hir::Symbol, crate::structural_views::AccessorNames>,
+    >,
 ) {
     let mut assigns = Vec::new();
     // A live record adopts the plain object it is rebuilt from (see
@@ -183,8 +193,14 @@ pub(crate) fn emit_reference_from_smelt_unknown_impl(
         let absent =
             crate::emitter::record_coercion::missing_required_field_throw(mir, name, key, field.ty)
                 .map_or_else(String::new, |throw| format!(" else {{ {throw}; }}"));
+        // A view target writes its own cell through its accessors
+        // (`crate::structural_views`).
+        let place = match view_accessors.and_then(|accessors| accessors.get(&field.name)) {
+            Some(accessor) => format!("(*result.0.{}())", accessor.get_mut),
+            None => format!("result.0.borrow_mut().{field_name}"),
+        };
         assigns.push(format!(
-            "if let Some(smelt_field) = smelt_erased_member(&smelt_object, {key:?}) {{ {frame}result.0.borrow_mut().{field_name} = SmeltFromUnknown::smelt_from_unknown(smelt_field); }}{absent}"
+            "if let Some(smelt_field) = smelt_erased_member(&smelt_object, {key:?}) {{ {frame}{place} = SmeltFromUnknown::smelt_from_unknown(smelt_field); }}{absent}"
         ));
     }
     writer.line("/// Recover this reference record from an erased value: the live instance");

@@ -111,7 +111,7 @@ impl ModuleBuilder<'_> {
                 _ => false,
             };
             args.push(if prints_as_its_string {
-                self.null_absent_string_operand(value, arg.span().start, arg.span().end, body)
+                self.string_conversion_operand(value, arg.span().start, arg.span().end, body)
             } else {
                 value
             });
@@ -233,12 +233,6 @@ impl ModuleBuilder<'_> {
         callee_call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        if let Some(expr) = self.slice_string_nested_call(callee_call, call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.partial_bind_nested_call(callee_call, call, body)? {
-            return Ok(expr);
-        }
         let callee = self.call_expression(callee_call, body)?;
         let callee_ty = Self::expr_ty(body, callee);
         // `f(x)(...args)`: the spread list is the argument list, not one argument.

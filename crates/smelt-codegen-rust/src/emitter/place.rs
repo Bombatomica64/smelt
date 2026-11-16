@@ -552,7 +552,12 @@ impl FunctionEmitter<'_> {
                     && self.class_has_named_field(base_ty, *field)
                 {
                     return Ok(PlaceTarget::Direct(RustExpr::from(
-                        self.reference_field_write_text(&base_read_text, *base, base_ty, *field),
+                        self.reference_field_write_place_at(
+                            &base_read_text,
+                            *base,
+                            base_ty,
+                            *field,
+                        )?,
                     )));
                 }
                 if self.structural_record_fields(base_ty).is_some() {
@@ -653,9 +658,10 @@ impl FunctionEmitter<'_> {
 
     /// Resolves a statically known tuple index for Rust field access.
     pub(super) fn tuple_index(&self, index: &Operand, len: usize) -> Result<usize, EmitError> {
-        let value = match index {
-            Operand::Const(Constant::Int(value)) => usize::try_from(*value).ok(),
-            _ => None,
+        let value = if let Operand::Const(Constant::Int(value)) = index {
+            usize::try_from(*value).ok()
+        } else {
+            None
         }
         .ok_or_else(|| EmitError::new("tuple index must be a non-negative constant integer"))?;
         if value >= len {
@@ -1499,8 +1505,8 @@ impl FunctionEmitter<'_> {
         {
             let base_text = self.local_value(base)?;
             let read = format!(
-                "_smelt_value{}.clone()",
-                self.reference_field_read_suffix(base, *inner, field)
+                "{}.clone()",
+                self.reference_field_read_place_at("_smelt_value", base, *inner, field)?
             );
             return if matches!(self.mir.types.get(field_ty), Some(Type::Optional(..))) {
                 Ok(base_text.postfix(format!(".as_ref().and_then(|_smelt_value| {read})")))
@@ -1615,8 +1621,7 @@ impl FunctionEmitter<'_> {
             // further down, so the projection has to be repeated here.
             if self.is_reference_class_type(base_ty) && self.class_has_named_field(base_ty, field) {
                 return Ok(self
-                    .local_value(base)?
-                    .postfix(self.reference_field_read_suffix(base, base_ty, field))
+                    .reference_field_read_expr_at(&self.local_value(base)?, base, base_ty, field)?
                     .cloned_value());
             }
             return Ok(self
@@ -1687,8 +1692,7 @@ impl FunctionEmitter<'_> {
         // with the statement — never held across a re-entrant call.
         if self.is_reference_class_type(base_ty) && self.class_has_named_field(base_ty, field) {
             return Ok(self
-                .local_value(base)?
-                .postfix(self.reference_field_read_suffix(base, base_ty, field))
+                .reference_field_read_expr_at(&self.local_value(base)?, base, base_ty, field)?
                 .cloned_value());
         }
         let field_text = {
@@ -1834,6 +1838,37 @@ impl FunctionEmitter<'_> {
                 let erased = self.erase_rendered(&self.local_value(base)?, base_ty)?;
                 self.unknown_index_expr(&erased, index)
             }
+            // A run-time index into a tuple whose items share one type
+            // (`for (const r of await Promise.allSettled([a, b]))`) reads the
+            // array of those items, as JavaScript does; a miss is the element's
+            // missing value, as a list read's is.
+            Some(Type::Tuple(items))
+                if !matches!(index, Operand::Const(Constant::Int(_)))
+                    && homogeneous_tuple_item(items).is_some() =>
+            {
+                let item_ty = homogeneous_tuple_item(items)
+                    .ok_or_else(|| EmitError::new("tuple items share no type"))?;
+                let tuple = self.local_value(base)?;
+                let elements = (0..items.len())
+                    .map(|position| {
+                        RustExpr::tuple_field(&tuple, position)
+                            .cloned_value()
+                            .into_string()
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let index_text = self.normalized_read_index_expr(
+                    &RustExpr::atom(items.len().to_string()),
+                    index,
+                    negative,
+                )?;
+                let missing = self.element_missing_value(item_ty)?;
+                Ok(RustExpr::atom(format!(
+                    "[{elements}].get({index_text}).cloned().unwrap_or_else(|| {missing})",
+                    index_text = index_text.delimited(),
+                    missing = missing.delimited()
+                )))
+            }
             Some(Type::Tuple(items)) => {
                 let tuple_index = self.tuple_index(index, items.len())?;
                 Ok(RustExpr::tuple_field(&self.local_value(base)?, tuple_index))
@@ -1898,4 +1933,11 @@ impl FunctionEmitter<'_> {
             _ => Ok(self.absent_value()?),
         }
     }
+}
+
+/// The one type every item of a tuple has, or `None` for an empty tuple or one
+/// whose items differ: only then is a run-time index into it an element read.
+pub(super) fn homogeneous_tuple_item(items: &[TypeId]) -> Option<TypeId> {
+    let (first, rest) = items.split_first()?;
+    rest.iter().all(|item| item == first).then_some(*first)
 }

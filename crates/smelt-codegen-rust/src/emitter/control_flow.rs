@@ -406,6 +406,10 @@ impl FunctionEmitter<'_> {
                 // A `typeof` whose destination was narrowed to `&'static str`
                 // skips the owned copy entirely -- the borrowed spelling IS the
                 // value. See `emitter::typeof_str_locals`.
+                #[expect(
+                    clippy::wildcard_enum_match_arm,
+                    reason = "two rvalue shapes have a destination-specific rendering; every other rvalue renders through `rvalue_expr_for_dest`"
+                )]
                 let rendered_value = match value {
                     // A base initializer copy is handed its instance: the
                     // constructor's allocation of `this` becomes the receiver.
@@ -416,6 +420,14 @@ impl FunctionEmitter<'_> {
                         value: typeof_operand,
                     } if self.local_is_static_typeof_str(*dest) => {
                         self.typeof_str_expr(typeof_operand)?.into_string()
+                    }
+                    // The absent side of an absence test of a lifted type
+                    // parameter value: never read, and no `T` can hold it
+                    // (`emitter::generic_scrutinee`).
+                    Rvalue::Use(Operand::Const(Constant::None | Constant::Undefined))
+                        if self.is_absence_probe_temp(*dest)? =>
+                    {
+                        Self::absence_probe_placeholder().to_owned()
                     }
                     _ => self.rvalue_expr_for_dest(value, local.ty)?.into_string(),
                 };
@@ -498,6 +510,7 @@ impl FunctionEmitter<'_> {
                 current,
                 value,
             } => self.emit_dict_entry_update_statement(*base, index, default, *current, value, out),
+            Statement::StorageLive(local) => self.emit_storage_live(*local, out),
         }
     }
 

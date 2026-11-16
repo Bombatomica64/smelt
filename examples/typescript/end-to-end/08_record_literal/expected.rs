@@ -692,45 +692,6 @@ fn smelt_next_object_id() -> usize {
     SMELT_NEXT_OBJECT_ID.with(|next| { let id = next.get(); next.set(id.saturating_add(1)); id })
 }
 
-/// A JavaScript array: a reference identity plus a shared backing buffer.
-pub struct SmeltList<T> {
-    id: usize,
-    values: ::std::rc::Rc<::std::cell::RefCell<Vec<T>>>,
-}
-impl<T: ::std::fmt::Debug> ::std::fmt::Debug for SmeltList<T> { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { self.values.borrow().fmt(formatter) } }
-impl<T> Clone for SmeltList<T> { fn clone(&self) -> Self { Self { id: self.id, values: ::std::rc::Rc::clone(&self.values) } } }
-#[allow(dead_code)]
-impl<T> SmeltList<T> {
-    fn new(values: Vec<T>) -> Self { Self { id: smelt_next_object_id(), values: ::std::rc::Rc::new(::std::cell::RefCell::new(values)) } }
-    fn with_id(id: usize, values: Vec<T>) -> Self { Self { id, values: ::std::rc::Rc::new(::std::cell::RefCell::new(values)) } }
-    fn with_storage(id: usize, values: ::std::rc::Rc<::std::cell::RefCell<Vec<T>>>) -> Self { Self { id, values } }
-    fn storage(&self) -> ::std::rc::Rc<::std::cell::RefCell<Vec<T>>> { ::std::rc::Rc::clone(&self.values) }
-    fn id(&self) -> usize { self.id }
-    fn borrow(&self) -> ::std::cell::Ref<'_, Vec<T>> { self.values.borrow() }
-    fn borrow_mut(&self) -> ::std::cell::RefMut<'_, Vec<T>> { self.values.borrow_mut() }
-    fn len(&self) -> usize { self.values.borrow().len() }
-    fn is_empty(&self) -> bool { self.values.borrow().is_empty() }
-    fn replace_all(&self, values: Vec<T>) { *self.values.borrow_mut() = values; }
-}
-#[allow(dead_code)]
-impl<T: Clone> SmeltList<T> {
-    fn fresh_copy(&self) -> Self { Self::new(self.values.borrow().clone()) }
-    fn into_vec(self) -> Vec<T> { match ::std::rc::Rc::try_unwrap(self.values) { Ok(cell) => cell.into_inner(), Err(shared) => shared.borrow().clone() } }
-    fn to_vec(&self) -> Vec<T> { self.values.borrow().clone() }
-    fn get_index(&self, index: usize) -> Option<T> { self.values.borrow().get(index).cloned() }
-    fn set_index(&self, index: usize, value: T, fill: T) { let mut values = self.values.borrow_mut(); if index >= values.len() { values.resize(index.saturating_add(1), fill); } values[index] = value; }
-    fn iter(&self) -> ::std::vec::IntoIter<T> { self.values.borrow().clone().into_iter() }
-}
-impl<T> From<Vec<T>> for SmeltList<T> { fn from(values: Vec<T>) -> Self { Self::new(values) } }
-impl<T> ::std::iter::FromIterator<T> for SmeltList<T> { fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self { Self::new(iter.into_iter().collect()) } }
-impl<T: Clone> IntoIterator for SmeltList<T> { type Item = T; type IntoIter = ::std::vec::IntoIter<T>; fn into_iter(self) -> Self::IntoIter { self.into_vec().into_iter() } }
-impl<T: Clone> IntoIterator for &SmeltList<T> { type Item = T; type IntoIter = ::std::vec::IntoIter<T>; fn into_iter(self) -> Self::IntoIter { self.values.borrow().clone().into_iter() } }
-impl<T: PartialEq> PartialEq for SmeltList<T> { fn eq(&self, other: &Self) -> bool { *self.values.borrow() == *other.values.borrow() } }
-impl<T: PartialEq> Eq for SmeltList<T> {}
-impl<T: ::std::hash::Hash> ::std::hash::Hash for SmeltList<T> { fn hash<H: ::std::hash::Hasher>(&self, state: &mut H) { self.values.borrow().hash(state); } }
-impl<T> Default for SmeltList<T> { fn default() -> Self { Self::new(Vec::new()) } }
-impl<T: Clone> From<SmeltList<T>> for Vec<T> { fn from(list: SmeltList<T>) -> Self { list.into_vec() } }
-
 use ::std::hash::Hash;
 
 #[derive(Default, Clone, Copy)]

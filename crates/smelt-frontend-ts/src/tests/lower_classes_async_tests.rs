@@ -1131,7 +1131,7 @@ async function race(): Promise<number> {
   return await Promise.race([lift(1), lift(2)]);
 }
 
-async function settled(): Promise<[number, number]> {
+async function settled(): Promise<[PromiseSettledResult<number>, PromiseSettledResult<number>]> {
   return await Promise.allSettled([lift(1), lift(2)]);
 }
 "),
@@ -1139,7 +1139,17 @@ async function settled(): Promise<[number, number]> {
     )?;
     ensure_signature(&ctx, "lift", "async lift(value: Float) -> Future<Float>")?;
     ensure_signature(&ctx, "race", "async race() -> Future<Float>")?;
-    ensure_signature(&ctx, "settled", "async settled() -> Future<(Float, Float)>")?;
+    // `Promise.allSettled` answers settled-result records, not the values
+    // (`Promise<[number, number]>` was invalid TypeScript the old lowering
+    // accepted by treating it as `Promise.all`).
+    ensure_signature(
+        &ctx,
+        "settled",
+        // Old requirement: the lib name `PromiseSettledResult<Float>`, which no
+        // declaration backed (each entry erased). It is the tagged union of the
+        // two settled records (`ty::annotations::settled_result`).
+        "async settled() -> Future<(PromiseFulfilledResult<Float> | PromiseRejectedResult, PromiseFulfilledResult<Float> | PromiseRejectedResult)>",
+    )?;
     ensure_exprs!(&ctx, AsyncOp, Await);
     Ok(())
 }

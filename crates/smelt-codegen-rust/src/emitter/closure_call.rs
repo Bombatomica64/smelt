@@ -473,14 +473,12 @@ impl FunctionEmitter<'_> {
             }
             None => None,
         };
-        let local_function = match callee {
-            Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) => {
-                match self.mir.types.get(self.local_decl(*local)?.ty) {
-                    Some(Type::Function(function)) => Some(function),
-                    _ => None,
-                }
-            }
-            _ => None,
+        let local_function = match callee.local() {
+            Some(local) => match self.mir.types.get(self.local_decl(local)?.ty) {
+                Some(Type::Function(function)) => Some(function),
+                _ => None,
+            },
+            None => None,
         };
         let local_params = local_function.map(|function| function.params.as_slice());
         let inferred_function = match self.mir.types.get(callee_ty) {
@@ -502,13 +500,10 @@ impl FunctionEmitter<'_> {
         // A class's function-typed FIELD answers the same way, from its
         // declaration rather than from the instantiated field type
         // MIR resolved: see `class_field_declared_function_type`.
-        let abi_function = match callee {
-            Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) => {
-                self.emitted_call_result_function_type(*local)
-            }
-            _ => None,
-        }
-        .or_else(|| self.class_field_declared_function_type(callee));
+        let abi_function = callee
+            .local()
+            .and_then(|local| self.emitted_call_result_function_type(local))
+            .or_else(|| self.class_field_declared_function_type(callee));
         let mut rendered_args = {
             let mut rendered_args = args
                 .iter()

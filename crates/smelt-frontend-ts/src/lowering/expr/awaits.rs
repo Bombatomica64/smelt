@@ -4,7 +4,7 @@ use super::super::ModuleBuilder;
 use crate::SmeltError;
 use crate::lowering::erasure::NotNewErasure;
 use oxc::span::GetSpan;
-use smelt_hir::{Body, ErasureReason, Expr, ExprKind, Type};
+use smelt_hir::{AsyncOp, Body, ErasureReason, Expr, ExprKind, Literal, Type};
 
 impl ModuleBuilder<'_> {
     /// Lower a JavaScript `await` operand into a HIR await, or into the operand
@@ -83,7 +83,29 @@ impl ModuleBuilder<'_> {
                     span: self.span(await_expr.span.start, await_expr.span.end),
                 }));
             }
-            return Ok(awaited);
+            // `await v` of a value that is not a promise still suspends: it is
+            // `await Promise.resolve(v)`, one job turn, so code queued before
+            // it runs first (Node resumes after the microtasks already queued).
+            let span = self.span(await_expr.span.start, await_expr.span.end);
+            let duration = body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::Float(0.0)),
+                ty: self.ctx.krate.types.intern(Type::Float),
+                span,
+            });
+            let future_ty = self.ctx.krate.types.intern(Type::Future(awaited_ty));
+            let future = body.push_expr(Expr {
+                kind: ExprKind::AsyncOp {
+                    op: AsyncOp::Resolve,
+                    args: vec![duration, awaited],
+                },
+                ty: future_ty,
+                span,
+            });
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::Await(future),
+                ty: awaited_ty,
+                span,
+            }));
         };
         Ok(body.push_expr(Expr {
             kind: ExprKind::Await(awaited),

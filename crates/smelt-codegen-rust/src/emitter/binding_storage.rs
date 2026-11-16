@@ -50,8 +50,9 @@ impl FunctionEmitter<'_> {
         let storage = self.binding_storage_type(decl.ty)?;
         let name = self.local_name(local)?;
         if self.local_uses_shared_capture_storage(local) {
+            let mutability = self.capture_cell_binding_mut(local);
             out.push_str(&format!(
-                "    let smelt_capture_{name}: ::std::rc::Rc<::std::cell::RefCell<{storage}>> = ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltBinding::unbound()));\n"
+                "    let {mutability}smelt_capture_{name}: ::std::rc::Rc<::std::cell::RefCell<{storage}>> = ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltBinding::unbound()));\n"
             ));
         } else {
             out.push_str(&format!(
@@ -60,6 +61,58 @@ impl FunctionEmitter<'_> {
         }
         self.mark_local_declared(local);
         Ok(())
+    }
+
+    /// Emits a [`smelt_mir::Statement::StorageLive`]: a local kept in a shared
+    /// capture cell gets a new cell, so the closures created by the previous
+    /// run of its declaration keep the cell they captured. Any other storage
+    /// is a plain value the next assignment overwrites, which no closure can
+    /// observe, so nothing is emitted.
+    pub(super) fn emit_storage_live(
+        &self,
+        local: LocalId,
+        out: &mut String,
+    ) -> Result<(), EmitError> {
+        if !self.local_uses_shared_capture_storage(local)
+            || self.deferred_capture_cells.borrow().contains(&local)
+        {
+            return Ok(());
+        }
+        let name = self.local_name(local)?;
+        let fresh = self.fresh_capture_cell(local)?;
+        out.push_str(&format!(
+            "    smelt_capture_{name} = {};\n",
+            fresh.delimited()
+        ));
+        Ok(())
+    }
+
+    /// A new shared capture cell for `local`, holding what its declaration
+    /// starts it with: an unassigned `SmeltBinding` for a possibly-unbound
+    /// local, else the type's default (which the declaration's assignment
+    /// replaces before any read).
+    pub(super) fn fresh_capture_cell(&self, local: LocalId) -> Result<RustExpr, EmitError> {
+        let initial = if self.local_is_maybe_unbound(local)? {
+            RustExpr::atom("SmeltBinding::unbound()")
+        } else if self.is_base_initializer_receiver(local) {
+            RustExpr::atom("Default::default()")
+        } else {
+            self.default_value(self.local_decl(local)?.ty)?
+        };
+        Ok(RustExpr::atom(format!(
+            "::std::rc::Rc::new(::std::cell::RefCell::new({}))",
+            initial.delimited()
+        )))
+    }
+
+    /// The `mut ` a shared capture cell's own binding needs: one that a
+    /// [`smelt_mir::Statement::StorageLive`] replaces is reassigned.
+    pub(super) fn capture_cell_binding_mut(&self, local: LocalId) -> &'static str {
+        if self.local_write_index().storage_live.contains(&local) {
+            "mut "
+        } else {
+            ""
+        }
     }
 
     /// Assigns a possibly-unbound local. The value is evaluated before the

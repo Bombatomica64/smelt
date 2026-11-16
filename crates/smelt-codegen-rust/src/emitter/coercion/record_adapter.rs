@@ -34,6 +34,11 @@ impl FunctionEmitter<'_> {
                 (self.mir.types.get(source), self.mir.types.get(inner)),
                 (Some(Type::Int), Some(Type::Float))
                     | (Some(Type::Float), Some(Type::Int))
+                    | (
+                        Some(Type::Int | Type::Float | Type::Bool),
+                        Some(Type::PyInt)
+                    )
+                    | (Some(Type::PyInt), Some(Type::Float | Type::Int))
                     | (Some(Type::List(_)), Some(Type::Tuple(_)))
                     | (Some(Type::List(_)), Some(Type::List(_)))
                     | (Some(Type::Dict(_, _)), Some(Type::Dict(_, _)))
@@ -210,6 +215,12 @@ impl FunctionEmitter<'_> {
         if let Some(upcast) = self.polymorphic_upcast_expr(value_text, source, target)? {
             return Ok(Some(upcast));
         }
+        // A record viewed as another record type that shares its properties
+        // is the SAME object too: the conversion re-views its cell
+        // (`crate::structural_views`), never copies it.
+        if let Some(view) = self.structural_view_expr(value_text, source, target)? {
+            return Ok(Some(view));
+        }
         // A MODELED HOST class has no generated fields to pair up — its data
         // lives behind the prelude struct's accessors — but it still EXPOSES
         // members, and structural assignability is about members. A `Response`
@@ -230,6 +241,7 @@ impl FunctionEmitter<'_> {
         let Some(Type::Class { name, args }) = self.mir.types.get(target) else {
             return Ok(None);
         };
+        self.trace_record_copy(source, target);
         // Field-wise adaptation recurses through each field's own coercion, and
         // a callable interface's `__smelt_call` field is a function whose return
         // value can be the record again (es-toolkit's
@@ -276,14 +288,18 @@ impl FunctionEmitter<'_> {
                     self.context.names().field_text(self.mir, source_field.name);
                 // A reference-class source keeps its fields inside the shared
                 // `Rc<RefCell<Inner>>` cell, so they are read through it.
-                let source_base = if self.is_reference_class_type(source) {
-                    RustExpr::chain("smelt_struct_value.0.borrow()")
+                let source_value = if self.is_reference_class_type(source) {
+                    RustExpr::chain(self.reference_field_read_place(
+                        "smelt_struct_value",
+                        source,
+                        source_field.name,
+                    )?)
+                    .cloned_value()
                 } else {
                     RustExpr::path("smelt_struct_value")
+                        .postfix(format!(".{source_field_name}"))
+                        .cloned_value()
                 };
-                let source_value = source_base
-                    .postfix(format!(".{source_field_name}"))
-                    .cloned_value();
                 let adapted =
                     self.rendered_at_type(&source_value, source_field.ty, target_field.ty, scope)?;
                 value_at_slot_abi = adapted == source_value
@@ -352,7 +368,14 @@ impl FunctionEmitter<'_> {
             // A downcast checks whether the instance IS one of the target's
             // classes first and keeps it when it is; the field-wise copy is
             // only the answer for an instance of another class.
-            if let Some(downcast) = self.polymorphic_downcast_expr(source, target)? {
+            let checked = match self.polymorphic_downcast_expr(source, target)? {
+                Some(found) => Some(found),
+                // A view cast to another record type is the object it stands
+                // for when that object is one of the target's records
+                // (`crate::structural_views`).
+                None => self.structural_view_downcast_expr(source, target)?,
+            };
+            if let Some(downcast) = checked {
                 return Ok(Some(RustExpr::atom(format!(
                     "{{ let smelt_struct_value = {value_text}.clone(); match {downcast} {{ Some(smelt_downcast) => smelt_downcast, None => {copied} }} }}",
                     value_text = value_text.tight()
@@ -859,8 +882,12 @@ impl FunctionEmitter<'_> {
             let key = self.symbol_name(field.name)?;
             let field_name = self.context.names().field_text(self.mir, field.name);
             let source_value = if source_is_reference_class {
-                RustExpr::chain(format!("smelt_struct_value.0.borrow().{field_name}"))
-                    .cloned_value()
+                RustExpr::chain(self.reference_field_read_place(
+                    "smelt_struct_value",
+                    source,
+                    field.name,
+                )?)
+                .cloned_value()
             } else {
                 RustExpr::path(format!("smelt_struct_value.{field_name}")).cloned_value()
             };

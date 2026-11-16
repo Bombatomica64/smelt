@@ -143,6 +143,10 @@ const MODULES: &[RuntimeModule] = &[
         source: include_str!("runtime/date.rs"),
     },
     RuntimeModule {
+        name: "deep_eq",
+        source: include_str!("runtime/deep_eq.rs"),
+    },
+    RuntimeModule {
         name: "erased_function",
         source: include_str!("runtime/erased_function.rs"),
     },
@@ -269,6 +273,18 @@ const MODULES: &[RuntimeModule] = &[
     RuntimeModule {
         name: "py_exception",
         source: include_str!("runtime/py_exception.rs"),
+    },
+    RuntimeModule {
+        name: "py_int",
+        source: include_str!("runtime/py_int.rs"),
+    },
+    RuntimeModule {
+        name: "py_format",
+        source: include_str!("runtime/py_format.rs"),
+    },
+    RuntimeModule {
+        name: "py_str",
+        source: include_str!("runtime/py_str.rs"),
     },
     RuntimeModule {
         name: "py_repr",

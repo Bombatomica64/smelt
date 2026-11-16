@@ -9,17 +9,20 @@ them:
   member that depends on it, directly or transitively (normal, dev and build
   dependencies alike), since their tests compile against it;
 * `examples/**` selects `smelt-transpiler`, whose integration tests golden-check
-  that corpus;
+  that corpus, and `smelt-codegen-rust`, whose `reserved_name_tests` derive
+  the names a source item may not take from every committed example crate;
 * a file on the IGNORED list selects nothing: no `cargo test` reads it;
 * ANY OTHER file (root `Cargo.toml`/`Cargo.lock`, the toolchain file, this
   script, the CI workflow, or a path this script does not know) selects the
   whole workspace. Unknown means "run everything", never "run nothing".
 
-The selection is sound only because no crate reads another crate's files by
-path: every cross-crate input goes through a Cargo dependency edge (checked when
-this script was written: no `include_str!`/`fs::read` of a sibling crate, and
-`corgi.toml` lists only in-crate compile-time inputs). A test that starts
-reading another crate's files must add that edge or extend `PATH_RULES`.
+The selection is sound only if every file a test reads outside its own crate
+is covered: through a Cargo dependency edge (no test does `include_str!` or
+`fs::read` of a sibling crate, and `corgi.toml` lists only in-crate
+compile-time inputs) or through `PATH_RULES` for a non-crate path such as
+`examples/`. `test_ci_gates.py` scans every crate's sources for reads of
+`../../<dir>` and fails when `PATH_RULES` does not map `<dir>` to that crate.
+A test that starts reading another crate's files must add the edge.
 
 Output (also written to `$GITHUB_OUTPUT` when set):
   mode=all|some|none
@@ -33,6 +36,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -66,8 +70,44 @@ IGNORED = (
 #: Non-crate paths read by a specific member's tests. Directory entries end
 #: with `/`.
 PATH_RULES = {
-    "examples/": ("smelt-transpiler",),
+    "examples/": ("smelt-transpiler", "smelt-codegen-rust"),
 }
+
+
+def uncovered_reads(root: Path) -> list[str]:
+    """Reads of a repository-root directory by a crate `PATH_RULES` does not select.
+
+    Scans every workspace crate's Rust sources (`crates/<crate>/**/*.rs`, test
+    fixtures aside) for a string literal naming a top-level directory outside
+    `crates/`: `"../../examples"` (relative to the crate) or `"examples/..."`
+    (relative to the workspace root). Each hit must be covered by a
+    `PATH_RULES` entry for that directory listing the crate, or a change
+    confined to the directory would skip the crate's tests. Returns one message
+    per uncovered (directory, crate) pair.
+    """
+    tops = sorted(
+        entry.name for entry in root.iterdir()
+        if entry.is_dir() and not entry.name.startswith(".") and entry.name not in ("crates", "target")
+    )
+    if not tops:
+        return []
+    alternatives = "|".join(re.escape(name) for name in tops)
+    literal = re.compile(rf'"(?:(?:\.\./)+({alternatives})(?:/|")|({alternatives})/)')
+    found: set[tuple[str, str]] = set()
+    for path in sorted((root / "crates").glob("*/**/*.rs")):
+        relative = path.relative_to(root).as_posix()
+        if "/fixtures/" in relative:
+            continue
+        crate = relative.split("/")[1]
+        for match in literal.finditer(path.read_text(encoding="utf-8", errors="replace")):
+            directory = match.group(1) or match.group(2)
+            if crate not in PATH_RULES.get(f"{directory}/", ()):
+                found.add((directory, crate))
+    return [
+        f"crates/{crate} reads `{directory}/`, but PATH_RULES does not select it for a "
+        f"change there (scripts/ci_affected_packages.py)"
+        for directory, crate in sorted(found)
+    ]
 
 
 def workspace_graph(metadata: dict) -> tuple[dict[str, Path], dict[str, set[str]]]:

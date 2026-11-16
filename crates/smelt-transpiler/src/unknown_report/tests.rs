@@ -27,6 +27,29 @@ fn erased_callable_object_slot_is_a_boundary() {
     );
 }
 
+/// A non-coercing `Number.*` predicate over an erased value is a boundary.
+///
+/// `Number.isNaN(value)` with `value: unknown` answers from the value's
+/// runtime tag (a string or `null` is never `NaN`), so the tag test is the
+/// operation itself; the same predicate over a typed `number` emits no
+/// `SmeltUnknown` at all (`f64::is_nan`). Ordinary erased storage beside it
+/// stays avoidable.
+#[test]
+fn erased_number_predicate_is_a_boundary() {
+    let predicate = "    let _smelt_tmp_2: bool = smelt_erased_number_is(&value.clone(), |smelt_value| smelt_value.is_nan());";
+    assert_eq!(
+        classify_line(predicate, false),
+        Category::LegitimateBoundary,
+        "a Number.* predicate's tag test on an erased value is runtime narrowing"
+    );
+    let storage = "    let values: SmeltList<SmeltUnknown> = SmeltList::new(Vec::new());";
+    assert_eq!(
+        classify_line(storage, false),
+        Category::AvoidableErasure,
+        "ordinary erased storage must stay avoidable"
+    );
+}
+
 /// A property read through the erased chain is a boundary.
 ///
 /// The receiver is `unknown`, so the member is resolved by runtime

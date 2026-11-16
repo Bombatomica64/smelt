@@ -78,6 +78,10 @@ impl FunctionEmitter<'_> {
     /// concrete types are already interned by the frontend that typed the read,
     /// so `find_type_id` resolves them; an unmodeled field on the match value
     /// itself falls back to the erased boundary only if the program interned it.
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "single-shape recogniser: only `StdlibClass::MatchGroups` reads named groups; the match value answers the rest"
+    )]
     pub(super) fn match_field_ty(
         &self,
         kind: smelt_stdlib::StdlibClass,
@@ -379,6 +383,15 @@ impl FunctionEmitter<'_> {
                     )
                 }),
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => Ok(base_ty),
+            // A run-time index into a homogeneous tuple reads its one item
+            // type (see `place::homogeneous_tuple_item`).
+            Some(Type::Tuple(items))
+                if !matches!(index, Operand::Const(Constant::Int(_)))
+                    && place::homogeneous_tuple_item(items).is_some() =>
+            {
+                place::homogeneous_tuple_item(items)
+                    .ok_or_else(|| EmitError::new("tuple items share no type"))
+            }
             Some(Type::Tuple(items)) => {
                 let tuple_index = self.tuple_index(index, items.len())?;
                 items

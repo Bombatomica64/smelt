@@ -145,7 +145,9 @@ impl ModuleBuilder<'_> {
             .value
             .return_type
             .as_ref()
-            .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+            .map(|annotation| {
+                self.function_return_annotation_type(&method.value, &annotation.type_annotation)
+            })
             .transpose()?
             .unwrap_or_else(|| {
                 let unknown = self.erase(ErasureReason::MissingAnnotation);
@@ -652,7 +654,12 @@ impl ModuleBuilder<'_> {
                         .value
                         .return_type
                         .as_ref()
-                        .map(|annotation| this.ts_type_to_hir(&annotation.type_annotation))
+                        .map(|annotation| {
+                            this.function_return_annotation_type(
+                                &method.value,
+                                &annotation.type_annotation,
+                            )
+                        })
                         .transpose()?
                         .unwrap_or_else(|| {
                             let unknown = this.erase(ErasureReason::MissingAnnotation);

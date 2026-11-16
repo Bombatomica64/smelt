@@ -25,10 +25,12 @@ mod op_needs;
 
 use smelt_hir::Type;
 use smelt_mir::{
-    BasicBlock, Callee, LocalDecl, LocalId, Mir, Operand, Place, Rvalue, Statement, Terminator,
+    BasicBlock, Callee, Constant, LocalDecl, LocalId, Mir, Operand, Place, Read, Rvalue, Statement,
+    Terminator,
 };
 use smelt_stdlib::{BackendDependency, StdlibClass};
 
+use crate::reachable_types::ReachableTypes;
 use crate::stdlib::{module_hash_set_key_safe, stdlib_class_of_class_symbol};
 
 /// Declares [`Need`] and [`Need::ALL`] from one list, so the list of every
@@ -79,6 +81,8 @@ declare_needs! {
     Generator,
     /// The timer queue and promise task queue.
     Timers,
+    /// The `{ status, value | reason }` record of `Promise.allSettled`.
+    AllSettled,
     /// `Date.now()` override state.
     DateNow,
     /// `getTimezoneOffset()` override state.
@@ -87,8 +91,14 @@ declare_needs! {
     Date,
     /// JavaScript `Math.round`.
     MathRound,
+    /// JavaScript `Math.max`/`Math.min` of two numbers.
+    MathExtrema,
     /// The `parseInt`/`parseFloat` prefix parsers.
     ParseNumber,
+    /// `smelt_string_to_number`, ECMA-262 `StringToNumber` over a Rust `&str`:
+    /// the JavaScript string runtime converts through it, and a Python program
+    /// calls it on its own `String`s.
+    StringToNumber,
     /// The `JsString` UTF-16 string type and its borrowed `JsStr` view.
     JsString,
     /// Python's `repr`, for a container `print` shows.
@@ -168,6 +178,12 @@ declare_needs! {
     PythonListRead,
     /// A raised Python exception, `SmeltPyException`.
     PyException,
+    /// Python's arbitrary-precision `int`, `SmeltPyInt`.
+    PyInt,
+    /// Python `str` methods with CPython's own rules (`py_str.rs`).
+    PyStrMethods,
+    /// Python's format-spec mini-language (`py_format.rs`).
+    PyFormat,
     /// `SmeltBinding`, the storage of a source binding that can be read
     /// before its first assignment.
     Binding,
@@ -223,6 +239,9 @@ declare_needs! {
     LiveContainers,
     /// Live erased views of typed arrays (`SmeltLiveList`).
     LiveArrays,
+    /// Typed deep equality of generated records (`SmeltDeepEq`,
+    /// `crate::deep_equality`).
+    DeepEq,
     /// The erased `SmeltErasedFunction` adapter.
     ErasedFunction,
     /// The erased generic list aliases.
@@ -233,9 +252,8 @@ declare_needs! {
     ErasedListAlias,
     /// `Option<SmeltUnknown>` property reads.
     OptionalUnknownRead,
-    /// A `T | null` element type somewhere in the program: the live list
-    /// view that erases elements with the static type's own erasure
-    /// (`SmeltCodecList`, `into_live_smelt_unknown_with`).
+    /// A `T | null` type somewhere in the program: the two-absence erasure
+    /// helper (`smelt_nullish_unknown_or_undefined`).
     NullCodec,
     /// A list mutated through an assertion of an erased array, committed back
     /// in place (`smelt_erased_list_write_back`).
@@ -321,11 +339,22 @@ const REQUIRES: &[(Need, &[Need])] = &[
         ],
     ),
     (Need::SmeltList, &[Need::ObjectIds]),
+    // `smelt_js_string_to_number` trims and checks a `JsStr`, then converts
+    // through the `&str` rule.
+    (Need::JsString, &[Need::StringToNumber]),
     (Need::PyRepr, &[Need::PythonNumberFormat]),
     (Need::ErasedPatternCall, &[Need::Unknown, Need::DepRegress]),
     (Need::PyException, &[Need::PyRepr]),
     (Need::Record, &[Need::ObjectIds]),
     (Need::PythonDivision, &[Need::PyException]),
+    // An `int` raises Python's arithmetic errors and prints through `repr`.
+    (Need::PyInt, &[Need::PyException, Need::PyRepr]),
+    (Need::PyStrMethods, &[Need::PyException]),
+    // `format` of an `int` reads a `SmeltPyInt`, of a `float` its `repr`.
+    (
+        Need::PyFormat,
+        &[Need::PyException, Need::PyInt, Need::PythonNumberFormat],
+    ),
     (Need::PythonDictRead, &[Need::PyException]),
     // A checked binding read raises through the error its language throws.
     (Need::BindingTdz, &[Need::Binding, Need::Unknown]),
@@ -342,6 +371,7 @@ const REQUIRES: &[(Need, &[Need])] = &[
         &[Need::Unknown, Need::IteratorResult, Need::DepGenawaiter],
     ),
     (Need::Timers, &[Need::Unknown]),
+    (Need::AllSettled, &[Need::Unknown]),
     (Need::StructuredClone, &[Need::Unknown]),
     (Need::DefineProperties, &[Need::Unknown]),
     (Need::SetPrototypeOf, &[Need::Unknown]),
@@ -451,6 +481,42 @@ const REQUIRES: &[(Need, &[Need])] = &[
     ),
 ];
 
+/// Whether a program's generic items demand the erased carrier by themselves.
+///
+/// A generated type parameter is bounded by the erasure traits
+/// (`IntoSmeltUnknown + SmeltFromUnknown`) so its bodies can convert a `T` at a
+/// dynamic boundary. Most generic code never does, and in a program with no
+/// other erased value those bounds were the only reason the whole carrier was
+/// emitted. Whether a body converts a `T` is decided by the emitter (a demoted
+/// generic trial, an erased call boundary, a `console.log` of a `T`), not by a
+/// MIR scan, so the carrier-free answer is SPECULATIVE: `crate_builder::emit_root`
+/// emits the program without the carrier, checks that the result names no part
+/// of it, and otherwise emits it again under [`Self::Always`]. The fallback is
+/// the old demand exactly, so a speculation that fails costs one more emission
+/// and never a different program.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum GenericsCarrier {
+    /// Every generic item demands the carrier.
+    Always,
+    /// Generic items demand nothing by themselves; the emitted text is checked.
+    Speculative,
+}
+
+/// Whether the program declares a generic class, interface or function.
+pub(crate) fn has_generic_items(mir: &Mir) -> bool {
+    mir.classes
+        .iter()
+        .any(|class| !class.type_params.is_empty())
+        || mir
+            .interfaces
+            .iter()
+            .any(|interface| !interface.type_params.is_empty())
+        || mir
+            .functions
+            .iter()
+            .any(|function| !function.type_params.is_empty())
+}
+
 /// Proof that the closed demand holds a need: only [`RuntimeDemand::require`]
 /// constructs one, so a runtime use that takes it cannot be written for a
 /// family the program does not carry.
@@ -480,25 +546,24 @@ pub(crate) struct RuntimeDemand {
 impl RuntimeDemand {
     /// Scans `mir` once and closes what it found over the `requires` graph.
     #[must_use]
+    #[cfg(test)]
     pub(crate) fn of(
         mir: &Mir,
         reference_classes: &std::collections::HashSet<smelt_hir::Symbol>,
     ) -> Self {
+        Self::of_with(mir, reference_classes, GenericsCarrier::Always)
+    }
+
+    /// [`Self::of`], with the carrier demanded for generic items by `generics`.
+    pub(crate) fn of_with(
+        mir: &Mir,
+        reference_classes: &std::collections::HashSet<smelt_hir::Symbol>,
+        generics: GenericsCarrier,
+    ) -> Self {
         let mut demand = Self::default();
-        demand.scan_declarations(mir);
-        demand.scan_types(mir);
-        // A TypeScript body spells its strings `JsString`.
-        if mir
-            .functions
-            .iter()
-            .any(|function| function.language == smelt_hir::Language::TypeScript)
-            || mir
-                .closures
-                .iter()
-                .any(|closure| closure.language == smelt_hir::Language::TypeScript)
-        {
-            demand.add(Need::JsString);
-        }
+        let reachable = ReachableTypes::of(mir);
+        demand.scan_declarations(mir, generics);
+        demand.scan_types(mir, &reachable);
         for function in &mir.functions {
             demand.scan_body_in(
                 function.language,
@@ -507,8 +572,35 @@ impl RuntimeDemand {
                 &function.blocks,
                 function.return_ty,
             );
+            // An async body returns its awaited type in MIR and is emitted as
+            // a `SmeltFuture` of it, which lives in the carrier's block.
+            if function.is_async {
+                demand.add(Need::Unknown);
+            }
             if function.language == smelt_hir::Language::Python {
                 demand.add(Need::PyDictOrder);
+                // A Python string is a Rust `String`, numeric text converts
+                // through the `&str` rule directly.
+                demand.add(Need::StringToNumber);
+            }
+        }
+        // A class's `__str__`/`__repr__` is called through its `SmeltPyRepr`
+        // impl, which cannot answer an error; a raising one re-raises through
+        // the panic route.
+        for class in &mir.classes {
+            for protocol in &class.protocols {
+                if let smelt_mir::MirClassProtocol::Str { method }
+                | smelt_mir::MirClassProtocol::Repr { method } = protocol
+                {
+                    demand.add(Need::PyRepr);
+                    if usize::try_from(method.0)
+                        .ok()
+                        .and_then(|index| mir.functions.get(index))
+                        .is_some_and(|function| function.can_throw)
+                    {
+                        demand.add(Need::PanicRoute);
+                    }
+                }
             }
         }
         for closure in &mir.closures {
@@ -535,11 +627,30 @@ impl RuntimeDemand {
         if crate::classify::deep_compares_a_reference_shape(mir, reference_classes) {
             demand.add(Need::Unknown);
         }
+        // Likewise for one reached through a record's field or a type
+        // argument, and the records compared field with field carry the
+        // trait (`crate::deep_equality`).
+        let deep_equality = crate::deep_equality::DeepEquality::plan(mir, reference_classes);
+        if deep_equality.reaches_view_record() {
+            demand.add(Need::Unknown);
+        }
+        if deep_equality.has_impls() {
+            demand.add(Need::DeepEq);
+        }
         demand.close();
+        // With the carrier, every concrete union in the type table gets its
+        // enum (`emitter::union::emit_union_definitions`: the emitter derives
+        // unions no position holds), and each enum is written against what its
+        // arms are. So the types inside every union count too.
+        if demand.has(Need::Unknown) {
+            let with_unions = ReachableTypes::of_with_unions(mir);
+            demand.scan_types(mir, &with_unions);
+            demand.close();
+        }
         // Which container a dict renders as depends on whether the carrier is
         // present, so this reads the closed demand and adds a leaf need.
-        if mir.types.all().iter().any(|ty| {
-            matches!(ty, Type::Dict(key, _) if crate::emitter::dict_renders_as_index_map(mir, &demand, *key))
+        if reachable.ids().any(|id| {
+            matches!(mir.types.get(id), Some(Type::Dict(key, _)) if crate::emitter::dict_renders_as_index_map(mir, &demand, *key))
         }) {
             demand.add(Need::DepIndexMap);
         }
@@ -620,6 +731,7 @@ impl RuntimeDemand {
         return_ty: smelt_hir::TypeId,
     ) {
         self.scan_body(mir, locals, blocks, return_ty);
+        self.scan_operands(language, mir, locals, blocks);
         if self.has(Need::RegexOps) {
             self.remove(Need::RegexOps);
             self.add(if language == smelt_hir::Language::Python {
@@ -627,6 +739,93 @@ impl RuntimeDemand {
             } else {
                 Need::DepRegress
             });
+        }
+    }
+
+    /// Records what the operands a body reads demand beyond their types.
+    ///
+    /// A constant operand has no type id, so [`ReachableTypes`] cannot see it:
+    /// a symbol literal is a `SmeltSymbol`, a bigint literal a `SmeltBigInt`, a
+    /// Python `int` literal the arbitrary-precision `int` runtime,
+    /// and a JavaScript string literal a `JsString` (a Python one is a plain
+    /// `String`). A class method read as a value (`const f = obj.method`) is a
+    /// closure over the receiver that the erased call ABI invokes with its
+    /// arguments as erased values ([`class_method_read_as_value`]), and a class
+    /// value read with a run-time key (`raw[key]`) is looked up on its erased
+    /// view ([`class_read_with_a_runtime_key`]).
+    fn scan_operands(
+        &mut self,
+        language: smelt_hir::Language,
+        mir: &Mir,
+        locals: &[LocalDecl],
+        blocks: &[BasicBlock],
+    ) {
+        let mut constant = |operand: &Operand| self.scan_operand(language, mir, locals, operand);
+        for block in blocks {
+            for statement in &block.statements {
+                statement.reads(|read| {
+                    if let Read::Operand(operand) = read {
+                        constant(operand);
+                    }
+                });
+            }
+            if let Some(terminator) = &block.terminator {
+                terminator.reads(&mut constant);
+            }
+        }
+    }
+
+    /// Records what one operand demands (see [`Self::scan_operands`]),
+    /// including the index operand of an indexed place it reads
+    /// (`iterable[Symbol.iterator]` reads a symbol constant there).
+    fn scan_operand(
+        &mut self,
+        language: smelt_hir::Language,
+        mir: &Mir,
+        locals: &[LocalDecl],
+        operand: &Operand,
+    ) {
+        let value = match operand {
+            Operand::Copy(place) | Operand::Move(place) => {
+                if class_method_read_as_value(mir, locals, place)
+                    || class_read_with_a_runtime_key(mir, locals, place)
+                {
+                    self.add(Need::Unknown);
+                }
+                match place {
+                    Place::Index { base, index, .. } => {
+                        if indexes_a_bigint_view(mir, locals, *base) {
+                            self.add(Need::BigInt);
+                        }
+                        self.scan_operand(language, mir, locals, index);
+                    }
+                    Place::Global {
+                        projection: smelt_mir::GlobalProjection::Index { index, .. },
+                        ..
+                    } => self.scan_operand(language, mir, locals, index),
+                    Place::Local(_) | Place::Field { .. } | Place::Global { .. } => {}
+                }
+                return;
+            }
+            Operand::Const(value) => value,
+        };
+        match value {
+            Constant::Symbol(_) => self.add(Need::Symbol),
+            Constant::BigInt(_) => self.add(Need::BigInt),
+            // A Python `int` literal is the arbitrary-precision `int` runtime.
+            Constant::PyInt(_) => self.add(Need::PyInt),
+            Constant::String(_) | Constant::StringUnits(_)
+                if language != smelt_hir::Language::Python =>
+            {
+                self.add(Need::JsString);
+            }
+            Constant::String(_)
+            | Constant::StringUnits(_)
+            | Constant::Bool(_)
+            | Constant::Int(_)
+            | Constant::Float(_)
+            | Constant::Undefined
+            | Constant::None => {}
         }
     }
 
@@ -648,7 +847,7 @@ impl RuntimeDemand {
     }
 
     /// Records what the shape of the program's declarations demands.
-    fn scan_declarations(&mut self, mir: &Mir) {
+    fn scan_declarations(&mut self, mir: &Mir, generics: GenericsCarrier) {
         if !mir.accessor_fields.is_empty() {
             self.add(Need::Accessors);
         }
@@ -659,24 +858,14 @@ impl RuntimeDemand {
             self.add(Need::ClassValue);
             self.add(Need::InstanceOfValue);
         }
-        // A generic class, interface or function emits `IntoSmeltUnknown +
-        // SmeltFromUnknown` bounds on its type parameters, so the erasure traits
-        // must exist even with no erased value in the program.
-        if mir
-            .classes
-            .iter()
-            .any(|class| !class.type_params.is_empty())
-            || mir
-                .interfaces
-                .iter()
-                .any(|interface| !interface.type_params.is_empty())
-        {
+        // A generic item emits `IntoSmeltUnknown + SmeltFromUnknown` bounds on
+        // its type parameters in a program with the carrier
+        // (`classes::generated_type_param_bounds`). Whether its generics alone
+        // demand the carrier is the caller's policy: see `GenericsCarrier`.
+        if generics == GenericsCarrier::Always && has_generic_items(mir) {
             self.add(Need::Unknown);
         }
         for function in &mir.functions {
-            if !function.type_params.is_empty() {
-                self.add(Need::Unknown);
-            }
             if function.language == smelt_hir::Language::Python {
                 self.add(Need::PythonNumberFormat);
                 // A container `print` may show is drawn by Python's `repr`.
@@ -720,13 +909,19 @@ impl RuntimeDemand {
         }
     }
 
-    /// Records what the type table demands.
-    fn scan_types(&mut self, mir: &Mir) {
-        for ty in mir.types.all() {
+    /// Records what the types the program can spell demand
+    /// ([`ReachableTypes`]): a type interned only for a comparison or an
+    /// erasure record renders nowhere, so it demands nothing.
+    fn scan_types(&mut self, mir: &Mir, reachable: &ReachableTypes) {
+        for ty in reachable.ids().filter_map(|id| mir.types.get(id)) {
             match ty {
                 // Unions render as the carrier, and a dict literal can erase its
-                // entries without interning `Unknown`.
-                Type::Unknown | Type::Never | Type::Union(_) => self.add(Need::Unknown),
+                // entries without interning `Unknown`. A deferred `T[K]` the
+                // frontend left unevaluated renders as the carrier too
+                // (`emitter::backend_erasure`).
+                Type::Unknown | Type::Never | Type::Union(_) | Type::IndexedAccess { .. } => {
+                    self.add(Need::Unknown);
+                }
                 Type::GeneratorResult { .. } => self.add(Need::IteratorResult),
                 Type::Class { name, .. } => {
                     if crate::classes::class_name_renders_erased(mir, *name) {
@@ -734,6 +929,11 @@ impl RuntimeDemand {
                     }
                     if let Some(class) = stdlib_class_of_class_symbol(mir, *name) {
                         self.add_stdlib_class(class);
+                        // `ArrayBuffer` storage is built through the
+                        // carrier's constructors (`emitter::typed_array`).
+                        if class == StdlibClass::ArrayBuffer {
+                            self.add(Need::Unknown);
+                        }
                     }
                 }
                 Type::Set(item) => {
@@ -764,6 +964,9 @@ impl RuntimeDemand {
                     }
                 }
                 Type::BigInt => self.add(Need::BigInt),
+                Type::PyInt => self.add(Need::PyInt),
+                // A JavaScript string is a `JsString` wherever it is spelled.
+                Type::String => self.add(Need::JsString),
                 Type::Tuple(items) if items.len() >= 3 => self.add(Need::WideTuple),
                 Type::Symbol | Type::PropKey => self.add(Need::Symbol),
                 Type::Dict(key, _) if crate::emitter::dict_key_uses_smelt_record(mir, *key) => {
@@ -793,7 +996,18 @@ impl RuntimeDemand {
                         self.add(Need::ErasedFunction);
                     }
                 }
-                _ => {}
+                // Nothing beyond the always-emitted core: a scalar, a type
+                // parameter, the unit, a dict that is no record, a tuple
+                // narrower than three.
+                Type::Bool
+                | Type::Int
+                | Type::Float
+                | Type::FixedInt(_)
+                | Type::PyStr
+                | Type::TypeParam { .. }
+                | Type::None
+                | Type::Dict(..)
+                | Type::Tuple(_) => {}
             }
         }
     }
@@ -830,6 +1044,18 @@ impl RuntimeDemand {
             }
             StdlibClass::NodeHash => self.add(Need::NodeHash),
             StdlibClass::RegExp => self.add(Need::DepRegress),
+            // No block of their own: what they need comes with the types
+            // that hold them (the carrier, the containers).
+            StdlibClass::Map
+            | StdlibClass::Match
+            | StdlibClass::MatchGroups
+            | StdlibClass::MatchFnResult
+            | StdlibClass::Set
+            | StdlibClass::ReadableStream
+            | StdlibClass::Blob
+            | StdlibClass::File => {}
+            // `StdlibClass` is `#[non_exhaustive]`: a class added to
+            // `smelt-stdlib` lands here until it is listed above.
             _ => {}
         }
     }
@@ -854,6 +1080,23 @@ impl RuntimeDemand {
             }
             if let Some(terminator) = &block.terminator {
                 self.scan_terminator(mir, locals, terminator);
+                if host_flow_coerces_to_collection(mir, locals, terminator, return_ty)
+                    || logs_a_value_holding_a_function(mir, locals, terminator)
+                {
+                    self.add(Need::Unknown);
+                }
+                // Python's `print` writes `str(value)` through `SmeltPyRepr`
+                // (`emitter::console_inspect`'s `console_value`).
+                if let Terminator::Call {
+                    callee:
+                        Callee::Builtin(smelt_mir::BuiltinFn::ConsoleLog {
+                            absent: smelt_mir::AbsentSpelling::None,
+                        }),
+                    ..
+                } = terminator
+                {
+                    self.add(Need::PyRepr);
+                }
                 // A class value returned at `string` is its string conversion,
                 // which goes through the erased form.
                 if let Terminator::Return(operand) = terminator
@@ -869,8 +1112,19 @@ impl RuntimeDemand {
     /// Records what one statement demands, including facts that need the body's
     /// local declarations to answer.
     fn scan_statement(&mut self, mir: &Mir, locals: &[LocalDecl], statement: &Statement) {
-        let value = statement.value();
+        let Some(value) = statement.value() else {
+            return;
+        };
         self.scan_rvalue(value);
+        if let Statement::Assign {
+            dest,
+            value: Rvalue::Use(operand),
+        } = statement
+            && let Some(dest_ty) = local_type(locals, *dest)
+            && host_value_coerces_to_collection(mir, locals, operand, dest_ty)
+        {
+            self.add(Need::Unknown);
+        }
         // A program that reaches a class prototype reflectively can call the
         // methods the prototype carries (docs/design/class-prototypes.md,
         // section 7). Only such a program pays for them: a class read only
@@ -1217,10 +1471,190 @@ pub(crate) fn backend_dependencies(demand: &RuntimeDemand) -> Vec<BackendDepende
         (Need::DepHmac, BackendDependency::Hmac),
         (Need::Base64, BackendDependency::Base64),
         (Need::BigInt, BackendDependency::BigInt),
+        (Need::PyInt, BackendDependency::BigInt),
         (Need::DepMd5, BackendDependency::Md5),
         (Need::DepIndexMap, BackendDependency::IndexMap),
     ]
     .into_iter()
     .filter_map(|(need, dependency)| demand.has(need).then_some(dependency))
-    .collect()
+    .fold(Vec::new(), |mut dependencies, dependency| {
+        // Two needs may link one crate (a JavaScript `bigint` and a Python
+        // `int` both link `num-bigint`); the manifest names it once.
+        if !dependencies.contains(&dependency) {
+            dependencies.push(dependency);
+        }
+        dependencies
+    })
+}
+
+/// Whether `place` reads a class method as a value: a field projection whose
+/// name is a method of the receiver's class (or of an ancestor) and not one of
+/// its stored fields. Codegen renders it as a closure over the receiver that
+/// the erased call ABI invokes (`emitter::field_access`'s
+/// `class_method_reference_expr`), whose arguments arrive as `SmeltUnknown`.
+fn class_method_read_as_value(mir: &Mir, locals: &[LocalDecl], place: &Place) -> bool {
+    let Place::Field { base, field } = place else {
+        return false;
+    };
+    let Some(local) = usize::try_from(base.0).ok().and_then(|at| locals.get(at)) else {
+        return false;
+    };
+    let Some(Type::Class { name, .. }) = mir.types.get(local.ty) else {
+        return false;
+    };
+    let Some(receiver_class) = crate::classes::find_class(mir, *name) else {
+        return false;
+    };
+    if crate::classes::effective_class_fields(mir, receiver_class)
+        .iter()
+        .any(|stored| stored.name == *field)
+    {
+        return false;
+    }
+    let mut current = Some(receiver_class);
+    let mut seen = std::collections::HashSet::new();
+    while let Some(ancestor) = current {
+        if !seen.insert(ancestor.name) {
+            break;
+        }
+        if ancestor.methods.iter().any(|method_id| {
+            usize::try_from(method_id.0)
+                .ok()
+                .and_then(|at| mir.functions.get(at))
+                .is_some_and(|function| {
+                    matches!(
+                        function.origin,
+                        smelt_mir::HirOrigin::ClassMethod { method: declared, .. } if declared == *field
+                    )
+                })
+        }) {
+            return true;
+        }
+        current = ancestor
+            .base
+            .and_then(|base_name| crate::classes::find_class(mir, base_name));
+    }
+    false
+}
+
+/// The declared type of `local` in `locals`.
+fn local_type(locals: &[LocalDecl], local: LocalId) -> Option<smelt_hir::TypeId> {
+    usize::try_from(local.0)
+        .ok()
+        .and_then(|at| locals.get(at))
+        .map(|decl| decl.ty)
+}
+
+/// Whether `operand`, read where a value of type `target` is expected, is a
+/// host value (a stdlib class with an erasure adapter, `Uint8Array`, `Date`,
+/// `Response`, ..) taken as a record or collection. Codegen converts it through
+/// the host value's erasure adapter (`emitter::coercion`'s `rendered_at_type`),
+/// which is written against the carrier.
+fn host_value_coerces_to_collection(
+    mir: &Mir,
+    locals: &[LocalDecl],
+    operand: &Operand,
+    target: smelt_hir::TypeId,
+) -> bool {
+    let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = operand else {
+        return false;
+    };
+    let Some(source) = local_type(locals, *local) else {
+        return false;
+    };
+    matches!(
+        mir.types.get(target),
+        Some(Type::Dict(_, _) | Type::List(_) | Type::Set(_))
+    ) && matches!(mir.types.get(source), Some(Type::Class { name, .. })
+        if stdlib_class_of_class_symbol(mir, *name).is_some_and(StdlibClass::erases_through_adapter))
+}
+
+/// Whether `terminator` hands a host value to a record or collection slot: a
+/// `return` at such a return type, or an argument of a direct call at such a
+/// parameter type (see [`host_value_coerces_to_collection`]).
+fn host_flow_coerces_to_collection(
+    mir: &Mir,
+    locals: &[LocalDecl],
+    terminator: &Terminator,
+    return_ty: smelt_hir::TypeId,
+) -> bool {
+    if let Terminator::Return(operand) = terminator {
+        return host_value_coerces_to_collection(mir, locals, operand, return_ty);
+    }
+    let Terminator::Call {
+        callee: Callee::Static(callee),
+        args,
+        ..
+    } = terminator
+    else {
+        return false;
+    };
+    let Some(function) = usize::try_from(callee.0)
+        .ok()
+        .and_then(|at| mir.functions.get(at))
+    else {
+        return false;
+    };
+    function.params.iter().zip(args).any(|(param, arg)| {
+        local_type(&function.locals, *param)
+            .is_some_and(|param_ty| host_value_coerces_to_collection(mir, locals, arg, param_ty))
+    })
+}
+
+/// Whether `terminator` is a `console.log` of a value whose storage holds a
+/// function. `util.inspect` has no typed impl for a callable, so such a value
+/// is printed through its erasure (`emitter::console_inspect`'s `console_arg`
+/// falls back to the carrier, which draws `[Function: name]`).
+fn logs_a_value_holding_a_function(
+    mir: &Mir,
+    locals: &[LocalDecl],
+    terminator: &Terminator,
+) -> bool {
+    let Terminator::Call {
+        callee: Callee::Builtin(smelt_mir::BuiltinFn::ConsoleLog { .. }),
+        args,
+        ..
+    } = terminator
+    else {
+        return false;
+    };
+    args.iter().any(|arg| {
+        let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = arg else {
+            return false;
+        };
+        local_type(locals, *local).is_some_and(|ty| {
+            crate::classes::type_holds_function(mir, ty, crate::classes::NominalStorage::Followed)
+        })
+    })
+}
+
+/// Whether `place` reads a class value with a run-time string key
+/// (`raw[key]`). The key can name any declared member, so codegen looks it up
+/// on the value's erased view (`emitter::place`'s keyed class read); without
+/// the carrier it could only answer `undefined`.
+fn class_read_with_a_runtime_key(mir: &Mir, locals: &[LocalDecl], place: &Place) -> bool {
+    let Place::Index { base, index, .. } = place else {
+        return false;
+    };
+    let base_is_class = local_type(locals, *base)
+        .is_some_and(|ty| matches!(mir.types.get(ty), Some(Type::Class { .. })));
+    let key_is_text = match index.as_ref() {
+        Operand::Const(Constant::String(_) | Constant::StringUnits(_)) => true,
+        Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) => {
+            local_type(locals, *local)
+                .is_some_and(|ty| mir.types.get(ty).is_some_and(Type::is_text))
+        }
+        Operand::Copy(_) | Operand::Move(_) | Operand::Const(_) => false,
+    };
+    base_is_class && key_is_text
+}
+
+/// Whether `base` is a bigint typed-array view (`BigInt64Array`,
+/// `BigUint64Array`), whose indexed elements are `BigInt` values read and
+/// written through the bigint runtime (`SmeltTypedArray::get_bigint`).
+fn indexes_a_bigint_view(mir: &Mir, locals: &[LocalDecl], base: LocalId) -> bool {
+    local_type(locals, base).is_some_and(|ty| {
+        matches!(mir.types.get(ty), Some(Type::Class { name, .. })
+            if mir.symbols.get(*name).is_some_and(|text| matches!(text, "BigInt64Array" | "BigUint64Array")))
+    })
 }

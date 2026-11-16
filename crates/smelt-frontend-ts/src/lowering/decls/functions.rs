@@ -433,7 +433,7 @@ impl ModuleBuilder<'_> {
         }
 
         let mut return_ty = if function.generator && declared_return_ty.is_none() {
-            self.inferred_generator_type(&body, function.r#async)
+            self.inferred_generator_type(&body, function.r#async, function)
         } else {
             declared_return_ty
                 .or_else(|| self.last_return_type(&body))
@@ -733,15 +733,34 @@ impl ModuleBuilder<'_> {
             .is_some_and(|ty| matches!(&ty.kind, smelt_ts_model::TsTypeKind::Object(object) if !object.properties.is_empty()))
     }
 
-    /// `ty`, the annotated record type of `param`, as `Option` when the body
-    /// tests the parameter for presence (`presence_tested_locals`): such a
-    /// function accepts an absent value whatever its annotation says, and a
-    /// record struct has no way to hold one.
+    /// The type a parameter annotated `ty` takes: what the function really
+    /// accepts, where that is wider than the annotation.
+    ///
+    /// A parameter of a function in an `as any` object accepts any value
+    /// (`unchecked_params`, the erased type). An annotated record type is
+    /// `Option` when the body tests the parameter for presence
+    /// (`presence_tested_locals`): such a function accepts an absent value
+    /// whatever its annotation says, and a record struct has no way to hold
+    /// one.
     pub(in crate::lowering) fn presence_widened_param_type(
         &mut self,
         param: &oxc::ast::ast::FormalParameter<'_>,
         ty: smelt_hir::TypeId,
     ) -> smelt_hir::TypeId {
+        // DYNAMIC BOUNDARY: a parameter of a function defined in an object
+        // literal cast `as any` (`unchecked_params`). Its callers reach it only
+        // through `any`, so TypeScript checks no argument and the parameter
+        // receives whatever value JavaScript passes (ts-pattern's
+        // `P.string.regex(/re/)` passes a `RegExp` to `str: string`). The
+        // annotation binds no caller; the value is the erased one.
+        if self.unchecked_params.contains(&param.span.start) {
+            let span = self.span(param.span.start, param.span.end);
+            return self.erase_at(
+                ErasureReason::ExplicitAny,
+                span,
+                "parameter of a function in an `as any` object",
+            );
+        }
         let tested = matches!(
             &param.pattern,
             BindingPattern::BindingIdentifier(binding)

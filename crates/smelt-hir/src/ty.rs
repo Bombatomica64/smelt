@@ -14,6 +14,17 @@ pub enum Type {
     Bool,
     /// Integer type.
     Int,
+    /// A Python `int`: an arbitrary-precision signed integer.
+    ///
+    /// Separate from [`Type::Int`] for the reason [`Type::PyStr`] is separate
+    /// from [`Type::String`]: `Int` is the bounded machine integer (list
+    /// indices, lengths, timestamps) and lowers to `i64`, while a Python `int`
+    /// never overflows (`2 ** 100` is exact), so it lowers to the runtime's
+    /// `SmeltPyInt` (a machine word with a `BigInt` fallback) and every
+    /// operation on it keeps `CPython`'s semantics: floor `//` and `%`,
+    /// correctly rounded true division into a `float`, infinite
+    /// two's-complement bitwise operators. Its runtime kind is a number.
+    PyInt,
     /// Floating-point type.
     Float,
     /// A JavaScript `number` proven to be an integer of a fixed Rust width.
@@ -25,12 +36,12 @@ pub enum Type {
     /// analysis (`smelt_mir::opt::IntegerRange`), which retypes a local whose
     /// every definition it proved integral and bounded, and the TypeScript
     /// frontend for Bun's `import type { int32 } from "bun"` annotation, whose
-    /// every store the frontend proves. Python's integers stay [`Type::Int`].
+    /// every store the frontend proves. Python's integers are [`Type::PyInt`].
     FixedInt(IntWidth),
     /// A JavaScript `bigint`: an arbitrary-precision signed integer.
     ///
     /// Separate from [`Type::Int`] on purpose. `Int` is the bounded integer
-    /// type (Python's `int`, list indices, timestamps) and lowers to `i64`; a
+    /// type (list indices, lengths, timestamps) and lowers to `i64`; a
     /// `bigint` is unbounded in JavaScript, so it lowers to Rust's
     /// `num_bigint::BigInt` and every operation on it keeps JavaScript's
     /// bigint semantics (truncating division, flooring `>>`, infinite
@@ -147,6 +158,33 @@ pub enum Type {
         /// Value type when the generator completed.
         return_ty: TypeId,
     },
+    /// A TypeScript indexed access `T[K]` over a type that is not known yet,
+    /// kept unevaluated: the type of the property `index` names on `object`.
+    ///
+    /// # Where it lives
+    ///
+    /// Only in the CALLER-SIDE view of a signature: the return type a
+    /// TypeScript frontend keeps beside a generic function or overload
+    /// (`smelt-frontend-ts`, `lowering/ty/deferred_index.rs`) so a call that
+    /// binds `T` can evaluate it. `object` mentions a type parameter of that
+    /// signature; `index` is a string-like type for "any key" (`T[keyof T]`)
+    /// or a type parameter that the call binds (`T[K]`).
+    ///
+    /// # Invariant
+    ///
+    /// It is never the type of a value: no item signature, local, expression
+    /// or MIR type holds one, because the declaration it comes from is still
+    /// lowered and emitted with the access erased (reason `type-level`), and a
+    /// call that cannot evaluate it keeps that erased type. Passes after the
+    /// frontend therefore treat it exactly as they treat `unknown`, the type
+    /// that declaration emits; the Rust backend records the erasure by reason
+    /// if one ever reaches it.
+    IndexedAccess {
+        /// The indexed type, mentioning a type parameter of the signature.
+        object: TypeId,
+        /// The key type.
+        index: TypeId,
+    },
 }
 
 /// The direct child types of a [`Type`], in declaration order.
@@ -193,6 +231,7 @@ impl Type {
         let (list, slots): ChildParts<'_> = match self {
             Self::Bool
             | Self::Int
+            | Self::PyInt
             | Self::Float
             | Self::FixedInt(_)
             | Self::BigInt
@@ -223,6 +262,7 @@ impl Type {
                 yield_ty,
                 return_ty,
             } => (&[], [Some(*yield_ty), Some(*return_ty), None]),
+            Self::IndexedAccess { object, index } => (&[], [Some(*object), Some(*index), None]),
         };
         TypeChildren {
             list: list.iter(),
@@ -245,6 +285,7 @@ impl Type {
         Some(match self {
             Self::Bool
             | Self::Int
+            | Self::PyInt
             | Self::Float
             | Self::FixedInt(_)
             | Self::BigInt
@@ -291,6 +332,10 @@ impl Type {
                 yield_ty: rewrite(*yield_ty)?,
                 return_ty: rewrite(*return_ty)?,
             },
+            Self::IndexedAccess { object, index } => Self::IndexedAccess {
+                object: rewrite(*object)?,
+                index: rewrite(*index)?,
+            },
         })
     }
 
@@ -314,7 +359,7 @@ impl Type {
     pub const fn runtime_kind(&self) -> Option<UnknownKind> {
         match self {
             Self::Bool => Some(UnknownKind::Bool),
-            Self::Int | Self::Float | Self::FixedInt(_) => Some(UnknownKind::Number),
+            Self::Int | Self::PyInt | Self::Float | Self::FixedInt(_) => Some(UnknownKind::Number),
             Self::BigInt => Some(UnknownKind::BigInt),
             Self::String | Self::PyStr => Some(UnknownKind::String),
             Self::Symbol => Some(UnknownKind::Symbol),
@@ -327,8 +372,10 @@ impl Type {
             | Self::Generator { .. }
             | Self::GeneratorResult { .. } => Some(UnknownKind::Object),
             Self::Future(_) => Some(UnknownKind::Promise),
-            // A property key is a string or a symbol, two kinds.
+            // A property key is a string or a symbol, two kinds. An unevaluated
+            // indexed access names a property whose type is not known yet.
             Self::PropKey
+            | Self::IndexedAccess { .. }
             | Self::Unknown
             | Self::Never
             | Self::TypeParam { .. }
@@ -509,6 +556,44 @@ impl TypeInterner {
         self.index.insert(ty.clone(), id);
         self.types.push(ty);
         id
+    }
+
+    /// The id of `T | null`: the optional of `present` whose absent value is
+    /// `null`, in canonical form (`crate::type_normalize::optional_with`).
+    ///
+    /// A `present` that admits `null` already is its own answer
+    /// (`T | null | null` is `T | null`); one that admits `undefined` gains
+    /// the inner `null` layer (`Optional(Optional(T, Null), Undefined)`).
+    pub fn intern_null_optional(&mut self, present: TypeId) -> TypeId {
+        crate::type_normalize::optional_with(self, present, Absence::Null)
+    }
+
+    #[must_use]
+    /// Whether `id` is an optional whose outer absent value is `null`
+    /// (`Optional(T, Null)`), so its `None` erases as `null`.
+    pub fn absent_is_null(&self, id: TypeId) -> bool {
+        matches!(self.get(id), Some(Type::Optional(_, Absence::Null)))
+    }
+
+    #[must_use]
+    /// The id `rewritten` is interned under. The absent value is part of the
+    /// optional's structure (`Type::Optional(T, Absence)`), so a rewrite
+    /// layer by layer keeps it and this is [`Self::lookup`]; `like` is kept
+    /// for callers that rebuild a layer around another present type.
+    pub fn lookup_like(&self, _like: TypeId, rewritten: &Type) -> Option<TypeId> {
+        self.lookup(rewritten)
+    }
+
+    /// The optional of `present` with the outer absent value of `like`
+    /// (`undefined` when `like` is no optional).
+    ///
+    /// For passes that rebuild an optional around a rewritten present type.
+    pub fn intern_optional_like(&mut self, like: TypeId, present: TypeId) -> TypeId {
+        let absence = match self.get(like) {
+            Some(Type::Optional(_, absence)) => *absence,
+            _ => Absence::Undefined,
+        };
+        crate::type_normalize::wrap_optional(self, present, absence)
     }
 
     /// Move the late tail into `types`, keeping every late id's meaning.
@@ -755,6 +840,26 @@ mod type_children_tests {
                 next_ty: id(13),
             })
         );
+    }
+
+    /// An unevaluated indexed access is made of its object then its index:
+    /// the walks that substitute a call's bindings reach both, and it fixes
+    /// no runtime kind (it is not a value's type).
+    #[test]
+    fn indexed_access_holds_its_object_then_its_index() {
+        let access = Type::IndexedAccess {
+            object: id(1),
+            index: id(2),
+        };
+        assert_eq!(access.children().collect::<Vec<_>>(), [id(1), id(2)]);
+        assert_eq!(
+            access.try_map_children(|child| Some(TypeId(child.0 + 10))),
+            Some(Type::IndexedAccess {
+                object: id(11),
+                index: id(12),
+            })
+        );
+        assert_eq!(access.runtime_kind(), None);
     }
 
     #[test]

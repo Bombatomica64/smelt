@@ -71,6 +71,26 @@ pub(crate) fn emit_record_into_smelt_unknown_impl(
                         absent_keys
                     ));
                 }
+                // A class instance keeps its methods across the erasure seam
+                // (`__smelt_proto:<name>`, `crate::class_proto`), as the inline
+                // erasure (`erase_record_expr`) gives them: an instance erased
+                // through this impl (a list element, a map value) is the same
+                // object to a dynamic reader such as `JSON.stringify`'s
+                // `toJSON` step.
+                let proto_entries = identity
+                    .and_then(|class| crate::classes::find_class(mir, class))
+                    .is_some_and(|class| crate::class_proto::class_has_proto_entries(mir, context, class));
+                if proto_entries {
+                    fn_writer.line(format!(
+                        "let smelt_proto_entries = self.{}();",
+                        crate::class_proto::PROTO_ENTRIES_METHOD
+                    ));
+                }
+                let chain_proto = if proto_entries {
+                    ".chain(smelt_proto_entries)"
+                } else {
+                    ""
+                };
                 fn_writer.line(
                     "SmeltUnknown::Object(SmeltObject::new(Vec::<(String, _)>::from([",
                 );
@@ -139,10 +159,12 @@ pub(crate) fn emit_record_into_smelt_unknown_impl(
                         crate::class_identity::CLASS_IDENTITY_FIELD
                     ));
                 }
-                if absent_keys.is_empty() {
+                if absent_keys.is_empty() && !proto_entries {
                     fn_writer.line("])))");
+                } else if absent_keys.is_empty() {
+                    fn_writer.line(format!("]).into_iter(){chain_proto}.collect::<Vec<_>>()))"));
                 } else {
-                    fn_writer.line("]).into_iter().filter(|(smelt_key, smelt_value)| !(matches!(smelt_value, SmeltUnknown::Undefined) && smelt_absent_keys.contains(&smelt_key.as_str()))).collect::<Vec<_>>()))");
+                    fn_writer.line(format!("]).into_iter().filter(|(smelt_key, smelt_value)| !(matches!(smelt_value, SmeltUnknown::Undefined) && smelt_absent_keys.contains(&smelt_key.as_str()))){chain_proto}.collect::<Vec<_>>()))"));
                 }
             });
         },
@@ -505,6 +527,10 @@ pub(crate) fn record_field_from_unknown_expr(
 /// converted value. Declined: rest, async and mutable-parameter signatures, an
 /// `impl` or `&mut` in the rendered type, and a parameter type that cannot be
 /// produced from an erased value.
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "single-shape recogniser: only `Type::Optional` wraps the function type"
+)]
 fn erased_function_field_expr(
     mir: &Mir,
     context: &EmitContext,
@@ -621,7 +647,9 @@ pub(crate) fn record_field_unknown_expr(
     ty: TypeId,
 ) -> Result<RustExpr, EmitError> {
     Ok(match mir.types.get(ty) {
-        Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. }) => RustExpr::atom(format!(
+        Some(
+            Type::Unknown | Type::IndexedAccess { .. } | Type::Union(_) | Type::TypeParam { .. },
+        ) => RustExpr::atom(format!(
             "({value_text}).into_smelt_unknown()",
             value_text = value_text.delimited()
         )),
@@ -640,6 +668,10 @@ pub(crate) fn record_field_unknown_expr(
         Some(Type::Int | Type::FixedInt(_) | Type::Float) => RustExpr::atom(format!(
             "SmeltUnknown::Number({value_text} as f64)",
             value_text = value_text.as_cast_operand()
+        )),
+        Some(Type::PyInt) => RustExpr::atom(format!(
+            "({value_text}).clone().into_smelt_unknown()",
+            value_text = value_text.delimited()
         )),
         Some(Type::BigInt) => RustExpr::atom(format!(
             "SmeltUnknown::BigInt(({value_text}).clone())",

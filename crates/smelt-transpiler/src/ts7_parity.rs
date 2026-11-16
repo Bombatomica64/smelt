@@ -131,6 +131,7 @@ fn shape_at_depth(krate: &Crate, id: TypeId, depth: usize) -> String {
         }
         Type::Bool => "Bool".to_owned(),
         Type::Int => "Int".to_owned(),
+        Type::PyInt => "PyInt".to_owned(),
         Type::Float => "Float".to_owned(),
         Type::FixedInt(_) => "FixedInt".to_owned(),
         Type::BigInt => "BigInt".to_owned(),
@@ -138,7 +139,7 @@ fn shape_at_depth(krate: &Crate, id: TypeId, depth: usize) -> String {
         Type::PyStr => "PyStr".to_owned(),
         Type::Symbol => "Symbol".to_owned(),
         Type::PropKey => "PropKey".to_owned(),
-        Type::Unknown => "Unknown".to_owned(),
+        Type::Unknown | Type::IndexedAccess { .. } => "Unknown".to_owned(),
         Type::Never => "Never".to_owned(),
         Type::None => "None".to_owned(),
         Type::Dict(..) => "Dict".to_owned(),
@@ -252,9 +253,10 @@ impl Comparer<'_> {
     fn primitive_agrees(&self, hir: &Type, ts: &TsTypeKind) -> Option<bool> {
         match ts {
             TsTypeKind::String | TsTypeKind::StringLiteral(_) => Some(matches!(hir, Type::String)),
-            TsTypeKind::Number | TsTypeKind::NumberLiteral(_) => {
-                Some(matches!(hir, Type::Float | Type::Int | Type::FixedInt(_)))
-            }
+            TsTypeKind::Number | TsTypeKind::NumberLiteral(_) => Some(matches!(
+                hir,
+                Type::Float | Type::Int | Type::PyInt | Type::FixedInt(_)
+            )),
             TsTypeKind::Boolean | TsTypeKind::BooleanLiteral(_) => Some(matches!(hir, Type::Bool)),
             TsTypeKind::BigInt | TsTypeKind::BigIntLiteral(_) => Some(matches!(hir, Type::BigInt)),
             TsTypeKind::Void | TsTypeKind::Undefined | TsTypeKind::Null => {
@@ -488,6 +490,7 @@ impl Comparer<'_> {
             }),
             Type::Bool
             | Type::Int
+            | Type::PyInt
             | Type::Float
             | Type::FixedInt(_)
             | Type::BigInt
@@ -496,6 +499,7 @@ impl Comparer<'_> {
             | Type::Symbol
             | Type::PropKey
             | Type::Unknown
+            | Type::IndexedAccess { .. }
             | Type::Never
             | Type::TypeParam { .. }
             | Type::None

@@ -172,6 +172,10 @@ impl FunctionEmitter<'_> {
     /// arithmetic (sign-propagating) shift, and `Math.imul` is the low 32 bits
     /// of the product read as signed. The int32 result converts to `f64`
     /// exactly (or to `i64` for an `Int` destination).
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "sub-dispatch: the only caller passes `Shl`, `Shr` or `IMul`, so the catch-all is `Shr`"
+    )]
     pub(super) fn js_int32_binary_expr(
         op: smelt_hir::BinOp,
         lhs_text: &RustExpr,

@@ -256,8 +256,15 @@ pub fn normalize_type(types: &mut TypeInterner, ty: TypeId, options: NormalizeOp
                 return_ty,
             })
         }
+        // Not evaluated here: only a call that binds the object can do that.
+        Type::IndexedAccess { object, index } => {
+            let object = normalize_type(types, object, options);
+            let index = normalize_type(types, index, options);
+            types.intern(Type::IndexedAccess { object, index })
+        }
         Type::Bool
         | Type::Int
+        | Type::PyInt
         | Type::FixedInt(_)
         | Type::BigInt
         | Type::Float

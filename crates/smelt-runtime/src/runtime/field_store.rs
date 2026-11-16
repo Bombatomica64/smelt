@@ -315,6 +315,10 @@ struct SmeltLiveLink<K, V> {
     unwrap: ::std::rc::Rc<dyn Fn(&V) -> SmeltUnknown>,
     same: fn(&V, &V) -> bool,
     apply: fn(&mut SmeltFieldStore<K, V>, Vec<(K, V)>, fn(&V, &V) -> bool),
+    //~ Whether a value of the view is a reference (an erased array, object
+    //~ or function): the view then keeps the handle it hands out, so a
+    //~ second read of the same property is the same value (`live_get`).
+    keeps: fn(&V) -> bool,
 }
 
 /// Who answers a read of one key of a store.
@@ -388,6 +392,28 @@ impl<K, V> SmeltStoreCell<K, V> {
     fn sync(&self) {
         if self.live.borrow().is_some() { self.sync_live(); }
     }
+    //~ The keys of a live view: its record's data keys (`smelt_live_keys`,
+    //~ which reads no value when the record cannot lack one) followed by the
+    //~ runtime's own `__smelt` keys, the order a refresh gives the store.
+    //~ `None` for any other store, whose keys are its entries'. The view's
+    //~ cached values are left as they are: every read of a value asks the
+    //~ record (`live_get`) or refreshes first (`sync`).
+    fn live_keys(&self) -> Option<Vec<K>> where K: Clone + SmeltPropertyKey {
+        let (object, key) = self.live.borrow().as_ref().map(|link| (::std::rc::Rc::clone(&link.object), link.key))?;
+        let mut keys = smelt_live_keys(&object).into_iter().map(key).collect::<Vec<_>>();
+        if let Ok(store) = self.cell.try_borrow() && store.has_internal_keys() { keys.extend(store.entries().iter().filter(|entry| entry.key.smelt_is_internal_key()).map(|entry| entry.key.clone())); }
+        Some(keys)
+    }
+    //~ The data entries of a live view, read from its record and not from
+    //~ the view's cache, for a reader that only looks at them (serialization)
+    //~ and so has no use for a refreshed cache. `None` when the store is not
+    //~ a live view, is borrowed, or holds keys of the runtime's own, which
+    //~ only a refresh (`sync`) lists with the data.
+    fn live_data(&self) -> Option<Vec<(K, V)>> {
+        let (object, key, wrap) = self.live.borrow().as_ref().map(|link| (::std::rc::Rc::clone(&link.object), link.key, ::std::rc::Rc::clone(&link.wrap)))?;
+        if self.cell.try_borrow().map_or(true, |store| store.has_internal_keys()) { return None; }
+        Some(smelt_live_entries(&object).into_iter().map(|(name, value)| (key(name), wrap(value))).collect())
+    }
     fn sync_live(&self) {
         let Some((object, key, wrap, same, apply)) = self.live.borrow().as_ref().map(|link| (::std::rc::Rc::clone(&link.object), link.key, ::std::rc::Rc::clone(&link.wrap), link.same, link.apply)) else { return };
         if self.cell.try_borrow_mut().is_err() { return; }
@@ -424,15 +450,20 @@ impl<K: Eq + ::std::hash::Hash + SmeltPropertyKey, V> SmeltStoreCell<K, V> {
     //~ Read a data key of a live view from its record: `Store` when this
     //~ store is not a live view or the key is the runtime's own, else the
     //~ record's answer (`None` when it has no such property). A value that is
-    //~ the same reference as the cached one answers with the cached handle, so
-    //~ an erased array or object read twice through one view is one value, as
-    //~ it was while the view was a snapshot.
-    fn live_get<Q>(&self, key: &Q) -> SmeltLiveRead<V> where K: ::std::borrow::Borrow<Q>, Q: Eq + SmeltPropertyKey + ?Sized, V: Clone {
+    //~ the same reference as the cached one answers with the cached handle,
+    //~ and a reference value read for the first time is cached, so an erased
+    //~ array or object read twice through one view is one value, as it was
+    //~ while the view was a snapshot. The cache is filled here, by the read
+    //~ that hands the value out, so the guarantee does not depend on some
+    //~ whole-store read having refreshed the view first (`live_keys` and
+    //~ `live_data` answer without one).
+    fn live_get<Q>(&self, key: &Q) -> SmeltLiveRead<V> where K: ::std::borrow::Borrow<Q> + Eq + ::std::hash::Hash + SmeltPropertyKey, Q: Eq + SmeltPropertyKey + ?Sized, V: Clone {
         let Some((object, name)) = self.live_target(key) else { return SmeltLiveRead::Store };
         let Some(fresh) = smelt_live_get(&object, name) else { return SmeltLiveRead::Record(None) };
-        let Some((wrap, same)) = self.live.borrow().as_ref().map(|link| (::std::rc::Rc::clone(&link.wrap), link.same)) else { return SmeltLiveRead::Store };
+        let Some((wrap, same, keeps, own)) = self.live.borrow().as_ref().map(|link| (::std::rc::Rc::clone(&link.wrap), link.same, link.keeps, link.key)) else { return SmeltLiveRead::Store };
         let fresh = wrap(fresh);
         if let Ok(store) = self.cell.try_borrow() && store.len() != 0 && let Some(cached) = store.get(key) && same(cached, &fresh) { return SmeltLiveRead::Record(Some(cached.clone())); }
+        if keeps(&fresh) && let Ok(mut store) = self.cell.try_borrow_mut() { drop(store.insert(own(name.to_owned()), fresh.clone())); }
         SmeltLiveRead::Record(Some(fresh))
     }
     //~ Whether the record behind a live view has the data key `key`; `None`
@@ -441,14 +472,19 @@ impl<K: Eq + ::std::hash::Hash + SmeltPropertyKey, V> SmeltStoreCell<K, V> {
         let (object, name) = self.live_target(key)?;
         Some(smelt_live_get(&object, name).is_some())
     }
-    //~ Write a data key of a live view into its record. `false` when this
+    //~ Write a data key of a live view into its record. `None` when this
     //~ store is not a live view or the key is the runtime's own: the write
-    //~ is then the store's alone.
-    fn live_set(&self, key: &K, value: &V) -> bool {
-        let Some((object, name)) = self.live_target(key) else { return false };
-        let Some(unwrap) = self.live.borrow().as_ref().map(|link| ::std::rc::Rc::clone(&link.unwrap)) else { return false };
+    //~ is then the store's alone. Otherwise whether the view keeps the
+    //~ written value as the handle it hands out for that key (`keeps`): a
+    //~ reference value written through a view IS what the view answers a
+    //~ later read with (an erased array may be one of several erasures of
+    //~ the same list, and the one written is the one the program holds),
+    //~ while any other value is the record's alone.
+    fn live_set(&self, key: &K, value: &V) -> Option<bool> {
+        let (object, name) = self.live_target(key)?;
+        let (unwrap, keeps) = self.live.borrow().as_ref().map(|link| (::std::rc::Rc::clone(&link.unwrap), link.keeps))?;
         smelt_live_set(&object, name, unwrap(value));
-        true
+        Some(keeps(value))
     }
     //~ Delete a data key of a live view from its record; `false` as for `live_set`.
     fn live_remove<Q>(&self, key: &Q) -> bool where Q: SmeltPropertyKey + ?Sized {

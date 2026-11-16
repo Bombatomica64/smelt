@@ -75,7 +75,7 @@ impl FunctionEmitter<'_> {
     /// SameValueZero membership and preserves insertion order.
     pub(super) fn type_is_hash_set_key_safe(&self, ty: TypeId) -> bool {
         match self.mir.types.get(ty) {
-            Some(Type::Bool | Type::Int | Type::String | Type::PyStr) => true,
+            Some(Type::Bool | Type::Int | Type::PyInt | Type::String | Type::PyStr) => true,
             Some(Type::Optional(inner, _) | Type::Future(inner)) => {
                 self.type_is_hash_set_key_safe(*inner)
             }
@@ -174,6 +174,10 @@ impl FunctionEmitter<'_> {
     }
 
     /// Return a discriminant for a map/dict type's backing container.
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "single-shape recogniser: only `JsMap` and `Dict` have a map backing; every other type shares the one non-map tag"
+    )]
     fn map_backing_tag(&self, ty: &Type) -> u8 {
         match ty {
             Type::JsMap(_, _) => 0,
@@ -544,7 +548,13 @@ pub(crate) fn dict_key_uses_js_key_map(mir: &Mir, key_ty: TypeId) -> bool {
     match mir.types.get(key_ty) {
         // A bigint key hashes by value, which is SameValueZero for bigints.
         Some(
-            Type::Bool | Type::Int | Type::FixedInt(_) | Type::BigInt | Type::String | Type::PyStr,
+            Type::Bool
+            | Type::Int
+            | Type::PyInt
+            | Type::FixedInt(_)
+            | Type::BigInt
+            | Type::String
+            | Type::PyStr,
         ) => false,
         Some(Type::Float) => true,
         // A property-key record (`Record<K, V>` with a type-parameter key, or
@@ -561,6 +571,7 @@ pub(crate) fn dict_key_uses_js_key_map(mir: &Mir, key_ty: TypeId) -> bool {
             .any(|item| dict_key_uses_js_key_map(mir, *item)),
         Some(
             Type::Unknown
+            | Type::IndexedAccess { .. }
             | Type::TypeParam { .. }
             | Type::Never
             | Type::List(_)
@@ -607,6 +618,6 @@ pub(crate) fn dict_renders_as_index_map(
 pub(crate) fn dict_key_uses_smelt_record(mir: &Mir, key_ty: TypeId) -> bool {
     matches!(
         mir.types.get(key_ty),
-        Some(Type::String | Type::PyStr | Type::Int | Type::Bool)
+        Some(Type::String | Type::PyStr | Type::Int | Type::PyInt | Type::Bool)
     )
 }

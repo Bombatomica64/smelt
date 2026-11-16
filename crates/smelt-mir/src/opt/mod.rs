@@ -326,7 +326,7 @@ fn mutated_locals(function: &MirFunction) -> HashSet<LocalId> {
                 Statement::DictEntryUpdate { base, .. } => {
                     locals.insert(*base);
                 }
-                Statement::Assign { .. } => {}
+                Statement::Assign { .. } | Statement::StorageLive(_) => {}
             }
         }
     }

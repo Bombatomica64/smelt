@@ -606,9 +606,8 @@ impl FunctionEmitter<'_> {
                     // Rendered as the erased value it is. A method read
                     // (`this.validate`) that no virtual slot stores is its
                     // bound method value, never a field of the struct.
-                    let erased_value = match arg {
-                        Operand::Copy(Place::Field { base, field, .. })
-                        | Operand::Move(Place::Field { base, field, .. }) => {
+                    let erased_value = match arg.place() {
+                        Some(Place::Field { base, field, .. }) => {
                             let base_place = Place::Local(*base);
                             let base_ty = self.place_ty(&base_place)?;
                             match self.mir.types.get(base_ty) {
@@ -627,7 +626,8 @@ impl FunctionEmitter<'_> {
                                 _ => self.value_at_type(arg, arg_ty)?,
                             }
                         }
-                        _ => self.value_at_type(arg, arg_ty)?,
+                        Some(Place::Local(_) | Place::Index { .. } | Place::Global { .. })
+                        | None => self.value_at_type(arg, arg_ty)?,
                     };
                     return self.extract_function_with_bindings(
                         &erased_value,

@@ -5,6 +5,19 @@
 //! the body only moves it, reaches a bound through the generated trait, or is
 //! inferable through a callback at every call site. `EmitContext` runs it before
 //! any body renders, so the definition and every call site agree on the shape.
+//!
+//! "Only moves" is judged per operand AND per place: a place that projects a
+//! member off a value of the bare parameter type (`obj[key]`, `obj.name` with
+//! `obj: T`) reads or writes into that `T` in every position, including the
+//! operand of a `return` ([`place_projects_into_type_param`]). Requirements:
+//! such a function still compiles and behaves as the source does (the member
+//! lookup runs on the erased carrier), and a read off a container OF `T` keeps
+//! its `T` generic.
+//!
+//! A scalar inspection of one bare `T` value (`x == null`, `typeof x`, `!x`,
+//! `if (x)`) is not an inspection in this sense: it is answered on an erased
+//! copy and leaves `T` opaque. The rule and its requirements are in
+//! [`crate::generic_inspection`].
 #![expect(
     clippy::redundant_pub_crate,
     reason = "crate-visible items are shared with the crate root and the emitter shards"
@@ -22,12 +35,8 @@ use smelt_mir::{
 };
 
 use crate::{
-    EmitError,
-    bound_traits::BoundTraitPlan,
-    classes::{GENERATED_TYPE_PARAM_BOUNDS, type_param_in_dict_key},
-    generic_bindings,
-    generic_elision::TypeParamElision,
-    id_index,
+    EmitError, bound_traits::BoundTraitPlan, classes::type_param_in_dict_key, generic_bindings,
+    generic_elision::TypeParamElision, id_index,
 };
 
 /// Per function, whether a call site passes an erased argument at a bare
@@ -121,10 +130,11 @@ fn type_param_only_moved(mir: &Mir, function: &MirFunction, name: Symbol) -> boo
 ///
 /// Split out of [`type_param_only_moved`] because a closure is a *separate* MIR
 /// body with its own locals and blocks, so walking `function.blocks` alone never
-/// sees inside one. es-toolkit's `flatten` is exactly that shape: `T` lifted,
-/// and the `Array.isArray(item)` that inspects it lives in the inner recursive
-/// closure, emitting `matches!(item, SmeltUnknown::Array(_))` against a `T` and
-/// failing with "expected type parameter `T`, found `SmeltUnknown`".
+/// sees inside one. es-toolkit's `flatten` is exactly that shape: the
+/// `Array.isArray(item)` that asks about a `T` lives in the inner recursive
+/// closure. (That particular question is now a scalar inspection answered on
+/// an erased copy, see [`crate::generic_inspection`]; a closure that compares
+/// or reads into a `T` still keeps the function erased.)
 ///
 /// `seen` guards against a closure cycle; the ids are `ClosureId`'s inner value.
 fn body_only_moves(
@@ -164,21 +174,32 @@ fn body_only_moves(
         local_mentions(base)
     };
 
+    // A place that projects a field or an index off a value whose type is the
+    // bare parameter itself (`obj[key]` with `obj: T`): the projection reads
+    // or writes INTO the `T`, which is a member lookup on the erased carrier
+    // and therefore an inspection wherever the place appears: an rvalue
+    // operand, an assignment target, or a terminator operand (`return
+    // obj[key]`, whose `Return` otherwise only moves). A projection off a
+    // container OF `T` (`items[i]` with `items: T[]`) reads the container and
+    // stays a move; see [`place_projects_into_type_param`].
+    let projects_into = |place: &Place| place_projects_into_type_param(mir, locals, place, name);
+    let operand_projects_into = |operand: &Operand| match operand {
+        Operand::Copy(place) | Operand::Move(place) => projects_into(place),
+        Operand::Const(_) => false,
+    };
+
     let operand_is_erased = |operand: &Operand| -> bool {
         // A projection reads out of its base local, whose type says whether
         // the element is erased (an element of `unknown[]`).
-        let local = match operand {
-            Operand::Copy(
-                Place::Local(local)
-                | Place::Field { base: local, .. }
-                | Place::Index { base: local, .. },
-            )
-            | Operand::Move(
+        let local = match operand.place() {
+            Some(
                 Place::Local(local)
                 | Place::Field { base: local, .. }
                 | Place::Index { base: local, .. },
             ) => local,
-            _ => return false,
+            // A global's cell is not a lifting candidate (see above), and a
+            // constant is no erased element.
+            Some(Place::Global { .. }) | None => return false,
         };
         id_index(local.0, "local index does not fit usize")
             .ok()
@@ -275,13 +296,27 @@ fn body_only_moves(
             }
         }
     }
+    let absent_only = crate::generic_inspection::absent_only_locals(locals, blocks);
     for block in blocks {
         for statement in &block.statements {
-            let (Statement::Assign { value, .. } | Statement::AssignPlace { value, .. }) =
-                statement
-            else {
-                continue;
+            let value = match statement {
+                Statement::Assign { value, .. } => value,
+                Statement::AssignPlace { place, value } => {
+                    // `obj[key] = v` with `obj: T` writes into the `T`.
+                    if projects_into(place) {
+                        return false;
+                    }
+                    value
+                }
+                // A fused entry update and a fresh per-iteration binding cell
+                // write no value a `T` projection could read.
+                Statement::DictEntryUpdate { .. } | Statement::StorageLive(_) => continue,
             };
+            let mut projected = false;
+            value.reads(|operand| projected |= operand_projects_into(operand));
+            if projected {
+                return false;
+            }
             // Filling a slot with the absent value carries no `T` at all.
             if let Rvalue::Use(operand) = value
                 && is_absent_constant(operand)
@@ -309,6 +344,23 @@ fn body_only_moves(
             {
                 return false;
             }
+            // A `T` handed to a callback that reads it as a container of
+            // `T` is reinterpreted, not moved.
+            if crate::generic_inspection::reinterprets_type_param(mir, locals, value, name) {
+                return false;
+            }
+            // A question answered from an erased copy of one bare `T` value
+            // (`x == null`, `typeof x`, `!x`): the copy is only read, so `T`
+            // itself stays opaque (`crate::generic_inspection`).
+            if crate::generic_inspection::is_scalar_inspection(
+                mir,
+                locals,
+                value,
+                name,
+                &absent_only,
+            ) {
+                continue;
+            }
             if rvalue_preserves_opacity(value)
                 || is_absence_test(value, &absent_locals, &payload_never_nullish)
                 || matches!(
@@ -322,11 +374,12 @@ fn body_only_moves(
             // A member read or method call through the parameter's bound
             // dispatches through its generated trait, which is an operation a
             // lifted bounded `T` supports; only its arguments can inspect.
-            let through_bound = match value {
-                Rvalue::BoundMethod { receiver, .. } | Rvalue::BoundField { receiver, .. } => {
-                    Some(receiver)
-                }
-                _ => None,
+            let through_bound = if let Rvalue::BoundMethod { receiver, .. }
+            | Rvalue::BoundField { receiver, .. } = value
+            {
+                Some(receiver)
+            } else {
+                None
             };
             let mut reads_t = false;
             value.reads(|operand| {
@@ -367,8 +420,19 @@ fn body_only_moves(
                 return false;
             }
         }
+        // A terminator operand that projects into a `T` inspects it, whatever
+        // the terminator then does with the member: `return obj[key]` moves
+        // the MEMBER out, but reading it is a lookup on `obj`.
+        if let Some(terminator) = &block.terminator {
+            let mut projected = false;
+            terminator.reads(|operand| projected |= operand_projects_into(operand));
+            if projected {
+                return false;
+            }
+        }
         // Branching on a `T` needs JavaScript truthiness or an equality an
-        // opaque `T` cannot answer. `Return` is a move and stays off this list.
+        // opaque `T` cannot answer. A `Return` of a whole local is a move and
+        // stays off this list.
         if let Some(
             Terminator::Switch { cond: probe, .. }
             | Terminator::Match {
@@ -377,6 +441,9 @@ fn body_only_moves(
         ) = &block.terminator
             && mentions(probe)
             && !truthiness_is_presence(probe)
+            // `if (x)` on a bare `T` branches on the truthiness of its erased
+            // copy (`crate::generic_inspection`).
+            && !crate::generic_inspection::operand_is_bare_type_param(mir, locals, probe, name)
         {
             return false;
         }
@@ -399,6 +466,37 @@ fn body_only_moves(
         }
     }
     true
+}
+
+/// Whether `place` projects a field or an index off a local whose type is the
+/// bare type parameter `name`, or an optional of it.
+///
+/// Behavioral requirement: a member of a `T` value is found by a run-time
+/// lookup on the value (JavaScript `obj[key]`), which only the erased carrier
+/// answers; a lifted `T` is opaque, so a body holding such a place must not
+/// lift `name`. Type-preservation requirement: the rule looks at the BASE
+/// local's own type only, so `items[i]` with `items: T[]` (a container read
+/// that yields a `T`) is not affected and keeps its `T`.
+fn place_projects_into_type_param(
+    mir: &Mir,
+    locals: &[LocalDecl],
+    place: &Place,
+    name: Symbol,
+) -> bool {
+    let (Place::Field { base, .. } | Place::Index { base, .. }) = place else {
+        return false;
+    };
+    let Some(decl) = id_index(base.0, "local index does not fit usize")
+        .ok()
+        .and_then(|index| locals.get(index))
+    else {
+        return false;
+    };
+    let payload = match mir.types.get(decl.ty) {
+        Some(Type::Optional(inner, _)) => *inner,
+        _ => decl.ty,
+    };
+    matches!(mir.types.get(payload), Some(Type::TypeParam { name: found }) if *found == name)
 }
 
 /// Whether `operand` is the absent value (`none`, `undefined`).
@@ -505,6 +603,7 @@ fn statement_destination_is_erased(
             Place::Global { .. } => return false,
         },
         Statement::DictEntryUpdate { base, .. } => *base,
+        Statement::StorageLive(_) => return false,
     };
     erased(local)
 }
@@ -527,6 +626,7 @@ fn statement_destination_mentions(
         },
         // The container the entry update writes through is its destination.
         Statement::DictEntryUpdate { base, .. } => *base,
+        Statement::StorageLive(_) => return false,
     };
     local_mentions(local)
 }
@@ -896,8 +996,11 @@ fn bounded_type_param_liftable(
         }
     };
     let name = type_param.name;
-    let is_bare = |ty: TypeId| matches!(mir.types.get(ty), Some(Type::TypeParam { name: found }) if *found == name);
-    let mut bare_positions = Vec::new();
+    // Every parameter `T` occurs in, with its type: bare (`a: A`) or inside a
+    // container the call site's argument binds it through (`xs: T[]`,
+    // `pair: [T, string]`, `byId: Record<string, T>`). A position the binding
+    // cannot read (a callback's parameter, a class argument) keeps `T` erased.
+    let mut bound_positions = Vec::new();
     for (index, param) in function.params.iter().enumerate() {
         let Some(ty) = id_index(param.0, "local index does not fit usize")
             .ok()
@@ -906,13 +1009,15 @@ fn bounded_type_param_liftable(
         else {
             return false;
         };
-        if is_bare(ty) {
-            bare_positions.push(index);
-        } else if generic_bindings::type_param_occurs(mir, ty, name) {
+        if !generic_bindings::type_param_occurs(mir, ty, name) {
+            continue;
+        }
+        if !binds_through_containers(mir, ty, name) {
             return false;
         }
+        bound_positions.push((index, ty));
     }
-    if bare_positions.is_empty() {
+    if bound_positions.is_empty() {
         return false;
     }
     let mut seen = HashSet::new();
@@ -958,7 +1063,7 @@ fn bounded_type_param_liftable(
             if *target != function.id {
                 continue;
             }
-            for &position in &bare_positions {
+            for &(position, param_ty) in &bound_positions {
                 let Some(Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) =
                     args.get(position)
                 else {
@@ -971,30 +1076,105 @@ fn bounded_type_param_liftable(
                 else {
                     return false;
                 };
-                if implemented_by(arg_ty) {
-                    continue;
+                let mut bindings = Vec::new();
+                if !bind_type_param(mir, param_ty, arg_ty, name, &mut bindings) {
+                    return false;
                 }
-                let Some(Type::TypeParam { name: arg_param }) = mir.types.get(arg_ty) else {
-                    return false;
-                };
-                let forwarded_by_caller = caller.is_some_and(|calling| {
-                    (calling.id == function.id && *arg_param == name)
-                        || (matches!(calling.origin, smelt_mir::HirOrigin::Body(_))
-                            && calling.type_params.iter().any(|declared| {
-                                declared.name == *arg_param
-                                    && crate::bound_traits::constraint_bound(
-                                        mir,
-                                        declared.constraint,
-                                    ) == Some(bound)
-                            }))
-                });
-                if !forwarded_by_caller {
-                    return false;
+                for bound_ty in bindings {
+                    if implemented_by(bound_ty) {
+                        continue;
+                    }
+                    let Some(Type::TypeParam { name: arg_param }) = mir.types.get(bound_ty) else {
+                        return false;
+                    };
+                    let forwarded_by_caller = caller.is_some_and(|calling| {
+                        (calling.id == function.id && *arg_param == name)
+                            || (matches!(calling.origin, smelt_mir::HirOrigin::Body(_))
+                                && calling.type_params.iter().any(|declared| {
+                                    declared.name == *arg_param
+                                        && crate::bound_traits::constraint_bound(
+                                            mir,
+                                            declared.constraint,
+                                        ) == Some(bound)
+                                }))
+                    });
+                    if !forwarded_by_caller {
+                        return false;
+                    }
                 }
             }
         }
     }
     true
+}
+
+/// Whether every occurrence of type parameter `name` in `ty` sits where a call
+/// site's argument type binds it structurally: `ty` is `name` itself, or a
+/// list, set, optional, tuple or dict (in its value) built from such
+/// positions. See [`bind_type_param`].
+fn binds_through_containers(mir: &Mir, ty: TypeId, name: Symbol) -> bool {
+    if !generic_bindings::type_param_occurs(mir, ty, name) {
+        return true;
+    }
+    match mir.types.get(ty) {
+        Some(Type::TypeParam { name: found }) => *found == name,
+        Some(Type::List(item) | Type::Set(item) | Type::Optional(item, _)) => {
+            binds_through_containers(mir, *item, name)
+        }
+        Some(Type::Tuple(items)) => items
+            .iter()
+            .all(|item| binds_through_containers(mir, *item, name)),
+        Some(Type::Dict(key, value)) => {
+            !generic_bindings::type_param_occurs(mir, *key, name)
+                && binds_through_containers(mir, *value, name)
+        }
+        _ => false,
+    }
+}
+
+/// The types an argument of type `arg` binds type parameter `name` to, read
+/// by matching it against the parameter type `param` arm by arm (a `User[]`
+/// argument at `xs: T[]` binds `T` to `User`). `false` when the shapes do not
+/// line up, so the binding cannot be read and `T` stays erased.
+fn bind_type_param(
+    mir: &Mir,
+    param: TypeId,
+    arg: TypeId,
+    name: Symbol,
+    bindings: &mut Vec<TypeId>,
+) -> bool {
+    if !generic_bindings::type_param_occurs(mir, param, name) {
+        return true;
+    }
+    match (mir.types.get(param), mir.types.get(arg)) {
+        (Some(Type::TypeParam { name: found }), _) if *found == name => {
+            bindings.push(arg);
+            true
+        }
+        (Some(Type::List(param_item)), Some(Type::List(arg_item)))
+        | (Some(Type::Set(param_item)), Some(Type::Set(arg_item)))
+        | (Some(Type::Optional(param_item, _)), Some(Type::Optional(arg_item, _))) => {
+            bind_type_param(mir, *param_item, *arg_item, name, bindings)
+        }
+        // A present value handed to an optional parameter binds its inner type.
+        (Some(Type::Optional(param_item, _)), Some(_)) => {
+            bind_type_param(mir, *param_item, arg, name, bindings)
+        }
+        (Some(Type::Tuple(param_items)), Some(Type::Tuple(arg_items)))
+            if param_items.len() == arg_items.len() =>
+        {
+            param_items
+                .iter()
+                .zip(arg_items)
+                .all(|(param_item, arg_item)| {
+                    bind_type_param(mir, *param_item, *arg_item, name, bindings)
+                })
+        }
+        (Some(Type::Dict(_, param_value)), Some(Type::Dict(_, arg_value))) => {
+            bind_type_param(mir, *param_value, *arg_value, name, bindings)
+        }
+        _ => false,
+    }
 }
 
 /// One bounded type parameter and its planned trait, for
@@ -1056,7 +1236,7 @@ fn body_uses_bound_only_through_trait(
                     }
                     value
                 }
-                Statement::DictEntryUpdate { .. } => continue,
+                Statement::DictEntryUpdate { .. } | Statement::StorageLive(_) => continue,
             };
             if let Rvalue::Closure { id, .. } = value
                 && seen.insert(id.0)
@@ -1071,26 +1251,22 @@ fn body_uses_bound_only_through_trait(
             {
                 return false;
             }
-            let through_bound = match value {
-                Rvalue::BoundMethod {
-                    receiver,
-                    bound,
-                    method: member,
-                    ..
-                }
-                | Rvalue::BoundField {
-                    receiver,
-                    bound,
-                    field: member,
-                } => Some((receiver, *bound, *member)),
-                _ => None,
-            };
-            if let Some((receiver, bound, member)) = through_bound
+            if let Rvalue::BoundMethod {
+                receiver,
+                bound,
+                method: member,
+                ..
+            }
+            | Rvalue::BoundField {
+                receiver,
+                bound,
+                field: member,
+            } = value
                 && operand_is_param(receiver)
-                && (bound != bound_use.bound
+                && (*bound != bound_use.bound
                     || bound_use
                         .planned
-                        .is_none_or(|planned| planned.member(member).is_none()))
+                        .is_none_or(|planned| planned.member(*member).is_none()))
             {
                 return false;
             }
@@ -1105,20 +1281,11 @@ fn body_uses_bound_only_through_trait(
             }
         }
         if let Some(terminator) = &block.terminator {
-            let projected = match terminator {
-                Terminator::Call { callee, args, .. } => {
-                    let mut projects = args.iter().any(operand_projects);
-                    if let smelt_mir::Callee::Op(op, _) = callee {
-                        op.reads(|operand| projects |= operand_projects(operand));
-                    }
-                    projects
-                }
-                Terminator::Switch { cond: probe, .. }
-                | Terminator::Match {
-                    scrutinee: probe, ..
-                } => operand_projects(probe),
-                _ => false,
-            };
+            // Every operand a terminator reads (call arguments, an op's or an
+            // indirect callee's operands, a branch probe, an awaited, returned
+            // or thrown value) is a read the trait cannot stand in for.
+            let mut projected = false;
+            terminator.reads(|operand| projected |= operand_projects(operand));
             if projected {
                 return false;
             }
@@ -1754,6 +1921,7 @@ pub(crate) fn function_impl_generics_list(
     bounds: &BoundTraitPlan,
     elision: &TypeParamElision,
     erased_arguments: &ErasedArgumentMemo,
+    type_param_bounds: &str,
 ) -> Result<Vec<String>, EmitError> {
     let liftable = liftable_type_params(
         mir,
@@ -1796,7 +1964,7 @@ pub(crate) fn function_impl_generics_list(
                 .get(param.name)
                 .map(|name| {
                     format!(
-                        "{}: {bound_trait}{GENERATED_TYPE_PARAM_BOUNDS}",
+                        "{}: {bound_trait}{type_param_bounds}",
                         crate::names::type_param(name)
                     )
                 })

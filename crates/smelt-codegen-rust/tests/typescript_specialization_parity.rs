@@ -127,9 +127,12 @@ fn assert_manifest_invariants(manifest: &SpecializationManifest) -> ParityResult
                 .iter()
                 .find(|definition| definition.binding_name == "Example")
         })
-        .and_then(|definition| match &definition.definition {
-            smelt_specialize::Definition::Class(class) => Some(class),
-            _ => None,
+        .and_then(|definition| {
+            if let smelt_specialize::Definition::Class(class) = &definition.definition {
+                Some(class)
+            } else {
+                None
+            }
         })
         .ok_or("materialized Example class is absent")?;
     if class

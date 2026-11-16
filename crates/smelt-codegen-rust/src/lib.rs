@@ -32,10 +32,6 @@
     reason = "generated Rust format strings intentionally contain braces"
 )]
 #![expect(
-    clippy::wildcard_enum_match_arm,
-    reason = "operand formatting groups future constants with existing constants"
-)]
-#![expect(
     clippy::unused_self,
     reason = "helper methods stay on the emitter for future shared state"
 )]
@@ -85,6 +81,7 @@ mod console_inspect_prelude;
 mod contract;
 mod crate_builder;
 mod crate_writer;
+pub(crate) mod deep_equality;
 pub(crate) mod deps;
 mod derive_impls;
 mod emitter;
@@ -93,6 +90,7 @@ mod error;
 mod gates;
 pub(crate) mod generic_bindings;
 pub(crate) mod generic_elision;
+pub(crate) mod generic_inspection;
 pub(crate) mod generic_lifting;
 pub(crate) mod globals;
 pub(crate) mod lazy_view;
@@ -100,6 +98,8 @@ mod module_map;
 pub(crate) mod names;
 mod options;
 mod program_types;
+mod py_int;
+pub(crate) mod reachable_types;
 pub(crate) mod reference_origin;
 mod reference_storage;
 mod reflection_prelude;
@@ -110,6 +110,7 @@ pub mod rust;
 pub(crate) mod startup;
 pub(crate) mod static_receiver;
 pub(crate) mod stdlib;
+pub(crate) mod structural_views;
 pub(crate) mod thrown;
 pub(crate) mod type_substitution;
 mod typed_array_prelude;

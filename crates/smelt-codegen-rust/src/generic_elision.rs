@@ -353,6 +353,10 @@ fn position_is_carried(
 /// `seen` memoizes within one fixpoint iteration; it must not be shared across
 /// iterations, because a position opening up can make a type that was fully
 /// explored before reach further.
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "the catch-all walks `Type::children`, which visits every child of every other type"
+)]
 fn scan_type(
     mir: &Mir,
     ty: TypeId,
@@ -407,13 +411,25 @@ fn collect_block_types(
                 Statement::Assign { value, .. } | Statement::AssignPlace { value, .. } => {
                     collect_rvalue_types(value, types, closures);
                 }
-                Statement::DictEntryUpdate { .. } => {}
+                Statement::DictEntryUpdate { .. } | Statement::StorageLive(_) => {}
             }
+        }
+        // A cast that can throw sits in a call terminator inside a `try`.
+        if let Some(smelt_mir::Terminator::Call {
+            callee: smelt_mir::Callee::Op(value, _),
+            ..
+        }) = &block.terminator
+        {
+            collect_rvalue_types(value, types, closures);
         }
     }
 }
 
 /// Records the type and closure a single rvalue names, if any.
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "single-shape recogniser: only `UnknownCast` spells a type of its own and only `Closure` builds a closure"
+)]
 fn collect_rvalue_types(rvalue: &Rvalue, types: &mut Vec<TypeId>, closures: &mut Vec<ClosureId>) {
     match rvalue {
         Rvalue::UnknownCast { target, .. } => types.push(*target),
@@ -442,6 +458,10 @@ fn collect_closure_types(mir: &Mir, closures: &mut Vec<ClosureId>, types: &mut V
 /// Debug-only: renders a type id as a shallow tree, for `SMELT_ELISION_DEBUG`.
 ///
 /// Truncates at `depth` so a self-referential type prints in bounded space.
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "debug rendering: every type without children prints through its own `Debug`"
+)]
 fn describe(mir: &Mir, ty: TypeId, depth: usize) -> String {
     let Some(resolved) = mir.types.get(ty) else {
         return "?".to_owned();

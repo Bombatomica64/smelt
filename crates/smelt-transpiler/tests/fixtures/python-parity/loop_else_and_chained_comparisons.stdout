@@ -1,0 +1,7 @@
+False True ['a', 'c']
+True ['a', 'c', 'e', 'f', 'g']
+True False True True
+False ['x', 'y']
+True ['x', 'y', 'z']
+found 4 none 1003
+outer else runs 2

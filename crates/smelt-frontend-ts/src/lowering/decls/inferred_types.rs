@@ -38,9 +38,12 @@ impl ModuleBuilder<'_> {
         // generator's real carrier is inferred from its body by
         // `inferred_generator_type`, which records its own erasures.
         let yield_ty = self.unknown_type(NotNewErasure::Comparison);
+        let next_ty = self
+            .checker_generator_next_type(function)
+            .unwrap_or_else(|| self.unknown_type(NotNewErasure::Comparison));
         GeneratorYieldAccumulator {
             yield_ty,
-            next_ty: self.unknown_type(NotNewErasure::Comparison),
+            next_ty,
             // An unannotated generator may not have a contextual Generator type,
             // but its syntax still determines whether delegation may suspend.
             is_async: function.r#async,
@@ -55,16 +58,67 @@ impl ModuleBuilder<'_> {
     ) {
     }
 
+    /// The type `.next(value)` sends into an unannotated generator
+    /// `function`, as the TypeScript checker infers it: `tsc` joins the
+    /// contextual types of its `yield` expressions
+    /// (`const r: number | undefined = yield n` makes it
+    /// `number | undefined`). `None` without checker facts, and for an
+    /// inferred `unknown`/`any` (no `yield` result is used) or any answer that
+    /// is not fully concrete, which keeps the erased resume channel.
+    pub(in crate::lowering) fn checker_generator_next_type(
+        &mut self,
+        function: &oxc::ast::ast::Function<'_>,
+    ) -> Option<smelt_hir::TypeId> {
+        let spans = [
+            Some((function.span.start, function.span.end)),
+            function.id.as_ref().map(|id| (id.span.start, id.span.end)),
+        ];
+        for (start, end) in spans.into_iter().flatten() {
+            let records_before = self.ctx.krate.erasures.len();
+            let Some(returned) = self.checker_function_return_type(start, end) else {
+                continue;
+            };
+            let next_ty = match self.ctx.krate.types.get(returned) {
+                Some(Type::Generator { next_ty, .. }) => *next_ty,
+                _ => returned,
+            };
+            if matches!(
+                self.ctx.krate.types.get(returned),
+                Some(Type::Generator { .. })
+            ) && !self.type_mentions_unknown(next_ty)
+            {
+                self.ctx.krate.erasures.truncate(records_before);
+                return Some(next_ty);
+            }
+            self.ctx.krate.erasures.truncate(records_before);
+        }
+        None
+    }
+
+    /// Whether `ty` is or holds an erased (`Unknown`) part.
+    fn type_mentions_unknown(&self, ty: smelt_hir::TypeId) -> bool {
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::Unknown) | None => true,
+            Some(other) => other
+                .children()
+                .any(|child| self.type_mentions_unknown(child)),
+        }
+    }
+
     /// Infer the concrete generator carrier produced by an unannotated body.
     ///
-    /// `next_ty` remains `Unknown` because arbitrary callers may pass any value
-    /// to `.next(value)` unless TypeScript supplies an explicit third generator
-    /// parameter. This is a genuine dynamic input boundary; yielded and returned
-    /// values remain concrete or union-typed and never use that runtime carrier.
+    /// `next_ty` is what the checker infers `.next(value)` sends
+    /// (`checker_generator_next_type`, the same type the body's `yield`
+    /// expressions were lowered at); without such an answer it remains
+    /// `Unknown`, because arbitrary callers may pass any value to
+    /// `.next(value)`. That is a genuine dynamic input boundary; yielded and
+    /// returned values remain concrete or union-typed and never use that
+    /// runtime carrier.
     pub(in crate::lowering) fn inferred_generator_type(
         &mut self,
         body: &Body,
         is_async: bool,
+        function: &oxc::ast::ast::Function<'_>,
     ) -> smelt_hir::TypeId {
         let mut yielded = Vec::new();
         for expr in &body.exprs {
@@ -105,7 +159,9 @@ impl ModuleBuilder<'_> {
             }
         }
         let return_ty = self.joined_inferred_type(returned);
-        let next_ty = self.erase(ErasureReason::MissingAnnotation);
+        let next_ty = self
+            .checker_generator_next_type(function)
+            .unwrap_or_else(|| self.erase(ErasureReason::MissingAnnotation));
         self.ctx.krate.types.intern(Type::Generator {
             is_async,
             yield_ty,

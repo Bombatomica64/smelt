@@ -1,0 +1,21 @@
+{ value: 1, done: false } { value: 42, done: false } { value: 'done', done: true } { value: undefined, done: true }
+{ value: 1, done: false } { value: undefined, done: true } { value: undefined, done: true }
+v 1
+g2 cleanup
+g2 cleanup
+found 2
+v 1
+g2 cleanup
+caught stop
+all 1
+all 2
+g2 cleanup
+closed at 4
+0,1,2
+3 5
+got hello
+5
+2,3,4
+0
+1
+1|2|3 0,5,6

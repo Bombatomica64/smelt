@@ -61,6 +61,9 @@ pub(in crate::lowering) struct NameUses {
     pub referenced: HashSet<String>,
     /// Names used as a nominal constructor.
     pub constructed: HashSet<String>,
+    /// Names referenced from inside a nested function, arrow or class: the
+    /// references that capture the binding rather than read it in place.
+    pub captured: HashSet<String>,
 }
 
 /// Scope-aware uses of every name of `names` in `statement`, in one walk.
@@ -71,6 +74,7 @@ pub(in crate::lowering) fn statement_name_uses(
     let mut visitor = ScopedUses {
         names,
         shadowed: Vec::new(),
+        closure_depth: 0,
         uses: NameUses::default(),
     };
     visitor.visit_statement(statement);
@@ -85,6 +89,15 @@ pub(in crate::lowering) fn statement_uses(statement: &Statement<'_>, name: &str)
         referenced: uses.referenced.contains(name),
         constructed: uses.constructed.contains(name),
     }
+}
+
+/// Whether a closure (function, arrow or class) inside `statement` captures
+/// the outer binding `name`; see the module docs for the scoping.
+pub(in crate::lowering) fn statement_uses_captured(statement: &Statement<'_>, name: &str) -> bool {
+    let names = HashSet::from([name]);
+    statement_name_uses(statement, &names)
+        .captured
+        .contains(name)
 }
 
 /// Scope-aware uses of `name` across a statement list (one scope's body).
@@ -105,6 +118,8 @@ struct ScopedUses<'names, 'name> {
     names: &'names HashSet<&'name str>,
     /// For each nested scope being walked, the asked-about names it rebinds.
     shadowed: Vec<Vec<String>>,
+    /// How many functions, arrows and classes enclose the node being walked.
+    closure_depth: usize,
     /// What has been found so far.
     uses: NameUses,
 }
@@ -286,6 +301,9 @@ impl<'a> Visit<'a> for ScopedUses<'_, '_> {
     fn visit_identifier_reference(&mut self, identifier: &IdentifierReference<'a>) {
         if self.visible(identifier.name.as_str()) {
             self.uses.referenced.insert(identifier.name.to_string());
+            if self.closure_depth > 0 {
+                self.uses.captured.insert(identifier.name.to_string());
+            }
         }
     }
 
@@ -320,7 +338,9 @@ impl<'a> Visit<'a> for ScopedUses<'_, '_> {
         if let Some(body) = &function.body {
             Self::function_scope_names(&body.statements, &mut bound);
         }
+        self.closure_depth += 1;
         self.within_scope(bound, |this| walk::walk_function(this, function, flags));
+        self.closure_depth -= 1;
     }
 
     /// An arrow shadows its parameters and body declarations.
@@ -331,9 +351,11 @@ impl<'a> Visit<'a> for ScopedUses<'_, '_> {
             crate::lowering::support::arrow_block_statements(arrow),
             &mut bound,
         );
+        self.closure_depth += 1;
         self.within_scope(bound, |this| {
             walk::walk_arrow_function_expression(this, arrow);
         });
+        self.closure_depth -= 1;
     }
 
     /// A block shadows its own lexical declarations.
@@ -420,13 +442,15 @@ impl<'a> Visit<'a> for ScopedUses<'_, '_> {
         if class.is_expression() {
             bound.extend(class.id.as_ref().map(|id| id.name.to_string()));
         }
+        self.closure_depth += 1;
         self.within_scope(bound, |this| walk::walk_class(this, class));
+        self.closure_depth -= 1;
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{BindingUses, statements_use};
+    use super::{BindingUses, statement_uses_captured, statements_use};
     use oxc::allocator::Allocator;
     use oxc::parser::Parser;
     use oxc::span::SourceType;
@@ -463,5 +487,27 @@ mod tests {
         assert!(!uses("const made = new (Foo as any)()", "Foo").constructed);
         assert!(!uses("const f = (Foo: any) => new Foo()", "Foo").constructed);
         assert!(!uses("Foo()", "Foo").constructed);
+    }
+
+    /// Whether a closure in the program captures `name`.
+    fn captured(source: &str, name: &str) -> bool {
+        let allocator = Allocator::default();
+        let parsed = Parser::new(&allocator, source, SourceType::ts()).parse();
+        parsed
+            .program
+            .body
+            .iter()
+            .any(|statement| statement_uses_captured(statement, name))
+    }
+
+    #[test]
+    fn only_references_inside_a_closure_capture() {
+        assert!(captured("fns.push(() => i)", "i"));
+        assert!(captured("fns.push(function () { return i })", "i"));
+        assert!(captured("class C { m() { return i } }", "i"));
+        assert!(captured("{ const f = () => () => i }", "i"));
+        assert!(!captured("total += i", "i"));
+        assert!(!captured("fns.push((i: number) => i)", "i"));
+        assert!(!captured("fns.push(() => { let i = 0; return i })", "i"));
     }
 }

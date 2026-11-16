@@ -22,7 +22,7 @@ use crate::gates::assert_runtime_symbols_defined;
 use crate::globals::emit_mutable_globals;
 use crate::program_types::emit_program_types;
 use crate::reference_storage::field_setter_host;
-use crate::runtime_demand::{self, Need, RuntimeDemand};
+use crate::runtime_demand::{self, GenericsCarrier, Need, RuntimeDemand};
 use crate::runtime_prelude::emit_runtime_prelude;
 use crate::{
     EmitError, GeneratedAllocator, base_init, class_proto, classes, compact_index, id_index,
@@ -61,13 +61,49 @@ pub fn emit_source_with_allocator(
 /// The router receives each already-emitted free function exactly once. Returning
 /// `Some(source)` keeps the function in the crate root; returning `None` lets the
 /// caller store it elsewhere, such as in source-shaped sibling modules.
+///
+/// A program whose generic items would be its only reason to carry the erased
+/// runtime is first emitted without it (`GenericsCarrier::Speculative`). The
+/// result is kept when it names no part of the carrier and no runtime symbol it
+/// does not define; otherwise, or when that emission fails, the program is
+/// emitted again with the carrier demanded as before, so the answer never
+/// differs from the old one except by being carrier-free.
 pub(crate) fn emit_root(
     mir: &Mir,
     allocator: GeneratedAllocator,
     startup: Vec<crate::startup::StartupBody>,
     mut route_free_function: impl FnMut(&MirFunction, &EmitContext) -> FreeFunctionHome,
 ) -> Result<EmittedRoot, EmitError> {
-    let mut context = EmitContext::new(mir)?;
+    if runtime_demand::has_generic_items(mir)
+        && let Ok(root) = emit_root_with(
+            mir,
+            allocator,
+            startup.clone(),
+            &mut route_free_function,
+            GenericsCarrier::Speculative,
+        )
+        && (root.carries_carrier || root.is_carrier_free())
+    {
+        return Ok(root);
+    }
+    emit_root_with(
+        mir,
+        allocator,
+        startup,
+        &mut route_free_function,
+        GenericsCarrier::Always,
+    )
+}
+
+/// [`emit_root`] under one generics policy.
+fn emit_root_with(
+    mir: &Mir,
+    allocator: GeneratedAllocator,
+    startup: Vec<crate::startup::StartupBody>,
+    mut route_free_function: impl FnMut(&MirFunction, &EmitContext) -> FreeFunctionHome,
+    generics: GenericsCarrier,
+) -> Result<EmittedRoot, EmitError> {
+    let mut context = EmitContext::new_with(mir, generics)?;
     context.set_startup(startup);
     // Decide, once, which free functions emit real Rust generics (signature
     // safety plus a body-cleanliness trial) so the definition and every call
@@ -86,6 +122,7 @@ pub(crate) fn emit_root(
         module_functions,
         erasures,
         dependencies: generated_deps(context.demand()),
+        carries_carrier: context.demand().has(Need::Unknown),
     })
 }
 
@@ -110,9 +147,24 @@ pub(crate) struct EmittedRoot {
     pub(crate) erasures: Vec<smelt_hir::ErasureRecord>,
     /// The crates the emitted runtime links.
     pub(crate) dependencies: Vec<GeneratedDep>,
+    /// The emitted runtime holds the erased carrier.
+    pub(crate) carries_carrier: bool,
 }
 
 impl EmittedRoot {
+    /// Whether no source of this crate names the erased carrier or a runtime
+    /// symbol it does not define: the check a carrier-free speculation must
+    /// pass (see [`emit_root`]).
+    fn is_carrier_free(&self) -> bool {
+        let sources = || {
+            [self.header.as_str(), self.body.as_str()]
+                .into_iter()
+                .chain(self.module_functions.iter().map(|(_, text)| text.as_str()))
+        };
+        !crate::runtime_symbols_check::names_the_carrier(sources())
+            && crate::runtime_symbols_check::undefined_runtime_symbols(sources()).is_empty()
+    }
+
     /// The crate root's whole text.
     pub(crate) fn source(&self) -> String {
         format!("{}{}", self.header, self.body)
@@ -489,8 +541,41 @@ impl<'a> CrateBuilder<'a, FreeFunctionsWritten> {
                 }
                 out.push_str("}\n");
             }
+            let text_method = |wanted: fn(&MirClassProtocol) -> Option<smelt_mir::FuncId>| {
+                class
+                    .protocols
+                    .iter()
+                    .find_map(wanted)
+                    .and_then(|method| mir.functions.get(usize::try_from(method.0).ok()?))
+            };
+            let str_method = text_method(|protocol| {
+                if let MirClassProtocol::Str { method } = protocol {
+                    Some(*method)
+                } else {
+                    None
+                }
+            });
+            let repr_method = text_method(|protocol| {
+                if let MirClassProtocol::Repr { method } = protocol {
+                    Some(*method)
+                } else {
+                    None
+                }
+            });
+            if str_method.is_some() || repr_method.is_some() {
+                out.push_str(&emitter::py_text_protocol::python_text_impl_text(
+                    mir,
+                    context,
+                    &name,
+                    &impl_generics,
+                    &type_args,
+                    str_method,
+                    repr_method,
+                )?);
+            }
             for protocol in &class.protocols {
                 match protocol {
+                    MirClassProtocol::Str { .. } | MirClassProtocol::Repr { .. } => {}
                     MirClassProtocol::Add { method } => {
                         let function = mir
                             .functions

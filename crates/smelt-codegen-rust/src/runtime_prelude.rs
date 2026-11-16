@@ -39,6 +39,10 @@ use crate::{EmitError, GeneratedAllocator, stdlib};
 ///
 /// Returns an [`EmitError`] when an entry names an item the runtime does not
 /// define.
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "`Entry` and `RenderedLine` are `#[non_exhaustive]` in their crate, so a catch-all is mandatory; a disabled item or blank line is skipped"
+)]
 pub(crate) fn emit_entries(
     writer: &mut CodeWriter,
     entries: &[Entry],
@@ -77,6 +81,10 @@ pub(crate) fn rendered_text(flags: &dyn Fn(&str) -> bool) -> String {
 ///
 /// Slots hold program text, so they render as nothing here.
 #[cfg(test)]
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "`Entry` is `#[non_exhaustive]` in `smelt-runtime`, so a catch-all is mandatory; a disabled item or blank line is skipped"
+)]
 pub(crate) fn rendered_entries(entries: &[Entry], flags: &dyn Fn(&str) -> bool) -> String {
     let mut text = String::new();
     for entry in entries {
@@ -272,11 +280,14 @@ fn need_of_flag(name: &str) -> Option<Need> {
         "generator" => Need::Generator,
         "iterator_result" => Need::IteratorResult,
         "timers" => Need::Timers,
+        "all_settled" => Need::AllSettled,
         "date_now" => Need::DateNow,
         "date_timezone_offset" => Need::DateTimezoneOffset,
         "date" => Need::Date,
         "math_round" => Need::MathRound,
+        "math_extrema" => Need::MathExtrema,
         "parse_number" => Need::ParseNumber,
+        "string_to_number" => Need::StringToNumber,
         "js_string" => Need::JsString,
         "py_repr" => Need::PyRepr,
         "erased_pattern_call" => Need::ErasedPatternCall,
@@ -302,6 +313,7 @@ fn need_of_flag(name: &str) -> Option<Need> {
         "byte_array" => Need::ByteArray,
         "data_view" => Need::DataView,
         "data_view_access" => Need::DataViewAccess,
+        "deep_eq" => Need::DeepEq,
         "crypto_random_values" => Need::CryptoRandomValues,
         "crypto_digest" => Need::CryptoDigest,
         "crypto_key" => Need::CryptoKey,
@@ -316,6 +328,9 @@ fn need_of_flag(name: &str) -> Option<Need> {
         "python_dict_read" => Need::PythonDictRead,
         "python_list_read" => Need::PythonListRead,
         "py_exception" => Need::PyException,
+        "py_int" => Need::PyInt,
+        "py_str_methods" => Need::PyStrMethods,
+        "py_format" => Need::PyFormat,
         "binding" => Need::Binding,
         "binding_tdz" => Need::BindingTdz,
         "binding_py" => Need::BindingPy,

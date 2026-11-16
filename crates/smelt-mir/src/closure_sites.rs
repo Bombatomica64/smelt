@@ -46,6 +46,7 @@ impl Mir {
                         Statement::Assign { value, .. }
                         | Statement::AssignPlace { value, .. }
                         | Statement::DictEntryUpdate { value, .. } => value,
+                        Statement::StorageLive(_) => continue,
                     };
                     let Rvalue::Closure { id, captures } = value else {
                         continue;

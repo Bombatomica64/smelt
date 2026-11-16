@@ -1,0 +1,251 @@
+module examples/typescript/end-to-end/201_primitive_bounded_type_parameter/input.ts (ModuleId(0))
+  body BodyId(18)
+  items
+    type Mode = String
+    fn echo<S extends String> owner Module
+    fn pick<S extends String> owner Module
+    fn wrap<S extends String> owner Module
+    fn tagged<S extends String> owner Module
+    fn keep<N extends Float> owner Module
+    fn flag<B extends Bool> owner Module
+    fn describe owner Module
+    fn paint owner Module
+    fn rank owner Module
+    fn with_default<S extends String = String> owner Module
+    fn counts<K extends String> owner Module
+    fn shout<S extends String> owner Module
+    fn double<N extends Float> owner Module
+    fn negate<B extends Bool> owner Module
+    fn bump<I extends BigInt> owner Module
+    fn tag_all<T, K extends String> owner Module
+  locals
+    %0 const mode: String
+    %1 const same: String
+    %2 const modes: List<String>
+    %3 const t: SmeltRecord55750ecd7df14898
+    %4 const color: String
+    %5 const level: Float
+    %6 const yes: Bool
+    %7 const byMode: Dict<String, Float>
+    %8 const literal: String
+  exprs
+    #0: String = "b"
+    #1: String = %0
+    #2: fn(String) -> String = @7(echo)
+    #3: String = call #2(#1)
+    #4: String = %1
+    #5: fn(String) -> String = @13(describe)
+    #6: String = call #5(#4)
+    #7: None = @24(console_log)
+    #8: None = call #7(#6)
+    #9: String = "a"
+    #10: fn(String) -> String = @7(echo)
+    #11: String = call #10(#9)
+    #12: fn(String) -> String = @13(describe)
+    #13: String = call #12(#11)
+    #14: None = @25(console_log)
+    #15: None = call #14(#13)
+    #16: String = "a"
+    #17: String = "b"
+    #18: Bool = false
+    #19: fn(String, String, Bool) -> String = @8(pick)
+    #20: String = call #19(#16, #17, #18)
+    #21: fn(String) -> String = @13(describe)
+    #22: String = call #21(#20)
+    #23: None = @26(console_log)
+    #24: None = call #23(#22)
+    #25: String = %0
+    #26: fn(String) -> List<String> = @9(wrap)
+    #27: List<String> = call #26(#25)
+    #28: List<String> = %2
+    #29: fn(String) -> String = closure BodyId(17) captures 0 -> String
+    #30: List<String> = list_map #28, #29
+    #31: String = ","
+    #32: String = string_join #30, #31
+    #33: None = @27(console_log)
+    #34: None = call #33(#32)
+    #35: String = %0
+    #36: fn(String) -> SmeltRecord55750ecd7df14898 = @10(tagged)
+    #37: SmeltRecord55750ecd7df14898 = call #36(#35)
+    #38: SmeltRecord55750ecd7df14898 = %3
+    #39: String = #38.tag
+    #40: fn(String) -> String = @13(describe)
+    #41: String = call #40(#39)
+    #42: SmeltRecord55750ecd7df14898 = %3
+    #43: Float = #42.size
+    #44: None = @28(console_log)
+    #45: None = call #44(#41, #43)
+    #46: String = "green"
+    #47: fn(String) -> String = @7(echo)
+    #48: String = call #47(#46)
+    #49: String = %4
+    #50: fn(String) -> String = @14(paint)
+    #51: String = call #50(#49)
+    #52: String = %4
+    #53: None = @29(console_log)
+    #54: None = call #53(#51, #52)
+    #55: String = "red"
+    #56: String = "green"
+    #57: Bool = true
+    #58: fn(String, String, Bool) -> String = @8(pick)
+    #59: String = call #58(#55, #56, #57)
+    #60: fn(String) -> String = @14(paint)
+    #61: String = call #60(#59)
+    #62: None = @30(console_log)
+    #63: None = call #62(#61)
+    #64: Float = 2.0
+    #65: fn(Float) -> Float = @11(keep)
+    #66: Float = call #65(#64)
+    #67: Float = %5
+    #68: fn(Float) -> String = @15(rank)
+    #69: String = call #68(#67)
+    #70: Float = %5
+    #71: Float = 1.0
+    #72: Float = Add #70, #71
+    #73: None = @31(console_log)
+    #74: None = call #73(#69, #72)
+    #75: Bool = true
+    #76: fn(Bool) -> Bool = @12(flag)
+    #77: Bool = call #76(#75)
+    #78: Bool = %6
+    #79: String = "yes"
+    #80: String = "no"
+    #81: String = if #78 then #79 else #80
+    #82: None = @32(console_log)
+    #83: None = call #82(#81)
+    #84: fn(Optional<String>) -> String = @16(with_default)
+    #85: String = call #84()
+    #86: String = "y"
+    #87: fn(Optional<String>) -> String = @16(with_default)
+    #88: String = call #87(#86)
+    #89: None = @33(console_log)
+    #90: None = call #89(#85, #88)
+    #91: String = "a"
+    #92: String = "b"
+    #93: List<String> = [#91, #92]
+    #94: fn(List<String>) -> Dict<PropKey, Float> = @17(counts)
+    #95: Dict<PropKey, Float> = call #94(#93)
+    #96: Dict<String, Float> = %7
+    #97: Float = #96.a
+    #98: Dict<String, Float> = %7
+    #99: String = "b"
+    #100: Float = #98[#99]
+    #101: Dict<String, Float> = %7
+    #102: String = json_stringify #101
+    #103: None = @34(console_log)
+    #104: None = call #103(#97, #100, #102)
+    #105: String = "lit"
+    #106: fn(String) -> String = @7(echo)
+    #107: String = call #106(#105)
+    #108: String = %8
+    #109: String = string_upper #108
+    #110: Float = 3.0
+    #111: fn(Float) -> Float = @11(keep)
+    #112: Float = call #111(#110)
+    #113: Float = 1.0
+    #114: Float = Add #112, #113
+    #115: None = @35(console_log)
+    #116: None = call #115(#109, #114)
+    #117: String = "hi"
+    #118: fn(String) -> String = @18(shout)
+    #119: String = call #118(#117)
+    #120: Float = 21.0
+    #121: fn(Float) -> Float = @19(double)
+    #122: Float = call #121(#120)
+    #123: Bool = true
+    #124: fn(Bool) -> Bool = @20(negate)
+    #125: Bool = call #124(#123)
+    #126: BigInt = 41n
+    #127: fn(BigInt) -> BigInt = @21(bump)
+    #128: BigInt = call #127(#126)
+    #129: None = @36(console_log)
+    #130: None = call #129(#119, #122, #125, #128)
+    #131: Float = 1.0
+    #132: Float = 2.0
+    #133: List<Float> = [#131, #132]
+    #134: String = "n"
+    #135: fn(List<T>, String) -> List<String> = @22(tag_all)
+    #136: List<String> = call #135(#133, #134)
+    #137: String = ","
+    #138: String = string_join #136, #137
+    #139: None = @37(console_log)
+    #140: None = call #139(#138)
+  stmts
+    s0: let %0: String = #0
+    s1: let %1: String = #3
+    s2: #8
+    s3: #15
+    s4: #24
+    s5: let %2: List<String> = #27
+    s6: #34
+    s7: let %3: SmeltRecord55750ecd7df14898 = #37
+    s8: #45
+    s9: let %4: String = #48
+    s10: #54
+    s11: #63
+    s12: let %5: Float = #66
+    s13: #74
+    s14: let %6: Bool = #77
+    s15: #83
+    s16: #90
+    s17: let %7: Dict<String, Float> = #95
+    s18: #104
+    s19: let %8: String = #107
+    s20: #116
+    s21: #130
+    s22: #140
+
+interned types
+  t0 = String
+  t1 = Float
+  t2 = List<String>
+  t3 = Unknown
+  t4 = Bool
+  t5 = Dict<String, Float>
+  t6 = S
+  t7 = fn(String) -> String
+  t8 = S
+  t9 = fn(String, String, Bool) -> String
+  t10 = S
+  t11 = fn(String) -> List<String>
+  t12 = S
+  t13 = SmeltRecord55750ecd7df14898
+  t14 = fn(String) -> SmeltRecord55750ecd7df14898
+  t15 = N
+  t16 = fn(Float) -> Float
+  t17 = B
+  t18 = fn(Bool) -> Bool
+  t19 = fn(Float) -> String
+  t20 = S
+  t21 = Optional<String>
+  t22 = fn(Optional<String>) -> String
+  t23 = K
+  t24 = PropKey
+  t25 = Dict<PropKey, Float>
+  t26 = fn(List<String>) -> Dict<PropKey, Float>
+  t27 = S
+  t28 = N
+  t29 = B
+  t30 = I
+  t31 = BigInt
+  t32 = fn(BigInt) -> BigInt
+  t33 = T
+  t34 = K
+  t35 = List<T>
+  t36 = fn(List<T>, String) -> List<String>
+  t37 = fn(String) -> SmeltRecord55750ecd7df14898
+  t38 = fn(String) -> String
+  t39 = None
+  t40 = Int
+  t41 = fn(T, Int, List<T>) -> String
+  t42 = List<Unknown>
+  t43 = fn(String, String, Bool) -> String
+  t44 = fn(String) -> List<String>
+  t45 = fn(Float) -> Float
+  t46 = fn(Float) -> String
+  t47 = fn(Bool) -> Bool
+  t48 = fn(Optional<String>) -> String
+  t49 = fn(List<String>) -> Dict<PropKey, Float>
+  t50 = fn(BigInt) -> BigInt
+  t51 = List<Float>
+  t52 = fn(List<T>, String) -> List<String>

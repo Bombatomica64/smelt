@@ -19,7 +19,7 @@ module examples/typescript/end-to-end/44_node_http_echo/input.ts (ModuleId(0))
     #8: Optional<AddressInfo> = http_server_address #7
     #9: Optional<AddressInfo> = %1
     #10: Bool = unknown_is Null #9
-    #11: Bool = Not #10
+    #11: Bool = true
     #12: Unknown = %1
     #13: Bool = unknown_is Null #12
     #14: Bool = Not #13

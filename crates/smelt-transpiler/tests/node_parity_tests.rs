@@ -101,6 +101,95 @@ fn recursive_shapes() -> TestResult {
     verify_node_parity("recursive_shapes")
 }
 
+/// Each run of a `let` declaration is its own binding: a `for (let ..)` head
+/// per iteration, a body `let` and a `for..of`/`for..in` head per run, in
+/// functions, arrows, generators and async bodies; a closure keeps its own
+/// iteration's value, including writes made after it was created.
+#[test]
+fn for_let_per_iteration() -> TestResult {
+    verify_node_parity("for_let_per_iteration")
+}
+
+/// An object literal's getters and setters are accessor properties: reads run
+/// the getter and writes the setter with the object as `this`, and keys,
+/// values, entries, spread, destructuring and `console.log` see them as Node
+/// does.
+#[test]
+fn object_literal_accessors() -> TestResult {
+    verify_node_parity("object_literal_accessors")
+}
+
+/// The `Number.*` predicates answer `false` for every non-Number (an erased
+/// string, `null`, a union's string arm, an absent optional) while the global
+/// `isNaN`/`isFinite` convert their argument first.
+#[test]
+fn number_predicates_do_not_coerce() -> TestResult {
+    verify_node_parity("number_predicates_do_not_coerce")
+}
+
+/// `typeof null` is `"object"`, for the literal and for a `T | null` holding
+/// `null`, in the expression and in `typeof` guards; an absent optional stays
+/// `"undefined"`.
+#[test]
+fn typeof_null() -> TestResult {
+    verify_node_parity("typeof_null")
+}
+
+/// A user function runs as written whatever its name: no library helper's
+/// spelling is rewritten.
+#[test]
+fn same_name_user_functions() -> TestResult {
+    verify_node_parity("same_name_user_functions")
+}
+
+/// `Object.fromEntries` reads any iterable of entries: a map's entries, a map,
+/// a generator, a set, a list.
+#[test]
+fn object_from_entries_iterables() -> TestResult {
+    verify_node_parity("object_from_entries_iterables")
+}
+
+/// `push(a, b, ...xs)` evaluates every argument before appending any, and a
+/// multi-argument push inside a loop pushes that iteration's values.
+#[test]
+fn multi_argument_push() -> TestResult {
+    verify_node_parity("multi_argument_push")
+}
+
+/// `ToString` is one rule across templates, `+` and `String(x)`: arrays join
+/// (nested and absent elements included), a `toString` of a class or object
+/// literal is called, sets, maps and plain objects keep their tags, and `null`
+/// and `undefined` are their words; `Number(array)` reads that string.
+#[test]
+fn to_string_rule() -> TestResult {
+    verify_node_parity("to_string_rule")
+}
+
+/// `Math.max`/`Math.min` propagate `NaN` from any argument, scalar or spread,
+/// and order `-0` below `+0`.
+#[test]
+fn math_extrema() -> TestResult {
+    verify_node_parity("math_extrema")
+}
+
+/// `JSON.stringify` applies `toJSON` (a class method, an object literal's, a
+/// `Date`'s), getters and a replacer function or key array per property;
+/// `JSON.parse` reads deep nesting, `1e400`, `-0` and lone surrogates, and
+/// throws `SyntaxError` on non-JSON numbers and trailing commas.
+#[test]
+fn json_serialize_property() -> TestResult {
+    verify_node_parity("json_serialize_property")
+}
+
+/// The generator protocol: a finished generator answers `undefined`, leaving a
+/// `for...of` early closes it (its `finally` runs), `.next(v)` sends `v` at
+/// the type its `yield` result is used at, and an object with a
+/// `*[Symbol.iterator]()` is iterated, spread and `Array.from`ed through it.
+#[test]
+fn generator_protocol() -> TestResult {
+    verify_node_parity("generator_protocol")
+}
+
 /// bigint arithmetic, its tag behind `unknown`, 64-bit views and its catchable errors.
 #[test]
 fn bigint_boundaries() -> TestResult {
@@ -284,6 +373,41 @@ fn proxy_traps() -> TestResult {
 #[test]
 fn contextual_add_and_symbol_keys() -> TestResult {
     verify_node_parity("contextual_add_and_symbol_keys")
+}
+
+/// A subclass upcast to its generic polymorphic base builds the base handle
+/// through a turbofish constructor path.
+#[test]
+fn polymorphic_generic_upcast() -> TestResult {
+    verify_node_parity("polymorphic_generic_upcast")
+}
+
+/// A type parameter bounded by an interface keeps its type inside a container
+/// argument (`T[]`, `Record<string, T>`, `[T, string]`).
+#[test]
+fn bounded_generic_containers() -> TestResult {
+    verify_node_parity("bounded_generic_containers")
+}
+
+/// `Promise.allSettled` entries are the tagged union of the fulfilled and the
+/// rejected record, discriminated by `status`.
+#[test]
+fn all_settled_entries() -> TestResult {
+    verify_node_parity("all_settled_entries")
+}
+
+/// A union of present types and a nullish arm is the optional of the present
+/// union.
+#[test]
+fn nullable_unions() -> TestResult {
+    verify_node_parity("nullable_unions")
+}
+
+/// A `T | null` keeps its `null` inside lists, records, maps, sets and tuples,
+/// printed and erased alike.
+#[test]
+fn nullable_containers() -> TestResult {
+    verify_node_parity("nullable_containers")
 }
 
 /// Programs that end with an uncaught throw or rejection, with the message
@@ -1740,4 +1864,83 @@ fn json_stringify_any_value() -> TestResult {
 #[test]
 fn construct_or_call_params() -> TestResult {
     verify_node_parity("construct_or_call_params")
+}
+
+/// Erasing a typed promise keeps its future: the erased promise settles, every
+/// erasure of one promise is that promise (`===`), and two promises erased
+/// from two calls stay two (the erasure used to key a hollow, never-settling
+/// promise on the local's stack address).
+#[test]
+fn erased_promise_identity() -> TestResult {
+    verify_node_parity("erased_promise_identity")
+}
+
+/// An async function or a generator writing through a collection or class
+/// parameter writes the caller's object, while two calls over the same object
+/// are pending at once (an `&mut` parameter failed with E0499/E0597).
+#[test]
+fn async_parameter_writes() -> TestResult {
+    verify_node_parity("async_parameter_writes")
+}
+
+/// `Promise.allSettled` answers one `{ status, value | reason }` record per
+/// input in input order, over an array literal or a list; a rejected input is
+/// an entry, never an unhandled rejection.
+#[test]
+fn promise_all_settled() -> TestResult {
+    verify_node_parity("promise_all_settled")
+}
+
+/// A type written `T | null` erases its absent value as `null` at dynamic
+/// boundaries; `T | undefined` and optional fields stay `undefined`.
+#[test]
+fn null_absent_optionals() -> TestResult {
+    verify_node_parity("null_absent_optionals")
+}
+
+/// Parameters of functions in an object literal cast `as any` accept any value.
+#[test]
+fn as_any_object_params() -> TestResult {
+    verify_node_parity("as_any_object_params")
+}
+
+/// `await v` of a value that is not a promise suspends for one job turn: the
+/// jobs queued before it and the caller's synchronous code run first (it
+/// resumed at once).
+#[test]
+fn await_non_promise_suspends() -> TestResult {
+    verify_node_parity("await_non_promise_suspends")
+}
+
+/// An async call runs its body to the first `await` at the call, bound to a
+/// local, awaited later or floating; the rest runs as jobs in Node's order
+/// (a free async function's body used to wait until something awaited it).
+#[test]
+fn async_calls_run_eagerly() -> TestResult {
+    verify_node_parity("async_calls_run_eagerly")
+}
+
+/// A `.then` chain of any length, a job that queues the next job, and deep
+/// async recursion all finish before the first timer (the job queue used to
+/// stop after 64 passes and let the timer overtake it).
+#[test]
+fn long_promise_chains() -> TestResult {
+    verify_node_parity("long_promise_chains")
+}
+
+/// A self-recursive async local function stays alive while a call of it is
+/// pending: hono's `compose` calls `dispatch(i + 1)` from a later job, after
+/// the frame that defined `dispatch` returned (its `Weak` self-reference was
+/// dead by then).
+#[test]
+fn self_recursive_async_local() -> TestResult {
+    verify_node_parity("self_recursive_async_local")
+}
+
+/// A closure that is not `async` and returns a promise returns that same
+/// promise (`===` holds, no extra job turn), function items used as values
+/// forward their promise, and an `async` closure makes a new one.
+#[test]
+fn promise_forwarding_closures() -> TestResult {
+    verify_node_parity("promise_forwarding_closures")
 }

@@ -383,6 +383,7 @@ impl FunctionEmitter<'_> {
         match resolved_ty {
             Type::Bool => Ok(RustType::raw("bool")),
             Type::Int => Ok(RustType::raw("i64")),
+            Type::PyInt => Ok(RustType::raw(crate::py_int::PY_INT_TYPE)),
             Type::FixedInt(width) => Ok(RustType::raw(width.rust_name())),
             Type::BigInt => Ok(RustType::raw(crate::bigint_prelude::BIGINT_TYPE)),
             Type::Float => Ok(RustType::raw("f64")),
@@ -391,6 +392,17 @@ impl FunctionEmitter<'_> {
             Type::Symbol => Ok(RustType::raw("SmeltSymbol")),
             Type::PropKey => Ok(RustType::raw("SmeltPropKey")),
             Type::Unknown => Ok(RustType::erased()),
+            // Never a value's type (see `Type::IndexedAccess`): the frontend
+            // evaluates it per call and erases it everywhere else. One that
+            // reached here has no Rust type, so it is the erased value, and the
+            // erasure is named so it cannot pass unnoticed.
+            Type::IndexedAccess { .. } => {
+                self.note_backend_erasure(
+                    ErasureReason::TypeLevel,
+                    "unevaluated indexed access".to_owned(),
+                );
+                Ok(RustType::erased())
+            }
             Type::Never => {
                 self.note_backend_erasure(ErasureReason::NeverValue, String::new());
                 Ok(RustType::erased())
@@ -761,10 +773,10 @@ impl FunctionEmitter<'_> {
             if declared_params == 0 {
                 Ok(RustType::raw(type_name))
             } else {
-                let placeholders = vec!["_"; declared_params].join(", ");
-                Ok(RustType::with_shape(
-                    format!("{type_name}<{placeholders}>"),
-                    RustShape::GenericClass,
+                let placeholder = RustType::raw("_");
+                Ok(RustType::generic_class(
+                    type_name,
+                    std::iter::repeat_n(&placeholder, declared_params),
                 ))
             }
         } else {
@@ -805,15 +817,7 @@ impl FunctionEmitter<'_> {
                 .iter()
                 .filter_map(|index| rendered_args.get(*index))
                 .collect::<Vec<_>>();
-            let arg_text = carried_args
-                .iter()
-                .map(|arg| arg.as_str())
-                .collect::<Vec<_>>()
-                .join(", ");
-            Ok(
-                RustType::with_shape(format!("{type_name}<{arg_text}>"), RustShape::GenericClass)
-                    .holding(carried_args.iter().copied()),
-            )
+            Ok(RustType::generic_class(type_name, carried_args))
         }
     }
 
