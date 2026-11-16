@@ -1,0 +1,8 @@
+1 sync
+2 async prefix
+2b sync end
+3 first job
+4 after await null
+5 second job
+6 after await 5 5
+7 chained job

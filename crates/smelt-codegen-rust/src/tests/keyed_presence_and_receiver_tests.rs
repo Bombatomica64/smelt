@@ -427,11 +427,11 @@ export function src(pattern: string): string {
     assert!(source.contains("pub struct SmeltRegExp"), "{source}");
 }
 
-/// A positive sleep under a `Promise.race` driver arms a wake-up timer instead
-/// of advancing the clock itself, so a racer's `setTimeout(reject, ..)` that is
-/// due first still wins.
+/// A sleep is a timer on the shared queue and a race watches its racers
+/// through reactions, so a racer's `setTimeout(reject, ..)` that is due first
+/// fires first and wins (the race no longer drives the clock itself).
 #[test]
-fn sleep_under_a_race_driver_arms_a_wake_up_timer() {
+fn race_racers_and_sleeps_share_the_timer_queue() {
     let source = source_for(
         r"
 export async function slow(): Promise<string> {
@@ -444,7 +444,11 @@ export async function run(): Promise<string> {
 ",
     );
     assert!(
-        source.contains("if delay_ms > 0 && SMELT_RACE_DEPTH.with(::std::cell::Cell::get) > 0 {"),
+        source.contains("smelt_promise_race(::std::vec!["),
+        "{source}"
+    );
+    assert!(
+        source.contains("smelt_schedule_timer(smelt_next_timer_id(), smelt_mono_ms().saturating_add(delay_ms), callback, None);"),
         "{source}"
     );
 }

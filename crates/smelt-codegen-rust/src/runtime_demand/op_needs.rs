@@ -376,6 +376,8 @@ impl RuntimeDemand {
                 }
                 if matches!(op, smelt_hir::AsyncOp::HttpFetch | smelt_hir::AsyncOp::HttpGetText) {
                     self.add(Need::DepReqwest);
+                    // An idle event loop waits for the response (`SmeltIoGuard`).
+                    self.add(Need::Timers);
                 }
                 if op.arms_a_timer() {
                     self.add(Need::Timers);

@@ -509,8 +509,87 @@ mod timer_family {
         smelt_set_timeout(live, 0.0);
         let handle = smelt_set_timeout(cancelled, 0.0);
         smelt_clear_timeout(handle);
-        smelt_drain_due_timers(u64::MAX);
+        assert!(smelt_fire_next_timers(), "a live timer was pending");
         assert_eq!(fired.get(), 1, "only the live timer fired");
+        assert!(!smelt_fire_next_timers(), "nothing is left to fire");
+    }
+
+    /// Timers fire in due order, ties in scheduling order, and one a
+    /// callback schedules waits for a later timer phase.
+    #[test]
+    fn timers_fire_in_due_then_scheduling_order() {
+        smelt_reset_timers();
+        let order = ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new()));
+        let timer = |label: &'static str| -> ::std::rc::Rc<::std::cell::RefCell<dyn FnMut() -> Result<(), Box<dyn std::error::Error>>>> {
+            let order = ::std::rc::Rc::clone(&order);
+            ::std::rc::Rc::new(::std::cell::RefCell::new(move || { order.borrow_mut().push(label); Ok(()) }))
+        };
+        smelt_set_timeout(timer("late"), 20.0);
+        smelt_set_timeout(timer("first"), 5.0);
+        smelt_set_timeout(timer("second"), 5.0);
+        while smelt_fire_next_timers() {}
+        assert_eq!(*order.borrow(), ["first", "second", "late"]);
+    }
+
+    /// Clearing many timers costs nothing per remaining timer: 20 000 timers
+    /// scheduled and 19 999 cleared leave one to fire, and the heap entries of
+    /// the cleared ones are dropped as they surface.
+    #[test]
+    fn cleared_timers_are_skipped() {
+        smelt_reset_timers();
+        let fired = ::std::rc::Rc::new(::std::cell::Cell::new(0));
+        let mut handles = Vec::new();
+        for _ in 0..20_000 {
+            let counter = ::std::rc::Rc::clone(&fired);
+            let callback: ::std::rc::Rc<::std::cell::RefCell<dyn FnMut() -> Result<(), Box<dyn std::error::Error>>>> = ::std::rc::Rc::new(::std::cell::RefCell::new(move || { counter.set(counter.get() + 1); Ok(()) }));
+            handles.push(smelt_set_timeout(callback, 1.0));
+        }
+        let kept = handles.pop();
+        for handle in handles { smelt_clear_timeout(handle); }
+        assert!(kept.is_some());
+        while smelt_fire_next_timers() {}
+        assert_eq!(fired.get(), 1, "only the timer left uncleared fired");
+        assert!(SMELT_TIMER_HEAP.with(|heap| heap.borrow().is_empty()), "no stale entry is left behind");
+    }
+}
+
+mod job_family {
+    use super::*;
+
+    /// Settled-promise reactions run in registration order on one FIFO queue,
+    /// and a chain of 10 000 `then` links runs to its end (there is no pass
+    /// cap) while each link is polled only once it is ready.
+    #[test]
+    fn a_long_reaction_chain_runs_to_its_end() {
+        smelt_reset_jobs();
+        let polls = ::std::rc::Rc::new(::std::cell::Cell::new(0_usize));
+        let mut link: SmeltFuture<f64> = SmeltFuture::resolved(0.0);
+        for _ in 0..10_000 {
+            let source = link.clone();
+            let polls = ::std::rc::Rc::clone(&polls);
+            link = link.reaction(Box::pin(async move { polls.set(polls.get() + 1); Ok(source.smelt_reaction_read().await? + 1.0) }));
+        }
+        smelt_run_jobs();
+        assert_eq!(link.smelt_settled().and_then(Result::ok), Some(10_000.0));
+        assert_eq!(polls.get(), 10_000, "each link ran exactly once");
+    }
+
+    /// A job parked on a pending promise is not polled again until the
+    /// promise settles: waiting costs nothing.
+    #[test]
+    fn a_parked_job_is_woken_by_its_promise() {
+        smelt_reset_jobs();
+        let (promise, settle) = SmeltFuture::<f64>::with_resolvers();
+        let polls = ::std::rc::Rc::new(::std::cell::Cell::new(0_usize));
+        let counter = ::std::rc::Rc::clone(&polls);
+        let result = SmeltFuture::from_future_primed(Box::pin(async move { counter.set(counter.get() + 1); let value = promise.smelt_await().await?; counter.set(counter.get() + 1); Ok(value * 2.0) }));
+        smelt_run_jobs();
+        smelt_run_jobs();
+        assert_eq!(polls.get(), 1, "the parked job ran only its first step");
+        settle.smelt_settle(Ok(21.0));
+        smelt_run_jobs();
+        assert_eq!(result.smelt_settled().and_then(Result::ok), Some(42.0));
+        assert_eq!(polls.get(), 2);
     }
 }
 

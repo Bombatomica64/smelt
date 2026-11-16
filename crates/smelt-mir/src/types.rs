@@ -230,6 +230,10 @@ impl Mir {
 
 /// MIR representation of a closure body and explicit environment.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "orthogonal source closure flags are preserved independently through MIR, as on `MirFunction`"
+)]
 pub struct MirClosure {
     /// Unique closure identifier.
     pub id: ClosureId,
@@ -259,6 +263,10 @@ pub struct MirClosure {
     pub can_throw: bool,
     /// Whether invoking this closure constructs suspended generator state.
     pub is_generator: bool,
+    /// Whether the source closure is `async` (its function type says so). A
+    /// closure that is not, and returns a promise it got, returns that same
+    /// promise rather than a new one.
+    pub is_async: bool,
     /// Stable per-function-item key when this closure is a bare
     /// function-item-as-value wrapper, else `None`.
     ///

@@ -1793,3 +1793,44 @@ fn null_absent_optionals() -> TestResult {
 fn as_any_object_params() -> TestResult {
     verify_node_parity("as_any_object_params")
 }
+
+/// `await v` of a value that is not a promise suspends for one job turn: the
+/// jobs queued before it and the caller's synchronous code run first (it
+/// resumed at once).
+#[test]
+fn await_non_promise_suspends() -> TestResult {
+    verify_node_parity("await_non_promise_suspends")
+}
+
+/// An async call runs its body to the first `await` at the call, bound to a
+/// local, awaited later or floating; the rest runs as jobs in Node's order
+/// (a free async function's body used to wait until something awaited it).
+#[test]
+fn async_calls_run_eagerly() -> TestResult {
+    verify_node_parity("async_calls_run_eagerly")
+}
+
+/// A `.then` chain of any length, a job that queues the next job, and deep
+/// async recursion all finish before the first timer (the job queue used to
+/// stop after 64 passes and let the timer overtake it).
+#[test]
+fn long_promise_chains() -> TestResult {
+    verify_node_parity("long_promise_chains")
+}
+
+/// A self-recursive async local function stays alive while a call of it is
+/// pending: hono's `compose` calls `dispatch(i + 1)` from a later job, after
+/// the frame that defined `dispatch` returned (its `Weak` self-reference was
+/// dead by then).
+#[test]
+fn self_recursive_async_local() -> TestResult {
+    verify_node_parity("self_recursive_async_local")
+}
+
+/// A closure that is not `async` and returns a promise returns that same
+/// promise (`===` holds, no extra job turn), function items used as values
+/// forward their promise, and an `async` closure makes a new one.
+#[test]
+fn promise_forwarding_closures() -> TestResult {
+    verify_node_parity("promise_forwarding_closures")
+}
