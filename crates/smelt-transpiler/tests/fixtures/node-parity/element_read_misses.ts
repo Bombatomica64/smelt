@@ -14,3 +14,8 @@ console.log(erased(u8[5]), erased(u8[1]), erased(xs[5]));
 const big = new BigInt64Array(1);
 const missing: bigint | undefined = big[3];
 console.log(missing, big[0]);
+// The same tests bound before printing: a miss is `undefined` in either spelling.
+const viewMiss = u8[5] === undefined;
+const listMiss = xs[5] === undefined;
+const viewHit = u8[1] !== undefined;
+console.log(viewMiss, listMiss, viewHit);

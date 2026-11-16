@@ -121,7 +121,7 @@ impl FunctionEmitter<'_> {
     /// `base_ty`, keyed by `key_ty`), as one Rust expression.
     ///
     /// A string-keyed record of ERASED values is where an object literal's
-    /// accessors live (`{ __smelt_get, __smelt_set }` markers), so its write
+    /// accessors live (`{ __smelt_get, __smelt_setter }` markers), so its write
     /// is JavaScript's [[Set]], `smelt_record_put`: a stored setter runs, with
     /// the record as `this`. Every other map stores the value directly.
     fn dict_store_text(

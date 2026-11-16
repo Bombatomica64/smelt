@@ -76,3 +76,10 @@ const key: string = "both";
 console.log(acc.both, acc._v, String(acc.onlySet));
 acc.onlySet = 3;
 console.log(log.join("|"));
+// A Set stored beside accessors is a Set, not an accessor: it reads back, has
+// its size and prints as a Set.
+const holder = {
+  tags: new Set(["a", "b"]),
+  get count(): number { return this.tags.size; },
+};
+console.log(holder.tags.size, holder.count, holder);

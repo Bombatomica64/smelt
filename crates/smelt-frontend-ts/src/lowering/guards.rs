@@ -954,6 +954,12 @@ impl ModuleBuilder<'_> {
                 let absent = expected == "undefined";
                 (present == absent).then_some(present)
             }
+            // The absent value itself: callers decide an absent case the
+            // checker types as `null` first (`lowering::null_absent`), so here
+            // it is `undefined`, as in the `Optional` arm above.
+            // `type_matches_typeof` answers "may be" (`object` or `undefined`),
+            // which is not a fold.
+            Some(Type::None) => Some(expected == "undefined"),
             Some(_) => Some(self.type_matches_typeof(resolved_ty, expected)),
             None => None,
         }

@@ -17,3 +17,4 @@ area
 { _v: 1, both: [Getter/Setter], onlyGet: [Getter], onlySet: [Setter] }
 9 9 undefined
 set 5|set 9|onlySet 3
+2 2 { tags: Set(2) { 'a', 'b' }, count: [Getter] }

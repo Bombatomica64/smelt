@@ -100,6 +100,21 @@ impl FunctionEmitter<'_> {
     ) -> Result<String, EmitError> {
         let text = self.operand_expr(value)?;
         let value_ty = self.operand_ty(value)?;
+        // An element read tested for `undefined` (`xs[i] === undefined` of a
+        // `T` element, which the checker types `T` and HIR may test by tag)
+        // asks whether the element is there: the same rule as the comparison
+        // `BinOp::JsStrictEq` form, so both spellings agree. Without it the
+        // read's static element type decided the test, and a miss past the
+        // end answered `false`.
+        if kind == smelt_hir::UnknownKind::Undefined
+            && let Some(presence) = self.element_presence_comparison_expr(
+                smelt_hir::BinOp::JsStrictEq,
+                value,
+                &Operand::Const(Constant::Undefined),
+            )?
+        {
+            return Ok(presence.into_string());
+        }
         // A statically-`None` operand is an absent/`undefined` value (for
         // example a reference to an ambient host global that Smelt's non-DOM
         // profile does not model, such as `window`/`process`). It renders as the

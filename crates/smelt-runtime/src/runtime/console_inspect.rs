@@ -464,7 +464,7 @@ impl SmeltInspect for SmeltUnknown {
             }
             //~ An accessor marker (an object literal's `get`/`set`) is only ever
             //~ stored as a property, which Node shows by kind without running it.
-            Self::Object(object) if smelt_is_accessor(object) => match (object.contains_key("__smelt_get"), object.contains_key("__smelt_set")) { (true, true) => "[Getter/Setter]", (true, false) => "[Getter]", _ => "[Setter]" }.to_owned(),
+            Self::Object(object) if smelt_is_accessor(object) => match (object.contains_key("__smelt_get"), object.contains_key("__smelt_setter")) { (true, true) => "[Getter/Setter]", (true, false) => "[Getter]", _ => "[Setter]" }.to_owned(),
             Self::Object(object) => {
                 /*@if live_containers*/smelt_live_container_refresh(object);/*@end*/
                 if let Some(Self::Array(members)) = object.get("__smelt_set") {

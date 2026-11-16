@@ -20,7 +20,7 @@ const ACCESSOR_GET: &str = "__smelt_get";
 
 /// The key under which an accessor marker stores its setter; the runtime's
 /// property writes call it (`smelt_object_put`).
-const ACCESSOR_SET: &str = "__smelt_set";
+const ACCESSOR_SET: &str = "__smelt_setter";
 
 /// Whether two literal values are the same JavaScript value (`1` and `1.0`
 /// are one number).
@@ -265,7 +265,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// The accessor key of `key`, when it is one of the accessor marker's keys
-    /// (`__smelt_get`, `__smelt_set`).
+    /// (`__smelt_get`, `__smelt_setter`).
     fn accessor_key(body: &Body, key: smelt_hir::ExprId) -> Option<&str> {
         match body.expr_at(key).map(|expr| &expr.kind) {
             Some(ExprKind::Literal(Literal::String(text)))
@@ -278,7 +278,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// The pairs of `value` when it is an accessor marker: a map literal of
-    /// one getter (`__smelt_get`), one setter (`__smelt_set`) or both.
+    /// one getter (`__smelt_get`), one setter (`__smelt_setter`) or both.
     fn accessor_marker_pairs(
         body: &Body,
         value: smelt_hir::ExprId,
@@ -299,7 +299,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// The function an accessor marker wraps under `marker`
-    /// (`__smelt_get` or `__smelt_set`).
+    /// (`__smelt_get` or `__smelt_setter`).
     fn accessor_marker_function(
         body: &Body,
         value: smelt_hir::ExprId,
