@@ -400,6 +400,15 @@ impl Drop for ContextCheckpoint<'_> {
 impl EmitContext {
     /// Builds crate-level name and signature indexes for Rust emission.
     pub(crate) fn new(mir: &Mir) -> Result<Self, EmitError> {
+        Self::new_with(mir, crate::runtime_demand::GenericsCarrier::Always)
+    }
+
+    /// [`Self::new`], with the runtime demand's generics policy `generics`
+    /// (see `runtime_demand::GenericsCarrier`).
+    pub(crate) fn new_with(
+        mir: &Mir,
+        generics: crate::runtime_demand::GenericsCarrier,
+    ) -> Result<Self, EmitError> {
         let none_ty = mir
             .types
             .all()
@@ -451,7 +460,7 @@ impl EmitContext {
             }
         }
         let owned_callback_params = compute_owned_callback_params(mir)?;
-        let demand = RuntimeDemand::of(mir, &reference_classes);
+        let demand = RuntimeDemand::of_with(mir, &reference_classes, generics);
 
         Ok(Self {
             none_ty,
