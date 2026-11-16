@@ -105,7 +105,7 @@ calls get a concrete Rust type, a real Rust generic, or an erased type
 | examples, 177 programs ([`typedness-baseline.json`](blocker-logs/typedness-baseline.json)) | values | 8476 | 162 | 56 | 0.6% |
 |  | reads | 932 | 47 | 20 | 2.0% |
 |  | calls | 2350 | 16 | 2 | 0.1% |
-| es-toolkit, 744 programs ([`typedness-baseline-es-toolkit.json`](blocker-logs/typedness-baseline-es-toolkit.json)) | values | 14234 | 351 | 7067 | 32.6% |
+| es-toolkit, 744 programs ([`typedness-baseline-es-toolkit.json`](blocker-logs/typedness-baseline-es-toolkit.json)) | values | 14236 | 351 | 7067 | 32.6% |
 |  | reads | 367 | 50 | 979 | 70.1% |
 |  | calls | 2191 | 63 | 1182 | 34.4% |
 | remeda, 390 programs ([`typedness-baseline-remeda.json`](blocker-logs/typedness-baseline-remeda.json)) | values | 13667 | 268 | 9187 | 39.7% |
