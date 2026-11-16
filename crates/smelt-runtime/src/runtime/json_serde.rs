@@ -95,9 +95,83 @@ fn smelt_unknown_from_json_value(value: serde_json::Value) -> SmeltUnknown {
 /// `JSON.stringify(value)`: the JSON text, or the `TypeError` message for a
 /// value JSON cannot hold (a bigint).
 fn smelt_json_stringify(value: &SmeltUnknown) -> Result<String, &'static str> {
+    smelt_json_stringify_with(value, &SmeltUnknown::Undefined)
+}
+
+/// `JSON.stringify(value, replacer)`. The replacer is ECMA-262's: a function
+/// called for every property with its holder as `this` (`key`, `value`) and
+/// whose answer is serialized instead; an array of strings and numbers, the
+/// only keys an object serializes, in that order; anything else is ignored.
+#[allow(dead_code)]
+fn smelt_json_stringify_with(value: &SmeltUnknown, replacer: &SmeltUnknown) -> Result<String, &'static str> {
+    let replacer = SmeltJsonReplacer::of(replacer);
+    let holder = SmeltUnknown::Object(SmeltObject::new(Vec::from([(String::new(), value.clone())])));
+    let value = smelt_json_property(&replacer, &holder, "", value.clone());
     let mut out = String::new();
-    smelt_json_write(value, &mut out)?;
+    smelt_json_write(&value, &replacer, &mut out)?;
     Ok(out)
+}
+
+/// The `replacer` argument of `JSON.stringify`, read once.
+enum SmeltJsonReplacer {
+    /// No replacer (or one that is neither a function nor an array).
+    None,
+    /// The property allowlist of a replacer array, deduplicated, in order.
+    Keys(Vec<String>),
+    /// A replacer function.
+    Function(SmeltDynCallable),
+}
+
+impl SmeltJsonReplacer {
+    /// Reads a source replacer: a function, an array of keys (each string
+    /// or number, others skipped, as `JSON.stringify` does), or nothing.
+    fn of(replacer: &SmeltUnknown) -> Self {
+        match replacer {
+            SmeltUnknown::Function(function) => Self::Function(function.clone()),
+            SmeltUnknown::Array(keys) => {
+                let mut list: Vec<String> = Vec::new();
+                for key in keys {
+                    let key = match key { SmeltUnknown::String(text) => text.to_string(), SmeltUnknown::Number(number) => smelt_number_to_string(number), _ => continue };
+                    if !list.contains(&key) { list.push(key); }
+                }
+                Self::Keys(list)
+            }
+            _ => Self::None,
+        }
+    }
+}
+
+/// The value `SerializeJSONProperty` serializes for `value`, the property
+/// `key` of `holder`: a `Date` is its ISO text (`Date.prototype.toJSON`), an
+/// object with a `toJSON` method is that method's answer (called with the
+/// object as `this` and `key`), and then a replacer function's answer (called
+/// with `holder` as `this`).
+fn smelt_json_property(replacer: &SmeltJsonReplacer, holder: &SmeltUnknown, key: &str, value: SmeltUnknown) -> SmeltUnknown {
+    let mut value = value;
+    if let SmeltUnknown::Object(object) = &value {
+// @smelt:if date
+        if let Some(SmeltUnknown::Number(time)) = object.get("__smelt_date") {
+            let date = SmeltDate::new(time);
+            value = if time.is_finite() { SmeltUnknown::String(date.to_iso_string().as_str().into()) } else { SmeltUnknown::Null };
+        } else if let Some(SmeltUnknown::Function(to_json)) = object.get("toJSON").or_else(|| object.get("__smelt_proto:toJSON")).or_else(|| object.get("__smelt_method:toJSON")) {
+// @smelt:else
+//=         if let Some(SmeltUnknown::Function(to_json)) = object.get("toJSON").or_else(|| object.get("__smelt_proto:toJSON")).or_else(|| object.get("__smelt_method:toJSON")) {
+// @smelt:end
+// @smelt:if this_channel
+            let _smelt_this_guard = smelt_push_this(SmeltUnknown::Object(object.clone()));
+// @smelt:end
+            value = to_json(Vec::from([SmeltUnknown::String(key.into())])).unwrap_or_else(|error| smelt_panic_throw(error));
+        }
+    }
+    if let SmeltJsonReplacer::Function(function) = replacer {
+// @smelt:if this_channel
+        let _smelt_this_guard = smelt_push_this(holder.clone());
+// @smelt:else
+//=         let _ = holder;
+// @smelt:end
+        value = function(Vec::from([SmeltUnknown::String(key.into()), value])).unwrap_or_else(|error| smelt_panic_throw(error));
+    }
+    value
 }
 
 //~ Appends `QuoteJSONString(text)`: `"` and `\` escaped, the short escapes
@@ -124,7 +198,7 @@ fn smelt_json_quote(text: &JsStr, out: &mut String) {
 }
 
 /// Appends the JSON text of `value` (see `smelt_json_stringify`).
-fn smelt_json_write(value: &SmeltUnknown, out: &mut String) -> Result<(), &'static str> {
+fn smelt_json_write(value: &SmeltUnknown, replacer: &SmeltJsonReplacer, out: &mut String) -> Result<(), &'static str> {
     match value {
         SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Function(_) => out.push_str("null"),
         SmeltUnknown::Bool(flag) => out.push_str(if *flag { "true" } else { "false" }),
@@ -136,17 +210,22 @@ fn smelt_json_write(value: &SmeltUnknown, out: &mut String) -> Result<(), &'stat
 // @smelt:end
         SmeltUnknown::String(text) => smelt_json_quote(text, out),
         SmeltUnknown::Promise(_) => out.push_str("\"[object Promise]\""),
+        //~ Each element is a property of the array (its index the key); one
+        //~ with no JSON text (`undefined`, a function, a symbol) is `null`.
         SmeltUnknown::Array(values) => {
             out.push('[');
             for (index, element) in values.iter().enumerate() {
                 if index > 0 { out.push(','); }
-                smelt_json_write(&element, out)?;
+                let element = smelt_json_property(replacer, value, &index.to_string(), element);
+                smelt_json_write(&element, replacer, out)?;
             }
             out.push(']');
         }
-        //~ Own enumerable properties in insertion order, as in the `Serialize`
-        //~ impl: a byte-backed view as its element indices, and a property
-        //~ whose value is `undefined`, a function or a symbol omitted.
+        //~ Own enumerable properties in insertion order (or the replacer
+        //~ array's keys, in its order), as in the `Serialize` impl: a
+        //~ byte-backed view as its element indices, and a property whose value
+        //~ is `undefined`, a function or a symbol omitted. A stored accessor
+        //~ (an object literal's `get`) is read through its getter.
         SmeltUnknown::Object(values) => {
             out.push('{');
             if let Some(elements) = smelt_host_buffer_own_elements(value) {
@@ -154,21 +233,25 @@ fn smelt_json_write(value: &SmeltUnknown, out: &mut String) -> Result<(), &'stat
                     if index > 0 { out.push(','); }
                     smelt_json_quote(&JsString::from(index.to_string()), out);
                     out.push(':');
-                    smelt_json_write(element, out)?;
+                    smelt_json_write(element, replacer, out)?;
                 }
                 out.push('}');
                 return Ok(());
             }
             let shape = smelt_for_in_object_shape(values);
-            /*@if live_views*/values.store.sync(); /*@end*/let store = values.store.borrow();
+            let entries: Vec<(JsString, SmeltUnknown)> = if let SmeltJsonReplacer::Keys(keys) = replacer {
+                keys.iter().filter_map(|key| values.get(key.as_str()).map(|entry| (JsString::from(key.as_str()), entry))).collect()
+            } else { /*@if live_views*/values.store.sync(); /*@end*/let store = values.store.borrow(); store.entries().iter().filter(|entry| smelt_is_for_in_shape_key(shape, &entry.key)).map(|entry| (entry.key.clone(), entry.value.clone())).collect() };
             let mut first = true;
-            for entry in store.entries() {
-                if matches!(entry.value, SmeltUnknown::Undefined | SmeltUnknown::Function(_) | SmeltUnknown::Symbol(_)) || !smelt_is_for_in_shape_key(shape, &entry.key) { continue; }
+            for (key, entry) in entries {
+                let entry = smelt_resolve_accessor(entry, || value.clone());
+                let entry = smelt_json_property(replacer, value, &key.to_string_lossy(), entry);
+                if matches!(entry, SmeltUnknown::Undefined | SmeltUnknown::Function(_) | SmeltUnknown::Symbol(_)) { continue; }
                 if !first { out.push(','); }
                 first = false;
-                smelt_json_quote(&entry.key, out);
+                smelt_json_quote(&key, out);
                 out.push(':');
-                smelt_json_write(&entry.value, out)?;
+                smelt_json_write(&entry, replacer, out)?;
             }
             out.push('}');
         }
@@ -184,10 +267,21 @@ fn smelt_json_write(value: &SmeltUnknown, out: &mut String) -> Result<(), &'stat
 /// value is omitted or `null`, which `smelt_json_stringify` already writes.
 #[allow(dead_code)]
 fn smelt_json_stringify_value(value: &SmeltUnknown) -> Result<Option<String>, &'static str> {
-    match value {
+    smelt_json_stringify_value_with(value, &SmeltUnknown::Undefined)
+}
+
+/// [`smelt_json_stringify_value`] with a `replacer` (see
+/// `smelt_json_stringify_with`): the top-level property is serialized after
+/// `toJSON` and the replacer have answered for it.
+#[allow(dead_code)]
+fn smelt_json_stringify_value_with(value: &SmeltUnknown, replacer: &SmeltUnknown) -> Result<Option<String>, &'static str> {
+    let reader = SmeltJsonReplacer::of(replacer);
+    let holder = SmeltUnknown::Object(SmeltObject::new(Vec::from([(String::new(), value.clone())])));
+    let answered = smelt_json_property(&reader, &holder, "", value.clone());
+    match &answered {
         SmeltUnknown::Undefined | SmeltUnknown::Function(_) | SmeltUnknown::Symbol(_) => Ok(None),
         SmeltUnknown::Object(object) if object.contains_key("__smelt_call") => Ok(None),
-        _ => smelt_json_stringify(value).map(Some),
+        _ => { let mut out = String::new(); smelt_json_write(&answered, &reader, &mut out)?; Ok(Some(out)) }
     }
 }
 // @smelt:item-end

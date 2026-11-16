@@ -871,6 +871,13 @@ fn smelt_panic_throw(error: Box<dyn ::std::error::Error>) -> ! { smelt_install_p
 fn smelt_panic_message(panic: &(dyn ::std::any::Any + Send)) -> String { if let Some(payload) = panic.downcast_ref::<SmeltPanic>() { return payload.message.clone(); } if let Some(message) = panic.downcast_ref::<String>() { return message.clone(); } if let Some(message) = panic.downcast_ref::<&'static str>() { return (*message).to_owned(); } "JavaScript exception".to_owned() }
 /// Recover the error class a `catch` observes from a caught panic.
 fn smelt_panic_class(panic: &(dyn ::std::any::Any + Send)) -> String { panic.downcast_ref::<SmeltPanic>().map_or_else(|| "Error".to_owned(), |payload| payload.class.clone()) }
+/// JavaScript `Math.max` of two numbers.
+#[allow(dead_code)]
+fn smelt_math_max(left: f64, right: f64) -> f64 { if left.is_nan() || right.is_nan() { return f64::NAN; } match left.partial_cmp(&right) { Some(::std::cmp::Ordering::Greater) => left, Some(::std::cmp::Ordering::Less) => right, _ => if left.is_sign_negative() { right } else { left } } }
+
+/// JavaScript `Math.min` of two numbers.
+#[allow(dead_code)]
+fn smelt_math_min(left: f64, right: f64) -> f64 { if left.is_nan() || right.is_nan() { return f64::NAN; } match left.partial_cmp(&right) { Some(::std::cmp::Ordering::Less) => left, Some(::std::cmp::Ordering::Greater) => right, _ => if left.is_sign_positive() { right } else { left } } }
 thread_local! {
     static SMELT_NEXT_CAPTURE_SCOPE: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(1) };
     static SMELT_SHARED_CAPTURES: ::std::cell::RefCell<::std::collections::HashMap<(usize, usize), ::std::rc::Weak<dyn ::std::any::Any>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
@@ -3518,7 +3525,25 @@ fn smelt_erased_to_js_string(value: &SmeltUnknown) -> JsString {
     match value {
         SmeltUnknown::String(text) => text.clone(),
         SmeltUnknown::Array(values) => JsString::join(values.iter().map(|item| match item { SmeltUnknown::Null | SmeltUnknown::Undefined => JsString::new(), other => smelt_erased_to_js_string(&other) }), &JsString::from(",")),
+        SmeltUnknown::Object(object) if !object.contains_key("__smelt_error") => JsString::from(smelt_erased_object_to_string(object)),
         other => JsString::from(smelt_builtin_receiver_text(other)),
+    }
+}
+
+/// JavaScript `ToString` of an erased plain object: `ToPrimitive` calls its
+/// `toString` (own, inherited through `Object.create`, or its class's method)
+/// with the object as `this`, and the answer is that call's string; an
+/// object with no `toString` of its own is `[object Object]`.
+#[allow(dead_code)]
+fn smelt_erased_object_to_string(object: &SmeltObject) -> String {
+    let method = object.get("toString").or_else(|| object.get("__smelt_proto:toString")).or_else(|| object.get("__smelt_method:toString"));
+    let Some(SmeltUnknown::Function(to_string)) = method else {
+        return "[object Object]".to_owned();
+    };
+    match to_string(Vec::new()).unwrap_or_else(|error| smelt_panic_throw(error)) {
+        SmeltUnknown::String(text) => text.to_string(),
+        SmeltUnknown::Object(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) => "[object Object]".to_owned(),
+        other => smelt_erased_to_js_string(&other).to_string(),
     }
 }
 
@@ -4881,7 +4906,7 @@ pub(crate) fn longest(record: SmeltRecord<JsString, JsString>) -> f64 {
     if !(_smelt_tmp_6) { break; }
     key = _smelt_tmp_3.borrow().get(_smelt_tmp_4).cloned().unwrap_or_else(|| JsString::new());
     _smelt_tmp_7 = record.get(&key.clone()).unwrap_or(JsString::new()).len() as f64;
-    best = best.max(_smelt_tmp_7);
+    best = smelt_math_max(best, _smelt_tmp_7);
     _smelt_tmp_4 = _smelt_tmp_4 + 1;
     }
     return best;

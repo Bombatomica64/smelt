@@ -289,6 +289,19 @@ impl FunctionEmitter<'_> {
             smelt_hir::NumericExtremaOp::Min => "min",
             smelt_hir::NumericExtremaOp::Max => "max",
         };
+        // A JavaScript number takes `Math.max`'s own rule (`smelt_math_max`):
+        // `NaN` wins and `-0` orders below `+0`. Rust's `f64::max` is what
+        // Python's integer and float `max` keep.
+        let js_float = !dest_is_int && self.absent_spelling() != AbsentSpelling::None;
+        let combine = |seed: String, value: String| -> String {
+            if js_float {
+                format!("smelt_math_{method_name}({seed}, {value})")
+            } else {
+                RustExpr::atom(seed)
+                    .postfix(format!(".{method_name}({value})"))
+                    .into_string()
+            }
+        };
         let render_arg = |arg: &Operand| -> Result<String, EmitError> {
             let text = self.value_at_type(arg, dest_ty)?;
             if !dest_is_int && matches!(arg, Operand::Const(Constant::Float(_))) {
@@ -304,9 +317,7 @@ impl FunctionEmitter<'_> {
             Some((first, rest)) => {
                 let mut seed = render_arg(first)?;
                 for arg in rest {
-                    seed = RustExpr::atom(seed)
-                        .postfix(format!(".{method_name}({})", render_arg(arg)?))
-                        .into_string();
+                    seed = combine(seed, render_arg(arg)?);
                 }
                 seed
             }
@@ -326,9 +337,12 @@ impl FunctionEmitter<'_> {
                 dest_ty,
                 &self.render_scope(),
             )?;
-            rendered = list_text.postfix(format!(
-                ".iter().cloned().fold({rendered}, |smelt_acc, smelt_element| smelt_acc.{method_name}({element_text}))", element_text = element_text.delimited()
-            )).into_string();
+            let step = combine("smelt_acc".to_owned(), element_text.delimited().to_owned());
+            rendered = list_text
+                .postfix(format!(
+                    ".iter().cloned().fold({rendered}, |smelt_acc, smelt_element| {step})"
+                ))
+                .into_string();
         }
         Ok(RustExpr::from(rendered))
     }

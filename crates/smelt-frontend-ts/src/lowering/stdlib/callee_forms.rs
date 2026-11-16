@@ -111,7 +111,7 @@ impl ModuleBuilder<'_> {
                 _ => false,
             };
             args.push(if prints_as_its_string {
-                self.null_absent_string_operand(value, arg.span().start, arg.span().end, body)
+                self.string_conversion_operand(value, arg.span().start, arg.span().end, body)
             } else {
                 value
             });
