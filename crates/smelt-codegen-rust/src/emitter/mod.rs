@@ -147,6 +147,7 @@ mod crypto;
 pub(crate) mod deep_equality;
 mod form_data;
 mod generator;
+mod generic_scrutinee;
 mod generic_trial;
 mod host_interop;
 mod host_member_read;

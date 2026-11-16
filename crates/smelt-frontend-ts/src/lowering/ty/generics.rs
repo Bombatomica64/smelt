@@ -18,18 +18,21 @@ impl ModuleBuilder<'_> {
         &mut self,
         params: Option<&oxc::ast::ast::TSTypeParameterDeclaration<'_>>,
     ) -> Result<Vec<TypeParamDef>, SmeltError> {
-        self.push_type_parameter_scope_carrying(params, &HashMap::new())
+        self.push_type_parameter_scope_carrying(params, &HashMap::new(), &HashMap::new())
     }
 
     /// [`Self::push_type_parameter_scope`] where each parameter named in
     /// `element_carried` stands for a list: its name resolves to `List(T)`, or
     /// to `List(bound)` when the map gives it a concrete element bound, and
     /// its lowered constraint and default are the element types of the
-    /// declared ones (see `ty/element_params.rs`).
+    /// declared ones (see `ty/element_params.rs`). Each parameter named in
+    /// `primitive` resolves to the primitive type given there (see
+    /// `ty/primitive_params.rs`).
     pub(in crate::lowering) fn push_type_parameter_scope_carrying(
         &mut self,
         params: Option<&oxc::ast::ast::TSTypeParameterDeclaration<'_>>,
         element_carried: &HashMap<String, Option<smelt_hir::TypeId>>,
+        primitive: &HashMap<String, smelt_hir::TypeId>,
     ) -> Result<Vec<TypeParamDef>, SmeltError> {
         let Some(params) = params else {
             self.types.push_param_types(HashMap::new());
@@ -43,6 +46,9 @@ impl ModuleBuilder<'_> {
             let mut ty = self.ctx.krate.types.intern(Type::TypeParam { name });
             if let Some(bound) = element_carried.get(param.name.name.as_str()) {
                 ty = self.ctx.krate.types.intern(Type::List(bound.unwrap_or(ty)));
+            }
+            if let Some(bound) = primitive.get(param.name.name.as_str()) {
+                ty = *bound;
             }
             scope.insert(param.name.name.to_string(), ty);
         }
@@ -970,6 +976,17 @@ impl ModuleBuilder<'_> {
                     yield_ty,
                     return_ty,
                 })
+            }
+            // Substituted position by position and left unevaluated: only
+            // `ty/deferred_index.rs` evaluates, after it has read the keys a
+            // call spells.
+            Type::IndexedAccess { object, index } => {
+                let object = self.substitute_type_params(object, substitutions);
+                let index = self.substitute_type_params(index, substitutions);
+                self.ctx
+                    .krate
+                    .types
+                    .intern(Type::IndexedAccess { object, index })
             }
             Type::Bool
             | Type::Int

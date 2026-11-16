@@ -128,13 +128,16 @@ impl ModuleBuilder<'_> {
                 .as_ref()
                 .and_then(|annotation| self.assertion_return_type(&annotation.type_annotation))
                 .transpose()?;
-            let return_ty = if assertion_return.is_some() {
-                self.ctx.krate.types.intern(Type::None)
+            // The return is also lowered for the calls that select this
+            // overload, with an indexed access over a type parameter kept for
+            // each call to evaluate (`ty/deferred_index.rs`).
+            let (return_ty, deferred_return) = if assertion_return.is_some() {
+                (self.ctx.krate.types.intern(Type::None), None)
             } else {
                 function
                     .return_type
                     .as_ref()
-                    .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                    .map(|annotation| self.overload_return_types(annotation))
                     .transpose()?
                     .ok_or_else(|| {
                         SmeltError::unsupported(
@@ -164,6 +167,7 @@ impl ModuleBuilder<'_> {
                         .unwrap_or(function.params.items.len()),
                 ),
                 return_ty,
+                deferred_return,
                 is_async: function.r#async,
             })
         })();
@@ -379,6 +383,17 @@ impl ModuleBuilder<'_> {
         }
         if let Some(signature) = self.functions.last_overload(name_text) {
             let last_return = signature.return_ty;
+            if signature.deferred_return.is_some() {
+                // The overload's own record of this erasure moved to where it
+                // erases something (`ty/deferred_index.rs`): here, the
+                // implementation is emitted with the access erased.
+                let span = self.span(function.span.start, function.span.end);
+                let _erased = self.erase_at(
+                    ErasureReason::TypeLevel,
+                    span,
+                    "indexed access in the overload return an implementation inherits",
+                );
+            }
             return Ok(Some(
                 self.overload_implementation_return(name_text, last_return),
             ));
@@ -452,11 +467,20 @@ impl ModuleBuilder<'_> {
             .and_then(|annotation| self.predicate_return_type(&annotation.type_annotation))
             .transpose();
         let result = self.predeclared_function(function, id.name.as_str(), type_params);
+        // What a call of this item reads its result from, when the declared
+        // return indexes a type parameter (`ty/deferred_index.rs`).
+        let deferred_return = function
+            .return_type
+            .as_ref()
+            .and_then(|annotation| self.deferred_return_type(annotation));
         let returns_date = result
             .as_ref()
             .is_ok_and(|predeclared| self.type_is_known_date_value(predeclared.return_ty));
         self.pop_type_parameter_scope();
         let item = self.ctx.krate.push_item(Item::Function(result?));
+        if let Some(deferred_return) = deferred_return {
+            self.ctx.deferred_returns.insert(item, deferred_return);
+        }
         if returns_date {
             self.ctx.date_returning_functions.insert(item);
         }

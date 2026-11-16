@@ -201,12 +201,14 @@ impl ModuleBuilder<'_> {
                 ))
             })
             .collect();
-        if carried.is_empty() {
+        let primitive = Self::primitive_bounded_params(params, &defs);
+        if carried.is_empty() && primitive.is_empty() {
             return Ok(defs);
         }
         self.pop_type_parameter_scope();
         self.ctx.krate.erasures.truncate(records_before);
-        let carrying_defs = self.push_type_parameter_scope_carrying(Some(params), &carried)?;
+        let carrying_defs =
+            self.push_type_parameter_scope_carrying(Some(params), &carried, &primitive)?;
         for (param, def) in params.params.iter().zip(&carrying_defs) {
             if carried.contains_key(param.name.name.as_str()) {
                 self.ctx.element_carried_type_params.insert(def.name);

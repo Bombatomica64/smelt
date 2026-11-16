@@ -243,7 +243,10 @@ impl FunctionEmitter<'_> {
     /// Determine whether a union member can be stored without runtime erasure.
     fn union_member_is_concrete(&self, ty: TypeId) -> bool {
         match self.mir.types.get(ty) {
-            Some(Type::Unknown | Type::Never | Type::TypeParam { .. }) | None => false,
+            Some(
+                Type::Unknown | Type::IndexedAccess { .. } | Type::Never | Type::TypeParam { .. },
+            )
+            | None => false,
             // A union nested under a container arm (`number | (number |
             // number[])[]`, the element type of `[1, [2, [3]]]`) is stored as
             // its own generated enum when that union is concrete too. A bare

@@ -89,6 +89,7 @@ mod error;
 mod gates;
 pub(crate) mod generic_bindings;
 pub(crate) mod generic_elision;
+pub(crate) mod generic_inspection;
 pub(crate) mod generic_lifting;
 pub(crate) mod globals;
 pub(crate) mod lazy_view;

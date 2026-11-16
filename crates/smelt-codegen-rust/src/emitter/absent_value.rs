@@ -74,6 +74,7 @@ impl FunctionEmitter<'_> {
                 | Type::None
                 | Type::Never
                 | Type::Unknown
+                | Type::IndexedAccess { .. }
                 | Type::TypeParam { .. }
                 | Type::Class { .. }
                 | Type::Union(_)
@@ -223,6 +224,7 @@ impl FunctionEmitter<'_> {
                 | Type::None
                 | Type::Never
                 | Type::Unknown
+                | Type::IndexedAccess { .. }
                 | Type::TypeParam { .. }
                 | Type::Class { .. }
                 | Type::Union(_)

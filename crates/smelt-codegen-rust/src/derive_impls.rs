@@ -483,6 +483,7 @@ pub(crate) fn type_supports_partial_eq_where(
             | Type::PropKey
             | Type::None
             | Type::Unknown
+            | Type::IndexedAccess { .. }
             | Type::Never
             | Type::TypeParam { .. },
         )

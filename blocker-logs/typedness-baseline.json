@@ -2,17 +2,17 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 8474,
-      "generic": 162,
+      "concrete": 8694,
+      "generic": 193,
       "erased": 56
     },
     "reads": {
-      "concrete": 931,
-      "generic": 47,
+      "concrete": 939,
+      "generic": 50,
       "erased": 20
     },
     "calls": {
-      "concrete": 2350,
+      "concrete": 2444,
       "generic": 16,
       "erased": 2
     }
@@ -1714,6 +1714,40 @@
       },
       "calls": {
         "concrete": 10,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/201_primitive_bounded_type_parameter/input.ts": {
+      "values": {
+        "concrete": 106,
+        "generic": 3,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 5,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 41,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/202_inspected_type_parameter_stays_generic/input.ts": {
+      "values": {
+        "concrete": 114,
+        "generic": 28,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 3,
+        "generic": 3,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 53,
         "generic": 0,
         "erased": 0
       }

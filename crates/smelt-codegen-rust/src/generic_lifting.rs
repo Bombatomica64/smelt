@@ -5,6 +5,19 @@
 //! the body only moves it, reaches a bound through the generated trait, or is
 //! inferable through a callback at every call site. `EmitContext` runs it before
 //! any body renders, so the definition and every call site agree on the shape.
+//!
+//! "Only moves" is judged per operand AND per place: a place that projects a
+//! member off a value of the bare parameter type (`obj[key]`, `obj.name` with
+//! `obj: T`) reads or writes into that `T` in every position, including the
+//! operand of a `return` ([`place_projects_into_type_param`]). Requirements:
+//! such a function still compiles and behaves as the source does (the member
+//! lookup runs on the erased carrier), and a read off a container OF `T` keeps
+//! its `T` generic.
+//!
+//! A scalar inspection of one bare `T` value (`x == null`, `typeof x`, `!x`,
+//! `if (x)`) is not an inspection in this sense: it is answered on an erased
+//! copy and leaves `T` opaque. The rule and its requirements are in
+//! [`crate::generic_inspection`].
 #![expect(
     clippy::redundant_pub_crate,
     reason = "crate-visible items are shared with the crate root and the emitter shards"
@@ -121,10 +134,11 @@ fn type_param_only_moved(mir: &Mir, function: &MirFunction, name: Symbol) -> boo
 ///
 /// Split out of [`type_param_only_moved`] because a closure is a *separate* MIR
 /// body with its own locals and blocks, so walking `function.blocks` alone never
-/// sees inside one. es-toolkit's `flatten` is exactly that shape: `T` lifted,
-/// and the `Array.isArray(item)` that inspects it lives in the inner recursive
-/// closure, emitting `matches!(item, SmeltUnknown::Array(_))` against a `T` and
-/// failing with "expected type parameter `T`, found `SmeltUnknown`".
+/// sees inside one. es-toolkit's `flatten` is exactly that shape: the
+/// `Array.isArray(item)` that asks about a `T` lives in the inner recursive
+/// closure. (That particular question is now a scalar inspection answered on
+/// an erased copy, see [`crate::generic_inspection`]; a closure that compares
+/// or reads into a `T` still keeps the function erased.)
 ///
 /// `seen` guards against a closure cycle; the ids are `ClosureId`'s inner value.
 fn body_only_moves(
@@ -162,6 +176,20 @@ fn body_only_moves(
             Place::Global { .. } => return false,
         };
         local_mentions(base)
+    };
+
+    // A place that projects a field or an index off a value whose type is the
+    // bare parameter itself (`obj[key]` with `obj: T`): the projection reads
+    // or writes INTO the `T`, which is a member lookup on the erased carrier
+    // and therefore an inspection wherever the place appears: an rvalue
+    // operand, an assignment target, or a terminator operand (`return
+    // obj[key]`, whose `Return` otherwise only moves). A projection off a
+    // container OF `T` (`items[i]` with `items: T[]`) reads the container and
+    // stays a move; see [`place_projects_into_type_param`].
+    let projects_into = |place: &Place| place_projects_into_type_param(mir, locals, place, name);
+    let operand_projects_into = |operand: &Operand| match operand {
+        Operand::Copy(place) | Operand::Move(place) => projects_into(place),
+        Operand::Const(_) => false,
     };
 
     let operand_is_erased = |operand: &Operand| -> bool {
@@ -276,13 +304,25 @@ fn body_only_moves(
             }
         }
     }
+    let absent_only = crate::generic_inspection::absent_only_locals(locals, blocks);
     for block in blocks {
         for statement in &block.statements {
-            let (Statement::Assign { value, .. } | Statement::AssignPlace { value, .. }) =
-                statement
-            else {
-                continue;
+            let value = match statement {
+                Statement::Assign { value, .. } => value,
+                Statement::AssignPlace { place, value } => {
+                    // `obj[key] = v` with `obj: T` writes into the `T`.
+                    if projects_into(place) {
+                        return false;
+                    }
+                    value
+                }
+                Statement::DictEntryUpdate { .. } | Statement::StorageLive(_) => continue,
             };
+            let mut projected = false;
+            value.reads(|operand| projected |= operand_projects_into(operand));
+            if projected {
+                return false;
+            }
             // Filling a slot with the absent value carries no `T` at all.
             if let Rvalue::Use(operand) = value
                 && is_absent_constant(operand)
@@ -309,6 +349,23 @@ fn body_only_moves(
                 && !operand_is_optional(optional)
             {
                 return false;
+            }
+            // A `T` handed to a callback that reads it as a container of
+            // `T` is reinterpreted, not moved.
+            if crate::generic_inspection::reinterprets_type_param(mir, locals, value, name) {
+                return false;
+            }
+            // A question answered from an erased copy of one bare `T` value
+            // (`x == null`, `typeof x`, `!x`): the copy is only read, so `T`
+            // itself stays opaque (`crate::generic_inspection`).
+            if crate::generic_inspection::is_scalar_inspection(
+                mir,
+                locals,
+                value,
+                name,
+                &absent_only,
+            ) {
+                continue;
             }
             if rvalue_preserves_opacity(value)
                 || is_absence_test(value, &absent_locals, &payload_never_nullish)
@@ -369,8 +426,19 @@ fn body_only_moves(
                 return false;
             }
         }
+        // A terminator operand that projects into a `T` inspects it, whatever
+        // the terminator then does with the member: `return obj[key]` moves
+        // the MEMBER out, but reading it is a lookup on `obj`.
+        if let Some(terminator) = &block.terminator {
+            let mut projected = false;
+            terminator.reads(|operand| projected |= operand_projects_into(operand));
+            if projected {
+                return false;
+            }
+        }
         // Branching on a `T` needs JavaScript truthiness or an equality an
-        // opaque `T` cannot answer. `Return` is a move and stays off this list.
+        // opaque `T` cannot answer. A `Return` of a whole local is a move and
+        // stays off this list.
         if let Some(
             Terminator::Switch { cond: probe, .. }
             | Terminator::Match {
@@ -379,6 +447,9 @@ fn body_only_moves(
         ) = &block.terminator
             && mentions(probe)
             && !truthiness_is_presence(probe)
+            // `if (x)` on a bare `T` branches on the truthiness of its erased
+            // copy (`crate::generic_inspection`).
+            && !crate::generic_inspection::operand_is_bare_type_param(mir, locals, probe, name)
         {
             return false;
         }
@@ -401,6 +472,37 @@ fn body_only_moves(
         }
     }
     true
+}
+
+/// Whether `place` projects a field or an index off a local whose type is the
+/// bare type parameter `name`, or an optional of it.
+///
+/// Behavioral requirement: a member of a `T` value is found by a run-time
+/// lookup on the value (JavaScript `obj[key]`), which only the erased carrier
+/// answers; a lifted `T` is opaque, so a body holding such a place must not
+/// lift `name`. Type-preservation requirement: the rule looks at the BASE
+/// local's own type only, so `items[i]` with `items: T[]` (a container read
+/// that yields a `T`) is not affected and keeps its `T`.
+fn place_projects_into_type_param(
+    mir: &Mir,
+    locals: &[LocalDecl],
+    place: &Place,
+    name: Symbol,
+) -> bool {
+    let (Place::Field { base, .. } | Place::Index { base, .. }) = place else {
+        return false;
+    };
+    let Some(decl) = id_index(base.0, "local index does not fit usize")
+        .ok()
+        .and_then(|index| locals.get(index))
+    else {
+        return false;
+    };
+    let payload = match mir.types.get(decl.ty) {
+        Some(Type::Optional(inner)) => *inner,
+        _ => decl.ty,
+    };
+    matches!(mir.types.get(payload), Some(Type::TypeParam { name: found }) if *found == name)
 }
 
 /// Whether `operand` is the absent value (`none`, `undefined`).

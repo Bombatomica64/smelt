@@ -208,3 +208,221 @@ console.log(withoutRepeats([1, 2, 1, 3, 1], "numbers").join(","));
         "erased_throwing_callee_keeps_mutable_list_caller_erased",
     )
 }
+
+/// Rule: a place that projects a member off a value whose type is the bare
+/// type parameter (`obj[key]` with `obj: T`) inspects that `T` wherever the
+/// place appears, a `return` operand included
+/// (`generic_lifting::place_projects_into_type_param`), so the parameter does
+/// not lift.
+///
+/// Behaviour: every function compiles and prints Node's output. Before the
+/// rule `pluck` was emitted as `pluck<T: ..>(obj: T, key: SmeltUnknown)` with a
+/// body that indexed `obj` as the erased carrier: 6 x E0308 on a valid
+/// program. Type preservation: `second`, which reads an element out of a
+/// `T[]` (a container read), keeps its `T` beside the erased `K`.
+///
+/// `second`'s `K` is bounded by `PropertyKey` so that it stays erased and the
+/// partial lift is what the test exercises. It was `K extends string` until
+/// a parameter bounded by one primitive keyword started lowering as that
+/// primitive (`lowering/ty/primitive_params.rs`): `_label` would be a
+/// `JsString` and `second` fully typed, which that rule's own example
+/// (`201_primitive_bounded_type_parameter`) covers. The pinned signature is
+/// unchanged.
+///
+/// Why this is not an end-to-end example: `T[K]` has no Rust type, so each
+/// member-reading function here is erased by construction, and that corpus
+/// must stay free of erased entries.
+#[test]
+fn member_read_off_a_type_parameter_is_an_inspection() -> TestResult {
+    let source = r#"// A member read off a value whose type is a bare type parameter (`obj[key]`
+// with `obj: T`) is a lookup on the value, so the function cannot keep `T`
+// opaque: every shape below must still compile and print what Node prints.
+interface Point {
+  x: number;
+  y: number;
+  label: string;
+}
+
+// The read is the returned operand itself.
+function pluck<T, K extends keyof T>(obj: T, key: K): T[K] {
+  return obj[key];
+}
+
+// The read lands in a local first.
+function pluckLocal<T, K extends keyof T>(obj: T, key: K): T[K] {
+  const value = obj[key];
+  return value;
+}
+
+// The read goes through an element of a `T[]`.
+function firstField<T, K extends keyof T>(items: T[], key: K): T[K] {
+  return items[0][key];
+}
+
+// The member is written, not read.
+function assign<T, K extends keyof T>(obj: T, key: K, value: T[K]): T {
+  obj[key] = value;
+  return obj;
+}
+
+// The read feeds a comparison.
+function hasKey<T, K extends keyof T>(obj: T, key: K): boolean {
+  return obj[key] !== undefined;
+}
+
+// A read off a CONTAINER of `T` stays a move: `T` is still a Rust generic.
+function second<T, K extends PropertyKey>(items: T[], _label: K): T {
+  return items[1];
+}
+
+const point: Point = { x: 1, y: 2, label: "origin" };
+console.log(pluck(point, "x"));
+console.log(pluck(point, "label"));
+console.log(pluckLocal(point, "y"));
+console.log(firstField([point], "label"));
+const moved = assign(point, "x", 7);
+console.log(moved.x, point.x);
+console.log(hasKey(point, "y"));
+console.log(second([1, 2, 3], "n"));
+console.log(second(["a", "b"], "s"));
+"#;
+    let expected = "1\norigin\n2\norigin\n7 7\ntrue\n2\nb\n";
+    let (generated, stdout) =
+        build_and_run("member_read_off_a_type_parameter_is_an_inspection", source)?;
+    for signature in [
+        r"pub(crate) fn pluck(obj: SmeltUnknown, key: SmeltUnknown) -> SmeltUnknown {",
+        r"pub(crate) fn second<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(items: SmeltList<T>, _label: SmeltUnknown) -> T {",
+    ] {
+        ensure(
+            generated.contains(signature),
+            format!("missing `{signature}` in:\n{generated}"),
+        )?;
+    }
+    ensure_eq(&stdout, &expected.to_owned(), "unexpected stdout")?;
+    ensure_node_agrees(
+        &[("main.ts", source)],
+        "main.ts",
+        expected,
+        "member_read_off_a_type_parameter_is_an_inspection",
+    )
+}
+
+/// Rule (`smelt_codegen_rust::generic_inspection::reinterprets_type_param`):
+/// a body that hands a `T` value, narrowed by `Array.isArray`, to a callback
+/// reading it as `T[]` reinterprets its `T` and stays erased, although the
+/// guard alone is a scalar inspection that would keep `T` generic.
+///
+/// Behaviour: the program prints Node's output for a `T` instantiated with
+/// `number[]` (the nested lists are walked, not rebuilt as empty lists).
+/// Type preservation: `depthFirst` is erased, and `countArrays`, which only
+/// asks the guard, keeps its `T`.
+///
+/// Planted defect: with `reinterprets_type_param` answering `false`,
+/// `depthFirst` lifts and prints `0` for the nested input.
+#[test]
+fn narrowed_type_parameter_read_as_a_container_stays_erased() -> TestResult {
+    let source = r"// `item` is a `T`; after the guard TypeScript lets it be passed as a `T[]`.
+function depthFirst<T>(items: readonly T[]): number {
+  let leaves = 0;
+  const visit = (arr: readonly T[]) => {
+    for (const item of arr) {
+      if (Array.isArray(item)) {
+        visit(item);
+      } else {
+        leaves += 1;
+      }
+    }
+  };
+  visit(items);
+  return leaves;
+}
+
+// Only the guard: `T` stays a Rust generic.
+function countArrays<T>(items: readonly T[]): number {
+  let arrays = 0;
+  for (const item of items) {
+    if (Array.isArray(item)) {
+      arrays += 1;
+    }
+  }
+  return arrays;
+}
+
+const nested: number[][] = [[1, 2], [3], []];
+console.log(depthFirst(nested), depthFirst([1, 2, 3]));
+console.log(countArrays(nested), countArrays([1, 2, 3]));
+";
+    let expected = "3 3\n3 0\n";
+    let (generated, stdout) = build_and_run(
+        "narrowed_type_parameter_read_as_a_container_stays_erased",
+        source,
+    )?;
+    for signature in [
+        r"pub(crate) fn depth_first(items: SmeltList<SmeltUnknown>) -> f64 {",
+        r"pub(crate) fn count_arrays<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(items: SmeltList<T>) -> f64 {",
+    ] {
+        ensure(
+            generated.contains(signature),
+            format!("missing `{signature}` in:\n{generated}"),
+        )?;
+    }
+    ensure_eq(&stdout, &expected.to_owned(), "unexpected stdout")?;
+    ensure_node_agrees(
+        &[("main.ts", source)],
+        "main.ts",
+        expected,
+        "narrowed_type_parameter_read_as_a_container_stays_erased",
+    )
+}
+
+/// Rule (`smelt_codegen_rust::generic_inspection`): a scalar inspection of an
+/// OPTIONAL type parameter value (`value?: T`) is answered on the erased copy
+/// of the whole optional, so an absent argument, a falsy one and a present
+/// one each answer as JavaScript does and the function keeps its `T`.
+///
+/// Behaviour: stdout equals Node's, including a class instance (recovering a
+/// `T` from `undefined` for the absent side of the test would panic there).
+/// Type preservation: both signatures keep `T`.
+///
+/// Why this is not in example `202_inspected_type_parameter_stays_generic`:
+/// a call passing a plain `T` where the parameter is `T | undefined` does not
+/// monomorphize today (the call site instantiates `T` at the erased value),
+/// which is avoidable erasure the examples corpus may not hold. The
+/// definition is what this rule is about; the call site is a separate gap.
+#[test]
+fn optional_type_parameter_is_inspected_through_its_erased_copy() -> TestResult {
+    let source = r"class Box {
+  constructor(public size: number) {}
+}
+function describe<T>(value?: T): string {
+  return value ? 'set' : 'unset';
+}
+function isGiven<T>(value?: T): boolean {
+  return value !== undefined;
+}
+const box = new Box(2);
+console.log(describe<number>(), describe(0), describe(1), describe('x'), describe(box));
+console.log(isGiven<string>(), isGiven(0), isGiven(''), isGiven(box));
+";
+    let expected = "unset unset set set set\nfalse true true true\n";
+    let (generated, stdout) = build_and_run(
+        "optional_type_parameter_is_inspected_through_its_erased_copy",
+        source,
+    )?;
+    for signature in [
+        r"pub(crate) fn describe<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(value: Option<T>) -> JsString {",
+        r"pub(crate) fn is_given<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(value: Option<T>) -> bool {",
+    ] {
+        ensure(
+            generated.contains(signature),
+            format!("missing `{signature}` in:\n{generated}"),
+        )?;
+    }
+    ensure_eq(&stdout, &expected.to_owned(), "unexpected stdout")?;
+    ensure_node_agrees(
+        &[("main.ts", source)],
+        "main.ts",
+        expected,
+        "optional_type_parameter_is_inspected_through_its_erased_copy",
+    )
+}

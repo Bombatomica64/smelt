@@ -139,7 +139,7 @@ fn shape_at_depth(krate: &Crate, id: TypeId, depth: usize) -> String {
         Type::PyStr => "PyStr".to_owned(),
         Type::Symbol => "Symbol".to_owned(),
         Type::PropKey => "PropKey".to_owned(),
-        Type::Unknown => "Unknown".to_owned(),
+        Type::Unknown | Type::IndexedAccess { .. } => "Unknown".to_owned(),
         Type::Never => "Never".to_owned(),
         Type::None => "None".to_owned(),
         Type::Dict(..) => "Dict".to_owned(),
@@ -499,6 +499,7 @@ impl Comparer<'_> {
             | Type::Symbol
             | Type::PropKey
             | Type::Unknown
+            | Type::IndexedAccess { .. }
             | Type::Never
             | Type::TypeParam { .. }
             | Type::None

@@ -120,6 +120,7 @@ fn children(ty: &Type) -> Vec<TypeId> {
             yield_ty,
             return_ty,
         } => vec![*yield_ty, *return_ty],
+        Type::IndexedAccess { object, index } => vec![*object, *index],
         Type::Bool
         | Type::Int
         | Type::PyInt
@@ -192,6 +193,10 @@ fn map(types: &mut TypeInterner, ty: TypeId, language: SourceLanguage, depth: us
         } => Type::GeneratorResult {
             yield_ty: each(types, yield_ty),
             return_ty: each(types, return_ty),
+        },
+        Type::IndexedAccess { object, index } => Type::IndexedAccess {
+            object: each(types, object),
+            index: each(types, index),
         },
         leaf @ (Type::Bool
         | Type::Int

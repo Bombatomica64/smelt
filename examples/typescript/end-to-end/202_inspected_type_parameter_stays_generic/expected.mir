@@ -1,0 +1,459 @@
+class Box fields [Public size: Float] constructor Some(FuncId(12)) methods []
+
+fn is_nil (FuncId(0)) -> Bool
+  locals
+    %0 param value: T
+    %1 temp: T
+    %2 temp: Bool
+  bb0:
+    %1 = none
+    %2 = copy %0 == move %1
+    return move %2
+
+fn is_missing (FuncId(1)) -> Bool
+  locals
+    %0 param value: T
+    %1 temp: T
+    %2 temp: Bool
+  bb0:
+    %1 = undefined
+    %2 = copy %0 == move %1
+    return move %2
+
+fn is_null (FuncId(2)) -> Bool
+  locals
+    %0 param value: T
+    %1 temp: T
+    %2 temp: Bool
+  bb0:
+    %1 = none
+    %2 = copy %0 == move %1
+    return move %2
+
+fn kind (FuncId(3)) -> String
+  locals
+    %0 param value: T
+    %1 temp: String
+  bb0:
+    %1 = typeof copy %0
+    return move %1
+
+fn truthy (FuncId(4)) -> Bool
+  locals
+    %0 param value: T
+    %1 temp: Bool
+    %2 temp: Bool
+  bb0:
+    %1 = !copy %0
+    %2 = !move %1
+    return move %2
+
+fn or_else (FuncId(5)) -> T
+  locals
+    %0 param value: T
+    %1 param fallback: T
+    %2 temp: Bool
+    %3 temp: T
+  bb0:
+    %2 = primitive_cast_bool copy %0
+    switch move %2 ? bb1 : bb2
+  bb1:
+    %3 = copy %0
+    goto bb3
+  bb2:
+    %3 = copy %1
+    goto bb3
+  bb3:
+    return move %3
+
+fn compact (FuncId(6)) -> List<T>
+  locals
+    %0 param items: List<T>
+    %1 user out: List<T>
+    %2 user item: T
+    %3 temp: List<T>
+    %4 temp: usize
+    %5 temp: usize
+    %6 temp: Bool
+    %7 temp: Bool
+    %8 temp: Float
+  bb0:
+    %1 = []
+    %4 = 0
+    goto bb1
+  bb1:
+    %5 = len copy %0
+    %6 = copy %4 < move %5
+    switch move %6 ? bb2 : bb4
+  bb2:
+    %2 = copy %0[copy %4]
+    %7 = primitive_cast_bool copy %2
+    switch move %7 ? bb5 : bb6
+  bb3:
+    %4 = copy %4 + 1
+    goto bb1
+  bb4:
+    return move %1
+  bb5:
+    %8 = list_push copy %1, move %2
+    goto bb6
+  bb6:
+    goto bb3
+
+fn count_strings (FuncId(7)) -> Float
+  locals
+    %0 param items: List<T>
+    %1 user count: Float
+    %2 user item: T
+    %3 temp: usize
+    %4 temp: usize
+    %5 temp: Bool
+    %6 temp: Bool
+    %7 temp: Float
+  bb0:
+    %1 = 0.0
+    %3 = 0
+    goto bb1
+  bb1:
+    %4 = len copy %0
+    %5 = copy %3 < move %4
+    switch move %5 ? bb2 : bb4
+  bb2:
+    %2 = copy %0[copy %3]
+    %6 = unknown_is String move %2
+    switch move %6 ? bb5 : bb6
+  bb3:
+    %3 = copy %3 + 1
+    goto bb1
+  bb4:
+    return move %1
+  bb5:
+    %1 = move %1 + 1.0
+    goto bb6
+  bb6:
+    goto bb3
+
+fn keep_defined (FuncId(8)) -> List<T>
+  locals
+    %0 param items: List<T>
+    %1 temp: fn(T, Int, List<T>) -> Bool
+    %2 temp: List<T>
+  bb0:
+    %1 = closure ClosureId(0) []
+    %2 = list_filter copy %0, move %1
+    return move %2
+
+fn tally (FuncId(9)) -> String
+  locals
+    %0 param items: List<T>
+    %1 user kinds: List<String>
+    %2 user item: T
+    %3 temp: List<String>
+    %4 temp: usize
+    %5 temp: usize
+    %6 temp: Bool
+    %7 temp: String
+    %8 temp: Float
+    %9 temp: String
+  bb0:
+    %1 = []
+    %4 = 0
+    goto bb1
+  bb1:
+    %5 = len copy %0
+    %6 = copy %4 < move %5
+    switch move %6 ? bb2 : bb4
+  bb2:
+    %2 = copy %0[copy %4]
+    %7 = typeof move %2
+    %8 = list_push copy %1, move %7
+    goto bb3
+  bb3:
+    %4 = copy %4 + 1
+    goto bb1
+  bb4:
+    %9 = string_join move %1, ","
+    return move %9
+
+fn append_if_present (FuncId(10)) -> List<T>
+  locals
+    %0 param items: List<T>
+    %1 param value: T
+    %2 temp: T
+    %3 temp: Bool
+    %4 temp: Float
+  bb0:
+    %2 = none
+    %3 = copy %1 != move %2
+    switch move %3 ? bb1 : bb2
+  bb1:
+    %4 = list_push copy %0, copy %1
+    goto bb2
+  bb2:
+    return copy %0
+
+fn push_if_truthy (FuncId(11)) -> Float
+  locals
+    %0 param items: List<T>
+    %1 param value: T
+    %2 temp: Bool
+    %3 temp: Float
+    %4 temp: Float
+  bb0:
+    %2 = primitive_cast_bool copy %1
+    switch move %2 ? bb1 : bb2
+  bb1:
+    %3 = list_push copy %0, copy %1
+    goto bb2
+  bb2:
+    %4 = len copy %0
+    return move %4
+
+fn new (FuncId(12)) -> Box
+  locals
+    %0 user this: Box
+    %1 param size: Float
+  bb0:
+    %0 = struct0 {}
+    %0.field29 = copy %1
+    return move %0
+
+fn smelt_global_init__box__0 (FuncId(13)) -> Box
+  locals
+    %0 temp: Box
+  bb0:
+    %0 = call fn12(2.0) -> bb1
+  bb1:
+    return move %0
+
+fn main (FuncId(14)) -> None
+  locals
+    %0 user shared: List<Float>
+    %1 user same: List<Float>
+    %2 user boxes: List<Box>
+    %3 temp: None
+    %4 temp: Bool
+    %5 temp: Bool
+    %6 temp: Box
+    %7 temp: Bool
+    %8 temp: Bool
+    %9 temp: None
+    %10 temp: Bool
+    %11 temp: Bool
+    %12 temp: Box
+    %13 temp: Bool
+    %14 temp: None
+    %15 temp: Bool
+    %16 temp: Bool
+    %17 temp: Box
+    %18 temp: Bool
+    %19 temp: None
+    %20 temp: String
+    %21 temp: String
+    %22 temp: String
+    %23 temp: Box
+    %24 temp: String
+    %25 temp: String
+    %26 temp: None
+    %27 temp: Box
+    %28 temp: Bool
+    %29 temp: Bool
+    %30 temp: Bool
+    %31 temp: Bool
+    %32 temp: Bool
+    %33 temp: Bool
+    %34 temp: None
+    %35 temp: Float
+    %36 temp: Float
+    %37 temp: String
+    %38 temp: String
+    %39 temp: Box
+    %40 temp: Box
+    %41 temp: Box
+    %42 temp: None
+    %43 temp: List<Float>
+    %44 temp: List<Float>
+    %45 temp: String
+    %46 temp: List<String>
+    %47 temp: List<String>
+    %48 temp: String
+    %49 temp: None
+    %50 temp: List<String>
+    %51 temp: Float
+    %52 temp: List<Float>
+    %53 temp: Float
+    %54 temp: None
+    %55 temp: List<Float>
+    %56 temp: List<Float>
+    %57 temp: Float
+    %58 temp: List<Float>
+    %59 temp: String
+    %60 temp: List<String>
+    %61 temp: String
+    %62 temp: Box
+    %63 temp: List<Box>
+    %64 temp: String
+    %65 temp: None
+    %66 temp: List<Float>
+    %67 temp: List<Float>
+    %68 temp: Float
+    %69 temp: String
+    %70 temp: Bool
+    %71 temp: None
+    %72 temp: Float
+    %73 temp: Float
+    %74 temp: String
+    %75 temp: None
+    %76 temp: Box
+    %77 temp: List<Box>
+    %78 temp: Box
+    %79 temp: Float
+    %80 temp: Box
+    %81 temp: Float
+    %82 temp: None
+  bb0:
+    %3 = global_get #0
+    %4 = call fn0(1.0) -> bb1
+  bb1:
+    %5 = call fn0("a") -> bb2
+  bb2:
+    %6 = global_get #0
+    %7 = call fn0(move %6) -> bb3
+  bb3:
+    %8 = call fn0(0.0) -> bb4
+  bb4:
+    %9 = call @console_log(move %4, move %5, move %7, move %8) -> bb5
+  bb5:
+    %10 = call fn1(1.0) -> bb6
+  bb6:
+    %11 = call fn1(false) -> bb7
+  bb7:
+    %12 = global_get #0
+    %13 = call fn1(move %12) -> bb8
+  bb8:
+    %14 = call @console_log(move %10, move %11, move %13) -> bb9
+  bb9:
+    %15 = call fn2(1.0) -> bb10
+  bb10:
+    %16 = call fn2("") -> bb11
+  bb11:
+    %17 = global_get #0
+    %18 = call fn2(move %17) -> bb12
+  bb12:
+    %19 = call @console_log(move %15, move %16, move %18) -> bb13
+  bb13:
+    %20 = call fn3(1.0) -> bb14
+  bb14:
+    %21 = call fn3("a") -> bb15
+  bb15:
+    %22 = call fn3(true) -> bb16
+  bb16:
+    %23 = global_get #0
+    %24 = call fn3(move %23) -> bb17
+  bb17:
+    %25 = call fn3(1n) -> bb18
+  bb18:
+    %26 = call @console_log(move %20, move %21, move %22, move %24, move %25) -> bb19
+  bb19:
+    %27 = global_get #0
+    %28 = call fn4(move %27) -> bb20
+  bb20:
+    %29 = call fn4(0.0) -> bb21
+  bb21:
+    %30 = call fn4("") -> bb22
+  bb22:
+    %31 = call fn4("0") -> bb23
+  bb23:
+    %32 = call fn4(NaN) -> bb24
+  bb24:
+    %33 = call fn4(2.0) -> bb25
+  bb25:
+    %34 = call @console_log(move %28, move %29, move %30, move %31, move %32, move %33) -> bb26
+  bb26:
+    %35 = call fn5(0.0, 5.0) -> bb27
+  bb27:
+    %36 = call fn5(2.0, 5.0) -> bb28
+  bb28:
+    %37 = call fn5("", "x") -> bb29
+  bb29:
+    %38 = call fn5("y", "x") -> bb30
+  bb30:
+    %39 = global_get #0
+    %40 = call fn12(9.0) -> bb31
+  bb31:
+    %41 = call fn5(move %39, move %40) -> bb32
+  bb32:
+    %42 = call @console_log(move %35, move %36, move %37, move %38, copy %41.field29) -> bb33
+  bb33:
+    %43 = [0.0, 1.0, 2.0, 0.0, 3.0]
+    %44 = call fn6(move %43) -> bb34
+  bb34:
+    %45 = string_join move %44, ","
+    %46 = ["", "a", "b"]
+    %47 = call fn6(move %46) -> bb35
+  bb35:
+    %48 = string_join move %47, ","
+    %49 = call @console_log(move %45, move %48) -> bb36
+  bb36:
+    %50 = ["a", "b"]
+    %51 = call fn7(move %50) -> bb37
+  bb37:
+    %52 = [1.0, 2.0]
+    %53 = call fn7(move %52) -> bb38
+  bb38:
+    %54 = call @console_log(move %51, move %53) -> bb39
+  bb39:
+    %55 = [1.0, 2.0, 3.0]
+    %56 = call fn8(move %55) -> bb40
+  bb40:
+    %57 = len move %56
+    %58 = [1.0, 2.0]
+    %59 = call fn9(move %58) -> bb41
+  bb41:
+    %60 = ["a"]
+    %61 = call fn9(move %60) -> bb42
+  bb42:
+    %62 = global_get #0
+    %63 = [move %62]
+    %64 = call fn9(move %63) -> bb43
+  bb43:
+    %65 = call @console_log(move %57, move %59, move %61, move %64) -> bb44
+  bb44:
+    %0 = [1.0, 2.0]
+    %67 = call fn10(copy %0, 3.0) -> bb45
+  bb45:
+    %1 = move %67
+    %68 = list_push copy %1, 4.0
+    %69 = string_join copy %0, ","
+    %70 = move %1 == copy %0
+    %71 = call @console_log(move %69, move %70) -> bb46
+  bb46:
+    %72 = call fn11(copy %0, 5.0) -> bb47
+  bb47:
+    %73 = call fn11(copy %0, 0.0) -> bb48
+  bb48:
+    %74 = string_join move %0, ","
+    %75 = call @console_log(move %72, move %73, move %74) -> bb49
+  bb49:
+    %76 = global_get #0
+    %2 = [move %76]
+    %78 = call fn12(5.0) -> bb50
+  bb50:
+    %79 = call fn11(copy %2, move %78) -> bb51
+  bb51:
+    %80 = copy %2[1.0]
+    %81 = len move %2
+    %82 = call @console_log(move %79, copy %80.field29, move %81) -> bb52
+  bb52:
+    return none
+
+closure ClosureId(0) -> Bool
+  locals
+    %0 param item: T
+    %1 temp: T
+    %2 temp: Bool
+  bb0:
+    %1 = none
+    %2 = copy %0 != copy %1
+    return copy %2
+

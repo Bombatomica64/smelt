@@ -169,7 +169,8 @@ impl FunctionEmitter<'_> {
                 | Type::String
                 | Type::PyStr
                 | Type::None
-                | Type::Unknown,
+                | Type::Unknown
+                | Type::IndexedAccess { .. },
             ) => true,
             // JSON has no bigint: `JSON.parse` can never produce one, so a
             // bigint target is not a decodable shape.

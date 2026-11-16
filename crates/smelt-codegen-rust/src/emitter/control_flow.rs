@@ -421,6 +421,14 @@ impl FunctionEmitter<'_> {
                     } if self.local_is_static_typeof_str(*dest) => {
                         self.typeof_str_expr(typeof_operand)?.into_string()
                     }
+                    // The absent side of an absence test of a lifted type
+                    // parameter value: never read, and no `T` can hold it
+                    // (`emitter::generic_scrutinee`).
+                    Rvalue::Use(Operand::Const(Constant::None | Constant::Undefined))
+                        if self.is_absence_probe_temp(*dest)? =>
+                    {
+                        Self::absence_probe_placeholder().to_owned()
+                    }
                     _ => self.rvalue_expr_for_dest(value, local.ty)?.into_string(),
                 };
                 if self.local_is_maybe_unbound(*dest)? {
