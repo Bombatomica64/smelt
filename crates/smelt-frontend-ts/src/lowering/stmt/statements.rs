@@ -792,7 +792,7 @@ impl ModuleBuilder<'_> {
         self.with_narrowing(Some(std::collections::HashMap::default()), |this| {
             let iter_ty = Self::expr_ty(body, iter);
             let Some((pat, value, binding, annotated_ty, mutable)) =
-                this.for_left_destructuring(left, iter_ty, body)?
+                this.for_left_destructuring(left, loop_statement, iter_ty, body)?
             else {
                 let pat = this.for_left_pattern(left, iter_ty, body)?;
                 return Ok((pat, this.block_from_statement(loop_statement, body)?));

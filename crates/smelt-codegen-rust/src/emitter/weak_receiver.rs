@@ -334,7 +334,11 @@ fn listener_registrations(blocks: &[BasicBlock]) -> Vec<(ClosureId, LocalId)> {
             continue;
         };
         let uses = statements()
-            .filter(|candidate| candidate.value().reads_local(*dest))
+            .filter(|candidate| {
+                candidate
+                    .value()
+                    .is_some_and(|value| value.reads_local(*dest))
+            })
             .count()
             .saturating_add(
                 blocks

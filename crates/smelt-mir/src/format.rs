@@ -195,6 +195,7 @@ fn statement_text(statement: &Statement) -> String {
             local_ref(*current),
             rvalue_text(value)
         ),
+        Statement::StorageLive(local) => format!("storage_live {}", local_ref(*local)),
     }
 }
 

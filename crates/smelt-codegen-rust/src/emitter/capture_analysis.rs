@@ -115,6 +115,9 @@ impl FunctionEmitter<'_> {
                 // Its stored value is a `Use`/`Unary`/`Binary` over constants
                 // and the entry itself, which mutates and forwards nothing.
                 Statement::DictEntryUpdate { .. } => false,
+                // A fresh per-iteration binding writes nothing through the
+                // parameter.
+                Statement::StorageLive(_) => false,
             }) {
                 return true;
             }
@@ -573,7 +576,8 @@ impl FunctionEmitter<'_> {
                     // `current` temporary, which no closure captures.
                     Statement::Assign { .. }
                     | Statement::AssignPlace { .. }
-                    | Statement::DictEntryUpdate { .. } => {}
+                    | Statement::DictEntryUpdate { .. }
+                    | Statement::StorageLive(_) => {}
                 }
             }
         }
@@ -701,7 +705,7 @@ impl FunctionEmitter<'_> {
             .iter()
             .flat_map(|block| &block.statements)
             .filter_map(|statement| {
-                if let Rvalue::Closure { id, .. } = statement.value() {
+                if let Some(Rvalue::Closure { id, .. }) = statement.value() {
                     Some(*id)
                 } else {
                     None
@@ -782,6 +786,9 @@ impl FunctionEmitter<'_> {
                         )
                         || self.nested_closure_writes_capture(value, target)
                 }
+                // A fresh binding cell starts the next iteration's binding;
+                // it writes no value into the capture.
+                Statement::StorageLive(_) => false,
             });
             statement_writes
                 || self.closure_terminator_writes_local(closure, block.terminator.as_ref(), target)

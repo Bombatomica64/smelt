@@ -720,7 +720,9 @@ fn for_each_record_beside_an_erased_container(mir: &Mir, mut beside: impl FnMut(
                 // A projected target's container is visited below as the
                 // statement's base read, and a fused entry update's `current`
                 // is a primitive scalar, which holds no erased slot.
-                Statement::AssignPlace { .. } | Statement::DictEntryUpdate { .. } => false,
+                Statement::AssignPlace { .. }
+                | Statement::DictEntryUpdate { .. }
+                | Statement::StorageLive(_) => false,
             };
             statement.reads(|read| {
                 let local = match read {

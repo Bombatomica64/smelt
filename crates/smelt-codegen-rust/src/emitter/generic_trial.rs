@@ -324,7 +324,9 @@ impl<'mir> FunctionEmitter<'mir> {
                         // A store into a container or a whole-binding rebind
                         // keeps what it reads; a fused entry update reads only
                         // scalars, which hold no buffer.
-                        Statement::AssignPlace { .. } | Statement::DictEntryUpdate { .. } => false,
+                        Statement::AssignPlace { .. }
+                        | Statement::DictEntryUpdate { .. }
+                        | Statement::StorageLive(_) => false,
                     };
                     statement.reads(|read| {
                         if let Read::Operand(operand) = read
@@ -350,8 +352,9 @@ impl<'mir> FunctionEmitter<'mir> {
                         | Statement::DictEntryUpdate { current: dest, .. } => {
                             fresh_defs.insert(*dest, false);
                         }
-                        // A projected write defines no local.
-                        Statement::AssignPlace { .. } => {}
+                        // A projected write defines no local, and a fresh binding
+                        // cell defines no value.
+                        Statement::AssignPlace { .. } | Statement::StorageLive(_) => {}
                     }
                 }
                 if let Some(terminator) = &block.terminator {

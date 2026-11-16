@@ -1037,7 +1037,7 @@ fn callback_param_escapes_locally(
         .iter()
         .flat_map(|block| &block.statements)
         .filter_map(|statement| {
-            if let Rvalue::Closure { id, .. } = statement.value() {
+            if let Some(Rvalue::Closure { id, .. }) = statement.value() {
                 Some(*id)
             } else {
                 None
@@ -1180,8 +1180,11 @@ fn callback_param_escapes_locally(
                 ..
             } => *candidate == local,
             // A projected write leaves the binding itself in place, and a
-            // fused entry update binds only its scalar `current` temporary.
-            Statement::AssignPlace { .. } | Statement::DictEntryUpdate { .. } => false,
+            // fused entry update binds only its scalar `current` temporary;
+            // a fresh binding cell is a loop declaration's, never a parameter.
+            Statement::AssignPlace { .. }
+            | Statement::DictEntryUpdate { .. }
+            | Statement::StorageLive(_) => false,
         })
     });
     // A callback passed as the function argument of a timer async op
@@ -1351,7 +1354,7 @@ fn function_rvalues(function: &MirFunction) -> impl Iterator<Item = &Rvalue> {
                 Statement::Assign { value, .. } | Statement::AssignPlace { value, .. } => {
                     Some(value)
                 }
-                Statement::DictEntryUpdate { .. } => None,
+                Statement::DictEntryUpdate { .. } | Statement::StorageLive(_) => None,
             });
         let carried = match &block.terminator {
             Some(Terminator::Call {
@@ -1529,7 +1532,8 @@ fn statement_packs_callback_param_into_container(
             place: Place::Global { .. },
             ..
         }
-        | Statement::DictEntryUpdate { .. } => return false,
+        | Statement::DictEntryUpdate { .. }
+        | Statement::StorageLive(_) => return false,
     };
     let Some(dest_ty) = id_index(dest.0, "local index does not fit usize")
         .ok()
@@ -1668,7 +1672,8 @@ fn closure_definitions(
                 // defines one; any other statement defines no closure local.
                 Statement::Assign { .. }
                 | Statement::AssignPlace { .. }
-                | Statement::DictEntryUpdate { .. } => {}
+                | Statement::DictEntryUpdate { .. }
+                | Statement::StorageLive(_) => {}
             }
         }
     }

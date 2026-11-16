@@ -1829,6 +1829,9 @@ impl FunctionEmitter<'_> {
                 // A projected write changes what the base holds, not which
                 // value the base local is.
                 Statement::AssignPlace { .. } => false,
+                // A fresh per-iteration cell holds no value until the
+                // declaration's own assignment writes it.
+                Statement::StorageLive(_) => false,
             })
             .count()
     }

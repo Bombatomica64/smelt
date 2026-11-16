@@ -247,6 +247,7 @@ fn measure_body(
                     read(default);
                     value.reads(&mut read);
                 }
+                Statement::StorageLive(_) => {}
             }
         }
         match &block.terminator {
@@ -429,7 +430,7 @@ fn closure_owners(mir: &Mir) -> HashMap<ClosureId, usize> {
     fn created(blocks: &[BasicBlock]) -> impl Iterator<Item = ClosureId> + '_ {
         blocks.iter().flat_map(|block| {
             block.statements.iter().filter_map(|statement| {
-                if let Rvalue::Closure { id, .. } = statement.value() {
+                if let Some(Rvalue::Closure { id, .. }) = statement.value() {
                     Some(*id)
                 } else {
                     None

@@ -2,7 +2,7 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 14234,
+      "concrete": 14236,
       "generic": 351,
       "erased": 7067
     },
@@ -2468,7 +2468,7 @@
     },
     "src/array/zipWith.ts": {
       "values": {
-        "concrete": 7,
+        "concrete": 8,
         "generic": 2,
         "erased": 19
       },
@@ -4304,7 +4304,7 @@
     },
     "src/compat/array/pullAllWith.ts": {
       "values": {
-        "concrete": 27,
+        "concrete": 28,
         "generic": 0,
         "erased": 21
       },

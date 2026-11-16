@@ -3,7 +3,6 @@
 
 use super::*;
 use crate::emitter::local_binding::SELF_OWNED_NAME;
-use crate::rust::RustExpr;
 
 impl FunctionEmitter<'_> {
     /// The closing text of an async `main`'s runtime scope.
@@ -410,13 +409,10 @@ impl FunctionEmitter<'_> {
                 self.deferred_capture_cells.borrow_mut().insert(local);
             } else if self.local_uses_shared_capture_storage(local) {
                 out.push_str(&format!(
-                    "    let smelt_capture_{name}: ::std::rc::Rc<::std::cell::RefCell<{}>> = ::std::rc::Rc::new(::std::cell::RefCell::new({}));\n",
+                    "    let {}smelt_capture_{name}: ::std::rc::Rc<::std::cell::RefCell<{}>> = {};\n",
+                    self.capture_cell_binding_mut(local),
                     self.capture_cell_type(local, decl.ty)?,
-                    (if self.is_base_initializer_receiver(local) {
-                        RustExpr::atom("Default::default()")
-                    } else {
-                        self.default_value(decl.ty)?
-                    }).delimited()
+                    self.fresh_capture_cell(local)?.delimited()
                 ));
             } else if self.predeclared_local_needs_default(local)?
                 || self.local_may_be_used_before_assignment(local)?
