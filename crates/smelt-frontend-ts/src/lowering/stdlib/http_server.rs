@@ -609,7 +609,11 @@ impl ModuleBuilder<'_> {
             HttpServerOp::Listen | HttpServerOp::Close => Ok(self.http_server_type()),
             HttpServerOp::Address => {
                 let info = self.http_address_info_type(span)?;
-                Ok(self.ctx.krate.types.intern(Type::Optional(info)))
+                Ok(self
+                    .ctx
+                    .krate
+                    .types
+                    .intern(Type::Optional(info, smelt_hir::Absence::Undefined)))
             }
         }
     }
@@ -716,7 +720,10 @@ impl ModuleBuilder<'_> {
             }
             ServerResponseOp::GetHeader => {
                 let string_ty = self.ctx.krate.types.intern(Type::String);
-                self.ctx.krate.types.intern(Type::Optional(string_ty))
+                self.ctx
+                    .krate
+                    .types
+                    .intern(Type::Optional(string_ty, smelt_hir::Absence::Undefined))
             }
             // `write` answers whether the chunk was flushed, as Node does.
             ServerResponseOp::Write => self.ctx.krate.types.intern(Type::Bool),

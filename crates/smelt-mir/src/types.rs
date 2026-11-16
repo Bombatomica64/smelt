@@ -118,6 +118,14 @@ pub struct Mir {
     /// [`smelt_hir::Crate::accessor_fields`].
     #[serde(default)]
     pub accessor_fields: Vec<(Symbol, Symbol)>,
+    /// The types inherited member copies are emitted at: a base class's method
+    /// or constructor re-emitted into a subclass with the base's type
+    /// parameters substituted by the subclass's arguments. No function holds
+    /// them, so they are listed here for every pass that walks the program's
+    /// type positions ([`Mir::visit_types`]): codegen declares the unions and
+    /// demands the runtime these copies spell from that walk.
+    #[serde(default)]
+    pub inherited_member_types: Vec<TypeId>,
     /// Function-item keys (HIR item indexes, as in
     /// [`MirClosure::function_item_key`]) of JavaScript constructors; see
     /// [`smelt_hir::Crate::constructible_functions`].
@@ -177,6 +185,7 @@ impl Mir {
             symbols,
             names,
             accessor_fields: Vec::new(),
+            inherited_member_types: Vec::new(),
             constructible_function_items: std::collections::BTreeSet::new(),
             index: crate::index::MirIndex::default(),
         }
@@ -230,6 +239,10 @@ impl Mir {
 
 /// MIR representation of a closure body and explicit environment.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "orthogonal source closure flags are preserved independently through MIR, as on `MirFunction`"
+)]
 pub struct MirClosure {
     /// Unique closure identifier.
     pub id: ClosureId,
@@ -259,6 +272,10 @@ pub struct MirClosure {
     pub can_throw: bool,
     /// Whether invoking this closure constructs suspended generator state.
     pub is_generator: bool,
+    /// Whether the source closure is `async` (its function type says so). A
+    /// closure that is not, and returns a promise it got, returns that same
+    /// promise rather than a new one.
+    pub is_async: bool,
     /// Stable per-function-item key when this closure is a bare
     /// function-item-as-value wrapper, else `None`.
     ///
@@ -342,6 +359,16 @@ pub struct MirClass {
 pub enum MirClassProtocol {
     /// Python `__add__` implemented by a concrete method.
     Add {
+        /// MIR function implementing the protocol.
+        method: FuncId,
+    },
+    /// Python `__str__` implemented by a concrete method.
+    Str {
+        /// MIR function implementing the protocol.
+        method: FuncId,
+    },
+    /// Python `__repr__` implemented by a concrete method.
+    Repr {
         /// MIR function implementing the protocol.
         method: FuncId,
     },
@@ -734,11 +761,10 @@ pub enum GlobalProjection {
 /// `Some("ada")` / `None`, a shape no source language produces -- so the
 /// present arm prints the value inside and the absent arm prints this word.
 ///
-/// TypeScript's `null` and `undefined` both intern to `Type::None`, so
-/// `T | null` and `T | undefined` are one type by the time this is chosen, and
-/// `Undefined` is the answer for both: it is what nearly every operation that
-/// *produces* an optional in TypeScript returns (`find`, `pop`, `Map.get`, an
-/// optional property or parameter, `?.`, `process.env.X`).
+/// This is the language's word; which absent value an optional's `None` is
+/// comes from its type (`smelt_hir::Absence`), and [`Self::text_for`] joins
+/// the two: a TypeScript `T | null` prints `null`, every other optional the
+/// language's own word.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AbsentSpelling {
     /// JavaScript/TypeScript: `undefined`.
@@ -763,6 +789,17 @@ impl AbsentSpelling {
         match self {
             Self::Undefined => "undefined",
             Self::None => "None",
+        }
+    }
+
+    /// The word this language prints for the `None` of an optional whose
+    /// type admits `absence`: JavaScript's `null` for a `T | null`, otherwise
+    /// [`Self::text`] (Python has one absent value, so it never says `null`).
+    #[must_use]
+    pub const fn text_for(self, absence: smelt_hir::Absence) -> &'static str {
+        match (self, absence) {
+            (Self::Undefined, smelt_hir::Absence::Null) => "null",
+            _ => self.text(),
         }
     }
 
@@ -826,6 +863,10 @@ pub enum Constant {
     /// JavaScript bigint constant, as canonical decimal digits (see
     /// `smelt_hir::Literal::BigInt`).
     BigInt(String),
+    /// Python `int` constant (`smelt_hir::Type::PyInt`), as canonical decimal
+    /// digits: a Python integer literal is unbounded (`2**100` folds to one, and
+    /// `100000000000000000000` is a valid literal).
+    PyInt(String),
     /// String constant.
     String(String),
     /// A JavaScript string constant holding a lone surrogate, as its UTF-16
@@ -1039,6 +1080,20 @@ pub enum Statement {
         /// inside the single probe and may read `current`.
         value: Rvalue,
     },
+    /// The start of a new instance of a source binding, as rustc's MIR
+    /// `StorageLive`: the binding's next value lives in fresh storage, and a
+    /// closure created before this point keeps the instance it captured.
+    ///
+    /// ECMAScript gives every evaluation of a `let`/`const` declaration its own
+    /// binding, so `while (..) { let c = ..; fns.push(() => c); c = .. }`
+    /// collects closures over distinct `c`s. One MIR local stands for all of
+    /// them, which only matters when the declaration runs more than once and a
+    /// closure captures the binding: lowering emits this statement just before
+    /// such a declaration's assignment, and only there. Codegen gives a local
+    /// stored in a shared capture cell a new cell here; for every other
+    /// storage, and for every analysis, it is a no-op. It reads and writes no
+    /// value, so it does not count as a definition of the local.
+    StorageLive(LocalId),
 }
 
 /// A MIR terminator.
@@ -1196,6 +1251,14 @@ pub enum BuiltinFn {
     ConsoleWrite,
     /// Write exact text to stderr.
     ConsoleErrorWrite,
+    /// Commit a list mutated through an assertion of an erased value back
+    /// into that value: `(er as unknown[]).push(x)` with `er: unknown`.
+    ///
+    /// Arguments: the erased receiver (as read before the mutation) and the
+    /// mutated list. The receiver's array takes the list's elements in place,
+    /// so a typed list it is a live view of sees them too; rebinding the
+    /// receiver to a new array would leave every other handle on the old one.
+    ErasedListWriteBack,
 }
 
 /// Visit every type id a function's emission reads; see

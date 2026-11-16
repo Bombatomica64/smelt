@@ -73,9 +73,9 @@ chosen: int = pick(value=5, **extras)
     // both functions can fail, and the collected parameters keep their element types.
     assert_eq!(
         rust_items(&source, &["sig sum_values", "sig pick"]),
-        r"fn sum_values(values: SmeltList<i64>) -> Result<i64, Box<dyn std::error::Error>>
+        r"fn sum_values(values: SmeltList<SmeltPyInt>) -> Result<SmeltPyInt, Box<dyn std::error::Error>>
 
-fn pick(kwargs: SmeltRecord<String, i64>) -> Result<i64, Box<dyn std::error::Error>>"
+fn pick(kwargs: SmeltRecord<String, SmeltPyInt>) -> Result<SmeltPyInt, Box<dyn std::error::Error>>"
     );
 }
 
@@ -96,7 +96,7 @@ text: str = json.dumps(values)
     );
 
     // JavaScript's encoder goes through the erased carrier; Python's is typed
-    // (`SmeltPyJson` at `SmeltList<i64>`), since its output depends on `int`
+    // (`SmeltPyJson` at `SmeltList<SmeltPyInt>`), since its output depends on `int`
     // versus `float` and on CPython's own separators.
     assert!(ts_source.contains("smelt_json_stringify(&"));
     assert!(ts_source.contains(".expect(\"JSON serialization failed\")"));
@@ -142,7 +142,7 @@ def run() -> None:
         "{ts_source}"
     );
     assert!(
-        py_source.contains("let values: SmeltList<i64>"),
+        py_source.contains("let values: SmeltList<SmeltPyInt>"),
         "{py_source}"
     );
 }
@@ -160,7 +160,7 @@ const values = JSON.parse(text);
     // erased `SmeltUnknown` (which is) and the record is reached by coercion.
     assert!(ts_source.contains("smelt_json_parse(&"), "{ts_source}");
     assert!(
-        ts_source.contains("serde_json::from_str::<SmeltUnknown>(text)"),
+        ts_source.contains("SmeltJsonReader::read(text)"),
         "{ts_source}"
     );
     assert!(
@@ -204,7 +204,7 @@ const bag = JSON.parse(text) as Record<string, unknown>;
     );
     assert!(ts_source.contains("smelt_json_parse(text)?"), "{ts_source}");
     assert!(
-        ts_source.contains("serde_json::from_str::<SmeltUnknown>(text)"),
+        ts_source.contains("SmeltJsonReader::read(text)"),
         "{ts_source}"
     );
     assert!(

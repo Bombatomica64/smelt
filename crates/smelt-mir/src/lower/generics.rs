@@ -181,10 +181,9 @@ pub(super) fn substitute_type_id(
                 .collect();
             mir.types.intern(Type::Tuple(substituted_items))
         }
-        Some(Type::Optional(item)) => {
+        Some(Type::Optional(item, absence)) => {
             let substituted_item = substitute_type_id(mir, item, substitutions);
-            // A `T | null` substitutes to `U | null` (its absent value).
-            mir.types.intern_optional_like(ty, substituted_item)
+            smelt_hir::type_normalize::wrap_optional(&mut mir.types, substituted_item, absence)
         }
         Some(Type::Union(items)) => {
             let substituted_items = items
@@ -243,9 +242,20 @@ pub(super) fn substitute_type_id(
                 return_ty: substituted_return,
             })
         }
+        // Never a MIR type (see `Type::IndexedAccess`); substituted position
+        // by position like every other constructor, and never evaluated here.
+        Some(Type::IndexedAccess { object, index }) => {
+            let substituted_object = substitute_type_id(mir, object, substitutions);
+            let substituted_index = substitute_type_id(mir, index, substitutions);
+            mir.types.intern(Type::IndexedAccess {
+                object: substituted_object,
+                index: substituted_index,
+            })
+        }
         Some(
             Type::Bool
             | Type::Int
+            | Type::PyInt
             | Type::FixedInt(_)
             | Type::BigInt
             | Type::Float

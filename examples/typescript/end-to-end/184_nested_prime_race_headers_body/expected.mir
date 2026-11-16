@@ -106,7 +106,7 @@ async fn run (FuncId(7)) -> None
     %22 temp: String
     %23 temp: None
     %24 temp: Response
-    %25 temp: Optional<ReadableStream>
+    %25 temp: Nullable<ReadableStream>
     %26 temp: Float
     %27 temp: Response
     %28 temp: Float

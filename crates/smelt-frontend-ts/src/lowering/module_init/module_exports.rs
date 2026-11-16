@@ -242,7 +242,7 @@ impl ModuleBuilder<'_> {
     fn has_concrete_carrier(&self, ty: smelt_hir::TypeId) -> bool {
         match self.ctx.krate.types.get(ty) {
             Some(Type::String | Type::Float | Type::Int | Type::Bool) => true,
-            Some(Type::List(item) | Type::Optional(item)) => self.has_concrete_carrier(*item),
+            Some(Type::List(item) | Type::Optional(item, _)) => self.has_concrete_carrier(*item),
             Some(Type::Class { name, args }) => {
                 args.is_empty()
                     && source_spelling(&self.ctx.krate, *name)

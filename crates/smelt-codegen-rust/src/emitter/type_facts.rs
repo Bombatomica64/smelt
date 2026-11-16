@@ -26,7 +26,7 @@ impl FunctionEmitter<'_> {
             Some(
                 container @ (Type::List(_)
                 | Type::Set(_)
-                | Type::Optional(_)
+                | Type::Optional(..)
                 | Type::Dict(_, _)
                 | Type::Tuple(_)),
             ) => container
@@ -75,8 +75,8 @@ impl FunctionEmitter<'_> {
     /// SameValueZero membership and preserves insertion order.
     pub(super) fn type_is_hash_set_key_safe(&self, ty: TypeId) -> bool {
         match self.mir.types.get(ty) {
-            Some(Type::Bool | Type::Int | Type::String | Type::PyStr) => true,
-            Some(Type::Optional(inner) | Type::Future(inner)) => {
+            Some(Type::Bool | Type::Int | Type::PyInt | Type::String | Type::PyStr) => true,
+            Some(Type::Optional(inner, _) | Type::Future(inner)) => {
                 self.type_is_hash_set_key_safe(*inner)
             }
             Some(Type::Union(items)) => items
@@ -174,6 +174,10 @@ impl FunctionEmitter<'_> {
     }
 
     /// Return a discriminant for a map/dict type's backing container.
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "single-shape recogniser: only `JsMap` and `Dict` have a map backing; every other type shares the one non-map tag"
+    )]
     fn map_backing_tag(&self, ty: &Type) -> u8 {
         match ty {
             Type::JsMap(_, _) => 0,
@@ -356,7 +360,7 @@ impl FunctionEmitter<'_> {
         }
         match self.mir.types.get(base_ty) {
             Some(Type::List(_) | Type::Dict(_, _) | Type::String | Type::PyStr) => true,
-            Some(Type::Optional(inner)) => {
+            Some(Type::Optional(inner, _)) => {
                 matches!(self.mir.types.get(*inner), Some(Type::List(_)))
             }
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => true,
@@ -502,7 +506,7 @@ impl FunctionEmitter<'_> {
             Some(Type::Function(_) | Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => {
                 true
             }
-            Some(Type::Optional(inner)) => self.type_accepts_erased_function(*inner),
+            Some(Type::Optional(inner, _)) => self.type_accepts_erased_function(*inner),
             _ => self.is_erased_class_type(ty),
         }
     }
@@ -527,7 +531,7 @@ impl FunctionEmitter<'_> {
                     | Type::List(_)
                     | Type::Set(_)
                     | Type::Dict(_, _)
-                    | Type::Optional(_)
+                    | Type::Optional(..)
             )
         )
     }
@@ -544,7 +548,13 @@ pub(crate) fn dict_key_uses_js_key_map(mir: &Mir, key_ty: TypeId) -> bool {
     match mir.types.get(key_ty) {
         // A bigint key hashes by value, which is SameValueZero for bigints.
         Some(
-            Type::Bool | Type::Int | Type::FixedInt(_) | Type::BigInt | Type::String | Type::PyStr,
+            Type::Bool
+            | Type::Int
+            | Type::PyInt
+            | Type::FixedInt(_)
+            | Type::BigInt
+            | Type::String
+            | Type::PyStr,
         ) => false,
         Some(Type::Float) => true,
         // A property-key record (`Record<K, V>` with a type-parameter key, or
@@ -553,12 +563,15 @@ pub(crate) fn dict_key_uses_js_key_map(mir: &Mir, key_ty: TypeId) -> bool {
         // `is_prop_key_record_key`). A symbol key compares by identity like
         // any `SmeltJsKeyEq` key.
         Some(Type::PropKey | Type::Symbol) => true,
-        Some(Type::Optional(inner) | Type::Future(inner)) => dict_key_uses_js_key_map(mir, *inner),
+        Some(Type::Optional(inner, _) | Type::Future(inner)) => {
+            dict_key_uses_js_key_map(mir, *inner)
+        }
         Some(Type::Union(items)) => items
             .iter()
             .any(|item| dict_key_uses_js_key_map(mir, *item)),
         Some(
             Type::Unknown
+            | Type::IndexedAccess { .. }
             | Type::TypeParam { .. }
             | Type::Never
             | Type::List(_)
@@ -605,6 +618,6 @@ pub(crate) fn dict_renders_as_index_map(
 pub(crate) fn dict_key_uses_smelt_record(mir: &Mir, key_ty: TypeId) -> bool {
     matches!(
         mir.types.get(key_ty),
-        Some(Type::String | Type::PyStr | Type::Int | Type::Bool)
+        Some(Type::String | Type::PyStr | Type::Int | Type::PyInt | Type::Bool)
     )
 }

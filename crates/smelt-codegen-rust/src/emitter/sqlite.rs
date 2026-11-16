@@ -87,7 +87,11 @@ impl FunctionEmitter<'_> {
                         ));
                         self.rendered_at_type(&text, unknown_ty, dest_ty, &scope)
                     }
-                    _ => {
+                    // The enclosing arm admits only `All`, `Get` and `Run`.
+                    SqliteOp::Exec | SqliteOp::Prepare | SqliteOp::Close => Err(EmitError::new(
+                        "internal: a non-statement sqlite op reached statement rendering",
+                    )),
+                    SqliteOp::Run => {
                         let float_ty = self.type_id(Type::Float)?;
                         let string_ty = self.type_id(Type::String)?;
                         let changes_ty = self.type_id(Type::Dict(string_ty, float_ty))?;
@@ -129,7 +133,7 @@ impl FunctionEmitter<'_> {
             Some(
                 Type::Float | Type::Int | Type::String | Type::PyStr | Type::Bool | Type::Unknown,
             ) => true,
-            Some(Type::Optional(inner)) => {
+            Some(Type::Optional(inner, _)) => {
                 matches!(
                     self.mir.types.get(*inner),
                     Some(Type::Float | Type::Int | Type::String | Type::PyStr | Type::Bool)

@@ -318,12 +318,12 @@ impl FunctionEmitter<'_> {
         // throwing inner function is routed through the terminator call
         // path (see MIR `ClosureCall` lowering) where
         // `optional_indirect_call_expr_for_dest` applies the same rule.
-        if let Some(Type::Optional(inner_callee_ty)) = self.mir.types.get(callee_ty)
+        if let Some(Type::Optional(inner_callee_ty, _)) = self.mir.types.get(callee_ty)
             && let Some(Type::Function(function)) = self.mir.types.get(*inner_callee_ty).cloned()
         {
-            let dest_is_optional = matches!(self.mir.types.get(dest_ty), Some(Type::Optional(_)));
+            let dest_is_optional = matches!(self.mir.types.get(dest_ty), Some(Type::Optional(..)));
             let inner_dest_ty = match self.mir.types.get(dest_ty) {
-                Some(Type::Optional(inner)) => *inner,
+                Some(Type::Optional(inner, _)) => *inner,
                 _ => dest_ty,
             };
             let callee_text = self.operand_expr(callee)?;
@@ -473,14 +473,12 @@ impl FunctionEmitter<'_> {
             }
             None => None,
         };
-        let local_function = match callee {
-            Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) => {
-                match self.mir.types.get(self.local_decl(*local)?.ty) {
-                    Some(Type::Function(function)) => Some(function),
-                    _ => None,
-                }
-            }
-            _ => None,
+        let local_function = match callee.local() {
+            Some(local) => match self.mir.types.get(self.local_decl(local)?.ty) {
+                Some(Type::Function(function)) => Some(function),
+                _ => None,
+            },
+            None => None,
         };
         let local_params = local_function.map(|function| function.params.as_slice());
         let inferred_function = match self.mir.types.get(callee_ty) {
@@ -502,13 +500,10 @@ impl FunctionEmitter<'_> {
         // A class's function-typed FIELD answers the same way, from its
         // declaration rather than from the instantiated field type
         // MIR resolved: see `class_field_declared_function_type`.
-        let abi_function = match callee {
-            Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) => {
-                self.emitted_call_result_function_type(*local)
-            }
-            _ => None,
-        }
-        .or_else(|| self.class_field_declared_function_type(callee));
+        let abi_function = callee
+            .local()
+            .and_then(|local| self.emitted_call_result_function_type(local))
+            .or_else(|| self.class_field_declared_function_type(callee));
         let mut rendered_args = {
             let mut rendered_args = args
                 .iter()
@@ -1024,8 +1019,18 @@ impl FunctionEmitter<'_> {
         param: TypeId,
     ) -> Result<RustExpr, EmitError> {
         if matches!(arg, Operand::Const(Constant::Undefined | Constant::None))
-            && matches!(self.mir.types.get(param), Some(Type::Optional(_)))
+            && matches!(self.mir.types.get(param), Some(Type::Optional(..)))
         {
+            // `null` in a slot that admits both absences is the inner
+            // `None` (`Some(None)`); every other absent value is the outer one.
+            if matches!(arg, Operand::Const(Constant::None))
+                && matches!(
+                    smelt_hir::type_normalize::peel_optional(&self.mir.types, param),
+                    (base, true, true) if base != self.none_ty
+                )
+            {
+                return Ok(RustExpr::path("Some(None)"));
+            }
             return Ok(RustExpr::path("None"));
         }
         self.value_at_type(arg, param)
@@ -1034,7 +1039,7 @@ impl FunctionEmitter<'_> {
     /// The padding for an omitted argument to a closure value's `param`; see
     /// [`Self::closure_value_argument_expr`].
     pub(super) fn closure_value_padding_expr(&self, param: TypeId) -> Result<RustExpr, EmitError> {
-        if matches!(self.mir.types.get(param), Some(Type::Optional(_))) {
+        if matches!(self.mir.types.get(param), Some(Type::Optional(..))) {
             return Ok(RustExpr::path("None"));
         }
         self.missing_argument_value(param)

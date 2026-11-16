@@ -146,7 +146,7 @@ impl ModuleBuilder<'_> {
                 matches!(self.ctx.krate.types.get(ty), Some(Type::Float))
                     || matches!(
                         self.ctx.krate.types.get(ty),
-                        Some(Type::Optional(inner)) if matches!(self.ctx.krate.types.get(*inner), Some(Type::Float))
+                        Some(Type::Optional(inner, _)) if matches!(self.ctx.krate.types.get(*inner), Some(Type::Float))
                     )
             }),
             _ => false,
@@ -180,7 +180,7 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> smelt_hir::ExprId {
         let ty = Self::expr_ty(body, operand);
-        let Some(&Type::Optional(inner)) = types.get(ty) else {
+        let Some(&Type::Optional(inner, _)) = types.get(ty) else {
             return operand;
         };
         if !matches!(types.get(inner), Some(Type::Float)) {
@@ -858,7 +858,27 @@ impl ModuleBuilder<'_> {
                 span: self.span(unary.span.start, unary.span.end),
             }));
         }
+        // The `null` literal is an object to `typeof`.
+        if matches!(
+            peel(&unary.argument, Wrappers::Parens),
+            Expression::NullLiteral(_)
+        ) {
+            let ty = self.ctx.krate.types.intern(Type::String);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::String("object".to_owned())),
+                ty,
+                span: self.span(unary.span.start, unary.span.end),
+            }));
+        }
         let operand = self.expression(&unary.argument, body)?;
+        // `typeof null` is `"object"`, where the storage's one absent case
+        // reads as `undefined` (`lowering::null_absent`).
+        let argument_span = unary.argument.span();
+        if let Some(null_aware) =
+            self.null_absent_typeof(operand, argument_span.start, argument_span.end, body)
+        {
+            return Ok(null_aware);
+        }
         let operand_ty = Self::expr_ty(body, operand);
         let ty = self.ctx.krate.types.intern(Type::String);
         // When the operand has no statically-known `typeof` spelling (erased
@@ -972,7 +992,7 @@ impl ModuleBuilder<'_> {
             return;
         }
         match self.ctx.krate.types.get(ty) {
-            Some(Type::Int | Type::Float | Type::FixedInt(_)) => kinds.number = true,
+            Some(Type::Int | Type::PyInt | Type::Float | Type::FixedInt(_)) => kinds.number = true,
             Some(Type::BigInt) => kinds.bigint = true,
             Some(Type::String | Type::PyStr) => kinds.string = true,
             Some(Type::Bool) => kinds.boolean = true,
@@ -983,7 +1003,7 @@ impl ModuleBuilder<'_> {
                 kinds.symbol = true;
             }
             Some(Type::None | Type::Never) => {}
-            Some(Type::Optional(inner)) => self.collect_value_kinds(*inner, kinds, depth + 1),
+            Some(Type::Optional(inner, _)) => self.collect_value_kinds(*inner, kinds, depth + 1),
             Some(Type::Union(members)) => {
                 for member in members {
                     self.collect_value_kinds(*member, kinds, depth + 1);
@@ -991,6 +1011,8 @@ impl ModuleBuilder<'_> {
             }
             Some(Type::TypeParam { .. }) => kinds.parameter = true,
             Some(Type::Unknown) | None => kinds.any = true,
+            // Not a value's type; the `unknown` it erases to holds any kind.
+            Some(Type::IndexedAccess { .. }) => kinds.any = true,
             Some(
                 Type::List(_)
                 | Type::Set(_)

@@ -184,6 +184,205 @@ impl BigIntOp {
     }
 }
 
+/// A Python numeric operation that can RAISE, most of them over an `int`
+/// (see [`crate::Type::PyInt`]).
+///
+/// Each raises a `CPython` exception on some input (`int("x")` is a
+/// `ValueError`, `1 // 0` a `ZeroDivisionError`, `float(2**1024)` an
+/// `OverflowError`, `xs[2**70]` an `IndexError`), and a `try` can catch it, so
+/// MIR carries the op as the callee of a call terminator whose unwind edge
+/// reaches the handler.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PyNumericOp {
+    /// `int(text)`: `[text]`, `CPython`'s base-10 integer grammar.
+    Parse,
+    /// `int(text, base)`: `[text, base]`; base 0 reads the base from the
+    /// text's prefix.
+    ParseBase,
+    /// `int(x)` of a `float`: `[x]`, truncated toward zero. `NaN` is a
+    /// `ValueError` and an infinity an `OverflowError`.
+    FromFloat,
+    /// `float(n)`: `[n]`, correctly rounded; past `f64`'s range an
+    /// `OverflowError`.
+    ToFloat,
+    /// `a / b`: `[a, b]`, correctly rounded true division into a `float`.
+    TrueDiv,
+    /// `a // b`: `[a, b]`, rounded toward negative infinity.
+    FloorDiv,
+    /// `a % b`: `[a, b]`, taking the divisor's sign.
+    Mod,
+    /// `a ** b` with an exponent that is not provably negative: `[a, b]`, an
+    /// exact `int`.
+    Pow,
+    /// `a ** b` with a provably negative exponent: `[a, b]`, a `float`.
+    PowFloat,
+    /// `pow(a, b, m)`: `[a, b, m]`.
+    PowMod,
+    /// `a << b`: `[a, b]`; a negative count is a `ValueError`.
+    Shl,
+    /// `a >> b`: `[a, b]`; a negative count is a `ValueError`.
+    Shr,
+    /// The `int` as a sequence index: `[n]`, an `IndexError` past `i64`.
+    ToIndex,
+    /// The `int` as a size (a repeat count): `[n]`, an `OverflowError` past
+    /// `i64`.
+    ToSize,
+    /// `round(x)` of a `float`: `[x]`, the nearest `int`, ties to even.
+    RoundToInt,
+    /// `round(x, ndigits)` of a `float`: `[x, ndigits]`, correctly rounded.
+    RoundFloat,
+    /// `round(n, ndigits)` of an `int`: `[n, ndigits]`.
+    RoundInt,
+    /// `chr(code)`: `[code]` (a machine integer); outside the code points a
+    /// `ValueError`.
+    Chr,
+    /// `ord(text)`: `[text]`, a machine integer; not one character a
+    /// `TypeError`.
+    Ord,
+    /// `float(text)`: `[text]`, `CPython`'s float grammar (surrounding
+    /// whitespace, `_` between digits, `inf`/`nan`); anything else is a
+    /// `ValueError`.
+    ParseFloat,
+    /// `range(start, stop, step)`: `[start, stop, step]`, the `list[int]` of
+    /// its elements; a zero step is a `ValueError`.
+    Range,
+    /// `a ** b` where either side is a `float`: `[a, b]`, both `float`s. Zero
+    /// to a negative power is a `ZeroDivisionError`, a result past `f64`'s
+    /// range an `OverflowError`.
+    FloatPow,
+}
+
+impl PyNumericOp {
+    /// Whether the operation can raise, so its call needs an unwind edge.
+    #[must_use]
+    pub const fn can_raise(self) -> bool {
+        !matches!(self, Self::RoundFloat | Self::RoundInt)
+    }
+
+    /// The Python spelling of the operation, for dumps and diagnostics.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Parse => "int",
+            Self::ParseBase => "int_base",
+            Self::FromFloat => "int_from_float",
+            Self::ToFloat => "float_from_int",
+            Self::TrueDiv => "int_true_div",
+            Self::FloorDiv => "int_floor_div",
+            Self::Mod => "int_mod",
+            Self::Pow => "int_pow",
+            Self::PowFloat => "int_pow_float",
+            Self::PowMod => "int_pow_mod",
+            Self::Shl => "int_shl",
+            Self::Shr => "int_shr",
+            Self::ToIndex => "int_to_index",
+            Self::ToSize => "int_to_size",
+            Self::FloatPow => "float_pow",
+            Self::Range => "range",
+            Self::ParseFloat => "float_parse",
+            Self::RoundToInt => "round_to_int",
+            Self::RoundFloat => "round_float",
+            Self::RoundInt => "round_int",
+            Self::Chr => "chr",
+            Self::Ord => "ord",
+        }
+    }
+}
+
+/// A Python `str` method with `CPython`'s own rules (see the runtime's
+/// `py_str.rs`). The receiver is the first operand; every position and count
+/// operand is a machine integer, bounds already saturated.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PyStrOp {
+    /// `s.title()`: `[s]`.
+    Title,
+    /// `s.capitalize()`: `[s]`.
+    Capitalize,
+    /// `s.swapcase()`: `[s]`.
+    SwapCase,
+    /// `s.zfill(width)`: `[s, width]`.
+    ZFill,
+    /// `s.center(width, fill)`: `[s, width, fill]`; a fill that is not one
+    /// character is a `TypeError`.
+    Center,
+    /// `s.ljust(width, fill)`: `[s, width, fill]`.
+    LJust,
+    /// `s.rjust(width, fill)`: `[s, width, fill]`.
+    RJust,
+    /// `s.count(sub, start, end)`: `[s, sub, start, end]`.
+    Count,
+    /// `s.find(sub, start, end)`: `[s, sub, start, end]`.
+    Find,
+    /// `s.rfind(sub, start, end)`: `[s, sub, start, end]`.
+    RFind,
+    /// `s.index(sub, start, end)`: `[s, sub, start, end]`; `ValueError`
+    /// when absent.
+    Index,
+    /// `s.rindex(sub, start, end)`: `[s, sub, start, end]`.
+    RIndex,
+    /// `s.split(None, maxsplit)`: `[s, maxsplit]`.
+    SplitWhitespace,
+    /// `s.rsplit(None, maxsplit)`: `[s, maxsplit]`.
+    RSplitWhitespace,
+    /// `s.split(sep, maxsplit)`: `[s, sep, maxsplit]`; an empty `sep` is a
+    /// `ValueError`.
+    Split,
+    /// `s.rsplit(sep, maxsplit)`: `[s, sep, maxsplit]`.
+    RSplit,
+    /// `s.replace(old, new, count)`: `[s, old, new, count]`.
+    Replace,
+    /// `s.strip(chars)`: `[s, chars]`.
+    StripChars,
+    /// `s.lstrip(chars)`: `[s, chars]`.
+    LStripChars,
+    /// `s.rstrip(chars)`: `[s, chars]`.
+    RStripChars,
+}
+
+impl PyStrOp {
+    /// The Python method name, for dumps and diagnostics.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Title => "title",
+            Self::Capitalize => "capitalize",
+            Self::SwapCase => "swapcase",
+            Self::ZFill => "zfill",
+            Self::Center => "center",
+            Self::LJust => "ljust",
+            Self::RJust => "rjust",
+            Self::Count => "count",
+            Self::Find => "find",
+            Self::RFind => "rfind",
+            Self::Index => "index",
+            Self::RIndex => "rindex",
+            Self::SplitWhitespace => "split_whitespace",
+            Self::RSplitWhitespace => "rsplit_whitespace",
+            Self::Split => "split",
+            Self::RSplit => "rsplit",
+            Self::Replace => "replace",
+            Self::StripChars => "strip",
+            Self::LStripChars => "lstrip",
+            Self::RStripChars => "rstrip",
+        }
+    }
+
+    /// Whether the method can raise, so its call needs an unwind edge.
+    #[must_use]
+    pub const fn can_raise(self) -> bool {
+        matches!(
+            self,
+            Self::Center
+                | Self::LJust
+                | Self::RJust
+                | Self::Index
+                | Self::RIndex
+                | Self::Split
+                | Self::RSplit
+        )
+    }
+}
+
 /// A directly lowered numeric predicate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum NumericPredicateOp {

@@ -305,7 +305,7 @@ impl ModuleBuilder<'_> {
             .narrowed_type(name)
             .unwrap_or_else(|| Self::local_ty(body, local));
         let ty = match self.ctx.krate.types.get(ty) {
-            Some(Type::Optional(inner)) => *inner,
+            Some(Type::Optional(inner, _)) => *inner,
             _ => ty,
         };
         !matches!(

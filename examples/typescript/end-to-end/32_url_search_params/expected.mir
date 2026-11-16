@@ -7,13 +7,13 @@ fn main (FuncId(0)) -> None
     %4 temp: URLSearchParams
     %5 temp: None
     %6 temp: None
-    %7 temp: Optional<String>
+    %7 temp: Nullable<String>
     %8 temp: String
     %9 temp: None
     %10 temp: List<String>
     %11 temp: String
     %12 temp: None
-    %13 temp: Optional<String>
+    %13 temp: Nullable<String>
     %14 temp: String
     %15 temp: None
     %16 temp: Bool

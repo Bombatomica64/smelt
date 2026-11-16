@@ -24,16 +24,23 @@ impl FunctionEmitter<'_> {
         let field_ty = self.field_access_type(inner_ty, field)?;
         if is_optional {
             let value = self.field_access_expr(&RustExpr::path("_smelt_value"), inner_ty, field)?;
-            if let Some(Type::Optional(dest_inner)) = self.mir.types.get(dest_ty) {
-                if let Some(Type::Optional(field_inner)) = self.mir.types.get(field_ty) {
-                    let mapped = self.optional_inner_map_expr(&value, *field_inner, *dest_inner)?;
+            if let Some(&Type::Optional(dest_inner, dest_absence)) = self.mir.types.get(dest_ty) {
+                // A field whose absent value is the chain's own (`undefined`
+                // for `?.`) folds into the chain's `None`; one of the other
+                // absence (`parent: string | null`) is a present value of the
+                // chain, mapped whole: its `null` stays the inner layer.
+                if let Some(&Type::Optional(field_inner, field_absence)) =
+                    self.mir.types.get(field_ty)
+                    && field_absence == dest_absence
+                {
+                    let mapped = self.optional_inner_map_expr(&value, field_inner, dest_inner)?;
                     return Ok(receiver_text.postfix(format!(
                         ".as_ref().and_then(|_smelt_value| {mapped})",
                         mapped = mapped.delimited()
                     )));
                 }
                 if let Some(erased) =
-                    self.erased_field_optional_map_expr(&value, field_ty, *dest_inner)?
+                    self.erased_field_optional_map_expr(&value, field_ty, dest_inner)?
                 {
                     return Ok(receiver_text.postfix(format!(
                         ".as_ref().and_then(|_smelt_value| {erased})",
@@ -41,7 +48,7 @@ impl FunctionEmitter<'_> {
                     )));
                 }
                 let mapped =
-                    self.rendered_at_type(&value, field_ty, *dest_inner, &self.render_scope())?;
+                    self.rendered_at_type(&value, field_ty, dest_inner, &self.render_scope())?;
                 return Ok(receiver_text.postfix(format!(
                     ".as_ref().map(|_smelt_value| {mapped})",
                     mapped = mapped.delimited()
@@ -55,17 +62,21 @@ impl FunctionEmitter<'_> {
             )))
         } else {
             let value = self.field_access_expr(&receiver_text, inner_ty, field)?;
-            if let Some(Type::Optional(dest_inner)) = self.mir.types.get(dest_ty) {
-                if let Some(Type::Optional(field_inner)) = self.mir.types.get(field_ty) {
-                    return self.optional_inner_map_expr(&value, *field_inner, *dest_inner);
+            if let Some(&Type::Optional(dest_inner, dest_absence)) = self.mir.types.get(dest_ty) {
+                // As above: only a field of the chain's own absence folds.
+                if let Some(&Type::Optional(field_inner, field_absence)) =
+                    self.mir.types.get(field_ty)
+                    && field_absence == dest_absence
+                {
+                    return self.optional_inner_map_expr(&value, field_inner, dest_inner);
                 }
                 if let Some(erased) =
-                    self.erased_field_optional_map_expr(&value, field_ty, *dest_inner)?
+                    self.erased_field_optional_map_expr(&value, field_ty, dest_inner)?
                 {
                     return Ok(erased);
                 }
                 let mapped =
-                    self.rendered_at_type(&value, field_ty, *dest_inner, &self.render_scope())?;
+                    self.rendered_at_type(&value, field_ty, dest_inner, &self.render_scope())?;
                 return Ok(RustExpr::chain(format!(
                     "Some({mapped})",
                     mapped = mapped.delimited()
@@ -139,13 +150,13 @@ impl FunctionEmitter<'_> {
         dest_ty: TypeId,
     ) -> Result<RustExpr, EmitError> {
         let (receiver_text, inner_ty, is_optional) = self.optional_receiver_parts(receiver)?;
-        let result_ty = if let Some(Type::Optional(inner)) = self.mir.types.get(dest_ty) {
+        let result_ty = if let Some(Type::Optional(inner, _)) = self.mir.types.get(dest_ty) {
             *inner
         } else {
             self.type_id(Type::Unknown)?
         };
         if !is_optional
-            && matches!(self.mir.types.get(dest_ty), Some(Type::Optional(_)))
+            && matches!(self.mir.types.get(dest_ty), Some(Type::Optional(..)))
             && let Some(text) =
                 self.concrete_union_optional_index_expr(&receiver_text, inner_ty, index, result_ty)?
         {
@@ -303,7 +314,7 @@ impl FunctionEmitter<'_> {
         method: Symbol,
         dest_ty: TypeId,
     ) -> Result<bool, EmitError> {
-        let Some(Type::Optional(dest_inner)) = self.mir.types.get(dest_ty) else {
+        let Some(Type::Optional(dest_inner, _)) = self.mir.types.get(dest_ty) else {
             return Ok(false);
         };
         let Some(return_ty) = self.method_return_type(receiver_ty, method)? else {
@@ -311,7 +322,7 @@ impl FunctionEmitter<'_> {
         };
         Ok(matches!(
             self.mir.types.get(return_ty),
-            Some(Type::Optional(return_inner)) if return_inner == dest_inner
+            Some(Type::Optional(return_inner, _)) if return_inner == dest_inner
         ))
     }
 
@@ -359,7 +370,19 @@ impl FunctionEmitter<'_> {
     ) -> Result<(RustExpr, TypeId, bool), EmitError> {
         let receiver_ty = self.operand_ty(receiver)?;
         let receiver_text = self.operand_expr(receiver)?;
-        if let Some(Type::Optional(inner)) = self.mir.types.get(receiver_ty) {
+        // `?.` on a `T | null | undefined` (`Option<Option<T>>`) reads `T`
+        // when present at both layers: the two absences are one `None` here.
+        if let Some(&Type::Optional(inner, _)) = self.mir.types.get(receiver_ty)
+            && matches!(self.mir.types.get(inner), Some(Type::Optional(..)))
+        {
+            let base = smelt_hir::type_normalize::peel_optional(&self.mir.types, receiver_ty).0;
+            return Ok((
+                receiver_text.cloned_value().postfix(".flatten()"),
+                base,
+                true,
+            ));
+        }
+        if let Some(Type::Optional(inner, _)) = self.mir.types.get(receiver_ty) {
             Ok((receiver_text, *inner, true))
         } else {
             Ok((receiver_text, receiver_ty, false))
@@ -391,7 +414,7 @@ impl FunctionEmitter<'_> {
             )));
             if matches!(
                 self.mir.types.get(dest_ty),
-                Some(Type::Optional(inner)) if self.has_dynamic_shape(*inner)
+                Some(Type::Optional(inner, _)) if self.has_dynamic_shape(*inner)
             ) {
                 return Ok(RustExpr::chain(format!(
                     "Some({coalesced})",
@@ -417,6 +440,27 @@ impl FunctionEmitter<'_> {
             }
             return Ok(coalesced);
         }
+        // `x ?? d` on a `T | null | undefined` (`Option<Option<T>>`): both
+        // absences take the fallback.
+        if let (base, true, true) =
+            smelt_hir::type_normalize::peel_optional(&self.mir.types, optional_ty)
+            && base != self.none_ty
+            && !self.has_dynamic_shape(base)
+        {
+            let present_text = self.rendered_at_type(
+                &RustExpr::path("smelt_value"),
+                base,
+                dest_ty,
+                &self.render_scope(),
+            )?;
+            let fallback_text = self.value_at_type(fallback, dest_ty)?;
+            return Ok(RustExpr::atom(format!(
+                "match {optional}.flatten() {{ Some(smelt_value) => {present_text}, None => {fallback_text} }}",
+                optional = self.operand_expr(optional)?.cloned_value().tight(),
+                present_text = present_text.delimited(),
+                fallback_text = fallback_text.delimited()
+            )));
+        }
         // `rec[key] ?? fallback` / `arr[i] ?? fallback` over a NON-optional
         // declared element type: TypeScript types the read as the element, but
         // a missing key or index reads `undefined` and `??` takes the fallback.
@@ -427,7 +471,7 @@ impl FunctionEmitter<'_> {
         // regexp-matched path param.
         if !matches!(
             self.mir.types.get(optional_ty),
-            Some(Type::Optional(_) | Type::None)
+            Some(Type::Optional(..) | Type::None)
         ) && let Some(read) = self.optional_element_read_expr(optional, optional_ty)?
         {
             let present_text = self.rendered_at_type(
@@ -448,7 +492,7 @@ impl FunctionEmitter<'_> {
             // `Some` of an erased value can still hold `undefined` or `null`
             // (`receiver?.missing` keeps the raw read so `=== null` stays exact),
             // and `??` tests the value, not the wrapper.
-            Some(Type::Optional(inner))
+            Some(Type::Optional(inner, _))
                 if matches!(self.mir.types.get(*inner), Some(Type::Unknown))
                     && !matches!(
                         self.mir.types.get(self.operand_ty(fallback)?),
@@ -466,7 +510,7 @@ impl FunctionEmitter<'_> {
                 }
                 self.rendered_at_type(&coalesced, *inner, dest_ty, &self.render_scope())
             }
-            Some(Type::Optional(inner)) => {
+            Some(Type::Optional(inner, _)) => {
                 if self.has_dynamic_shape(dest_ty) {
                     let optional_text = self.operand_expr(optional)?;
                     let present_text = self.rendered_at_type(
@@ -504,7 +548,7 @@ impl FunctionEmitter<'_> {
                     let fallback_option = self.carrier_format(self.carrier()?, format_args!(
                         "match {fallback_text} {{ SmeltUnknown::Null | SmeltUnknown::Undefined => None, smelt_value => Some({mapped_value}) }}", fallback_text = fallback_text.delimited(), mapped_value = mapped_value.delimited()
                     ));
-                    if matches!(self.mir.types.get(dest_ty), Some(Type::Optional(dest_inner)) if dest_inner == inner)
+                    if matches!(self.mir.types.get(dest_ty), Some(Type::Optional(dest_inner, _)) if dest_inner == inner)
                     {
                         return Ok(optional_text.postfix(format!(".or({fallback_option})")));
                     }
@@ -529,7 +573,7 @@ impl FunctionEmitter<'_> {
                 // Converting the whole `Option` instead turned `undefined` into
                 // `NaN` and `None` into an invented `0`, so the chain's own
                 // final fallback never applied.
-                if let Some(Type::Optional(fallback_inner)) = self.mir.types.get(fallback_ty)
+                if let Some(Type::Optional(fallback_inner, _)) = self.mir.types.get(fallback_ty)
                     && fallback_inner != inner
                     && matches!(self.mir.types.get(*fallback_inner), Some(Type::Unknown))
                 {
@@ -546,7 +590,7 @@ impl FunctionEmitter<'_> {
                         fallback = fallback_text.tight(),
                         mapped_value = mapped_value.delimited()
                     );
-                    if matches!(self.mir.types.get(dest_ty), Some(Type::Optional(dest_inner)) if dest_inner == inner)
+                    if matches!(self.mir.types.get(dest_ty), Some(Type::Optional(dest_inner, _)) if dest_inner == inner)
                     {
                         return Ok(optional_text.postfix(format!(".or_else(|| {fallback_option})")));
                     }
@@ -564,9 +608,9 @@ impl FunctionEmitter<'_> {
                         &self.render_scope(),
                     );
                 }
-                if let Some(Type::Optional(fallback_inner)) = self.mir.types.get(fallback_ty)
+                if let Some(Type::Optional(fallback_inner, _)) = self.mir.types.get(fallback_ty)
                     && fallback_inner == inner
-                    && matches!(self.mir.types.get(dest_ty), Some(Type::Optional(dest_inner)) if dest_inner == inner)
+                    && matches!(self.mir.types.get(dest_ty), Some(Type::Optional(dest_inner, _)) if dest_inner == inner)
                 {
                     return Ok({
                         let receiver = self.operand_borrow_expr(optional)?;
@@ -663,7 +707,7 @@ impl FunctionEmitter<'_> {
                 // only shared borrows may coexist. See `place.rs`'s list index
                 // read arm for the full argument.
                 let read_expr = list_read_expr(receiver_text);
-                if let Some(Type::Optional(inner)) = self.mir.types.get(*item_ty)
+                if let Some(Type::Optional(inner, _)) = self.mir.types.get(*item_ty)
                     && *inner == result_ty
                 {
                     Ok(RustExpr::atom(format!(
@@ -881,7 +925,7 @@ impl FunctionEmitter<'_> {
                 let field = receiver_text
                     .postfix(format!(".{tuple_index}"))
                     .cloned_value();
-                if let Some(Type::Optional(element_inner)) = self.mir.types.get(element_ty) {
+                if let Some(Type::Optional(element_inner, _)) = self.mir.types.get(element_ty) {
                     if *element_inner == result_ty {
                         return Ok(field);
                     }

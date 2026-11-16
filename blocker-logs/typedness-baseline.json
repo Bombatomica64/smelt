@@ -2,17 +2,17 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 8604,
-      "generic": 162,
+      "concrete": 8822,
+      "generic": 193,
       "erased": 56
     },
     "reads": {
-      "concrete": 970,
-      "generic": 47,
+      "concrete": 977,
+      "generic": 50,
       "erased": 20
     },
     "calls": {
-      "concrete": 2383,
+      "concrete": 2477,
       "generic": 16,
       "erased": 2
     }
@@ -1266,7 +1266,7 @@
         "erased": 0
       },
       "reads": {
-        "concrete": 15,
+        "concrete": 14,
         "generic": 0,
         "erased": 0
       },
@@ -1718,7 +1718,41 @@
         "erased": 0
       }
     },
-    "examples/typescript/end-to-end/201_record_viewed_as_another_record_type/input.ts": {
+    "examples/typescript/end-to-end/201_primitive_bounded_type_parameter/input.ts": {
+      "values": {
+        "concrete": 106,
+        "generic": 3,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 5,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 41,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/202_inspected_type_parameter_stays_generic/input.ts": {
+      "values": {
+        "concrete": 114,
+        "generic": 28,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 3,
+        "generic": 3,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 53,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/203_record_viewed_as_another_record_type/input.ts": {
       "values": {
         "concrete": 128,
         "generic": 0,
@@ -2128,7 +2162,7 @@
     },
     "examples/typescript/end-to-end/44_node_http_echo/input.ts": {
       "values": {
-        "concrete": 71,
+        "concrete": 69,
         "generic": 0,
         "erased": 0
       },

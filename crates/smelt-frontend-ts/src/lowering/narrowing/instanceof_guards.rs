@@ -43,7 +43,7 @@ impl ModuleBuilder<'_> {
         // `"undefined"`, which is also not `"string"`, so that guard's filter
         // has to keep the optional it was given.
         let ty = match self.ctx.krate.types.get(ty) {
-            Some(Type::Optional(inner)) => *inner,
+            Some(Type::Optional(inner, _)) => *inner,
             _ => ty,
         };
         if let Some(retained) = self.filtered_union_members(ty, |member| {
@@ -191,7 +191,7 @@ impl ModuleBuilder<'_> {
             .narrowed_type(local_name)
             .unwrap_or_else(|| Self::local_ty(body, local));
         let (union_ty, optional) = match self.ctx.krate.types.get(ty) {
-            Some(Type::Optional(inner)) => (*inner, true),
+            Some(Type::Optional(inner, _)) => (*inner, true),
             _ => (ty, false),
         };
         let class_name = class.name.as_str();
@@ -219,7 +219,10 @@ impl ModuleBuilder<'_> {
         }
         let narrowed = self.intern_filtered_union(retained)?;
         let narrowed = if optional {
-            self.ctx.krate.types.intern(Type::Optional(narrowed))
+            self.ctx
+                .krate
+                .types
+                .intern(Type::Optional(narrowed, smelt_hir::Absence::Undefined))
         } else {
             narrowed
         };

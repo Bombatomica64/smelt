@@ -39,6 +39,10 @@ use crate::{EmitError, GeneratedAllocator, stdlib};
 ///
 /// Returns an [`EmitError`] when an entry names an item the runtime does not
 /// define.
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "`Entry` and `RenderedLine` are `#[non_exhaustive]` in their crate, so a catch-all is mandatory; a disabled item or blank line is skipped"
+)]
 pub(crate) fn emit_entries(
     writer: &mut CodeWriter,
     entries: &[Entry],
@@ -77,6 +81,10 @@ pub(crate) fn rendered_text(flags: &dyn Fn(&str) -> bool) -> String {
 ///
 /// Slots hold program text, so they render as nothing here.
 #[cfg(test)]
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "`Entry` is `#[non_exhaustive]` in `smelt-runtime`, so a catch-all is mandatory; a disabled item or blank line is skipped"
+)]
 pub(crate) fn rendered_entries(entries: &[Entry], flags: &dyn Fn(&str) -> bool) -> String {
     let mut text = String::new();
     for entry in entries {
@@ -180,7 +188,7 @@ fn program_class_arms(mir: &Mir, context: &EmitContext) -> Result<Vec<String>, E
 #[derive(Debug, Clone, Copy, Default)]
 #[expect(
     clippy::struct_excessive_bools,
-    reason = "four independent facts about a program, each answered to one runtime flag; no state machine relates them"
+    reason = "five independent facts about a program, each answered to one runtime flag; no state machine relates them"
 )]
 pub(crate) struct ProgramFacts {
     /// Some record type is emitted as a reference class.
@@ -191,6 +199,8 @@ pub(crate) struct ProgramFacts {
     pub(crate) reads_this: bool,
     /// Some record type is a live record (see `emitter::live_view`).
     pub(crate) live_records: bool,
+    /// Some generic class is widened (see `crate::class_widening`).
+    pub(crate) widened_classes: bool,
 }
 
 impl ProgramFacts {
@@ -201,6 +211,7 @@ impl ProgramFacts {
             erased_view_write_through: context.erased_view_write_through(),
             reads_this: context.program_reads_this(),
             live_records: context.has_live_records(),
+            widened_classes: !context.widened_classes().is_empty(),
         }
     }
 }
@@ -246,6 +257,8 @@ pub(crate) fn flag_for(
             Some(facts.live_records && demand.has(Need::Unknown) && demand.has(Need::JsString))
         }
         "reads_this" => Some(facts.reads_this),
+        // A widened class's field guards (`crate::class_widening`).
+        "widened_views" => Some(facts.widened_classes),
         // A Python program's dicts keep insertion order; JavaScript's own-key
         // order moves array-index keys to the front.
         "js_key_order" => Some(!demand.has(Need::PyDictOrder)),
@@ -272,7 +285,9 @@ fn need_of_flag(name: &str) -> Option<Need> {
         "date_timezone_offset" => Need::DateTimezoneOffset,
         "date" => Need::Date,
         "math_round" => Need::MathRound,
+        "math_extrema" => Need::MathExtrema,
         "parse_number" => Need::ParseNumber,
+        "string_to_number" => Need::StringToNumber,
         "js_string" => Need::JsString,
         "py_repr" => Need::PyRepr,
         "erased_pattern_call" => Need::ErasedPatternCall,
@@ -298,6 +313,7 @@ fn need_of_flag(name: &str) -> Option<Need> {
         "byte_array" => Need::ByteArray,
         "data_view" => Need::DataView,
         "data_view_access" => Need::DataViewAccess,
+        "deep_eq" => Need::DeepEq,
         "crypto_random_values" => Need::CryptoRandomValues,
         "crypto_digest" => Need::CryptoDigest,
         "crypto_key" => Need::CryptoKey,
@@ -312,6 +328,9 @@ fn need_of_flag(name: &str) -> Option<Need> {
         "python_dict_read" => Need::PythonDictRead,
         "python_list_read" => Need::PythonListRead,
         "py_exception" => Need::PyException,
+        "py_int" => Need::PyInt,
+        "py_str_methods" => Need::PyStrMethods,
+        "py_format" => Need::PyFormat,
         "binding" => Need::Binding,
         "binding_tdz" => Need::BindingTdz,
         "binding_py" => Need::BindingPy,
@@ -337,6 +356,8 @@ fn need_of_flag(name: &str) -> Option<Need> {
         "erased_function" => Need::ErasedFunction,
         "erased_list_alias" => Need::ErasedListAlias,
         "optional_unknown_read" => Need::OptionalUnknownRead,
+        "null_codec" => Need::NullCodec,
+        "erased_list_write_back" => Need::ErasedListWriteBack,
         "accessors" => Need::Accessors,
         "python_number_format" => Need::PythonNumberFormat,
         "number_methods" => Need::NumberMethods,

@@ -169,7 +169,7 @@ impl ModuleBuilder<'_> {
         };
         let cls = self.expression(cls_expr, body)?;
         let value = self.expression(value_expr, body)?;
-        if self.ctx.krate.types.get(Self::expr_ty(body, value)) != Some(&Type::Int) {
+        if self.ctx.krate.types.get(Self::expr_ty(body, value)) != Some(&Type::PyInt) {
             return Err(SmeltError::unsupported(
                 self.span(value_expr.range()),
                 "int.__new__ value must be an integer",

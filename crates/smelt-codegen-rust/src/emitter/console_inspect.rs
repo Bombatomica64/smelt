@@ -80,7 +80,7 @@ impl FunctionEmitter<'_> {
                 | Type::Unknown
                 | Type::Union(_),
             ) => true,
-            Some(Type::Optional(inner)) => !matches!(
+            Some(Type::Optional(inner, _)) => !matches!(
                 self.mir.types.get(self.flatten_optional_inner(*inner)),
                 Some(
                     Type::Bool
@@ -137,7 +137,7 @@ impl FunctionEmitter<'_> {
             Some(Type::TypeParam { .. }) => {
                 needs_unknown && self.renders_erased(ty).unwrap_or(false)
             }
-            Some(Type::Optional(inner)) => {
+            Some(Type::Optional(inner, _)) => {
                 self.inspectable_in(self.flatten_optional_inner(*inner), records, visiting)
             }
             Some(Type::List(item)) => {
@@ -187,6 +187,9 @@ impl FunctionEmitter<'_> {
                                 .all(|field| self.inspectable_in(field.ty, records, visiting))
                     })
             }
+            // A union with no generated enum renders as the erased carrier
+            // (`FunctionEmitter::rust_type`) and is drawn by its impl.
+            Some(Type::Union(_)) if self.concrete_union_members(ty).is_none() => needs_unknown,
             Some(Type::Union(_)) => self.union_is_inspectable(ty, records, visiting),
             _ => false,
         };
@@ -355,18 +358,37 @@ pub(crate) fn emit_console_inspect_support(
             .fields
             .iter()
             .filter(|field| field.visibility.is_own_property())
-            .map(|field| InspectField {
-                key: mir
-                    .names
-                    .get(field.name)
-                    .or_else(|| mir.symbols.get(field.name))
-                    .unwrap_or("field")
-                    .to_owned(),
-                rust_name: context.names().field(mir, field.name).into_string(),
-                skip_when_absent: record.is_shape
-                    && matches!(mir.types.get(field.ty), Some(Type::Optional(_))),
+            .map(|field| -> Result<InspectField, EmitError> {
+                Ok(InspectField {
+                    key: mir
+                        .names
+                        .get(field.name)
+                        .or_else(|| mir.symbols.get(field.name))
+                        .unwrap_or("field")
+                        .to_owned(),
+                    rust_name: context.names().field(mir, field.name).into_string(),
+                    // Only an `undefined` layer (an optional property) makes a
+                    // field absent; a `T | null` field holds `null` when empty
+                    // and is printed.
+                    skip_when_absent: record.is_shape
+                        && matches!(
+                            mir.types.get(field.ty),
+                            Some(Type::Optional(_, smelt_hir::Absence::Undefined))
+                        ),
+                    inspector: match mir.types.get(field.ty) {
+                        // A skipped-when-absent field draws only its present
+                        // value, whose own `null` layer (`x?: T | null`) is
+                        // drawn as `null`.
+                        Some(Type::Optional(inner, smelt_hir::Absence::Undefined))
+                            if record.is_shape =>
+                        {
+                            emitter.console_inspector(*inner)?
+                        }
+                        _ => emitter.console_inspector(field.ty)?,
+                    },
+                })
             })
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>, EmitError>>()?;
         text.push('\n');
         text.push_str(&console_inspect_prelude::struct_impl_text(
             &record.rust_name,
@@ -384,14 +406,18 @@ pub(crate) fn emit_console_inspect_support(
         let Some(members) = emitter.concrete_union_members(ty) else {
             continue;
         };
-        let member_count = members.len();
+        let member_types = members.to_vec();
         if !emitter.union_is_inspectable(ty, &records, &mut HashSet::new()) {
             continue;
         }
+        let inspectors = member_types
+            .iter()
+            .map(|member| emitter.console_inspector(*member))
+            .collect::<Result<Vec<_>, EmitError>>()?;
         text.push('\n');
         text.push_str(&console_inspect_prelude::union_impl_text(
             &union_name(ty),
-            member_count,
+            &inspectors,
         ));
     }
     Ok(text)
@@ -404,9 +430,15 @@ impl FunctionEmitter<'_> {
     pub(super) fn type_has_py_repr(&self, ty: TypeId) -> bool {
         match self.mir.types.get(ty) {
             Some(
-                Type::Int | Type::Float | Type::Bool | Type::String | Type::PyStr | Type::None,
+                Type::Int
+                | Type::PyInt
+                | Type::Float
+                | Type::Bool
+                | Type::String
+                | Type::PyStr
+                | Type::None,
             ) => true,
-            Some(Type::Optional(inner) | Type::List(inner)) => self.type_has_py_repr(*inner),
+            Some(Type::Optional(inner, _) | Type::List(inner)) => self.type_has_py_repr(*inner),
             Some(Type::Tuple(items)) => {
                 !items.is_empty()
                     && items.len() <= 6
@@ -420,6 +452,11 @@ impl FunctionEmitter<'_> {
             Some(Type::Set(item)) => {
                 self.set_container_name(*item) == "SmeltPrimSet" && self.type_has_py_repr(*item)
             }
+            Some(Type::Class { name, .. })
+                if py_text_protocol::class_has_python_repr(self.mir, *name) =>
+            {
+                true
+            }
             _ => self.is_py_exception_type(ty) || self.is_py_exception_args_type(ty),
         }
     }
@@ -427,6 +464,10 @@ impl FunctionEmitter<'_> {
     /// Converts an operand to console.log argument format and returns format string and value.
     /// Python's `repr` of the value `reference` borrows, as a `String`, for a type
     /// built of primitives, lists, tuples and options; `None` for any other type.
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "the types not listed have no Python `repr` the emitter renders statically: the caller falls back"
+    )]
     fn python_repr_expr(&self, reference: &RustExpr, ty: TypeId) -> Option<RustExpr> {
         let item = RustExpr::path("smelt_item");
         Some(match self.mir.types.get(ty)? {
@@ -434,7 +475,7 @@ impl FunctionEmitter<'_> {
                 "smelt_py_str_repr({reference})",
                 reference = reference.delimited()
             )),
-            Type::Int => RustExpr::chain(format!(
+            Type::Int | Type::PyInt => RustExpr::chain(format!(
                 "({reference}).to_string()",
                 reference = reference.delimited()
             )),
@@ -447,7 +488,7 @@ impl FunctionEmitter<'_> {
                 "(if *{reference} {{ \"True\" }} else {{ \"False\" }}).to_owned()",
                 reference = reference.tight()
             )),
-            Type::Optional(inner) => {
+            Type::Optional(inner, _) => {
                 let inner_repr = self.python_repr_expr(&item, *inner)?;
                 RustExpr::atom(format!(
                     "match {reference} {{ Some(smelt_item) => {inner_repr}, None => \"None\".to_owned() }}",
@@ -534,6 +575,14 @@ impl FunctionEmitter<'_> {
                     self.operand_expr(operand)?.tight()
                 ),
             ))
+        } else if self.console_inspects(ty, absent) && self.holds_null_absent(ty) {
+            // A `T | null` inside it draws its absent value as `null`, which
+            // the Rust storage type's impl cannot tell from `undefined`
+            // (`emitter::absent_value`).
+            Ok((
+                "{}",
+                self.console_text_of(ty, &format!("&{}", self.operand_expr(operand)?.tight()))?,
+            ))
         } else if self.console_inspects(ty, absent) {
             // A container, record or union prints the way Node's
             // `util.inspect` draws it (`[ 1, 2 ]`, `{ x: 1 }`, `Map(1) { .. }`),
@@ -606,7 +655,7 @@ impl FunctionEmitter<'_> {
             Some(Type::List(_) | Type::Dict(_, _) | Type::Tuple(_))
         ) {
             Ok(("{:?}", self.operand_expr(operand)?.into_string()))
-        } else if matches!(self.mir.types.get(ty), Some(Type::Optional(_))) {
+        } else if matches!(self.mir.types.get(ty), Some(Type::Optional(..))) {
             // An `Optional<T>` prints the value INSIDE it, never the Rust
             // wrapper. `{:?}` on an `Option` put `Some("ada")` / `None` into
             // program output, which is a shape no JavaScript runtime prints.
@@ -619,7 +668,7 @@ impl FunctionEmitter<'_> {
             // its suffix, where `String(10n)` (and a template) is `"10"`.
             Ok(("{}n", self.operand_expr(operand)?.into_string()))
         } else if absent == AbsentSpelling::None
-            && matches!(self.mir.types.get(ty), Some(Type::Int))
+            && matches!(self.mir.types.get(ty), Some(Type::Int | Type::PyInt))
         {
             // Python's `int` is an integer, not a JavaScript number: `print`
             // writes its decimal digits, exactly (no `f64` round trip).
@@ -699,34 +748,20 @@ impl FunctionEmitter<'_> {
     /// holding `"ada"` prints `ada`, and a `number[] | undefined` holding
     /// `[1, 2]` prints through the container's `{:?}`.
     ///
-    /// # Why the absent arm prints `undefined`
+    /// # Which word the absent arm prints
     ///
-    /// TypeScript's `null` and `undefined` both intern to `Type::None` (see the
-    /// annotation lowering for `TSNullKeyword`/`TSUndefinedKeyword`), so
-    /// `string | null` and `string | undefined` are the *same*
-    /// `Optional(String)` here. Node prints `null` for the first and
-    /// `undefined` for the second, and this layer cannot tell them apart, so
-    /// one word has to be chosen and it is wrong for the other spelling.
-    ///
-    /// `undefined` is chosen because it is what nearly every operation that
-    /// *produces* an `Optional` in TypeScript returns: `find`, `pop`,
-    /// `Map.get`, an optional property or parameter, an index read, `?.`, and
-    /// `process.env.X`. `null` arrives mostly from annotations spelled `T |
-    /// null` (and from `headers.get`), and a value annotated as plain `null`
-    /// keeps printing `null` through the `Type::None` branch above. The
-    /// end-to-end fixture `33_console_optional_value` pins this against Node
-    /// 22, whose `find()` miss prints `undefined`.
-    ///
-    /// Printing the right word for both spellings needs a distinct
-    /// `Type::Undefined` carried down from the annotation — a type-table
-    /// change, not a console change.
+    /// The optional's own type says which absent value its `None` is
+    /// (`smelt_hir::Absence`): a `string | null` prints `null`, a
+    /// `string | undefined` (`find`, `pop`, `Map.get`, an optional property,
+    /// `?.`) prints `undefined`. A type admitting both is two layers, and each
+    /// layer prints its own word.
     fn console_optional_expr(
         &self,
         operand: &Operand,
         absent: AbsentSpelling,
     ) -> Result<RustExpr, EmitError> {
         let ty = self.operand_ty(operand)?;
-        let Some(&Type::Optional(inner)) = self.mir.types.get(ty) else {
+        let Some(&Type::Optional(inner, absence)) = self.mir.types.get(ty) else {
             return Err(EmitError::new(
                 "console optional rendering requires an optional operand",
             ));
@@ -735,7 +770,7 @@ impl FunctionEmitter<'_> {
         Ok(RustExpr::atom(format!(
             "match &{} {{ Some(smelt_value) => {present}, None => {:?}.to_owned() }}",
             self.operand_expr(operand)?.tight(),
-            absent.text(),
+            absent.text_for(absence),
             present = present.delimited()
         )))
     }
@@ -752,7 +787,18 @@ impl FunctionEmitter<'_> {
         absent: AbsentSpelling,
     ) -> Result<RustExpr, EmitError> {
         if ty == self.none_ty {
-            return Ok(RustExpr::chain("\"null\".to_owned()"));
+            return Ok(RustExpr::chain(format!(
+                "{:?}.to_owned()",
+                absent.null_text()
+            )));
+        }
+        // Python's `print` writes `str(value)`: `1.0`, `True`, `['a']`, which
+        // Rust's `Display`/`Debug` spell `1`, `true`, `["a"]`.
+        if absent == AbsentSpelling::None && self.type_has_py_repr(ty) {
+            return Ok(RustExpr::chain(format!(
+                "SmeltPyRepr::py_str({value_text})",
+                value_text = value_text.delimited()
+            )));
         }
         if matches!(
             self.mir.types.get(ty),
@@ -774,11 +820,11 @@ impl FunctionEmitter<'_> {
         }
         // A nested optional recurses, so `Array<string | undefined>`'s element
         // prints its own inner value rather than a wrapper.
-        if let Some(&Type::Optional(inner)) = self.mir.types.get(ty) {
+        if let Some(&Type::Optional(inner, absence)) = self.mir.types.get(ty) {
             let present = self.console_value(value_text, inner, absent)?;
             return Ok(RustExpr::atom(format!(
                 "match {value_text} {{ Some(smelt_value) => {present}, None => {:?}.to_owned() }}",
-                absent.text(),
+                absent.text_for(absence),
                 value_text = value_text.delimited(),
                 present = present.delimited()
             )));

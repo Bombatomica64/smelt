@@ -14,13 +14,13 @@ pub(crate) fn rvalues(mir: &Mir) -> impl Iterator<Item = &Rvalue> {
         function
             .blocks
             .iter()
-            .flat_map(|block| block.statements.iter().map(Statement::value))
+            .flat_map(|block| block.statements.iter().filter_map(Statement::value))
     });
     let closure_rvalues = mir.closures.iter().flat_map(|closure| {
         closure
             .blocks
             .iter()
-            .flat_map(|block| block.statements.iter().map(Statement::value))
+            .flat_map(|block| block.statements.iter().filter_map(Statement::value))
     });
     function_rvalues.chain(closure_rvalues)
 }
@@ -77,13 +77,13 @@ pub(crate) fn stdlib_class_of_class_symbol(
 pub(crate) fn host_override_slot_names(mir: &Mir) -> Vec<(String, String)> {
     let mut names = std::collections::BTreeMap::new();
     for rvalue in rvalues(mir) {
-        let class = match rvalue {
-            Rvalue::HostGlobalRead { class }
-            | Rvalue::HostGlobalWrite { class, .. }
-            | Rvalue::HostGlobalPresent { class } => *class,
-            _ => continue,
+        let (Rvalue::HostGlobalRead { class }
+        | Rvalue::HostGlobalWrite { class, .. }
+        | Rvalue::HostGlobalPresent { class }) = rvalue
+        else {
+            continue;
         };
-        if let Some(name) = mir.symbols.get(class) {
+        if let Some(name) = mir.symbols.get(*class) {
             names.insert(host_override_slot_suffix(name), name.to_owned());
         }
     }
@@ -114,8 +114,10 @@ pub(crate) fn host_override_slot_suffix(name: &str) -> String {
 /// a `HashSet`; everything else uses `SmeltJsSet`.
 pub(crate) fn module_hash_set_key_safe(mir: &Mir, ty: smelt_hir::TypeId) -> bool {
     match mir.types.get(ty) {
-        Some(Type::Bool | Type::Int | Type::String | Type::PyStr) => true,
-        Some(Type::Optional(inner) | Type::Future(inner)) => module_hash_set_key_safe(mir, *inner),
+        Some(Type::Bool | Type::Int | Type::PyInt | Type::String | Type::PyStr) => true,
+        Some(Type::Optional(inner, _) | Type::Future(inner)) => {
+            module_hash_set_key_safe(mir, *inner)
+        }
         Some(Type::Union(items)) => items
             .iter()
             .all(|item| module_hash_set_key_safe(mir, *item)),

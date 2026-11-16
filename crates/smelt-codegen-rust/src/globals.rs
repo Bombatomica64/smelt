@@ -142,7 +142,7 @@ fn nullish_constant_at_type(
         return Ok(None);
     }
     Ok(match ty {
-        Some(Type::Optional(_)) => Some(RustExpr::path("None")),
+        Some(Type::Optional(..)) => Some(RustExpr::path("None")),
         Some(Type::Unknown) => {
             context.demand().carrier()?;
             context.note_carrier_use();

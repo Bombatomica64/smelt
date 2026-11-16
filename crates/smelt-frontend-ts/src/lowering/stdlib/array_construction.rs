@@ -133,7 +133,7 @@ impl ModuleBuilder<'_> {
     /// `mapped` says a mapper follows. A mapped typed list is read in place,
     /// since the map itself builds the new array; every other source already
     /// yields a fresh list.
-    fn array_from_elements(
+    pub(in crate::lowering) fn array_from_elements(
         &mut self,
         source: smelt_hir::ExprId,
         source_ty: smelt_hir::TypeId,
@@ -141,6 +141,18 @@ impl ModuleBuilder<'_> {
         span: Span,
         body: &mut Body,
     ) -> smelt_hir::ExprId {
+        // An object is read through its `[Symbol.iterator]()` generator.
+        if let Some(generator) = self.class_iterator_generator(source, span, body)
+            && let Some(Type::Generator { yield_ty, .. }) = self
+                .ctx
+                .krate
+                .types
+                .get(Self::expr_ty(body, generator))
+                .cloned()
+        {
+            let ty = self.ctx.krate.types.intern(Type::List(yield_ty));
+            return Self::generator_items_expr(generator, ty, span, body);
+        }
         match self.ctx.krate.types.get(source_ty).cloned() {
             Some(Type::List(_)) if mapped => source,
             Some(Type::List(item_ty)) => {
@@ -149,9 +161,18 @@ impl ModuleBuilder<'_> {
             }
             // An optional list the checker proved present (`Array.from(null)`
             // does not type-check): copied out of the optional, keeping `T`.
-            Some(Type::Optional(inner))
-                if matches!(self.ctx.krate.types.get(inner), Some(Type::List(_))) =>
+            // Every optional layer: a `T[] | null | undefined` holds a `T[]`.
+            Some(Type::Optional(..))
+                if matches!(
+                    self.ctx.krate.types.get(
+                        smelt_hir::type_normalize::peel_optional(&self.ctx.krate.types, source_ty)
+                            .0
+                    ),
+                    Some(Type::List(_))
+                ) =>
             {
+                let inner =
+                    smelt_hir::type_normalize::peel_optional(&self.ctx.krate.types, source_ty).0;
                 Self::fresh_list_copy(source, inner, span, body)
             }
             Some(Type::Generator {

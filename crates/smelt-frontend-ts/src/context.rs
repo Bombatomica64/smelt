@@ -145,6 +145,12 @@ pub struct OverloadSignature {
     pub required_params: Option<usize>,
     /// Return type promised by this overload.
     pub return_ty: TypeId,
+    /// [`Self::return_ty`] as a call's result reads it, when the annotation
+    /// indexes a type parameter (`T[K]`): the access kept unevaluated
+    /// (`Type::IndexedAccess`) for the call to evaluate. Every other reader
+    /// uses `return_ty`, where the access is erased. See
+    /// `lowering/ty/deferred_index.rs`.
+    pub deferred_return: Option<TypeId>,
     /// Whether the signature describes an async function.
     pub is_async: bool,
 }
@@ -269,6 +275,12 @@ pub struct HirCtx {
     /// erased value (`lowering::unchecked_returns`): a call keeps the erased
     /// result instead of converting it to the instantiation.
     pub unchecked_generic_returns: HashSet<ItemId>,
+    /// The declared return of each function item whose annotation indexes a
+    /// type parameter (`T[K]`), as its callers read it: the access kept
+    /// unevaluated (`Type::IndexedAccess`) for each call to evaluate. The
+    /// item itself keeps the erased lowering. See
+    /// `lowering/ty/deferred_index.rs`.
+    pub deferred_returns: HashMap<ItemId, TypeId>,
     /// The storage of every static field declared without an initializer at
     /// a type that does not admit `undefined` (`static x: number;`).
     ///
@@ -508,6 +520,7 @@ impl HirCtx {
             export_aliases: HashMap::new(),
             known_modules: HashSet::new(),
             unchecked_generic_returns: HashSet::new(),
+            deferred_returns: HashMap::new(),
             absent_static_storage: HashSet::new(),
             absent_frame_fields: HashSet::new(),
             module_exports: HashMap::new(),

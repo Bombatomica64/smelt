@@ -189,7 +189,7 @@ impl FunctionEmitter<'_> {
             } else {
                 format!("get({field_name:?})")
             };
-            if matches!(self.mir.types.get(*value), Some(Type::Optional(_))) {
+            if matches!(self.mir.types.get(*value), Some(Type::Optional(..))) {
                 if self.dict_uses_smelt_record(*key) {
                     return Ok(receiver_text.postfix(format!(".{lookup}.flatten()")));
                 }
@@ -649,6 +649,10 @@ impl FunctionEmitter<'_> {
     ///
     /// These reads never build a `SmeltUnknown` property bag; the match value
     /// stays statically typed all the way to the primitive result.
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "single-shape recogniser: only `StdlibClass::MatchGroups` reads named groups; the match value answers the rest"
+    )]
     pub(super) fn match_field_expr(
         &self,
         receiver_text: &RustExpr,
@@ -733,7 +737,7 @@ impl FunctionEmitter<'_> {
         } else {
             self.value_at_type(index, key_ty)?
         };
-        let flatten = if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {
+        let flatten = if matches!(self.mir.types.get(value_ty), Some(Type::Optional(..))) {
             ".flatten()"
         } else {
             ""

@@ -212,26 +212,38 @@ impl ModuleBuilder<'_> {
     /// `str()`, `repr()` and an f-string interpolation.
     fn has_python_text(&self, ty: TypeId) -> bool {
         match self.ctx.krate.types.get(ty) {
-            Some(Type::Int | Type::Float | Type::Bool | Type::PyStr | Type::None) => true,
-            Some(Type::Optional(item) | Type::List(item)) => self.has_python_text(*item),
+            Some(Type::PyInt | Type::Float | Type::Bool | Type::PyStr | Type::None) => true,
+            Some(Type::Optional(item, _) | Type::List(item)) => self.has_python_text(*item),
             // The runtime writes a tuple's `repr` for one to six elements.
             Some(Type::Tuple(items)) => {
                 (1..=6).contains(&items.len()) && items.iter().all(|item| self.has_python_text(*item))
             }
             Some(Type::Set(item)) => matches!(
                 self.ctx.krate.types.get(*item),
-                Some(Type::Int | Type::Bool | Type::PyStr)
+                Some(Type::PyInt | Type::Bool | Type::PyStr)
             ),
             Some(Type::Dict(key, value)) => {
-                matches!(self.ctx.krate.types.get(*key), Some(Type::Int | Type::Bool | Type::PyStr))
+                matches!(self.ctx.krate.types.get(*key), Some(Type::PyInt | Type::Bool | Type::PyStr))
                     && self.has_python_text(*value)
             }
+            // A class instance shows its `__repr__` inside a container; a
+            // class with only `__str__` has `CPython`'s address-bearing repr,
+            // which no port can reproduce.
+            Some(Type::Class { .. }) if self.class_text_method(ty, true).is_some() => true,
             Some(Type::Class { name, .. }) => matches!(
                 self.ctx.krate.symbols.get(*name),
                 Some(smelt_stdlib::PY_EXCEPTION_CLASS_NAME | smelt_stdlib::PY_EXCEPTION_ARGS_CLASS_NAME)
             ),
             _ => false,
         }
+    }
+
+    /// The method that answers `repr(x)` (`repr`) or `str(x)` for a class
+    /// instance of type `ty`: `__repr__`, and for `str` the class's `__str__`
+    /// or, without one, its `__repr__` (`object.__str__` calls `repr`).
+    fn class_text_method(&self, ty: TypeId, repr: bool) -> Option<&'static str> {
+        let candidates: &[&'static str] = if repr { &["__repr__"] } else { &["__str__", "__repr__"] };
+        candidates.iter().copied().find(|method| self.class_method_dispatch(ty, method).is_some())
     }
 
     /// `str(value)` or `repr(value)` of a lowered value with Python text:
@@ -248,7 +260,22 @@ impl ModuleBuilder<'_> {
         if !repr && value_ty == str_ty {
             return Ok(value);
         }
-        if !repr && matches!(self.ctx.krate.types.get(value_ty), Some(Type::Bool | Type::Int | Type::Float)) {
+        // A class instance's text is its own `__str__`/`__repr__`.
+        if let Some(method) = self.class_text_method(value_ty, repr) {
+            return self.protocol_method_expr(
+                ProtocolMethodCall { receiver: value, method: method.to_owned(), args: Vec::new() },
+                body,
+            );
+        }
+        // `repr(n)` of an `int` is `str(n)`, its decimal digits.
+        if matches!(self.ctx.krate.types.get(value_ty), Some(Type::PyInt)) {
+            return Ok(body.push_expr(HirExpr {
+                kind: ExprKind::PrimitiveCast { op: PrimitiveCastOp::ToString, operand: value },
+                ty: str_ty,
+                span,
+            }));
+        }
+        if !repr && matches!(self.ctx.krate.types.get(value_ty), Some(Type::Bool | Type::PyInt | Type::Float)) {
             return Ok(body.push_expr(HirExpr {
                 kind: ExprKind::PrimitiveCast { op: PrimitiveCastOp::ToString, operand: value },
                 ty: str_ty,

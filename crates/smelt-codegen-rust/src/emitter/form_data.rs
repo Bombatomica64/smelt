@@ -73,7 +73,7 @@ impl FunctionEmitter<'_> {
             }
             smelt_hir::FormDataOp::Get => {
                 let value_ty = self.form_data_value_type_id()?;
-                let source_ty = self.type_id(Type::Optional(value_ty))?;
+                let source_ty = self.type_id(Type::Optional(value_ty, smelt_hir::Absence::Null))?;
                 let arm =
                     self.form_data_value_to_union_expr(&RustExpr::path("smelt_entry"), value_ty)?;
                 self.rendered_at_type(

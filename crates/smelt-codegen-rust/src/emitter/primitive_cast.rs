@@ -14,6 +14,10 @@ impl FunctionEmitter<'_> {
     /// Rust `String` spelling and decodes to U+FFFD. `fromCodePoint`: each
     /// number is one code point; the spec's `RangeError` for a non-integer or
     /// out-of-range value becomes U+FFFD here.
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "sub-dispatch: callers route only the two code-list conversions here; any other op is an internal error"
+    )]
     fn primitive_cast_list_expr(
         &self,
         op: smelt_hir::PrimitiveCastOp,
@@ -50,6 +54,10 @@ impl FunctionEmitter<'_> {
     /// text through `JsString::from`. The arms that already answer this
     /// body's string type (a string operand, and everything
     /// `string_like_operand_expr` renders) are left as they are.
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "single-shape recognisers: only a few casts have a symbol spelling or answer a Rust `String`"
+    )]
     pub(super) fn primitive_cast_expr(
         &self,
         op: smelt_hir::PrimitiveCastOp,
@@ -60,14 +68,22 @@ impl FunctionEmitter<'_> {
         let operand_ty = self.operand_ty(operand)?;
         if to_js_text
             && op == smelt_hir::PrimitiveCastOp::ToString
-            && let Some(Type::Optional(inner)) = self.mir.types.get(operand_ty)
+            && let Some(Type::Optional(inner, _)) = self.mir.types.get(operand_ty)
             && self.mir.types.get(*inner) == Some(&Type::String)
         {
             let operand_expr = self.operand_expr(operand)?;
             return Ok(operand_expr.postfix(format!(
                 ".unwrap_or_else(|| {})",
-                RustExpr::js_string_literal(self.absent_spelling().text()).delimited()
+                RustExpr::js_string_literal(self.absent_text_of(operand_ty)).delimited()
             )));
+        }
+        // The truthiness of a lifted type parameter value is that of its
+        // erased copy (`emitter::generic_scrutinee`).
+        if op == smelt_hir::PrimitiveCastOp::ToBool
+            && let Some(copy) = self.lifted_param_copy(operand)?
+        {
+            let unknown_ty = self.type_id(Type::Unknown)?;
+            return self.value_truthy_expr(&copy, unknown_ty);
         }
         // A symbol's string is `Symbol(<description>)`, and every symbol is
         // truthy. (`Number(sym)` throws; the frontend never routes it here.)
@@ -82,17 +98,40 @@ impl FunctionEmitter<'_> {
             }
         }
         // `String(array)` is `Array.prototype.toString`: the elements joined
-        // with `,`. The erased coercion already spells that rule (holes and
-        // nullish elements as empty text, nested arrays recursively), so the
-        // typed array crosses into it through the seam's `erase`.
+        // with `,`, each by its own type's string form (holes and nullish
+        // elements as empty text, nested arrays recursively). It is the same
+        // typed rule a template literal and `+` apply
+        // (`string_like_operand_rust_text`), so the array is read at its own
+        // element type rather than erased first.
         if op == smelt_hir::PrimitiveCastOp::ToString
+            && matches!(
+                self.mir.types.get(operand_ty),
+                Some(Type::List(_) | Type::Tuple(_) | Type::Set(_))
+            )
+        {
+            let text = self.string_like_operand_rust_text(operand)?;
+            return Ok(if to_js_text {
+                RustExpr::chain(format!("JsString::from({})", text.delimited()))
+            } else {
+                text
+            });
+        }
+        // `Number(array)` is `ToNumber(ToPrimitive(array))`: the array's
+        // string form (`join(",")`) read as a number, so `[5]` is `5`, `[]` is
+        // `0` and `[1, 2]` is `NaN`.
+        if op == smelt_hir::PrimitiveCastOp::ToJsNumber
             && matches!(
                 self.mir.types.get(operand_ty),
                 Some(Type::List(_) | Type::Tuple(_))
             )
         {
-            let erased = self.erase(operand)?;
-            return self.js_string_coercion_match_expr(&erased, self.absent_spelling(), to_js_text);
+            let joined = self.string_like_operand_rust_text(operand)?;
+            let text = if self.indexes_utf16() {
+                RustExpr::chain(format!("JsString::from({})", joined.delimited()))
+            } else {
+                joined
+            };
+            return Ok(self.js_number_from_string_expr(&text));
         }
         let text = self.primitive_cast_rust_expr(op, operand, dest_ty)?;
         let answers_rust_string = match op {
@@ -107,7 +146,7 @@ impl FunctionEmitter<'_> {
                     | Type::BigInt
                     | Type::PyStr,
                 ) => true,
-                Some(Type::Optional(inner)) => matches!(
+                Some(Type::Optional(inner, _)) => matches!(
                     self.mir.types.get(*inner),
                     Some(Type::Bool | Type::Int | Type::Float | Type::PyStr)
                 ),
@@ -195,7 +234,7 @@ impl FunctionEmitter<'_> {
             }
         }
         // `Number(d)` over a possibly-absent date: `undefined` is `NaN`.
-        if let Type::Optional(inner) = operand_type
+        if let Type::Optional(inner, _) = operand_type
             && let Some(handle) = self.date_handle_expr(&RustExpr::path("smelt_date"), *inner)
             && matches!(
                 (op, dest_type),
@@ -249,6 +288,12 @@ impl FunctionEmitter<'_> {
             | (smelt_hir::PrimitiveCastOp::ToString, Type::String | Type::PyStr, Type::String | Type::PyStr) => {
                 Ok(operand_expr)
             }
+            (smelt_hir::PrimitiveCastOp::ToBool, Type::Bool, Type::PyInt) => {
+                Ok(RustExpr::chain(format!("({operand_expr}).truthy()", operand_expr = operand_expr.delimited())))
+            }
+            (smelt_hir::PrimitiveCastOp::ToString, Type::PyStr, Type::PyInt) => {
+                Ok(RustExpr::chain(format!("({operand_expr}).to_string()", operand_expr = operand_expr.delimited())))
+            }
             (smelt_hir::PrimitiveCastOp::ToBool, Type::Bool, Type::Int) => {
                 Ok(RustExpr::loose(format!("{operand_expr} != 0", operand_expr = operand_expr.as_binary_operand())))
             }
@@ -273,7 +318,7 @@ impl FunctionEmitter<'_> {
             (smelt_hir::PrimitiveCastOp::ToBool, Type::Bool, Type::Class { .. }) => {
                 Ok(RustExpr::path("true"))
             }
-            (smelt_hir::PrimitiveCastOp::ToBool, Type::Bool, Type::Optional(inner)) => {
+            (smelt_hir::PrimitiveCastOp::ToBool, Type::Bool, Type::Optional(inner, _)) => {
                 self.optional_truthy_expr(&operand_expr, *inner)
             }
             (smelt_hir::PrimitiveCastOp::ToBool, Type::Bool, Type::Function(_)) => {
@@ -320,24 +365,24 @@ impl FunctionEmitter<'_> {
             (smelt_hir::PrimitiveCastOp::ParseFloat, Type::Float, Type::String | Type::PyStr) => Ok(RustExpr::chain(format!(
                 "smelt_parse_float(&{operand_expr})", operand_expr = operand_expr.tight()
             ))),
-            (smelt_hir::PrimitiveCastOp::ToFloat, Type::Float, Type::Optional(inner))
+            (smelt_hir::PrimitiveCastOp::ToFloat, Type::Float, Type::Optional(inner, _))
                 if matches!(self.mir.types.get(*inner), Some(Type::Float)) =>
             {
-                Ok(operand_expr.postfix(".unwrap_or(f64::NAN)"))
+                Ok(operand_expr.postfix(format!(".unwrap_or({})", self.absent_number_text(operand_ty))))
             }
-            (smelt_hir::PrimitiveCastOp::ToFloat, Type::Float, Type::Optional(inner))
+            (smelt_hir::PrimitiveCastOp::ToFloat, Type::Float, Type::Optional(inner, _))
                 if matches!(self.mir.types.get(*inner), Some(Type::Int)) =>
             {
-                Ok(operand_expr.postfix(".map_or(f64::NAN, |value| value as f64)"))
+                Ok(operand_expr.postfix(format!(".map_or({}, |value| value as f64)", self.absent_number_text(operand_ty))))
             }
-            (smelt_hir::PrimitiveCastOp::ToFloat, Type::Float, Type::Optional(inner))
+            (smelt_hir::PrimitiveCastOp::ToFloat, Type::Float, Type::Optional(inner, _))
                 if matches!(
                     self.mir.types.get(*inner),
                     Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. } | Type::Never)
                 ) || self.is_erased_class_type(*inner) =>
             {
                 Ok(operand_expr.postfix(self.carrier_format(self.carrier()?, format_args!(
-                    ".map_or(f64::NAN, |smelt_value| match smelt_value {{ SmeltUnknown::Number(smelt_value) => smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get(\"{SMELT_DATE}\") {{ Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }}, SmeltUnknown::String(smelt_value) => smelt_js_string_to_number(&smelt_value), SmeltUnknown::Bool(smelt_value) => if smelt_value {{ 1.0 }} else {{ 0.0 }}, {smelt_bigint_arm}SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }})", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value),")
+                    ".map_or({absent}, |smelt_value| match smelt_value {{ SmeltUnknown::Number(smelt_value) => smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get(\"{SMELT_DATE}\") {{ Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }}, SmeltUnknown::String(smelt_value) => smelt_js_string_to_number(&smelt_value), SmeltUnknown::Bool(smelt_value) => if smelt_value {{ 1.0 }} else {{ 0.0 }}, {smelt_bigint_arm}SmeltUnknown::Null => 0.0, SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }})", absent = self.absent_number_text(operand_ty), smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value),")
                 ))))
             }
             (
@@ -345,13 +390,13 @@ impl FunctionEmitter<'_> {
                 Type::Float,
                 Type::Unknown | Type::Union(_) | Type::TypeParam { .. } | Type::Never,
             ) => Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
-                "match {operand_expr} {{ SmeltUnknown::Number(smelt_value) => smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get(\"{SMELT_DATE}\") {{ Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }}, SmeltUnknown::String(smelt_value) => smelt_js_string_to_number(&smelt_value), SmeltUnknown::Bool(smelt_value) => if smelt_value {{ 1.0 }} else {{ 0.0 }}, {smelt_bigint_arm}SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value),"), operand_expr = operand_expr.delimited()
+                "match {operand_expr} {{ SmeltUnknown::Number(smelt_value) => smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get(\"{SMELT_DATE}\") {{ Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }}, SmeltUnknown::String(smelt_value) => smelt_js_string_to_number(&smelt_value), SmeltUnknown::Bool(smelt_value) => if smelt_value {{ 1.0 }} else {{ 0.0 }}, {smelt_bigint_arm}SmeltUnknown::Null => 0.0, SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value),"), operand_expr = operand_expr.delimited()
             )))),
             (smelt_hir::PrimitiveCastOp::ToFloat, Type::Float, Type::Class { .. })
                 if self.is_erased_class_type(operand_ty) =>
             {
                 Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
-                    "match {operand_expr} {{ SmeltUnknown::Number(smelt_value) => smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get(\"{SMELT_DATE}\") {{ Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }}, SmeltUnknown::String(smelt_value) => smelt_js_string_to_number(&smelt_value), SmeltUnknown::Bool(smelt_value) => if smelt_value {{ 1.0 }} else {{ 0.0 }}, {smelt_bigint_arm}SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value),"), operand_expr = operand_expr.delimited()
+                    "match {operand_expr} {{ SmeltUnknown::Number(smelt_value) => smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get(\"{SMELT_DATE}\") {{ Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }}, SmeltUnknown::String(smelt_value) => smelt_js_string_to_number(&smelt_value), SmeltUnknown::Bool(smelt_value) => if smelt_value {{ 1.0 }} else {{ 0.0 }}, {smelt_bigint_arm}SmeltUnknown::Null => 0.0, SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value),"), operand_expr = operand_expr.delimited()
                 ))))
             }
             (smelt_hir::PrimitiveCastOp::ToJsNumber, Type::Float, Type::Bool) => {
@@ -363,22 +408,22 @@ impl FunctionEmitter<'_> {
             (smelt_hir::PrimitiveCastOp::ToJsNumber, Type::Float, Type::String | Type::PyStr) => {
                 Ok(self.js_number_from_string_expr(&operand_expr))
             }
-            (smelt_hir::PrimitiveCastOp::ToJsNumber, Type::Float, Type::Optional(inner))
+            (smelt_hir::PrimitiveCastOp::ToJsNumber, Type::Float, Type::Optional(inner, _))
                 if matches!(self.mir.types.get(*inner), Some(Type::Float)) =>
             {
-                Ok(operand_expr.postfix(".unwrap_or(f64::NAN)"))
+                Ok(operand_expr.postfix(format!(".unwrap_or({})", self.absent_number_text(operand_ty))))
             }
-            (smelt_hir::PrimitiveCastOp::ToJsNumber, Type::Float, Type::Optional(inner))
+            (smelt_hir::PrimitiveCastOp::ToJsNumber, Type::Float, Type::Optional(inner, _))
                 if matches!(self.mir.types.get(*inner), Some(Type::Int)) =>
             {
-                Ok(operand_expr.postfix(".map_or(f64::NAN, |value| value as f64)"))
+                Ok(operand_expr.postfix(format!(".map_or({}, |value| value as f64)", self.absent_number_text(operand_ty))))
             }
-            (smelt_hir::PrimitiveCastOp::ToJsNumber, Type::Float, Type::Optional(inner))
+            (smelt_hir::PrimitiveCastOp::ToJsNumber, Type::Float, Type::Optional(inner, _))
                 if matches!(self.mir.types.get(*inner), Some(Type::String | Type::PyStr)) =>
             {
                 let conversion = self.js_number_from_string_expr(&RustExpr::path("smelt_value"));
                 Ok(operand_expr.postfix(format!(
-                    ".map_or(f64::NAN, |smelt_value| {conversion})", conversion = conversion.delimited()
+                    ".map_or({absent}, |smelt_value| {conversion})", absent = self.absent_number_text(operand_ty), conversion = conversion.delimited()
                 )))
             }
             (
@@ -386,7 +431,7 @@ impl FunctionEmitter<'_> {
                 Type::Float,
                 Type::Unknown | Type::Union(_) | Type::TypeParam { .. } | Type::Never,
             ) => self.js_number_from_unknown_expr(&operand_expr),
-            (smelt_hir::PrimitiveCastOp::ToJsNumber, Type::Float, Type::Optional(inner))
+            (smelt_hir::PrimitiveCastOp::ToJsNumber, Type::Float, Type::Optional(inner, _))
                 if matches!(
                     self.mir.types.get(*inner),
                     Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. } | Type::Never)
@@ -394,7 +439,7 @@ impl FunctionEmitter<'_> {
             {
                 let conversion = self.js_number_from_unknown_expr(&RustExpr::path("smelt_value"))?;
                 Ok(operand_expr.postfix(format!(
-                    ".map_or(f64::NAN, |smelt_value| {conversion})", conversion = conversion.delimited()
+                    ".map_or({absent}, |smelt_value| {conversion})", absent = self.absent_number_text(operand_ty), conversion = conversion.delimited()
                 )))
             }
             (smelt_hir::PrimitiveCastOp::ToJsNumber, Type::Float, Type::Class { .. })
@@ -402,9 +447,18 @@ impl FunctionEmitter<'_> {
             {
                 self.js_number_from_unknown_expr(&operand_expr)
             }
-            (smelt_hir::PrimitiveCastOp::ToString, Type::String | Type::PyStr, Type::Bool) => Ok(RustExpr::loose(format!(
-                "if {operand_expr} {{ \"True\".to_owned() }} else {{ \"False\".to_owned() }}", operand_expr = operand_expr.delimited()
-            ))),
+            // Python's `str(True)` is `True`; JavaScript's `String(true)` is
+            // `true`. A body's language decides.
+            (smelt_hir::PrimitiveCastOp::ToString, Type::String | Type::PyStr, Type::Bool)
+                if self.absent_spelling() == AbsentSpelling::None =>
+            {
+                Ok(RustExpr::loose(format!(
+                    "if {operand_expr} {{ \"True\".to_owned() }} else {{ \"False\".to_owned() }}", operand_expr = operand_expr.delimited()
+                )))
+            }
+            (smelt_hir::PrimitiveCastOp::ToString, Type::String | Type::PyStr, Type::Bool) => {
+                Ok(operand_expr.postfix(".to_string()"))
+            }
             // `String(x)` and `x.toString()` on a NUMBER follow JavaScript's
             // own rule, which parts company with Rust's `Display` at both ends
             // of the range (`1e+21`, `1e-7`). An `Int` is still a JavaScript
@@ -437,7 +491,7 @@ impl FunctionEmitter<'_> {
             // not the empty string. `unwrap_or_default()` answered `""`, so
             // `String(undefined)` printed nothing where Node prints
             // `undefined`.
-            (smelt_hir::PrimitiveCastOp::ToString, Type::String | Type::PyStr, Type::Optional(inner))
+            (smelt_hir::PrimitiveCastOp::ToString, Type::String | Type::PyStr, Type::Optional(inner, _))
                 if matches!(
                     self.mir.types.get(*inner),
                     Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::PyStr)
@@ -465,7 +519,7 @@ impl FunctionEmitter<'_> {
                 };
                 Ok(operand_expr.postfix(format!(
                     ".map_or_else(|| {:?}.to_owned(), |smelt_value| {present})",
-                    self.absent_spelling().text(),
+                    self.absent_text_of(self.operand_ty(operand)?),
                 )))
             }
             (smelt_hir::PrimitiveCastOp::ToString, Type::String | Type::PyStr, _) => {
@@ -510,4 +564,15 @@ pub(super) fn string_to_number_call(text: &RustExpr, js_text: bool) -> RustExpr 
         STRING_TO_NUMBER_FN
     };
     RustExpr::atom(format!("{function}({})", text.borrowed_value().delimited()))
+}
+
+impl FunctionEmitter<'_> {
+    /// The JavaScript number an absent optional of type `ty` converts to:
+    /// `Number(null)` is `0`, `Number(undefined)` is `NaN`.
+    fn absent_number_text(&self, ty: TypeId) -> &'static str {
+        match self.optional_absence(ty) {
+            smelt_hir::Absence::Null => "0.0",
+            smelt_hir::Absence::Undefined => "f64::NAN",
+        }
+    }
 }

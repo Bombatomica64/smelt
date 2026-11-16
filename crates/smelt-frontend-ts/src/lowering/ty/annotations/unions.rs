@@ -3,7 +3,7 @@
 
 use crate::lowering::ModuleBuilder;
 use crate::lowering::erasure::NotNewErasure;
-use smelt_hir::{ErasureReason, Type};
+use smelt_hir::{ErasureReason, FunctionType, Type};
 
 impl ModuleBuilder<'_> {
     /// Expand a union member into its flat constituent arms.
@@ -26,7 +26,7 @@ impl ModuleBuilder<'_> {
                     .flat_map(|item| self.flatten_union_member_types(item))
                     .collect()
             }
-            Some(Type::Optional(inner)) => {
+            Some(Type::Optional(inner, _)) => {
                 let inner_ty = *inner;
                 let none_ty = self.ctx.krate.types.intern(Type::None);
                 let mut out = self.flatten_union_member_types(inner_ty);
@@ -36,6 +36,184 @@ impl ModuleBuilder<'_> {
                 out
             }
             _ => vec![ty],
+        }
+    }
+
+    /// The union of already-lowered member types, as a union annotation
+    /// spelling those members lowers.
+    ///
+    /// The one statement of how members join, shared by the annotation
+    /// lowering (`A | B`) and by every place that builds a union from types
+    /// it computed (an indexed access evaluated to several property types,
+    /// `ty/deferred_index.rs`): nested unions and optionals are flattened,
+    /// `never` arms vanish, the nullish arms collapse into one `Optional`
+    /// around a single remaining arm, lists and dictionaries with one key
+    /// type merge, and function arms whose call shapes disagree become one
+    /// variadic erased signature.
+    ///
+    /// The members carry no source spelling here, so a bare absent member
+    /// counts as `undefined`; a member that is itself optional contributes
+    /// the absent values of its layers (`Type::Optional`'s `Absence`).
+    pub(in crate::lowering) fn union_of_member_types(
+        &mut self,
+        members: &[smelt_hir::TypeId],
+    ) -> smelt_hir::TypeId {
+        let (mut admits_undefined, mut admits_null) = (false, false);
+        for member_ty in members {
+            let (_, undefined, null) =
+                smelt_hir::type_normalize::peel_optional(&self.ctx.krate.types, *member_ty);
+            admits_undefined |= undefined;
+            admits_null |= null;
+            if !undefined
+                && !null
+                && self
+                    .flatten_union_member_types(*member_ty)
+                    .iter()
+                    .any(|flat| matches!(self.ctx.krate.types.get(*flat), Some(Type::None)))
+            {
+                admits_undefined = true;
+            }
+        }
+        self.union_of_member_types_with_absence(members, admits_undefined, admits_null)
+    }
+
+    /// [`Self::union_of_member_types`] with the caller's knowledge of the
+    /// absent values the union admits (`admits_undefined`, `admits_null`):
+    /// the resulting optional has one layer per admitted absence
+    /// (`type_normalize::rebuild_optional`), so its `None` erases and prints
+    /// as `null` or `undefined`. A nullish arm with neither flag is
+    /// `undefined`.
+    pub(in crate::lowering) fn union_of_member_types_with_absence(
+        &mut self,
+        members: &[smelt_hir::TypeId],
+        admits_undefined: bool,
+        admits_null: bool,
+    ) -> smelt_hir::TypeId {
+        let mut lowered = Vec::new();
+        let mut nullish = Vec::new();
+        let mut saw_never = false;
+        for member_ty in members {
+            // Flatten members that are themselves unions/optionals so the
+            // resulting union has only concrete top-level arms. Type
+            // aliases such as `type Criterion = A | B | null` lower to a
+            // `Type::Union`, and composing them (`Criterion | C`) would
+            // otherwise nest a union inside a union. Downstream typeof
+            // narrowing, nullish narrowing, and coercion all inspect only
+            // the top-level arms, so a nested union arm is treated as one
+            // atomic member and gets dropped or mishandled wholesale.
+            for flat_ty in self.flatten_union_member_types(*member_ty) {
+                if matches!(self.ctx.krate.types.get(flat_ty), Some(Type::Never)) {
+                    saw_never = true;
+                } else if matches!(self.ctx.krate.types.get(flat_ty), Some(Type::None)) {
+                    if !nullish.contains(&flat_ty) {
+                        nullish.push(flat_ty);
+                    }
+                } else if !lowered.contains(&flat_ty) {
+                    lowered.push(flat_ty);
+                }
+            }
+        }
+        // A union whose arms are all function types but whose call
+        // shapes disagree (different parameter counts, or a rest arm
+        // mixed with a fixed-arity arm) has no single call signature to
+        // select: TypeScript would require a caller to satisfy every
+        // arm. Picking one arm inconsistently at different points (the
+        // `func` parameter type, the packed-argument wrapper, the
+        // `SmeltUnknown::Function` adapter) is exactly what produces
+        // mismatched arities in generated Rust (E0057 — e.g. es-toolkit
+        // `once<F extends (() => any) | ((...args: any[]) => void)>`).
+        //
+        // The honest JavaScript semantics of *calling* such a value is a
+        // variadic call: arguments are passed positionally and the result
+        // is observed dynamically. Collapse the arms into one variadic
+        // erased-rest signature (`(...args: unknown[]) => unknown`) so
+        // every consumer agrees on arity. Function unions that already
+        // share one call shape are left untouched so their concrete
+        // parameter/return types survive.
+        if lowered.len() >= 2
+            && lowered
+                .iter()
+                .all(|arm_ty| matches!(self.ctx.krate.types.get(*arm_ty), Some(Type::Function(_))))
+        {
+            let mut shapes = lowered.iter().filter_map(|arm_ty| {
+                if let Some(Type::Function(signature)) = self.ctx.krate.types.get(*arm_ty) {
+                    Some((signature.params.len(), signature.rest.is_some()))
+                } else {
+                    None
+                }
+            });
+            let first_shape = shapes.next();
+            let arities_differ = shapes.any(|shape| Some(shape) != first_shape);
+            if arities_differ {
+                let item_ty = self.erase(ErasureReason::TypeLevel);
+                let rest_list_ty = self.ctx.krate.types.intern(Type::List(item_ty));
+                let return_ty = self.unknown_type(NotNewErasure::ErasedUpstream); // not a new erasure: same mixed-arity decision recorded for the rest item above
+                let unified = self.ctx.krate.types.intern(Type::Function(FunctionType {
+                    params: vec![rest_list_ty],
+                    rest: Some(0),
+                    required_params: Some(0),
+                    mutable_params: Vec::new(),
+                    return_ty,
+                    is_async: false,
+                    may_throw: false,
+                }));
+                if nullish.is_empty() {
+                    return unified;
+                }
+                lowered = vec![unified];
+            }
+        }
+        if let Some(list_ty) = self.list_union_type(&lowered) {
+            if nullish.is_empty() {
+                return list_ty;
+            }
+            lowered = vec![list_ty];
+        }
+        if let Some(dict_ty) = self.dict_union_type(&lowered) {
+            if nullish.is_empty() {
+                return dict_ty;
+            }
+            lowered = vec![dict_ty];
+        }
+        if lowered.len() == 1 && !nullish.is_empty() {
+            let single = lowered.remove(0);
+            smelt_hir::type_normalize::rebuild_optional(
+                &mut self.ctx.krate.types,
+                single,
+                admits_undefined || !admits_null,
+                admits_null,
+            )
+        } else if lowered.len() == 1 {
+            lowered.remove(0)
+        } else if lowered.is_empty() && nullish.is_empty() && saw_never {
+            self.ctx.krate.types.intern(Type::Never)
+        } else if nullish.is_empty()
+            || lowered.len() < 2
+            || !lowered
+                .iter()
+                .all(|arm| self.union_arm_has_concrete_storage(*arm))
+        {
+            // Fewer than two present arms leave no union to make
+            // optional, and a union with an arm the generated crate
+            // stores erased (`unknown`, a type parameter, a class
+            // nothing declares) is the erased value, which already
+            // holds `null` and `undefined`: the union stays as written.
+            lowered.extend(nullish);
+            self.ctx.krate.types.intern(Type::Union(lowered))
+        } else {
+            // Two or more present arms and an absent value: the optional
+            // of the present union, as a single present arm already is
+            // (and as an optional parameter `x?: A | B` is), with the
+            // layers of the absent values the union admits: its `None`
+            // erases and prints as `null` or `undefined`, inside a
+            // container too (`emitter::absent_value` in the Rust backend).
+            let present = self.ctx.krate.types.intern(Type::Union(lowered));
+            smelt_hir::type_normalize::rebuild_optional(
+                &mut self.ctx.krate.types,
+                present,
+                admits_undefined || !admits_null,
+                admits_null,
+            )
         }
     }
 
@@ -179,5 +357,114 @@ impl ModuleBuilder<'_> {
             _ => self.ctx.krate.types.intern(Type::Union(element_tys)),
         };
         Some(self.ctx.krate.types.intern(Type::List(element_ty)))
+    }
+
+    /// Whether a union arm has concrete storage in the generated crate, so a
+    /// union of such arms is a generated enum rather than the erased carrier.
+    ///
+    /// Follows codegen's `union_member_is_concrete`, more strictly: primitives
+    /// are; a list, set, tuple or future is when everything it holds is; a
+    /// class or interface is when it is declared (or a stdlib class with a
+    /// concrete runtime type), since an undeclared one renders erased; a record,
+    /// map or function arm, `unknown`, `never`, a type parameter, and a nullish
+    /// or optional arm are not. A class
+    /// declared later than this annotation reads as undeclared here, which only
+    /// keeps the union in its erased form.
+    pub(in crate::lowering) fn union_arm_has_concrete_storage(
+        &self,
+        ty: smelt_hir::TypeId,
+    ) -> bool {
+        match self.ctx.krate.types.get(ty) {
+            Some(
+                Type::Bool
+                | Type::Int
+                | Type::FixedInt(_)
+                | Type::BigInt
+                | Type::Float
+                | Type::String
+                | Type::PyStr
+                | Type::PyInt
+                | Type::Symbol
+                | Type::PropKey,
+            ) => true,
+            Some(
+                container @ (Type::List(_)
+                | Type::Set(_)
+                | Type::Future(_)
+                | Type::Tuple(_)
+                | Type::Union(_)
+                | Type::GeneratorResult { .. }),
+            ) => container
+                .children()
+                .all(|child| self.union_arm_has_concrete_storage(child)),
+            Some(Type::Generator {
+                yield_ty,
+                return_ty,
+                ..
+            }) => {
+                self.union_arm_has_concrete_storage(*yield_ty)
+                    && self.union_arm_has_concrete_storage(*return_ty)
+            }
+            Some(Type::Class { name, args }) => {
+                let declared = self.find_class(*name).is_some()
+                    || self.find_interface(*name).is_some()
+                    || self.ctx.krate.symbols.get(*name).is_some_and(|text| {
+                        smelt_stdlib::typescript_stdlib_class(text)
+                            .is_some_and(smelt_stdlib::StdlibClass::has_concrete_runtime_type)
+                    });
+                declared
+                    && args
+                        .iter()
+                        .all(|arg| self.union_arm_has_concrete_storage(*arg))
+            }
+            // A record or map arm and a function arm stay erased: a value
+            // reaches such a union through a merged record type or another
+            // callable spelling than the arm's (`Record<string, string> |
+            // Record<string, string[]>` assigned from one record of a merged
+            // value type), which the generated enum does not inject.
+            Some(
+                Type::Dict(_, _)
+                | Type::JsMap(_, _)
+                | Type::Function(_)
+                | Type::Unknown
+                | Type::Never
+                | Type::TypeParam { .. }
+                // A deferred `T[K]` is settled per call, like the type
+                // parameter it reads: no storage of its own here.
+                | Type::IndexedAccess { .. }
+                | Type::None
+                | Type::Optional(..),
+            )
+            | None => false,
+        }
+    }
+}
+
+impl ModuleBuilder<'_> {
+    /// Which absent values the union member `member` (lowered to `member_ty`)
+    /// contributes: `(undefined, null)`.
+    ///
+    /// The keywords answer for themselves (`void` is `undefined`). A member
+    /// whose lowering is an optional (an alias of `T | null`, a parenthesised
+    /// union) contributes the absences of its optional layers. Any other
+    /// member contributes neither.
+    pub(in crate::lowering) fn ts_member_absences(
+        &self,
+        member: &oxc::ast::ast::TSType<'_>,
+        member_ty: smelt_hir::TypeId,
+    ) -> (bool, bool) {
+        use oxc::ast::ast::TSType;
+        match member {
+            TSType::TSNullKeyword(_) => (false, true),
+            TSType::TSUndefinedKeyword(_) | TSType::TSVoidKeyword(_) => (true, false),
+            TSType::TSParenthesizedType(inner) => {
+                self.ts_member_absences(&inner.type_annotation, member_ty)
+            }
+            _ => {
+                let (_, undefined, null) =
+                    smelt_hir::type_normalize::peel_optional(&self.ctx.krate.types, member_ty);
+                (undefined, null)
+            }
+        }
     }
 }

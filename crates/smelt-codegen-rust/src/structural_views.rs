@@ -192,7 +192,7 @@ fn for_each_record_pair(
         return;
     }
     let strip = |mut ty: TypeId| {
-        while let Some(Type::Optional(inner)) = mir.types.get(ty) {
+        while let Some(Type::Optional(inner, _)) = mir.types.get(ty) {
             ty = *inner;
         }
         ty

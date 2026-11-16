@@ -276,7 +276,7 @@ impl ModuleBuilder<'_> {
                         span,
                     })
                 }
-                Some(Type::Optional(_)) => {
+                Some(Type::Optional(..)) => {
                     let none = body.push_expr(Expr {
                         kind: ExprKind::Literal(Literal::None),
                         ty: element_ty,

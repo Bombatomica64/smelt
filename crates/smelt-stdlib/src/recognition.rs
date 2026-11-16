@@ -117,6 +117,7 @@ pub const TYPESCRIPT_CALLS: &[CallRecognition] = &[
     free("parseFloat", RuleId::TsPrimitiveCast),
     free("parseInt", RuleId::TsPrimitiveCast),
     free("isNaN", RuleId::TsNumberPredicate),
+    free("isFinite", RuleId::TsNumberPredicate),
     free("Symbol", RuleId::TsSymbol),
     static_call("JSON", "stringify", RuleId::TsJsonStringify),
     static_call("JSON", "parse", RuleId::TsJsonParse),

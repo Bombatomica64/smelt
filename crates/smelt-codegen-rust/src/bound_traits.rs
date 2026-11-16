@@ -219,6 +219,10 @@ struct BoundUses {
 }
 
 /// Record every bound member read in one body.
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "single-shape recogniser: only `Rvalue::BoundMethod`/`BoundField` read through a bound, and lowering only ever assigns them to a temporary"
+)]
 fn collect_uses(blocks: &[BasicBlock], uses: &mut IndexMap<Symbol, BoundUses>) {
     for block in blocks {
         for statement in &block.statements {
@@ -387,7 +391,7 @@ fn plain_member_type(mir: &Mir, ty: TypeId) -> bool {
             | Type::None,
         ) => true,
         Some(Type::Class { args, .. }) => args.is_empty(),
-        Some(Type::List(item) | Type::Optional(item)) => plain_member_type(mir, *item),
+        Some(Type::List(item) | Type::Optional(item, _)) => plain_member_type(mir, *item),
         _ => false,
     }
 }

@@ -56,7 +56,7 @@ impl ModuleBuilder<'_> {
         let types = &self.ctx.krate.types;
         let label_comparable = match types.get(scrutinee_ty) {
             Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. }) => false,
-            Some(Type::Optional(inner)) => types.get(*inner).is_some_and(Type::is_text),
+            Some(Type::Optional(inner, _)) => types.get(*inner).is_some_and(Type::is_text),
             _ => true,
         };
         label_comparable

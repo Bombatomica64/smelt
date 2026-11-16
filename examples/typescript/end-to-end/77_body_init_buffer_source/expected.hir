@@ -32,14 +32,14 @@ interned types
   t13 = List<Float>
   t14 = Uint32Array
   t15 = Headers
-  t16 = Optional<String>
+  t16 = Nullable<String>
   t17 = URLSearchParams
   t18 = FormData
   t19 = File
   t20 = String | File
   t21 = Request
   t22 = Future<FormData>
-  t23 = Optional<String | File>
+  t23 = Nullable<String | File>
   t24 = List<String>
   t25 = Blob
   t26 = async fn() -> Future<None>

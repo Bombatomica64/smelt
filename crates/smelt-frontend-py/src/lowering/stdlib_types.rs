@@ -2,8 +2,8 @@ impl ModuleBuilder<'_> {
     /// Return whether a type can be represented by Python JSON serialization helpers.
     fn is_json_serializable_type(&self, ty: smelt_hir::TypeId) -> bool {
         match self.ctx.krate.types.get(ty) {
-            Some(Type::Bool | Type::Int | Type::Float | Type::PyStr) => true,
-            Some(Type::List(item) | Type::Set(item) | Type::Optional(item)) => {
+            Some(Type::Bool | Type::PyInt | Type::Float | Type::PyStr) => true,
+            Some(Type::List(item) | Type::Set(item) | Type::Optional(item, _)) => {
                 self.is_json_serializable_type(*item)
             }
             Some(Type::Tuple(items)) => items
@@ -21,7 +21,7 @@ impl ModuleBuilder<'_> {
     fn contains_set_type(&self, ty: smelt_hir::TypeId) -> bool {
         match self.ctx.krate.types.get(ty) {
             Some(Type::Set(_)) => true,
-            Some(Type::List(item) | Type::Optional(item)) => self.contains_set_type(*item),
+            Some(Type::List(item) | Type::Optional(item, _)) => self.contains_set_type(*item),
             Some(Type::Tuple(items)) => items.iter().any(|item| self.contains_set_type(*item)),
             Some(Type::Dict(_, value)) => self.contains_set_type(*value),
             _ => false,
@@ -39,40 +39,71 @@ impl ModuleBuilder<'_> {
         };
         let (op, result_ty) = match name.id.as_str() {
             "bool" => (PrimitiveCastOp::ToBool, Type::Bool),
-            "int" => (PrimitiveCastOp::ToInt, Type::Int),
+            "int" => (PrimitiveCastOp::ToInt, Type::PyInt),
             "float" => (PrimitiveCastOp::ToFloat, Type::Float),
             "str" => (PrimitiveCastOp::ToString, Type::PyStr),
             _ => return Ok(None),
         };
-        if call.arguments.args.len() != 1 || !call.arguments.keywords.is_empty() {
+        let span = self.span(call.range());
+        if !call.arguments.keywords.is_empty() {
             return Err(SmeltError::unsupported(
-                self.span(call.range()),
+                span,
+                "primitive conversions take positional arguments only",
+            ));
+        }
+        // `int(text, base)`: the base form only reads a string.
+        if let ([text_arg, base_arg], PrimitiveCastOp::ToInt) = (call.arguments.args.as_ref(), op) {
+            let text = self.expression(text_arg, body)?;
+            let base = self.expression(base_arg, body)?;
+            if !matches!(self.ctx.krate.types.get(Self::expr_ty(body, text)), Some(Type::PyStr))
+                || !matches!(self.ctx.krate.types.get(Self::expr_ty(body, base)), Some(Type::PyInt))
+            {
+                return Err(SmeltError::unsupported(span, "int(x, base) needs a str and an int base"));
+            }
+            return Ok(Some(self.py_numeric_call(smelt_hir::PyNumericOp::ParseBase, vec![text, base], span, body)));
+        }
+        if call.arguments.args.len() != 1 {
+            return Err(SmeltError::unsupported(
+                span,
                 "primitive conversions currently support exactly one positional argument",
             ));
         }
         let operand = self.expression(&call.arguments.args[0], body)?;
+        let operand_kind = self.ctx.krate.types.get(Self::expr_ty(body, operand)).cloned();
         if op == PrimitiveCastOp::ToString
-            && !matches!(
-                self.ctx.krate.types.get(Self::expr_ty(body, operand)),
-                Some(Type::Bool | Type::Int | Type::Float | Type::PyStr)
-            )
+            && !matches!(operand_kind, Some(Type::Bool | Type::PyInt | Type::Float | Type::PyStr))
         {
-            return self.python_text_expr(operand, false, self.span(call.range()), body).map(Some);
+            return self.python_text_expr(operand, false, span, body).map(Some);
         }
-        if !matches!(
-            self.ctx.krate.types.get(Self::expr_ty(body, operand)),
-            Some(Type::Bool | Type::Int | Type::Float | Type::PyStr)
-        ) {
+        if !matches!(operand_kind, Some(Type::Bool | Type::PyInt | Type::Float | Type::PyStr)) {
             return Err(SmeltError::unsupported(
                 self.span(call.arguments.args[0].range()),
                 "primitive conversions currently support bool, int, float, and str values",
             ));
         }
+        // The conversions that can raise (`int("x")`, `int(nan)`,
+        // `float(2**1024)`, `float("x")`, `str(10**5000)`) are numeric calls a
+        // `try` can catch; an `int` already is one; the rest are plain casts.
+        let raising = match (op, &operand_kind) {
+            (PrimitiveCastOp::ToInt, Some(Type::PyInt)) => return Ok(Some(operand)),
+            (PrimitiveCastOp::ToInt, Some(Type::PyStr)) => Some(smelt_hir::PyNumericOp::Parse),
+            (PrimitiveCastOp::ToInt, Some(Type::Float)) => Some(smelt_hir::PyNumericOp::FromFloat),
+            (PrimitiveCastOp::ToFloat, Some(Type::PyInt)) => return Ok(Some(self.promote_int_to_float(operand, body))),
+            (PrimitiveCastOp::ToFloat, Some(Type::PyStr)) => Some(smelt_hir::PyNumericOp::ParseFloat),
+            _ => None,
+        };
+        if let Some(raising_op) = raising {
+            return Ok(Some(self.py_numeric_call(raising_op, vec![operand], span, body)));
+        }
+        if op == PrimitiveCastOp::ToInt && matches!(operand_kind, Some(Type::Bool)) {
+            let ty = self.intern_type(Type::PyInt);
+            return Ok(Some(body.push_expr(HirExpr { kind: ExprKind::TypeAssert { value: operand }, ty, span })));
+        }
         let ty = self.intern_type(result_ty);
         Ok(Some(body.push_expr(HirExpr {
             kind: ExprKind::PrimitiveCast { op, operand },
             ty,
-            span: self.span(call.range()),
+            span,
         })))
     }
 
@@ -105,7 +136,7 @@ impl ModuleBuilder<'_> {
         };
         if !matches!(
             self.ctx.krate.types.get(*item_ty),
-            Some(Type::Int | Type::Float)
+            Some(Type::PyInt | Type::Float)
         ) {
             return Err(SmeltError::unsupported(
                 self.span(call.arguments.args[0].range()),
@@ -197,12 +228,7 @@ impl ModuleBuilder<'_> {
         let element_ty = *item_ty;
         let (key, reverse) =
             self.sort_keyword_arguments(&call.arguments.keywords, element_ty, body)?;
-        if key.is_none()
-            && !matches!(
-                self.ctx.krate.types.get(element_ty),
-                Some(Type::Bool | Type::Int | Type::Float | Type::PyStr)
-            )
-        {
+        if key.is_none() && !self.is_python_orderable(element_ty) {
             return Err(SmeltError::unsupported(
                 self.span(call.arguments.args[0].range()),
                 "sorted() argument must be a sortable list",
@@ -217,6 +243,17 @@ impl ModuleBuilder<'_> {
             ty: list_ty,
             span: self.span(call.range()),
         })))
+    }
+
+    /// Whether Python orders values of `ty` with `<` and Smelt sorts them: the
+    /// scalars, and tuples of orderable items, which compare lexicographically
+    /// (as Rust's tuples do).
+    pub(super) fn is_python_orderable(&self, ty: smelt_hir::TypeId) -> bool {
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::Bool | Type::PyInt | Type::Float | Type::PyStr) => true,
+            Some(Type::Tuple(items)) => !items.is_empty() && items.iter().all(|item| self.is_python_orderable(*item)),
+            _ => false,
+        }
     }
 
     /// Parse Python `key=` and `reverse=` sort keyword arguments.
@@ -243,7 +280,7 @@ impl ModuleBuilder<'_> {
                         self.python_callback_argument(&keyword.value, &[element_ty], body)?;
                     if !matches!(
                         self.ctx.krate.types.get(callback.return_ty),
-                        Some(Type::Bool | Type::Int | Type::Float | Type::PyStr)
+                        Some(Type::Bool | Type::PyInt | Type::Float | Type::PyStr)
                     ) {
                         return Err(SmeltError::unsupported(
                             self.span(keyword.range),
@@ -334,7 +371,7 @@ impl ModuleBuilder<'_> {
                 "enumerate() argument must be a list, set, or dict",
             ));
         };
-        let int_ty = self.intern_type(Type::Int);
+        let int_ty = self.intern_type(Type::PyInt);
         let tuple_ty = self.intern_type(Type::Tuple(vec![int_ty, item_ty]));
         let ty = self.intern_type(Type::List(tuple_ty));
         Ok(Some(body.push_expr(HirExpr {
@@ -412,7 +449,7 @@ impl ModuleBuilder<'_> {
                 "range() keyword arguments are not supported",
             ));
         }
-        let int_ty = self.intern_type(Type::Int);
+        let int_ty = self.intern_type(Type::PyInt);
         let int_literal = |hir_body: &mut Body, value| {
             hir_body.push_expr(HirExpr {
                 kind: ExprKind::Literal(smelt_hir::Literal::Int(value)),
@@ -444,19 +481,25 @@ impl ModuleBuilder<'_> {
             }
         };
         for bound in [start, end, step] {
-            if self.ctx.krate.types.get(Self::expr_ty(body, bound)) != Some(&Type::Int) {
+            if self.ctx.krate.types.get(Self::expr_ty(body, bound)) != Some(&Type::PyInt) {
                 return Err(SmeltError::unsupported(
                     span,
                     "range() arguments must be integers",
                 ));
             }
         }
-        let ty = self.intern_type(Type::List(int_ty));
-        Ok(Some(body.push_expr(HirExpr {
-            kind: ExprKind::ListRange { start, end, step },
-            ty,
-            span,
-        })))
+        // Materialized as `CPython` would iterate it, exact at every
+        // magnitude. Only a step that may be zero can raise (`ValueError`), so
+        // a nonzero constant step keeps the infallible form.
+        if Self::is_nonzero_constant(step, body) {
+            let ty = self.intern_type(Type::List(int_ty));
+            return Ok(Some(body.push_expr(HirExpr {
+                kind: ExprKind::ListRange { start, end, step },
+                ty,
+                span,
+            })));
+        }
+        Ok(Some(self.py_numeric_call(smelt_hir::PyNumericOp::Range, vec![start, end, step], span, body)))
     }
 
     /// Lower Python `list.extend(other)` calls for same-typed lists.
@@ -524,7 +567,7 @@ impl ModuleBuilder<'_> {
         let index = self.expression(&call.arguments.args[0], body)?;
         if !matches!(
             self.ctx.krate.types.get(Self::expr_ty(body, index)),
-            Some(Type::Int)
+            Some(Type::PyInt)
         ) {
             return Err(SmeltError::unsupported(
                 self.span(call.arguments.args[0].range()),
@@ -538,9 +581,10 @@ impl ModuleBuilder<'_> {
                 "list.insert() item must match the list element type",
             ));
         }
+        let position = self.py_int_as_size(index, body);
         let ty = self.intern_type(Type::None);
         Ok(Some(body.push_expr(HirExpr {
-            kind: ExprKind::ListInsert { list, index, item },
+            kind: ExprKind::ListInsert { list, index: position, item },
             ty,
             span: self.span(call.range()),
         })))
@@ -577,12 +621,8 @@ impl ModuleBuilder<'_> {
                 "list.index() item must match the list element type",
             ));
         }
-        let ty = self.intern_type(Type::Int);
-        Ok(Some(body.push_expr(HirExpr {
-            kind: ExprKind::ListIndex { list, item },
-            ty,
-            span: self.span(call.range()),
-        })))
+        let span = self.span(call.range());
+        Ok(Some(self.machine_int_as_py_int(ExprKind::ListIndex { list, item }, span, body)))
     }
 
     /// Lower Python `list.remove(item)` calls.
@@ -657,7 +697,7 @@ impl ModuleBuilder<'_> {
         if key.is_none()
             && !matches!(
                 self.ctx.krate.types.get(element_ty),
-                Some(Type::Bool | Type::Int | Type::Float | Type::PyStr)
+                Some(Type::Bool | Type::PyInt | Type::Float | Type::PyStr)
             )
         {
             return Err(SmeltError::unsupported(

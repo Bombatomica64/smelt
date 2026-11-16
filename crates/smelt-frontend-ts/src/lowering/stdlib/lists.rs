@@ -6,8 +6,7 @@ use crate::lowering::{ModuleBuilder, SmeltError};
 use oxc::ast::ast::{Argument, CallExpression, Expression};
 use oxc::span::GetSpan;
 use smelt_hir::{
-    Body, ErasureReason, Expr, ExprKind, ListCallbackOp, ListProjectionOp, ListSpliceItem, Stmt,
-    Type,
+    Body, ErasureReason, Expr, ExprKind, ListCallbackOp, ListProjectionOp, ListSpliceItem, Type,
 };
 
 impl ModuleBuilder<'_> {
@@ -41,7 +40,11 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         };
         let element_ty = *list_element_ty;
-        let ty = self.ctx.krate.types.intern(Type::Optional(element_ty));
+        let ty = self
+            .ctx
+            .krate
+            .types
+            .intern(Type::Optional(element_ty, smelt_hir::Absence::Undefined));
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::ListShift { list },
             ty,
@@ -72,7 +75,11 @@ impl ModuleBuilder<'_> {
         let Some(Type::List(element_ty)) = self.ctx.krate.types.get(list_ty) else {
             return Ok(None);
         };
-        let ty = self.ctx.krate.types.intern(Type::Optional(*element_ty));
+        let ty = self
+            .ctx
+            .krate
+            .types
+            .intern(Type::Optional(*element_ty, smelt_hir::Absence::Undefined));
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::ListPop {
                 list,
@@ -281,7 +288,7 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         };
         let local_ty = Self::local_ty(body, local);
-        let Some(Type::Optional(inner)) = self.ctx.krate.types.get(local_ty).cloned() else {
+        let Some(Type::Optional(inner, _)) = self.ctx.krate.types.get(local_ty).cloned() else {
             return Ok(None);
         };
         let Some(Type::Function(function)) = self.ctx.krate.types.get(inner).cloned() else {
@@ -327,13 +334,13 @@ impl ModuleBuilder<'_> {
             ExprKind::Field { receiver, .. } | ExprKind::OptionalField { receiver, .. } => {
                 matches!(
                     self.ctx.krate.types.get(Self::expr_ty(body, *receiver)),
-                    Some(Type::Optional(_))
+                    Some(Type::Optional(..))
                 )
             }
             _ => false,
         });
         if !optional_from_base
-            && let Some(Type::Optional(inner)) = self.ctx.krate.types.get(list_ty).cloned()
+            && let Some(Type::Optional(inner, _)) = self.ctx.krate.types.get(list_ty).cloned()
             && matches!(self.ctx.krate.types.get(inner), Some(Type::List(_)))
         {
             return Ok(body.push_expr(Expr {
@@ -374,31 +381,30 @@ impl ModuleBuilder<'_> {
         // list, each scalar pushes one element; the value of the call is the last
         // mutation's `Float` length result.
         let number_ty = self.ctx.krate.types.intern(Type::Float);
-        let mut result = None;
+        let list_value_ty = self.ctx.krate.types.intern(Type::List(element_ty));
+        let span = self.span(call.span.start, call.span.end);
+        // `push(a, b, ...xs)` evaluates every argument, then appends them all
+        // in order: one `ListExtend` with the items gathered as an array
+        // literal gathers them (`[a, b, ...xs]`, a `list_concat` chain).
+        // Separate pushes would interleave evaluation and appending
+        // (`out.push(1, out.length)` is `[1, 0]`, not `[1, 1]`), and the
+        // pushes before the last were once stored as statements of the
+        // body's ENTRY block, so a push of a loop-local ran before the loop.
+        let mut items: Option<smelt_hir::ExprId> = None;
+        let mut single = None;
         for item_argument in &call.arguments {
-            // Every push before the last is a sequenced side effect; the call's
-            // value is the final push's `Float` length result.
-            if let Some(previous) = result.take() {
-                body.push_stmt(Stmt::Expr(previous));
-            }
-            let pushed = if let Argument::SpreadElement(spread) = item_argument {
+            let piece = if let Argument::SpreadElement(spread) = item_argument {
                 let other = self.expression(&spread.argument, body)?;
                 let other_ty = Self::expr_ty(body, other);
-                let other = if matches!(self.ctx.krate.types.get(other_ty), Some(Type::List(_))) {
+                if matches!(self.ctx.krate.types.get(other_ty), Some(Type::List(_))) {
                     other
                 } else {
-                    let list_value_ty = self.ctx.krate.types.intern(Type::List(element_ty));
                     body.push_expr(Expr {
                         kind: ExprKind::TypeAssert { value: other },
                         ty: list_value_ty,
                         span: self.span(spread.span.start, spread.span.end),
                     })
-                };
-                body.push_expr(Expr {
-                    kind: ExprKind::ListExtend { list, other },
-                    ty: number_ty,
-                    span: self.span(call.span.start, call.span.end),
-                })
+                }
             } else {
                 // Lower the pushed value with the array's element type as a
                 // contextual hint. This lets a bare literal argument adopt the
@@ -408,15 +414,41 @@ impl ModuleBuilder<'_> {
                 // as a `(Float, String)` tuple literal rather than a
                 // `List<Unknown>` that could never be re-typed into the tuple.
                 let item = self.list_element_argument(item_argument, element_ty, "push", body)?;
+                if call.arguments.len() == 1 {
+                    single = Some(item);
+                    break;
+                }
                 body.push_expr(Expr {
-                    kind: ExprKind::ListPush { list, item },
-                    ty: number_ty,
-                    span: self.span(call.span.start, call.span.end),
+                    kind: ExprKind::ListLit(vec![item]),
+                    ty: list_value_ty,
+                    span,
                 })
             };
-            result = Some(pushed);
+            items = Some(items.map_or(piece, |earlier| {
+                body.push_expr(Expr {
+                    kind: ExprKind::ListConcat {
+                        left: earlier,
+                        right: piece,
+                    },
+                    ty: list_value_ty,
+                    span,
+                })
+            }));
         }
-        Ok(result)
+        let result = match (single, items) {
+            (Some(item), _) => body.push_expr(Expr {
+                kind: ExprKind::ListPush { list, item },
+                ty: number_ty,
+                span,
+            }),
+            (None, Some(other)) => body.push_expr(Expr {
+                kind: ExprKind::ListExtend { list, other },
+                ty: number_ty,
+                span,
+            }),
+            (None, None) => return Ok(None),
+        };
+        Ok(Some(result))
     }
 
     /// Lower modern TypeScript array APIs that materialize lists directly.
@@ -786,7 +818,10 @@ impl ModuleBuilder<'_> {
                     ListCallbackOp::FindLastIndex
                 };
                 let ty = if method == "findLast" {
-                    self.ctx.krate.types.intern(Type::Optional(element_ty))
+                    self.ctx
+                        .krate
+                        .types
+                        .intern(Type::Optional(element_ty, smelt_hir::Absence::Undefined))
                 } else {
                     index_ty
                 };
@@ -1050,7 +1085,7 @@ impl ModuleBuilder<'_> {
             ) || self.type_contains_unknown(effective_operand_ty)
                 || matches!(
                     self.ctx.krate.types.get(effective_operand_ty),
-                    Some(Type::Optional(inner)) if self.is_string_compatible_type(*inner)
+                    Some(Type::Optional(inner, _)) if self.is_string_compatible_type(*inner)
                 )
                 || matches!(
                     self.ctx.krate.types.get(effective_operand_ty),
@@ -1154,7 +1189,7 @@ impl ModuleBuilder<'_> {
             .get(self.type_param_constraint_or_self(ty))
         {
             Some(Type::Int | Type::Float | Type::Unknown | Type::TypeParam { .. }) => true,
-            Some(Type::Optional(item)) => self.slice_index_type_is_number(*item),
+            Some(Type::Optional(item, _)) => self.slice_index_type_is_number(*item),
             Some(Type::Union(items)) => items
                 .iter()
                 .copied()
@@ -1204,7 +1239,7 @@ impl ModuleBuilder<'_> {
                 .into_iter()
                 .flat_map(|item| self.non_nullish_member_types(item))
                 .collect(),
-            Some(Type::Optional(item)) => vec![item],
+            Some(Type::Optional(item, _)) => vec![item],
             Some(Type::None) => Vec::new(),
             _ => vec![ty],
         }
@@ -1267,7 +1302,7 @@ impl ModuleBuilder<'_> {
             .get(self.type_param_constraint_or_self(ty))
         {
             Some(Type::List(item_ty)) => Some((ty, *item_ty)),
-            Some(Type::Optional(inner)) => match self.ctx.krate.types.get(*inner) {
+            Some(Type::Optional(inner, _)) => match self.ctx.krate.types.get(*inner) {
                 Some(Type::List(item_ty)) => Some((*inner, *item_ty)),
                 _ => None,
             },

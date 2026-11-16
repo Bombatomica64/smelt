@@ -87,7 +87,7 @@ impl FunctionEmitter<'_> {
                 )))
             };
         }
-        if let Some(Type::Optional(inner)) = self.mir.types.get(dest_ty) {
+        if let Some(Type::Optional(inner, _)) = self.mir.types.get(dest_ty) {
             // `Type::Tuple` belongs here for the same reason as the
             // others: the arm above renders a literal into a Rust tuple
             // when the destination IS one, and an optional destination
@@ -107,6 +107,8 @@ impl FunctionEmitter<'_> {
                         | Type::Unknown
                         | Type::TypeParam { .. }
                         | Type::Union(_)
+                        // `T | null | undefined`: present in both layers.
+                        | Type::Optional(..)
                 )
             ) || self.is_erased_class_type(*inner)
             {
@@ -527,9 +529,10 @@ impl FunctionEmitter<'_> {
     /// still need the same closure parameter later in the literal expression, so
     /// list emission treats local moves as cloneable copies.
     fn list_literal_operand(&self, operand: &Operand) -> Operand {
-        match operand {
-            Operand::Move(place @ Place::Local(_)) => Operand::Copy(place.clone()),
-            _ => operand.clone(),
+        if let Operand::Move(place @ Place::Local(_)) = operand {
+            Operand::Copy(place.clone())
+        } else {
+            operand.clone()
         }
     }
 
@@ -548,25 +551,23 @@ impl FunctionEmitter<'_> {
             .blocks
             .iter()
             .flat_map(|block| &block.statements)
-            .filter_map(|statement| match statement {
-                Statement::Assign { dest, value } if *dest == local => Some(value),
-                _ => None,
-            });
+            .filter_map(|statement| local_analysis::temp_assigned_value(statement, local));
         let value = assigned.next()?;
         if assigned.next().is_some() {
             return None;
         }
-        match value {
-            Rvalue::Use(Operand::Copy(place) | Operand::Move(place))
-            | Rvalue::BindThis {
-                callee: Operand::Copy(place) | Operand::Move(place),
-                ..
-            }
-            | Rvalue::BindOwnThis {
-                callee: Operand::Copy(place) | Operand::Move(place),
-            } => Some(place),
-            _ => None,
+        let (Rvalue::Use(Operand::Copy(place) | Operand::Move(place))
+        | Rvalue::BindThis {
+            callee: Operand::Copy(place) | Operand::Move(place),
+            ..
         }
+        | Rvalue::BindOwnThis {
+            callee: Operand::Copy(place) | Operand::Move(place),
+        }) = value
+        else {
+            return None;
+        };
+        Some(place)
     }
 
     /// Render a dictionary literal as a generated record when the destination
@@ -639,7 +640,7 @@ impl FunctionEmitter<'_> {
                         &field,
                     )?
                 }
-            } else if matches!(self.mir.types.get(field.ty), Some(Type::Optional(_))) {
+            } else if matches!(self.mir.types.get(field.ty), Some(Type::Optional(..))) {
                 let default = self.default_value(field.ty)?;
                 if accessor {
                     crate::accessor_prelude::constant_expr(&default)

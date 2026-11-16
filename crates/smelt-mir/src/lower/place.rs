@@ -289,7 +289,7 @@ impl LoweringCtx<'_> {
     ) -> Result<LoweredPlaceBase, LowerError> {
         let (base, mut writebacks) = self.place_base_local(receiver, span)?;
         let receiver_ty = self.hir_expr(receiver)?.ty;
-        let Some(smelt_hir::Type::Optional(inner)) = self.krate.types.get(receiver_ty) else {
+        let Some(smelt_hir::Type::Optional(inner, _)) = self.krate.types.get(receiver_ty) else {
             return Ok((base, writebacks));
         };
         let inner_ty = *inner;

@@ -120,7 +120,7 @@ impl ModuleBuilder<'_> {
         match self.ctx.krate.types.get(ty) {
             Some(Type::Function(_)) | None => true,
             Some(
-                Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item),
+                Type::List(item) | Type::Set(item) | Type::Optional(item, _) | Type::Future(item),
             ) => self.mentions_function(*item, next),
             Some(Type::Dict(key, value) | Type::JsMap(key, value)) => {
                 self.mentions_function(*key, next) || self.mentions_function(*value, next)
@@ -144,7 +144,7 @@ impl ModuleBuilder<'_> {
         match self.ctx.krate.types.get(ty) {
             None | Some(Type::Unknown | Type::TypeParam { .. }) => false,
             Some(
-                Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item),
+                Type::List(item) | Type::Set(item) | Type::Optional(item, _) | Type::Future(item),
             ) => self.type_is_closed(*item, next),
             Some(Type::Dict(key, value) | Type::JsMap(key, value)) => {
                 self.type_is_closed(*key, next) && self.type_is_closed(*value, next)
@@ -207,7 +207,7 @@ impl ModuleBuilder<'_> {
         match self.ctx.krate.types.get(ty) {
             None | Some(Type::Unknown) => true,
             Some(
-                Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item),
+                Type::List(item) | Type::Set(item) | Type::Optional(item, _) | Type::Future(item),
             ) => self.mentions_unknown(*item, next),
             Some(Type::Dict(key, value) | Type::JsMap(key, value)) => {
                 self.mentions_unknown(*key, next) || self.mentions_unknown(*value, next)

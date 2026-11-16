@@ -355,6 +355,9 @@ impl ModuleBuilder<'_> {
             body.push_stmt_to_block(block, HirStmt::Expr(update));
             return Ok(());
         }
+        if self.list_in_place_update(aug.op, target, rhs, span, body, block)? {
+            return Ok(());
+        }
         let op = Self::python_arithmetic_op(aug.op).ok_or_else(|| {
             let op = aug.op;
             SmeltError::unsupported(
@@ -365,7 +368,7 @@ impl ModuleBuilder<'_> {
         let target_ty = Self::expr_ty(body, target);
         let compound = self.python_arithmetic(op, target, rhs, span, body)?;
         let compound_ty = Self::expr_ty(body, compound);
-        if matches!(self.ctx.krate.types.get(target_ty), Some(Type::Int))
+        if matches!(self.ctx.krate.types.get(target_ty), Some(Type::PyInt))
             && matches!(self.ctx.krate.types.get(compound_ty), Some(Type::Float))
         {
             // `x /= 2` rebinds `x` to a `float`. On the straight line of a body a
@@ -473,14 +476,24 @@ impl ModuleBuilder<'_> {
                 "async for is not supported",
             ));
         }
-        if !for_stmt.orelse.is_empty() {
-            return Err(SmeltError::unsupported(
-                self.span(for_stmt.range),
-                "for-else is not supported",
-            ));
-        }
-
+        let span = self.span(for_stmt.range);
         let raw_iter = self.expression(&for_stmt.iter, body)?;
+        let flag = self.enter_loop(&for_stmt.orelse, span, body, block);
+        let lowered = self.for_loop(for_stmt, raw_iter, body, block);
+        self.loop_break_flags.pop();
+        lowered?;
+        self.loop_else(flag, &for_stmt.orelse, span, body, block)
+    }
+
+    /// The loop of a `for` statement whose iterable is lowered; see
+    /// [`Self::for_statement`].
+    fn for_loop(
+        &mut self,
+        for_stmt: &StmtFor,
+        raw_iter: smelt_hir::ExprId,
+        body: &mut Body,
+        block: smelt_hir::BlockId,
+    ) -> Result<(), SmeltError> {
         if self.class_method_dispatch(Self::expr_ty(body, raw_iter), "__iter__").is_some() {
             return self.protocol_for_statement(for_stmt, raw_iter, body, block);
         }
@@ -500,6 +513,55 @@ impl ModuleBuilder<'_> {
                 body: loop_block,
             },
         );
+        Ok(())
+    }
+
+    /// Enter a loop: push its entry on `loop_break_flags` and, when it has an
+    /// `else` clause, declare (in `block`, before the loop) the flag its
+    /// `break`s set, starting `False`.
+    fn enter_loop(
+        &mut self,
+        orelse: &[Stmt],
+        span: Span,
+        body: &mut Body,
+        block: smelt_hir::BlockId,
+    ) -> Option<smelt_hir::LocalId> {
+        let flag = (!orelse.is_empty()).then(|| {
+            let bool_ty = self.intern_type(Type::Bool);
+            let flag = body.push_local(self.synthetic_local("__smelt_broke", bool_ty, true, span));
+            let pat = body.push_pattern(HirPattern::Binding(flag));
+            let unbroken = body.push_expr(HirExpr { kind: ExprKind::Literal(Literal::Bool(false)), ty: bool_ty, span });
+            body.push_stmt_to_block(block, HirStmt::Let { pat, ty: bool_ty, value: Some(unbroken) });
+            flag
+        });
+        self.loop_break_flags.push(flag);
+        flag
+    }
+
+    /// A loop's `else` clause, after the loop in `block`: it runs when the
+    /// loop ended without a `break` (its flag still `False`), as `for`/`while`
+    /// `else` does in Python. Nothing for a loop without one.
+    #[expect(clippy::too_many_arguments, reason = "one operation, its operands and its lowering position")]
+    fn loop_else(
+        &mut self,
+        broke_flag: Option<smelt_hir::LocalId>,
+        orelse: &[Stmt],
+        span: Span,
+        body: &mut Body,
+        block: smelt_hir::BlockId,
+    ) -> Result<(), SmeltError> {
+        let Some(flag) = broke_flag else {
+            return Ok(());
+        };
+        let else_block = self.block_from_stmts(orelse, body)?;
+        let bool_ty = self.intern_type(Type::Bool);
+        let broke = body.push_expr(HirExpr { kind: ExprKind::Local(flag), ty: bool_ty, span });
+        let unbroken = body.push_expr(HirExpr {
+            kind: ExprKind::UnaryOp { op: UnaryOp::Not, operand: broke },
+            ty: bool_ty,
+            span,
+        });
+        body.push_stmt_to_block(block, HirStmt::If { cond: unbroken, then_block: else_block, else_block: None });
         Ok(())
     }
 

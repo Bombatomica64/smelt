@@ -213,7 +213,8 @@ impl ModuleBuilder<'_> {
                     self.span(array.span.start, array.span.end),
                 );
                 let mut receiver_ty = Self::expr_ty(body, receiver);
-                if let Some(Type::Optional(inner)) = self.ctx.krate.types.get(receiver_ty).cloned()
+                if let Some(Type::Optional(inner, _)) =
+                    self.ctx.krate.types.get(receiver_ty).cloned()
                 {
                     receiver = body.push_expr(Expr {
                         kind: ExprKind::TypeAssert { value: receiver },
@@ -273,8 +274,10 @@ impl ModuleBuilder<'_> {
                             source_item_ty,
                         )
                     } else {
-                        let optional_item_ty =
-                            self.ctx.krate.types.intern(Type::Optional(source_item_ty));
+                        let optional_item_ty = self.ctx.krate.types.intern(Type::Optional(
+                            source_item_ty,
+                            smelt_hir::Absence::Undefined,
+                        ));
                         (ExprKind::Index { receiver, index }, optional_item_ty)
                     };
                     let extracted = body.push_expr(Expr {
@@ -643,7 +646,7 @@ impl ModuleBuilder<'_> {
     fn type_is_erased_container(&self, ty: smelt_hir::TypeId) -> bool {
         match self.ctx.krate.types.get(ty) {
             Some(Type::Unknown) => true,
-            Some(Type::Optional(inner) | Type::List(inner)) => {
+            Some(Type::Optional(inner, _) | Type::List(inner)) => {
                 self.type_is_erased_container(*inner)
             }
             Some(Type::Tuple(items)) => items
@@ -661,7 +664,7 @@ impl ModuleBuilder<'_> {
     fn checker_type_is_represented(&self, ty: smelt_hir::TypeId) -> bool {
         match self.ctx.krate.types.get(ty) {
             Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::BigInt) => true,
-            Some(Type::Optional(inner) | Type::List(inner) | Type::Set(inner)) => {
+            Some(Type::Optional(inner, _) | Type::List(inner) | Type::Set(inner)) => {
                 self.checker_type_is_represented(*inner)
             }
             Some(Type::Tuple(items)) => items
@@ -681,7 +684,7 @@ impl ModuleBuilder<'_> {
     fn type_is_erased_binding_type(&self, ty: smelt_hir::TypeId) -> bool {
         match self.ctx.krate.types.get(ty) {
             Some(Type::Unknown) => true,
-            Some(Type::Optional(inner)) => {
+            Some(Type::Optional(inner, _)) => {
                 matches!(self.ctx.krate.types.get(*inner), Some(Type::Unknown))
             }
             _ => false,
@@ -722,7 +725,7 @@ impl ModuleBuilder<'_> {
         }
         let erased_inner = match self.ctx.krate.types.get(value_ty) {
             Some(Type::Unknown) => false,
-            Some(Type::Optional(inner))
+            Some(Type::Optional(inner, _))
                 if matches!(self.ctx.krate.types.get(*inner), Some(Type::Unknown)) =>
             {
                 true

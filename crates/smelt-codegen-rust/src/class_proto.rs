@@ -222,10 +222,14 @@ fn param_crosses_erased_call(
 /// The callback a parameter of type `ty` takes: a function, or an optional one
 /// (`handler = fallback`, `handler?: ..`), whose absent argument (`undefined`)
 /// rebuilds as `None`. `None` for a parameter that takes data.
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "single-shape recogniser: only `Type::Function`, directly or under `Type::Optional`, is a callback parameter"
+)]
 fn callback_parameter(mir: &Mir, ty: TypeId) -> Option<&FunctionType> {
     match mir.types.get(ty)? {
         Type::Function(callback) => Some(callback),
-        Type::Optional(inner) => match mir.types.get(*inner)? {
+        Type::Optional(inner, _) => match mir.types.get(*inner)? {
             Type::Function(callback) => Some(callback),
             _ => None,
         },

@@ -44,14 +44,14 @@ impl FunctionEmitter<'_> {
     /// Whether `ty` is an optional whose payload is a union or erased value, so
     /// that only a runtime read can reach the arm a narrowing proved.
     pub(super) fn is_optional_of_dynamic_shape(&self, ty: TypeId) -> bool {
-        matches!(
-            self.mir.types.get(ty),
-            Some(Type::Optional(inner))
-                if matches!(
-                    self.mir.types.get(*inner),
-                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-                )
-        )
+        // Every optional layer, so a `T | null | undefined` asks about `T`.
+        matches!(self.mir.types.get(ty), Some(Type::Optional(..)))
+            && matches!(
+                self.mir
+                    .types
+                    .get(smelt_hir::type_normalize::peel_optional(&self.mir.types, ty).0),
+                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+            )
     }
 
     /// Converts a place to its Rust text representation.
@@ -523,7 +523,7 @@ impl FunctionEmitter<'_> {
                 // READ expression below (`base.as_ref().and_then(..)`), which is
                 // not an lvalue at all (E0070).
                 let (base_ty, base_read_text, base_write_text) =
-                    if let Some(Type::Optional(inner)) = self.mir.types.get(declared_ty) {
+                    if let Some(Type::Optional(inner, _)) = self.mir.types.get(declared_ty) {
                         (
                             *inner,
                             format!(
@@ -552,7 +552,12 @@ impl FunctionEmitter<'_> {
                     && self.class_has_named_field(base_ty, *field)
                 {
                     return Ok(PlaceTarget::Direct(RustExpr::from(
-                        self.reference_field_write_place(&base_read_text, base_ty, *field)?,
+                        self.reference_field_write_place_at(
+                            &base_read_text,
+                            *base,
+                            base_ty,
+                            *field,
+                        )?,
                     )));
                 }
                 if self.structural_record_fields(base_ty).is_some() {
@@ -653,9 +658,10 @@ impl FunctionEmitter<'_> {
 
     /// Resolves a statically known tuple index for Rust field access.
     pub(super) fn tuple_index(&self, index: &Operand, len: usize) -> Result<usize, EmitError> {
-        let value = match index {
-            Operand::Const(Constant::Int(value)) => usize::try_from(*value).ok(),
-            _ => None,
+        let value = if let Operand::Const(Constant::Int(value)) = index {
+            usize::try_from(*value).ok()
+        } else {
+            None
         }
         .ok_or_else(|| EmitError::new("tuple index must be a non-negative constant integer"))?;
         if value >= len {
@@ -892,7 +898,9 @@ impl FunctionEmitter<'_> {
                 // `T[][i]` where the element is itself optional collapses the
                 // two layers the same way JS does: a missing slot and a present
                 // `undefined` are both `undefined`.
-                if self.mir.types.get(item_ty) == Some(&Type::Optional(inner)) {
+                if self.mir.types.get(item_ty)
+                    == Some(&Type::Optional(inner, smelt_hir::Absence::Undefined))
+                {
                     return Ok(Some(read.postfix(".flatten()")));
                 }
                 // A missing slot and a present erased `null`/`undefined` are
@@ -931,7 +939,9 @@ impl FunctionEmitter<'_> {
                 if value_ty == inner {
                     return Ok(Some(read));
                 }
-                if self.mir.types.get(value_ty) == Some(&Type::Optional(inner)) {
+                if self.mir.types.get(value_ty)
+                    == Some(&Type::Optional(inner, smelt_hir::Absence::Undefined))
+                {
                     return Ok(Some(read.postfix(".flatten()")));
                 }
                 let Ok(mapped) = self.rendered_at_type(
@@ -1239,7 +1249,7 @@ impl FunctionEmitter<'_> {
         if let Some(Type::Dict(key, value)) = self.mir.types.get(base_ty) {
             let key_text = self.dict_field_key_expr(*key, field)?;
             let base_text = self.local_value(base)?;
-            if matches!(self.mir.types.get(*value), Some(Type::Optional(_))) {
+            if matches!(self.mir.types.get(*value), Some(Type::Optional(..))) {
                 if self.dict_uses_smelt_record(*key) || self.dict_uses_js_key_map(*key) {
                     return Ok(base_text.postfix(format!(
                         ".get(&{key_text}).flatten()",
@@ -1436,7 +1446,7 @@ impl FunctionEmitter<'_> {
         field: Symbol,
         base_ty: TypeId,
     ) -> Result<RustExpr, EmitError> {
-        if let Some(Type::Optional(inner)) = self.mir.types.get(base_ty)
+        if let Some(Type::Optional(inner, _)) = self.mir.types.get(base_ty)
             && (matches!(
                 self.mir.types.get(*inner),
                 Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. })
@@ -1453,7 +1463,7 @@ impl FunctionEmitter<'_> {
             ));
             return self.erased_field_read_expr(&scrutinee, field_name);
         }
-        if let Some(Type::Optional(inner)) = self.mir.types.get(base_ty)
+        if let Some(Type::Optional(inner, _)) = self.mir.types.get(base_ty)
             && let Some(Type::Dict(key_ty, _)) = self.mir.types.get(*inner)
             && self.mir.types.get(*key_ty).is_some_and(Type::is_text)
         {
@@ -1483,7 +1493,7 @@ impl FunctionEmitter<'_> {
         // a reference class is still record-shaped structurally — that
         // arm emitted `_smelt_value.field` and the generated crate did
         // not compile (E0609).
-        if let Some(Type::Optional(inner)) = self.mir.types.get(base_ty)
+        if let Some(Type::Optional(inner, _)) = self.mir.types.get(base_ty)
             && self.is_reference_class_type(*inner)
             && self.class_has_named_field(*inner, field)
             && let Some(field_ty) = self.structural_record_fields(*inner).and_then(|fields| {
@@ -1496,15 +1506,15 @@ impl FunctionEmitter<'_> {
             let base_text = self.local_value(base)?;
             let read = format!(
                 "{}.clone()",
-                self.reference_field_read_place("_smelt_value", *inner, field)?
+                self.reference_field_read_place_at("_smelt_value", base, *inner, field)?
             );
-            return if matches!(self.mir.types.get(field_ty), Some(Type::Optional(_))) {
+            return if matches!(self.mir.types.get(field_ty), Some(Type::Optional(..))) {
                 Ok(base_text.postfix(format!(".as_ref().and_then(|_smelt_value| {read})")))
             } else {
                 Ok(base_text.postfix(format!(".as_ref().map(|_smelt_value| {read})")))
             };
         }
-        if let Some(Type::Optional(inner)) = self.mir.types.get(base_ty)
+        if let Some(Type::Optional(inner, _)) = self.mir.types.get(base_ty)
             && let Some(fields) = self.structural_record_fields(*inner)
             && let Some(field_ty) = fields
                 .iter()
@@ -1521,7 +1531,7 @@ impl FunctionEmitter<'_> {
                 } else {
                     RustExpr::path(format!("_smelt_value.{field_name}")).cloned_value()
                 };
-            return if matches!(self.mir.types.get(field_ty), Some(Type::Optional(_))) {
+            return if matches!(self.mir.types.get(field_ty), Some(Type::Optional(..))) {
                 Ok(base_text.postfix(format!(
                     ".as_ref().and_then(|_smelt_value| {read})",
                     read = read.delimited()
@@ -1611,7 +1621,7 @@ impl FunctionEmitter<'_> {
             // further down, so the projection has to be repeated here.
             if self.is_reference_class_type(base_ty) && self.class_has_named_field(base_ty, field) {
                 return Ok(self
-                    .reference_field_read_expr(&self.local_value(base)?, base_ty, field)?
+                    .reference_field_read_expr_at(&self.local_value(base)?, base, base_ty, field)?
                     .cloned_value());
             }
             return Ok(self
@@ -1628,7 +1638,7 @@ impl FunctionEmitter<'_> {
         {
             return Ok(method_text);
         }
-        if let Some(Type::Optional(inner)) = self.mir.types.get(base_ty)
+        if let Some(Type::Optional(inner, _)) = self.mir.types.get(base_ty)
             && matches!(self.mir.types.get(*inner), Some(Type::Function(_)))
         {
             return Ok(self.null_value()?);
@@ -1682,7 +1692,7 @@ impl FunctionEmitter<'_> {
         // with the statement — never held across a re-entrant call.
         if self.is_reference_class_type(base_ty) && self.class_has_named_field(base_ty, field) {
             return Ok(self
-                .reference_field_read_expr(&self.local_value(base)?, base_ty, field)?
+                .reference_field_read_expr_at(&self.local_value(base)?, base, base_ty, field)?
                 .cloned_value());
         }
         let field_text = {
@@ -1764,7 +1774,7 @@ impl FunctionEmitter<'_> {
                     missing = missing.delimited()
                 )))
             }
-            Some(Type::Optional(inner_ty))
+            Some(Type::Optional(inner_ty, _))
                 if matches!(self.mir.types.get(*inner_ty), Some(Type::List(_))) =>
             {
                 let Some(Type::List(item_ty)) = self.mir.types.get(*inner_ty) else {
@@ -1776,7 +1786,7 @@ impl FunctionEmitter<'_> {
                     index,
                     negative,
                 )?;
-                let flatten = if matches!(self.mir.types.get(*item_ty), Some(Type::Optional(_))) {
+                let flatten = if matches!(self.mir.types.get(*item_ty), Some(Type::Optional(..))) {
                     ".flatten()"
                 } else {
                     ""
@@ -1824,9 +1834,40 @@ impl FunctionEmitter<'_> {
             }
             // A narrowed optional union or `unknown` holds the value
             // the narrowing proved, whichever arm that is.
-            Some(Type::Optional(_)) if self.is_optional_of_dynamic_shape(base_ty) => {
+            Some(Type::Optional(..)) if self.is_optional_of_dynamic_shape(base_ty) => {
                 let erased = self.erase_rendered(&self.local_value(base)?, base_ty)?;
                 self.unknown_index_expr(&erased, index)
+            }
+            // A run-time index into a tuple whose items share one type
+            // (`for (const r of await Promise.allSettled([a, b]))`) reads the
+            // array of those items, as JavaScript does; a miss is the element's
+            // missing value, as a list read's is.
+            Some(Type::Tuple(items))
+                if !matches!(index, Operand::Const(Constant::Int(_)))
+                    && homogeneous_tuple_item(items).is_some() =>
+            {
+                let item_ty = homogeneous_tuple_item(items)
+                    .ok_or_else(|| EmitError::new("tuple items share no type"))?;
+                let tuple = self.local_value(base)?;
+                let elements = (0..items.len())
+                    .map(|position| {
+                        RustExpr::tuple_field(&tuple, position)
+                            .cloned_value()
+                            .into_string()
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let index_text = self.normalized_read_index_expr(
+                    &RustExpr::atom(items.len().to_string()),
+                    index,
+                    negative,
+                )?;
+                let missing = self.element_missing_value(item_ty)?;
+                Ok(RustExpr::atom(format!(
+                    "[{elements}].get({index_text}).cloned().unwrap_or_else(|| {missing})",
+                    index_text = index_text.delimited(),
+                    missing = missing.delimited()
+                )))
             }
             Some(Type::Tuple(items)) => {
                 let tuple_index = self.tuple_index(index, items.len())?;
@@ -1850,7 +1891,7 @@ impl FunctionEmitter<'_> {
                 // key and a stored `undefined` are the same `None`. Its
                 // default is that `None`, so defaulting again would try
                 // to `unwrap_or` an `Option<inner>` with an `Option`.
-                if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {
+                if matches!(self.mir.types.get(value_ty), Some(Type::Optional(..))) {
                     return Ok(optional_read);
                 }
                 let default_value = self.default_value(value_ty)?;
@@ -1892,4 +1933,11 @@ impl FunctionEmitter<'_> {
             _ => Ok(self.absent_value()?),
         }
     }
+}
+
+/// The one type every item of a tuple has, or `None` for an empty tuple or one
+/// whose items differ: only then is a run-time index into it an element read.
+pub(super) fn homogeneous_tuple_item(items: &[TypeId]) -> Option<TypeId> {
+    let (first, rest) = items.split_first()?;
+    rest.iter().all(|item| item == first).then_some(*first)
 }

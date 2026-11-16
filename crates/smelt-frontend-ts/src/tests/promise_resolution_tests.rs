@@ -124,7 +124,7 @@ export function maybe(flag: boolean) {
             "expected exactly one promise future, found {types:?}"
         ));
     };
-    let Some(Type::Optional(inner)) = ctx.krate.types.get(*output) else {
+    let Some(Type::Optional(inner, _)) = ctx.krate.types.get(*output) else {
         return Err(format!("expected Future<Optional<Float>>, got {types:?}"));
     };
     ensure!(ctx.krate.types.get(*inner) == Some(&Type::Float));

@@ -52,7 +52,7 @@ fn peek (FuncId(1)) -> String
     %5 temp: Bool
     %6 temp: String
     %7 temp: Headers
-    %8 temp: Optional<String>
+    %8 temp: Nullable<String>
     %9 temp: String
   bb0:
     %3 = copy %0.field11 != none
@@ -101,7 +101,7 @@ fn read (FuncId(3)) -> String
     %0 param this: Bag
     %1 param name: String
     %2 temp: Headers
-    %3 temp: Optional<String>
+    %3 temp: Nullable<String>
     %4 temp: String
   bb0:
     %2 = copy %0.field10
@@ -152,15 +152,15 @@ fn main (FuncId(6)) -> None
     %23 temp: Bool
     %24 temp: Headers
     %25 temp: None
-    %26 temp: Optional<String>
+    %26 temp: Nullable<String>
     %27 temp: String
     %28 temp: Headers
-    %29 temp: Optional<String>
+    %29 temp: Nullable<String>
     %30 temp: String
     %31 temp: None
     %32 temp: Bool
     %33 temp: Headers
-    %34 temp: Optional<String>
+    %34 temp: Nullable<String>
     %35 temp: String
     %36 temp: None
     %37 temp: Bool

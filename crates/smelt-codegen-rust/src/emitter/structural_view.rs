@@ -104,6 +104,61 @@ impl FunctionEmitter<'_> {
         ))
     }
 
+    /// The place of declared property `field` of the reference handle
+    /// rendered as `base_text`, which reads the local `local` (of type
+    /// `base_ty`), for reading.
+    ///
+    /// A view target lends the property through its trait
+    /// ([`Self::reference_field_read_place`]); a handle of a widened generic
+    /// class that may be a converting view reads through its accessor guard
+    /// ([`Self::reference_field_read_suffix`]); any other record borrows its
+    /// own cell. The two view kinds never meet: a view target is a
+    /// non-generic object shape, a widened class a generic class.
+    pub(super) fn reference_field_read_place_at(
+        &self,
+        base_text: &str,
+        local: LocalId,
+        base_ty: TypeId,
+        field: Symbol,
+    ) -> Result<String, EmitError> {
+        if self.is_view_target_type(base_ty) {
+            return self.reference_field_read_place(base_text, base_ty, field);
+        }
+        Ok(format!(
+            "{base_text}{}",
+            self.reference_field_read_suffix(local, base_ty, field)
+        ))
+    }
+
+    /// [`Self::reference_field_read_place_at`] over a rendered receiver, as an
+    /// expression.
+    pub(super) fn reference_field_read_expr_at(
+        &self,
+        base: &RustExpr,
+        local: LocalId,
+        base_ty: TypeId,
+        field: Symbol,
+    ) -> Result<RustExpr, EmitError> {
+        if self.is_view_target_type(base_ty) {
+            return self.reference_field_read_expr(base, base_ty, field);
+        }
+        Ok(base.postfix(self.reference_field_read_suffix(local, base_ty, field)))
+    }
+
+    /// [`Self::reference_field_read_place_at`] for writing.
+    pub(super) fn reference_field_write_place_at(
+        &self,
+        base_text: &str,
+        local: LocalId,
+        base_ty: TypeId,
+        field: Symbol,
+    ) -> Result<String, EmitError> {
+        if self.is_view_target_type(base_ty) {
+            return self.reference_field_write_place(base_text, base_ty, field);
+        }
+        Ok(self.reference_field_write_text(base_text, local, base_ty, field))
+    }
+
     /// The two distinct object shapes of a record-to-record conversion.
     fn shape_pair(&self, source: TypeId, target: TypeId) -> Option<(Symbol, Symbol)> {
         let (

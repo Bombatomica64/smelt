@@ -124,14 +124,16 @@ fn unsupported_list_pop_forms_reject() -> TestResult {
     let errors = lower_errors(
         py!(r"
 values: list[int] = [1, 2]
-item: int = values.pop(0)
+item: int = values.pop(0, 1)
 "),
         &mut ctx,
     )?;
+    // `pop(i)` is supported (`python_numeric_builtins`); more than one
+    // argument is not Python. Old requirement: any index was refused.
     let error = first_error(&errors)?;
     ensure(
-        error.message.contains("index arguments"),
-        "expected pop index diagnostic",
+        error.message.contains("at most one index argument"),
+        "expected pop arity diagnostic",
     )
 }
 

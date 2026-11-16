@@ -51,12 +51,26 @@ impl FunctionEmitter<'_> {
         operand: &Operand,
         dest_ty: TypeId,
     ) -> Result<RustExpr, EmitError> {
-        if (matches!(self.mir.types.get(dest_ty), Some(Type::Unknown))
+        let dest_erased = matches!(self.mir.types.get(dest_ty), Some(Type::Unknown))
             || matches!(self.mir.types.get(dest_ty), Some(Type::TypeParam { .. }))
-                && self.renders_erased(dest_ty).unwrap_or(false))
+                && self.renders_erased(dest_ty).unwrap_or(false);
+        // The same read of a `T | null | undefined`: each absence keeps its
+        // own tag.
+        if dest_erased
+            && let (base, true, true) =
+                smelt_hir::type_normalize::peel_optional(&self.mir.types, self.operand_ty(operand)?)
+            && base == dest_ty
+        {
+            return Ok(RustExpr::atom(format!(
+                "{}({}.clone())",
+                crate::NULLISH_UNKNOWN_OR_UNDEFINED_FN,
+                self.operand_expr(operand)?.tight()
+            )));
+        }
+        if dest_erased
             && matches!(
                 self.mir.types.get(self.operand_ty(operand)?),
-                Some(Type::Optional(inner)) if *inner == dest_ty
+                Some(Type::Optional(inner, _)) if *inner == dest_ty
             )
         {
             return Ok(RustExpr::atom(format!(
@@ -67,7 +81,7 @@ impl FunctionEmitter<'_> {
         }
         if matches!(
             self.mir.types.get(self.operand_ty(operand)?),
-            Some(Type::Optional(inner))
+            Some(Type::Optional(inner, _))
                 if *inner == dest_ty
                     && !matches!(self.mir.types.get(dest_ty), Some(Type::Function(_)))
         ) {
@@ -198,6 +212,8 @@ impl FunctionEmitter<'_> {
             | Rvalue::DataViewAccess { .. }
             | Rvalue::BigIntCall { .. }
             | Rvalue::UrlNew { .. }
+            | Rvalue::PyListPopAt { .. }
+            | Rvalue::PyFormat { .. }
             | Rvalue::JsonParse { .. } => Err(EmitError::new(
                 "internal: a fallible operation reached the assignment path",
             )),
@@ -502,6 +518,9 @@ impl FunctionEmitter<'_> {
             }
             Rvalue::SetProjection { op, set } => self.set_projection_expr(*op, set, dest_ty),
             Rvalue::ListConcat { left, right } => self.list_concat_at_dest_expr(left, right, dest_ty),
+            Rvalue::ListRepeat { list, count } => self.list_repeat_expr(list, count),
+            Rvalue::PyStrCall { op, args } => self.py_str_call_expr(*op, args),
+            Rvalue::PyNumericCall { op, args } => self.py_numeric_value_expr(*op, args),
             Rvalue::ConcatSpread { value } => self.concat_spread_expr(value),
             Rvalue::ListSearch {
                 op,
@@ -678,9 +697,10 @@ impl FunctionEmitter<'_> {
             } => self.string_split_expr(haystack, separator, limit.as_ref(), dest_ty),
             Rvalue::StringChars { haystack } => self.string_chars_expr(haystack, dest_ty),
             Rvalue::StringJoin { items, separator } => self.string_join_expr(items, separator),
-            Rvalue::JsonStringify { value: json_value } => {
-                self.json_stringify_expr(json_value, dest_ty)
-            }
+            Rvalue::JsonStringify {
+                value: json_value,
+                replacer,
+            } => self.json_stringify_expr(json_value, replacer.as_ref(), dest_ty),
             Rvalue::HttpGetText { url } => self.http_get_expr(url),
             Rvalue::GlobalGet { global } => self.global_get_expr(*global),
             Rvalue::GlobalSet { global, value: stored } => {
@@ -820,7 +840,7 @@ impl FunctionEmitter<'_> {
             Some(Type::String) => {
                 RustExpr::chain(format!("JsString::from({text})", text = text.delimited()))
             }
-            Some(Type::Optional(inner)) if self.mir.types.get(*inner) == Some(&Type::String) => {
+            Some(Type::Optional(inner, _)) if self.mir.types.get(*inner) == Some(&Type::String) => {
                 RustExpr::atom(format!(
                     "({text}).map(JsString::from)",
                     text = text.delimited()

@@ -1,0 +1,122 @@
+module examples/typescript/end-to-end/203_record_viewed_as_another_record_type/input.ts (ModuleId(0))
+  body BodyId(15)
+  items
+    global mut kept_named: Named
+    global mut kept_spot: Spot
+    global mut roster: List<Named>
+    interface Point fields [Public x: Float, Public label: String, Public tags: List<String>] methods []
+    interface Named fields [Public label: String] methods []
+    interface Spot fields [Public x: Float, Public label: String] methods []
+    interface Marker fields [Public tags: List<String>, Public label: String, Public x: Float] methods []
+    interface Titled fields [Public label: String] methods []
+    interface Reading fields [Public value: Float, Public unit: String] methods []
+    interface Sample fields [Public unit: String, Public value: Float] methods []
+    fn rename owner Module
+    fn move owner Module
+    fn tag owner Module
+    fn entitle owner Module
+    fn through_named owner Module
+    fn shout owner Module
+    fn enroll owner Module
+    fn calibrate owner Module
+    fn relabel owner Module
+    fn describe owner Module
+    fn main owner Module
+    interface Draft fields [Public x: Float, Public label: String, Public note?: Optional<String>] methods []
+    interface Annotated fields [Public label: String, Public note?: Optional<String>] methods []
+    fn drop_note owner Module
+  locals
+    %0 const draft: Draft
+    %1 const annotated: Annotated
+  exprs
+    #0: None = global_get @6(kept_named)
+    #1: None = global_get @7(kept_spot)
+    #2: None = global_get @8(roster)
+    #3: fn() -> None = @19(main)
+    #4: None = call #3()
+    #5: String = "x"
+    #6: Float = 1.0
+    #7: String = "label"
+    #8: String = "d"
+    #9: String = "note"
+    #10: String = "hi"
+    #11: Draft = {#5: #6, #7: #8, #9: #10}
+    #12: Draft = %0
+    #13: fn(Annotated) -> Bool = @20(drop_note)
+    #14: Bool = call #13(#12)
+    #15: Draft = %0
+    #16: Optional<String> = #15.note
+    #17: None = undefined
+    #18: Bool = JsStrictEq #16, #17
+    #19: Draft = %0
+    #20: String = json_stringify #19
+    #21: None = @47(console_log)
+    #22: None = call #21(#14, #18, #20)
+    #23: Draft = %0
+    #24: Annotated = %1
+    #25: Optional<String> = #24.note
+    #26: String = "again"
+    #27: Draft = %0
+    #28: Optional<String> = #27.note
+    #29: Annotated = %1
+    #30: Draft = %0
+    #31: Bool = JsStrictEq #29, #30
+    #32: Draft = %0
+    #33: String = json_stringify #32
+    #34: None = @48(console_log)
+    #35: None = call #34(#28, #31, #33)
+  stmts
+    s0: #0
+    s1: #1
+    s2: #2
+    s3: #4
+    s4: let %0: Draft = #11
+    s5: #22
+    s6: let %1: Annotated = #23
+    s7: #25 = #26
+    s8: #35
+
+interned types
+  t0 = Float
+  t1 = String
+  t2 = List<String>
+  t3 = Optional<String>
+  t4 = Named
+  t5 = Spot
+  t6 = List<Named>
+  t7 = Draft
+  t8 = Annotated
+  t9 = fn(Named, String) -> Named
+  t10 = fn(Spot, Float) -> Spot
+  t11 = Marker
+  t12 = fn(Marker, String) -> Marker
+  t13 = Titled
+  t14 = None
+  t15 = fn(Titled) -> None
+  t16 = fn(Named) -> Named
+  t17 = fn(List<Named>) -> None
+  t18 = fn(Named) -> Float
+  t19 = Sample
+  t20 = fn(Sample) -> Sample
+  t21 = Reading
+  t22 = fn(Reading) -> None
+  t23 = fn(Named) -> String
+  t24 = fn() -> None
+  t25 = Bool
+  t26 = fn(Annotated) -> Bool
+  t27 = Unknown
+  t28 = List<Unknown>
+  t29 = fn(Titled) -> None
+  t30 = Point
+  t31 = fn(Named, String) -> Named
+  t32 = fn(Named) -> String
+  t33 = fn(Spot, Float) -> Spot
+  t34 = fn(Marker, String) -> Marker
+  t35 = fn(Named) -> Named
+  t36 = List<Point>
+  t37 = fn(List<Named>) -> None
+  t38 = fn(Named) -> Float
+  t39 = fn(Sample) -> Sample
+  t40 = fn(Reading) -> None
+  t41 = fn() -> None
+  t42 = fn(Annotated) -> Bool

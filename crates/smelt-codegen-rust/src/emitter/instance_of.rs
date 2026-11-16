@@ -17,7 +17,7 @@ impl FunctionEmitter<'_> {
     fn instanceof_operand_is_dynamic(&self, value_ty: TypeId) -> bool {
         matches!(
             self.mir.types.get(value_ty),
-            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Optional(_))
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Optional(..))
         )
     }
 
@@ -54,7 +54,7 @@ impl FunctionEmitter<'_> {
         }
         // An optional of exactly this class: present means an instance, and an
         // absent value is `false` (`undefined instanceof Date`).
-        if let Some(Type::Optional(inner)) = self.mir.types.get(value_ty)
+        if let Some(Type::Optional(inner, _)) = self.mir.types.get(value_ty)
             && matches!(self.mir.types.get(*inner), Some(Type::Class { name, .. }) if *name == class)
         {
             return Ok(self.operand_expr(value)?.postfix(".is_some()"));
@@ -81,7 +81,7 @@ impl FunctionEmitter<'_> {
         if smelt_stdlib::is_error_class_name(class_name)
             && matches!(
                 self.mir.types.get(value_ty),
-                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Optional(_))
+                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Optional(..))
             )
         {
             let value_text = self.operand_expr(value)?;
@@ -112,7 +112,7 @@ impl FunctionEmitter<'_> {
                     "matches!(smelt_value.get(\"{SMELT_ERROR}\"), Some(SmeltUnknown::String(smelt_error_class)) if &*smelt_error_class == {class_name:?})"
                 ))
             };
-            if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {
+            if matches!(self.mir.types.get(value_ty), Some(Type::Optional(..))) {
                 return Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
                     "matches!({value_text}, Some(SmeltUnknown::Object(smelt_value)) if {marker_probe})", value_text = value_text.cloned_value().delimited()
                 ))));
@@ -167,11 +167,11 @@ impl FunctionEmitter<'_> {
             == Some(smelt_stdlib::InstanceOfRule::ArrayBuffer)
             && matches!(
                 self.mir.types.get(value_ty),
-                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Optional(_))
+                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Optional(..))
             )
         {
             let value_text = self.operand_expr(value)?;
-            if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {
+            if matches!(self.mir.types.get(value_ty), Some(Type::Optional(..))) {
                 return Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
                     "matches!({value_text}, Some(SmeltUnknown::Object(smelt_value)) if smelt_value.contains_key(\"{SMELT_ARRAYBUFFER}\"))", value_text = value_text.cloned_value().delimited()
                 ))));
@@ -199,11 +199,11 @@ impl FunctionEmitter<'_> {
         if smelt_stdlib::instance_of_rule(class_name) == Some(smelt_stdlib::InstanceOfRule::Blob)
             && matches!(
                 self.mir.types.get(value_ty),
-                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Optional(_))
+                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Optional(..))
             )
         {
             let value_text = self.operand_expr(value)?;
-            if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {
+            if matches!(self.mir.types.get(value_ty), Some(Type::Optional(..))) {
                 return Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
                     "matches!({value_text}, Some(SmeltUnknown::Object(smelt_value)) if smelt_value.contains_key(\"{SMELT_BLOB}\"))", value_text = value_text.cloned_value().delimited()
                 ))));
@@ -215,11 +215,11 @@ impl FunctionEmitter<'_> {
         if smelt_stdlib::instance_of_rule(class_name) == Some(smelt_stdlib::InstanceOfRule::Number)
             && matches!(
                 self.mir.types.get(value_ty),
-                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Optional(_))
+                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Optional(..))
             )
         {
             let value_text = self.operand_expr(value)?;
-            if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {
+            if matches!(self.mir.types.get(value_ty), Some(Type::Optional(..))) {
                 return Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
                     "matches!({value_text}, Some(SmeltUnknown::Object(smelt_value)) if smelt_value.contains_key(\"{SMELT_NUMBER}\"))", value_text = value_text.cloned_value().delimited()
                 ))));
@@ -231,11 +231,11 @@ impl FunctionEmitter<'_> {
         if smelt_stdlib::instance_of_rule(class_name) == Some(smelt_stdlib::InstanceOfRule::Promise)
             && matches!(
                 self.mir.types.get(value_ty),
-                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Optional(_))
+                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Optional(..))
             )
         {
             let value_text = self.operand_expr(value)?;
-            if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {
+            if matches!(self.mir.types.get(value_ty), Some(Type::Optional(..))) {
                 return Ok(RustExpr::atom(self.carrier_format(
                     self.carrier()?,
                     format_args!(
@@ -287,7 +287,7 @@ impl FunctionEmitter<'_> {
                     .map(|marker| format!("smelt_value.contains_key(\"{marker}\")"))
                     .collect::<Vec<_>>()
                     .join(" || ");
-                if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {
+                if matches!(self.mir.types.get(value_ty), Some(Type::Optional(..))) {
                     return Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
                         "matches!({value_text}, Some(SmeltUnknown::Object(smelt_value)) if {probe})", value_text = value_text.cloned_value().delimited()
                     ))));
@@ -380,7 +380,7 @@ impl FunctionEmitter<'_> {
     ) -> Result<Option<RustExpr>, EmitError> {
         let (static_class, optional) = match self.mir.types.get(value_ty) {
             Some(Type::Class { name, .. }) => (*name, false),
-            Some(Type::Optional(inner)) => match self.mir.types.get(*inner) {
+            Some(Type::Optional(inner, _)) => match self.mir.types.get(*inner) {
                 Some(Type::Class { name, .. }) => (*name, true),
                 _ => return Ok(None),
             },
@@ -448,7 +448,7 @@ impl FunctionEmitter<'_> {
         let optional = match self.mir.types.get(value_ty) {
             Some(Type::Unknown | Type::TypeParam { .. }) => false,
             Some(Type::Union(_)) if self.concrete_union_members(value_ty).is_none() => false,
-            Some(Type::Optional(inner))
+            Some(Type::Optional(inner, _))
                 if matches!(self.mir.types.get(*inner), Some(Type::Unknown)) =>
             {
                 true
@@ -591,13 +591,13 @@ impl FunctionEmitter<'_> {
         };
         let value_is_dynamic = matches!(
             self.mir.types.get(value_ty),
-            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Optional(_))
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Optional(..))
         );
         if !(value_is_dynamic || self.is_erased_class_type(value_ty)) {
             return Ok(None);
         }
         let value_text = self.operand_expr(value)?;
-        let probed = if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {
+        let probed = if matches!(self.mir.types.get(value_ty), Some(Type::Optional(..))) {
             self.carrier_format(
                 self.carrier()?,
                 format_args!(

@@ -101,6 +101,7 @@ mod runtime {
     include!("runtime/conversions.rs");
     include!("runtime/crypto.rs");
     include!("runtime/date.rs");
+    include!("runtime/deep_eq.rs");
     include!("runtime/erased_function.rs");
     include!("runtime/erased_method.rs");
     include!("runtime/event_emitter.rs");
@@ -136,6 +137,9 @@ mod runtime {
     include!("runtime/reflection.rs");
     include!("runtime/py_repr.rs");
     include!("runtime/py_exception.rs");
+    include!("runtime/py_int.rs");
+    include!("runtime/py_str.rs");
+    include!("runtime/py_format.rs");
     include!("runtime/regexp.rs");
     include!("runtime/regexp_match.rs");
     include!("runtime/sqlite.rs");

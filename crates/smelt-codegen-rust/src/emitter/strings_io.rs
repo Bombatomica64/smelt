@@ -61,7 +61,7 @@ impl FunctionEmitter<'_> {
             _ if self.has_dynamic_shape(dest_ty) => Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
                 "{{ let smelt_timestamp_ms = ({text}) as f64; let smelt_timestamp_ms = if !smelt_timestamp_ms.is_finite() || smelt_timestamp_ms == i64::MIN as f64 {{ f64::NAN }} else {{ smelt_timestamp_ms }}; SmeltUnknown::Object(SmeltObject::new(Vec::from([(\"{SMELT_DATE}\".to_owned(), SmeltUnknown::Number(smelt_timestamp_ms))]))) }}", text = text.delimited()
             )))),
-            Some(Type::Optional(inner)) => {
+            Some(Type::Optional(inner, _)) => {
                 let inner_text = self.date_timestamp_result_expr(text, *inner)?;
                 Ok(RustExpr::chain(format!("Some({inner_text})", inner_text = inner_text.delimited())))
             }
@@ -224,13 +224,13 @@ impl FunctionEmitter<'_> {
             ),
             Some(Type::String) => format!("({space_text}).slice(0, 10).to_string_lossy()", space_text = space_text.delimited()),
             Some(Type::PyStr) => format!("({space_text}).chars().take(10).collect::<String>()", space_text = space_text.delimited()),
-            Some(Type::Optional(inner)) if matches!(self.mir.types.get(*inner), Some(Type::Float | Type::Int)) => format!(
+            Some(Type::Optional(inner, _)) if matches!(self.mir.types.get(*inner), Some(Type::Float | Type::Int)) => format!(
                 "({space_text}).map_or(String::new(), |smelt_width| {{ let smelt_width = smelt_width as f64; if smelt_width >= 1.0 {{ \" \".repeat(smelt_width.min(10.0) as usize) }} else {{ String::new() }} }})", space_text = space_text.delimited()
             ),
-            Some(Type::Optional(inner)) if matches!(self.mir.types.get(*inner), Some(Type::String)) => {
+            Some(Type::Optional(inner, _)) if matches!(self.mir.types.get(*inner), Some(Type::String)) => {
                 format!("({space_text}).map_or(String::new(), |smelt_space| smelt_space.slice(0, 10).to_string_lossy())", space_text = space_text.delimited())
             }
-            Some(Type::Optional(inner)) if matches!(self.mir.types.get(*inner), Some(Type::PyStr)) => {
+            Some(Type::Optional(inner, _)) if matches!(self.mir.types.get(*inner), Some(Type::PyStr)) => {
                 format!("({space_text}).map_or(String::new(), |smelt_space| smelt_space.chars().take(10).collect::<String>())", space_text = space_text.delimited())
             }
             Some(Type::Unknown | Type::Union(_)) => self.carrier_format(self.carrier()?, format_args!(
@@ -243,7 +243,7 @@ impl FunctionEmitter<'_> {
         // stays `undefined`; only a present text is laid out.
         if matches!(
             self.mir.types.get(self.operand_ty(text)?),
-            Some(Type::Optional(_))
+            Some(Type::Optional(..))
         ) {
             let laid_out = self.text_from_string("smelt_json_indent(&smelt_text, &smelt_indent)");
             return Ok(RustExpr::chain(format!(
@@ -294,7 +294,7 @@ impl FunctionEmitter<'_> {
             Some(Type::Bool) => Ok(RustExpr::loose(format!("if {value_text} {{ 1.0 }} else {{ 0.0 }}", value_text = value_text.delimited()))),
             Some(Type::String | Type::PyStr) => Ok(RustExpr::atom(format!(
                 "{{ let smelt_date_text = {date_text}; chrono::DateTime::parse_from_rfc3339(&smelt_date_text).or_else(|_| chrono::DateTime::parse_from_str(&smelt_date_text, \"%a %b %d %Y %H:%M:%S GMT%z\")).map(|smelt_date| smelt_date.timestamp_millis() as f64).or_else(|_| chrono::NaiveDate::parse_from_str(&smelt_date_text, \"%Y/%m/%d\").or_else(|_| chrono::NaiveDate::parse_from_str(&smelt_date_text, \"%Y-%m-%d\")).map(|smelt_date| smelt_date.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp_millis() as f64)).unwrap_or_else(|_| smelt_date_text.parse::<f64>().unwrap_or(f64::NAN)) }}", date_text = self.host_utf8_text(value_text.clone()).delimited()))),
-            Some(Type::Optional(inner)) => {
+            Some(Type::Optional(inner, _)) => {
                 let inner_text = self.date_timestamp_value(&RustExpr::path("smelt_value"), *inner)?;
                 Ok(RustExpr::atom(format!(
                     "match {value_text} {{ Some(smelt_value) => {inner_text}, None => f64::NAN }}", value_text = value_text.delimited(), inner_text = inner_text.delimited()
@@ -309,7 +309,7 @@ impl FunctionEmitter<'_> {
                     ) =>
             {
                 Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
-                    "match &{value_text} {{ SmeltUnknown::Number(smelt_value) => *smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get(\"{SMELT_DATE}\") {{ Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }}, SmeltUnknown::String(smelt_value) => {{ let smelt_value = smelt_value.to_string_lossy(); chrono::DateTime::parse_from_rfc3339(&smelt_value).or_else(|_| chrono::DateTime::parse_from_str(&smelt_value, \"%a %b %d %Y %H:%M:%S GMT%z\")).map(|smelt_date| smelt_date.timestamp_millis() as f64).or_else(|_| chrono::NaiveDate::parse_from_str(&smelt_value, \"%Y/%m/%d\").or_else(|_| chrono::NaiveDate::parse_from_str(&smelt_value, \"%Y-%m-%d\")).map(|smelt_date| smelt_date.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp_millis() as f64)).unwrap_or_else(|_| smelt_value.parse::<f64>().unwrap_or(f64::NAN)) }}, SmeltUnknown::Bool(smelt_value) => if *smelt_value {{ 1.0 }} else {{ 0.0 }}, {smelt_bigint_arm}SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(value),"), value_text = value_text.tight()
+                    "match &{value_text} {{ SmeltUnknown::Number(smelt_value) => *smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get(\"{SMELT_DATE}\") {{ Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }}, SmeltUnknown::String(smelt_value) => {{ let smelt_value = smelt_value.to_string_lossy(); chrono::DateTime::parse_from_rfc3339(&smelt_value).or_else(|_| chrono::DateTime::parse_from_str(&smelt_value, \"%a %b %d %Y %H:%M:%S GMT%z\")).map(|smelt_date| smelt_date.timestamp_millis() as f64).or_else(|_| chrono::NaiveDate::parse_from_str(&smelt_value, \"%Y/%m/%d\").or_else(|_| chrono::NaiveDate::parse_from_str(&smelt_value, \"%Y-%m-%d\")).map(|smelt_date| smelt_date.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp_millis() as f64)).unwrap_or_else(|_| smelt_value.parse::<f64>().unwrap_or(f64::NAN)) }}, SmeltUnknown::Bool(smelt_value) => if *smelt_value {{ 1.0 }} else {{ 0.0 }}, {smelt_bigint_arm}SmeltUnknown::Null => 0.0, SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(value),"), value_text = value_text.tight()
                 ))))
             }
             _ => Ok(RustExpr::atom("f64::NAN")),

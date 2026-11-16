@@ -59,10 +59,10 @@ fn main (FuncId(1)) -> None
     %16 = call @console_log(move %15) -> bb6
   bb6:
     %4 = none
-    %17 = "" + copy %4
+    %17 = "" + "null"
     %18 = call @console_log(move %17) -> bb7
   bb7:
-    %19 = "" + move %4
+    %19 = "" + "null"
     %20 = "x" + move %19
     %21 = call @console_log(move %20) -> bb8
   bb8:

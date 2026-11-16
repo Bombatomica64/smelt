@@ -423,9 +423,14 @@ impl ModuleBuilder<'_> {
                     _ => self.ctx.krate.types.intern(Type::Union(remaining)),
                 })
             }
-            Type::Optional(inner) => {
+            Type::Optional(inner, absence) => {
                 let remaining = self.remove_proven_members(inner, proven)?;
-                Some(self.ctx.krate.types.intern(Type::Optional(remaining)))
+                Some(
+                    self.ctx
+                        .krate
+                        .types
+                        .intern(Type::Optional(remaining, absence)),
+                )
             }
             _ => None,
         }

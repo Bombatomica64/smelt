@@ -247,7 +247,7 @@ pub(super) fn classify_program_line(line: &str) -> Category {
 }
 
 /// Spellings that put a line at a genuine dynamic boundary; each entry says why.
-const BOUNDARY_MARKERS: [&str; 44] = [
+const BOUNDARY_MARKERS: [&str; 50] = [
     boundary::FUNCTION_TAG,
     boundary::PROMISE_TAG,
     // A JavaScript SYMBOL value. `Symbol()` mints a value whose whole
@@ -307,6 +307,21 @@ const BOUNDARY_MARKERS: [&str; 44] = [
     // one erased spelling to the other. Proven in
     // `optional_unknown_read_is_a_boundary` below.
     smelt_codegen_rust::OPTIONAL_UNKNOWN_OR_UNDEFINED_FN,
+    // Its sibling for an erased `T | null | undefined`
+    // (`Option<Option<SmeltUnknown>>` to `SmeltUnknown`, each absence its own
+    // tag). The value is the erased carrier on both sides, as above; proven
+    // in `nullish_unknown_read_is_a_boundary` below.
+    smelt_codegen_rust::NULLISH_UNKNOWN_OR_UNDEFINED_FN,
+    // A widened class's conversion of one object between two of its
+    // instantiations (`smelt_codegen_rust::WIDENED_VIEW_MARKERS`): the per-field
+    // adapters, the view trait and impl, the per-instantiation view test.
+    // The object is read at type arguments it was not built with, and the
+    // erased carrier is the only value both instantiations can name. Proven
+    // in `widened_view_conversion_is_a_boundary` below.
+    smelt_codegen_rust::WIDENED_VIEW_MARKERS[0],
+    smelt_codegen_rust::WIDENED_VIEW_MARKERS[1],
+    smelt_codegen_rust::WIDENED_VIEW_MARKERS[2],
+    smelt_codegen_rust::WIDENED_VIEW_MARKERS[3],
     // The hoisted erased-record-to-class conversion
     // (`fn __smelt_from_unknown_record_<n>(smelt_value: SmeltUnknown) -> T`,
     // `EmitContext::record_conversion_helpers` in codegen). It is the
@@ -451,6 +466,15 @@ const BOUNDARY_MARKERS: [&str; 44] = [
     boundary::PUSH_THIS_LAZY_CALL,
     boundary::THIS_CALL,
     boundary::BIND_THIS_CALL,
+    // A non-coercing `Number.isNaN`/`isFinite`/`isInteger`/`isSafeInteger`
+    // over an erased operand (`smelt_erased_number_is`): the predicate's
+    // whole answer is the runtime tag of a value whose static type is
+    // `unknown` (es-toolkit's `isEqualsSameValueZero(value: unknown, ..)`),
+    // which is the "values inspected through runtime narrowing" case
+    // verbatim. A concretely typed operand is tested as its `f64`, so no
+    // concrete type, union arm or scoped generic could replace the tag test.
+    // Proven in `erased_number_predicate_is_a_boundary` below.
+    boundary::ERASED_NUMBER_IS,
     // The erased class-prototype slot
     // (`crates/smelt-codegen-rust/src/class_proto.rs`). A generated class
     // keeps its concrete struct and its precisely typed inherent methods;

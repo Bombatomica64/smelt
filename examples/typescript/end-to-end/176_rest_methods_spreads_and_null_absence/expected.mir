@@ -28,7 +28,7 @@ fn show (FuncId(0)) -> String
 
 fn describe (FuncId(1)) -> String
   locals
-    %0 param value: Optional<String>
+    %0 param value: Nullable<String>
     %1 temp: String
     %2 temp: String
     %3 temp: String
@@ -57,17 +57,16 @@ fn add (FuncId(3)) -> Float
     %1 param first: Float
     %2 param more: List<Float>
     %3 temp: List<Float>
-    %4 temp: Float
+    %4 temp: List<Float>
     %5 temp: List<Float>
     %6 temp: Float
     %7 temp: Float
   bb0:
     %3 = copy %0.field6
-    %4 = list_push copy %3, copy %1
+    %4 = [copy %1]
+    %5 = list_concat move %4, copy %2
+    %6 = list_extend copy %3, move %5
     %0.field6 = move %3
-    %5 = copy %0.field6
-    %6 = list_extend copy %5, copy %2
-    %0.field6 = move %5
     %7 = len copy %0.field6
     return move %7
 
@@ -110,7 +109,7 @@ fn main (FuncId(7)) -> None
     %6 user __smelt_spread: (String)
     %7 user __smelt_spread: List<String>
     %8 user __smelt_spread: List<String>
-    %9 user pending: Optional<String>
+    %9 user pending: Nullable<String>
     %10 temp: Bag
     %11 temp: List<Float>
     %12 temp: List<Float | String | Bool>
@@ -154,7 +153,7 @@ fn main (FuncId(7)) -> None
     %50 temp: None
     %51 temp: String
     %52 temp: Headers
-    %53 temp: Optional<String>
+    %53 temp: Nullable<String>
     %54 temp: String
     %55 temp: None
   bb0:

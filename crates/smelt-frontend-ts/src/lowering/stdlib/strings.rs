@@ -145,7 +145,7 @@ impl ModuleBuilder<'_> {
             // `string | undefined` surfaces (e.g. `const [first] = words`)
             // come from tsc-checked positions where the payload is a string;
             // treat the optional wrapper as an erased string surface too.
-            Some(Type::Optional(inner)) => {
+            Some(Type::Optional(inner, _)) => {
                 self.string_method_erased_receiver(*inner)
                     || self.ctx.krate.types.get(*inner) == Some(&Type::String)
             }
@@ -930,7 +930,7 @@ impl ModuleBuilder<'_> {
                 let float_ty = self.ctx.krate.types.intern(Type::Float);
                 (
                     ExprKind::StringCodePointAt { operand, index },
-                    Type::Optional(float_ty),
+                    Type::Optional(float_ty, smelt_hir::Absence::Undefined),
                 )
             }
             _ => (ExprKind::StringCharAt { operand, index }, Type::String),
@@ -1183,7 +1183,7 @@ impl ModuleBuilder<'_> {
                 | Type::Unknown
                 | Type::TypeParam { .. },
             ) => true,
-            Some(Type::Optional(item)) => self.array_join_item_type_supported(*item),
+            Some(Type::Optional(item, _)) => self.array_join_item_type_supported(*item),
             // A `symbol` arm of a union (`PropertyKey[]`) joins like the
             // erased value it is; a list of nothing but symbols always throws
             // in JavaScript and stays rejected.
@@ -1191,8 +1191,80 @@ impl ModuleBuilder<'_> {
                 self.ctx.krate.types.get(item) == Some(&Type::Symbol)
                     || self.array_join_item_type_supported(item)
             }),
+            // A nested array joins its own elements (`[[1, 2], [3]].join()` is
+            // `1,2,3`); a tuple likewise.
+            Some(Type::List(item)) => self.array_join_item_type_supported(*item),
+            Some(Type::Tuple(items)) => items
+                .iter()
+                .all(|item| self.array_join_item_type_supported(*item)),
+            // A set, a map and a plain record stringify as their tags. A class
+            // instance does too unless its class has a `toString` of its own,
+            // which the element rule does not call.
+            Some(Type::Set(_) | Type::JsMap(_, _) | Type::Dict(_, _)) => true,
+            Some(Type::Class { .. }) => !self.declares_to_string(item_ty),
             _ => false,
         }
+    }
+
+    /// Whether values of `ty` (a class, or a type parameter bounded by one)
+    /// have a zero-argument `toString` method of their own or inherited, which
+    /// JavaScript's `ToString` calls instead of answering `[object Object]`.
+    pub(in crate::lowering) fn declares_to_string(&self, ty: smelt_hir::TypeId) -> bool {
+        let ty = self.type_param_constraint_or_self(ty);
+        let Some(Type::Class { name, .. }) = self.ctx.krate.types.get(ty) else {
+            return false;
+        };
+        let mut class = Some(*name);
+        for _ in 0_u32..64 {
+            let Some(symbol) = class else {
+                return false;
+            };
+            if self.class_symbol_declares_to_string(symbol) {
+                return true;
+            }
+            class = self.class_symbol_base(symbol);
+        }
+        false
+    }
+
+    /// Whether the class `symbol` itself declares a zero-argument `toString`
+    /// method: in this module's class registry while the module is being
+    /// lowered, or among the methods of the class item another module lowered.
+    fn class_symbol_declares_to_string(&self, symbol: smelt_hir::Symbol) -> bool {
+        let is_to_string =
+            |name: smelt_hir::Symbol| self.ctx.krate.symbols.source(name) == Some("toString");
+        if let Some(spelling) = self.ctx.krate.symbols.source(symbol)
+            && let Some(methods) = self.classes.methods(spelling)
+            && methods
+                .iter()
+                .any(|method| is_to_string(method.name) && method.params.is_empty())
+        {
+            return true;
+        }
+        self.ctx.krate.items.iter().any(|item| match item {
+            smelt_hir::Item::Class(class) if class.name == symbol => {
+                class.methods.iter().any(|method| {
+                    matches!(
+                        usize::try_from(method.0).ok().and_then(|index| self.ctx.krate.items.get(index)),
+                        Some(smelt_hir::Item::Function(function))
+                            if is_to_string(function.name) && function.params.is_empty()
+                    )
+                })
+            }
+            _ => false,
+        })
+    }
+
+    /// The base class of the class `symbol`, from this module's registry or
+    /// the class item.
+    fn class_symbol_base(&self, symbol: smelt_hir::Symbol) -> Option<smelt_hir::Symbol> {
+        if let Some((base, _)) = self.classes.base_of_symbol(symbol) {
+            return Some(*base);
+        }
+        self.ctx.krate.items.iter().find_map(|item| match item {
+            smelt_hir::Item::Class(class) if class.name == symbol => class.base,
+            _ => None,
+        })
     }
 
     /// Lower direct TypeScript string containment.
@@ -1540,7 +1612,7 @@ impl ModuleBuilder<'_> {
             Some(Type::Class { name, .. }) => {
                 self.stdlib_class_of_symbol(*name) == Some(smelt_stdlib::StdlibClass::RegExp)
             }
-            Some(Type::Optional(item)) => self.string_split_separator_type_is_supported(*item),
+            Some(Type::Optional(item, _)) => self.string_split_separator_type_is_supported(*item),
             Some(Type::Union(items)) => items
                 .iter()
                 .copied()
@@ -1563,7 +1635,7 @@ impl ModuleBuilder<'_> {
             Some(Type::Int | Type::Float | Type::None | Type::Unknown | Type::TypeParam { .. }) => {
                 true
             }
-            Some(Type::Optional(item)) => self.string_split_limit_type_is_supported(*item),
+            Some(Type::Optional(item, _)) => self.string_split_limit_type_is_supported(*item),
             Some(Type::Union(items)) => items
                 .iter()
                 .copied()

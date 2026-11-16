@@ -15,7 +15,7 @@ async fn run (FuncId(0)) -> None
     %9 temp: Float
     %10 temp: None
     %11 temp: Headers
-    %12 temp: Optional<String>
+    %12 temp: Nullable<String>
     %13 temp: String
     %14 temp: None
     %15 temp: Future<String>
@@ -30,11 +30,11 @@ async fn run (FuncId(0)) -> None
     %24 temp: String
     %25 temp: None
     %26 temp: Response
-    %27 temp: Optional<ReadableStream>
+    %27 temp: Nullable<ReadableStream>
     %28 temp: Bool
     %29 temp: None
     %30 temp: Response
-    %31 temp: Optional<ReadableStream>
+    %31 temp: Nullable<ReadableStream>
     %32 temp: Bool
     %33 temp: None
   bb0:
@@ -112,7 +112,7 @@ fn get_response (FuncId(2)) -> Response
     %1 user new_response: Response
     %2 temp: Bool
     %3 temp: Response
-    %4 temp: Optional<ReadableStream>
+    %4 temp: Nullable<ReadableStream>
     %5 temp: Response
     %6 temp: Headers
     %7 temp: Response

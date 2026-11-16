@@ -4,8 +4,8 @@
 
 use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::{
-    Argument, Body, Expr, ExprKind, Expression, FunctionType, ListCallbackOp, Literal,
-    ModuleBuilder, SmeltError, Type,
+    Argument, Body, Expr, ExprKind, Expression, ListCallbackOp, Literal, ModuleBuilder, SmeltError,
+    Type,
 };
 use oxc::span::GetSpan;
 use smelt_hir::ErasureReason;
@@ -30,7 +30,7 @@ impl ModuleBuilder<'_> {
         let mut ty = Self::expr_ty(body, left);
         let mut item_ty = match self.ctx.krate.types.get(ty).cloned() {
             Some(Type::List(list_item_ty)) => list_item_ty,
-            Some(Type::Optional(inner)) => {
+            Some(Type::Optional(inner, _)) => {
                 let Some(Type::List(list_item_ty)) = self.ctx.krate.types.get(inner).cloned()
                 else {
                     return Ok(None);
@@ -163,23 +163,33 @@ impl ModuleBuilder<'_> {
         }
         let none_ty = self.ctx.krate.types.intern(Type::None);
         if right_ty == none_ty {
-            if matches!(self.ctx.krate.types.get(item_ty), Some(Type::Optional(_))) {
+            if matches!(self.ctx.krate.types.get(item_ty), Some(Type::Optional(..))) {
                 return Some(item_ty);
             }
-            return Some(self.ctx.krate.types.intern(Type::Optional(item_ty)));
+            return Some(
+                self.ctx
+                    .krate
+                    .types
+                    .intern(Type::Optional(item_ty, smelt_hir::Absence::Undefined)),
+            );
         }
         if item_ty == none_ty {
-            if matches!(self.ctx.krate.types.get(right_ty), Some(Type::Optional(_))) {
+            if matches!(self.ctx.krate.types.get(right_ty), Some(Type::Optional(..))) {
                 return Some(right_ty);
             }
-            return Some(self.ctx.krate.types.intern(Type::Optional(right_ty)));
+            return Some(
+                self.ctx
+                    .krate
+                    .types
+                    .intern(Type::Optional(right_ty, smelt_hir::Absence::Undefined)),
+            );
         }
-        if let Some(Type::Optional(inner)) = self.ctx.krate.types.get(item_ty)
+        if let Some(Type::Optional(inner, _)) = self.ctx.krate.types.get(item_ty)
             && *inner == right_ty
         {
             return Some(item_ty);
         }
-        if let Some(Type::Optional(inner)) = self.ctx.krate.types.get(right_ty)
+        if let Some(Type::Optional(inner, _)) = self.ctx.krate.types.get(right_ty)
             && *inner == item_ty
         {
             return Some(right_ty);
@@ -533,63 +543,12 @@ impl ModuleBuilder<'_> {
             "forEach" => ListCallbackOp::ForEach,
             _ => return Ok(None),
         };
-        // A method-style callback on an imported utility object is the lodash
-        // free-function form `_.map(collection, iteratee)` (and `filter`, `some`,
-        // etc.), not a `Array.prototype.map` receiver. The collection is the
-        // first argument and the iteratee the second; the older single-argument
-        // shape (`_.map(iteratee)` as a partially-applied factory) is also
-        // accepted. The receiver is an opaque imported lodash value, so the call
-        // result stays a placeholder — but every argument is still lowered so
-        // captures and side effects are honored.
+        // A member of an imported namespace or an object namespace
+        // (`_.map(collection, iteratee)`) is that module's function, not
+        // `Array.prototype`: the ordinary call path calls it, typed from its
+        // declaration, or through the erased call of an untyped package.
         if self.imported_utility_object(&member.object) {
-            let (collection_argument, callback_argument) = match call.arguments.as_slice() {
-                [callback_argument] => (None, callback_argument),
-                [collection_argument, callback_argument] => {
-                    (Some(collection_argument), callback_argument)
-                }
-                _ => {
-                    return Err(SmeltError::unsupported(
-                        self.span(call.span.start, call.span.end),
-                        "lodash collection callbacks accept a collection and one iteratee",
-                    ));
-                }
-            };
-            let unknown_ty =
-                self.erase_with(ErasureReason::UntypedPackage, member.property.name.as_str());
-            let list_ty = self.ctx.krate.types.intern(Type::List(unknown_ty));
-            let return_ty = match op {
-                ListCallbackOp::Map | ListCallbackOp::Filter => list_ty,
-                ListCallbackOp::Some | ListCallbackOp::Every => {
-                    self.ctx.krate.types.intern(Type::Bool)
-                }
-                ListCallbackOp::ForEach => self.ctx.krate.types.intern(Type::None),
-                _ => unknown_ty,
-            };
-            if let Some(collection_argument) = collection_argument {
-                let _ = self.argument(collection_argument, body)?;
-            }
-            let index_ty = self.ctx.krate.types.intern(Type::Int);
-            let _ = self.callback_argument_with_return_hint(
-                callback_argument,
-                &[unknown_ty, index_ty, list_ty],
-                unknown_ty,
-                "array callback",
-                body,
-            )?;
-            let ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
-                params: vec![list_ty],
-                rest: None,
-                required_params: None,
-                mutable_params: Vec::new(),
-                return_ty,
-                is_async: false,
-                may_throw: false,
-            }));
-            return Ok(Some(body.push_expr(Expr {
-                kind: ExprKind::Literal(Literal::None),
-                ty,
-                span: self.span(call.span.start, call.span.end),
-            })));
+            return Ok(None);
         }
         // A receiver whose own type declares this method is a user method
         // call, not `Array.prototype`; decide that before the array arity check.
@@ -719,7 +678,10 @@ impl ModuleBuilder<'_> {
             }
             ListCallbackOp::Find => {
                 self.require_callback_ty(callback.return_ty, bool_ty, call, "array find")?;
-                self.ctx.krate.types.intern(Type::Optional(element_ty))
+                self.ctx
+                    .krate
+                    .types
+                    .intern(Type::Optional(element_ty, smelt_hir::Absence::Undefined))
             }
             ListCallbackOp::FindIndex => {
                 self.require_callback_ty(callback.return_ty, bool_ty, call, "array findIndex")?;
@@ -727,7 +689,10 @@ impl ModuleBuilder<'_> {
             }
             ListCallbackOp::FindLast => {
                 self.require_callback_ty(callback.return_ty, bool_ty, call, "array findLast")?;
-                self.ctx.krate.types.intern(Type::Optional(element_ty))
+                self.ctx
+                    .krate
+                    .types
+                    .intern(Type::Optional(element_ty, smelt_hir::Absence::Undefined))
             }
             ListCallbackOp::FindLastIndex => {
                 self.require_callback_ty(callback.return_ty, bool_ty, call, "array findLastIndex")?;

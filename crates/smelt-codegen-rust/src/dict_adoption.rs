@@ -148,6 +148,10 @@ impl Flows<'_> {
 
     /// The type of the slot `place` names: a local, a record's field, or an
     /// element of a list or dictionary.
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "single-shape recogniser: only a list or dictionary has an element a write lands in"
+    )]
     fn place_ty(&self, place: &Place) -> Option<TypeId> {
         match place {
             Place::Local(local) => self.local_ty(*local),
@@ -184,22 +188,24 @@ impl Flows<'_> {
     /// The parameter types of a call's callee, when they are known.
     fn callee_params(&self, callee: &smelt_mir::Callee) -> Vec<TypeId> {
         match callee {
-            smelt_mir::Callee::Static(function) => usize::try_from(function.0)
-                .ok()
-                .and_then(|index| self.mir.functions.get(index))
-                .map(|target| {
-                    target
-                        .params
-                        .iter()
-                        .filter_map(|param| {
-                            usize::try_from(param.0)
-                                .ok()
-                                .and_then(|index| target.locals.get(index))
-                                .map(|decl| decl.ty)
-                        })
-                        .collect()
-                })
-                .unwrap_or_default(),
+            smelt_mir::Callee::Static(function) | smelt_mir::Callee::BaseInit(function) => {
+                usize::try_from(function.0)
+                    .ok()
+                    .and_then(|index| self.mir.functions.get(index))
+                    .map(|target| {
+                        target
+                            .params
+                            .iter()
+                            .filter_map(|param| {
+                                usize::try_from(param.0)
+                                    .ok()
+                                    .and_then(|index| target.locals.get(index))
+                                    .map(|decl| decl.ty)
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            }
             smelt_mir::Callee::Indirect(operand) => {
                 match self
                     .operand_ty(operand)
@@ -209,7 +215,7 @@ impl Flows<'_> {
                     _ => Vec::new(),
                 }
             }
-            _ => Vec::new(),
+            smelt_mir::Callee::Builtin(_) | smelt_mir::Callee::Op(..) => Vec::new(),
         }
     }
 
@@ -229,11 +235,15 @@ impl Flows<'_> {
     }
 
     /// Record the pairs of one statement's flows.
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "single-shape recogniser: only a use, a container literal or a record literal hands an operand to a typed slot"
+    )]
     fn statement(&mut self, statement: &Statement) {
         let (slot_ty, value) = match statement {
             Statement::Assign { dest, value } => (self.local_ty(*dest), value),
             Statement::AssignPlace { place, value } => (self.place_ty(place), value),
-            Statement::DictEntryUpdate { .. } => return,
+            Statement::DictEntryUpdate { .. } | Statement::StorageLive(_) => return,
         };
         let Some(slot) = slot_ty else { return };
         let element_of = |mir: &Mir| match mir.types.get(strip_optional(mir, slot)) {
@@ -282,6 +292,10 @@ impl Flows<'_> {
 /// assigned once, from a dictionary rvalue, and read by one statement or
 /// terminator. Lowering builds an annotated object literal that way when it
 /// goes through a dictionary first (`const p: Pixel = { x: 3, y: -4 }`).
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "single-shape recogniser: only a dictionary literal or a plain copy of a local makes a fresh dictionary"
+)]
 fn fresh_dictionaries(blocks: &[BasicBlock]) -> HashSet<smelt_mir::LocalId> {
     // Per local: how often it is assigned, and the dictionary literal or the
     // local it is a move or copy of, when its one assignment is either.
@@ -367,7 +381,7 @@ fn record_fields(mir: &Mir, name: Symbol) -> Vec<smelt_mir::MirField> {
 
 /// `ty` with every `Optional` around it removed.
 fn strip_optional(mir: &Mir, mut ty: TypeId) -> TypeId {
-    while let Some(Type::Optional(inner)) = mir.types.get(ty) {
+    while let Some(Type::Optional(inner, _)) = mir.types.get(ty) {
         ty = *inner;
     }
     ty

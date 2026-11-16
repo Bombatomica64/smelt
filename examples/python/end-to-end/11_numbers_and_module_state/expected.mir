@@ -1,18 +1,18 @@
-class Counter fields [Public value: Int] constructor Some(FuncId(1)) methods [FuncId(0)]
+class Counter fields [Public value: PyInt] constructor Some(FuncId(1)) methods [FuncId(0)]
 
-fn tick (FuncId(0)) -> Int
+fn tick (FuncId(0)) -> PyInt
   locals
     %0 param self: Counter
-    %1 temp: Int
+    %1 temp: PyInt
   bb0:
-    %1 = copy %0.field2 + 2
+    %1 = copy %0.field2 + 2py
     %0.field2 = move %1
     return copy %0.field2
 
 fn __init__ (FuncId(1)) -> None
   locals
     %0 user self: Counter
-    %1 param start: Int
+    %1 param start: PyInt
     %2 temp: None
   bb0:
     %0 = struct0 {}
@@ -25,25 +25,25 @@ fn smelt_global_init$counter$4 (FuncId(2)) -> Counter
   locals
     %0 temp: Counter
   bb0:
-    %0 = call fn1(10) -> bb1
+    %0 = call fn1(10py) -> bb1
   bb1:
     return move %0
 
-fn bump (FuncId(3)) -> Int
+fn bump (FuncId(3)) -> PyInt
   locals
     %0 temp: Counter
-    %1 temp: Int
+    %1 temp: PyInt
   bb0:
     %0 = global_get #0
     %1 = call fn0(move %0) -> bb1
   bb1:
     return move %1
 
-fn run (FuncId(4)) -> None
+fn run (FuncId(4)) -> None throws
   locals
     %0 user x: Float
-    %1 user big: Int
-    %2 user n: Int
+    %1 user big: PyInt
+    %2 user n: PyInt
     %3 temp: None
     %4 temp: Float
     %5 temp: None
@@ -67,23 +67,21 @@ fn run (FuncId(4)) -> None
     %23 temp: PyStr
     %24 temp: None
     %25 temp: Float
-    %26 temp: Float
+    %26 temp: None
     %27 temp: Float
-    %28 temp: None
-    %29 temp: Float
-    %30 temp: Float
+    %28 temp: Float
+    %29 temp: None
+    %30 temp: PyInt
     %31 temp: None
-    %32 temp: Int
-    %33 temp: None
+    %32 temp: Counter
+    %33 temp: PyInt
     %34 temp: Counter
-    %35 temp: Int
-    %36 temp: Counter
-    %37 temp: Int
+    %35 temp: PyInt
+    %36 temp: None
+    %37 temp: PyInt
     %38 temp: None
-    %39 temp: Int
+    %39 temp: Counter
     %40 temp: None
-    %41 temp: Counter
-    %42 temp: None
   bb0:
     %0 = 12.0
     %3 = call @console_log(copy %0) -> bb1
@@ -101,7 +99,7 @@ fn run (FuncId(4)) -> None
     %10 = -0.0
     %11 = call @console_log(move %10) -> bb6
   bb6:
-    %1 = 9007199254740993
+    %1 = 9007199254740993py
     %12 = call @console_log(copy %1) -> bb7
   bb7:
     %13 = primitive_cast_string copy %0
@@ -118,37 +116,37 @@ fn run (FuncId(4)) -> None
     %23 = move %21 + move %22
     %24 = call @console_log(move %23) -> bb9
   bb9:
-    %25 = primitive_cast_float 7
-    %26 = primitive_cast_float 2
-    %27 = move %25 / move %26
-    %28 = call @console_log(move %27) -> bb10
+    %25 = call @int_true_div(7py, 2py) -> bb10
   bb10:
-    %2 = 3
-    %29 = primitive_cast_float copy %2
-    %30 = move %29 + 0.5
-    %31 = call @console_log(move %30) -> bb11
+    %26 = call @console_log(move %25) -> bb11
   bb11:
-    %32 = move %2 * 2
-    %33 = call @console_log(move %32) -> bb12
+    %2 = 3py
+    %27 = call @float_from_int(copy %2) -> bb12
   bb12:
-    %34 = global_get #0
-    %35 = call fn0(move %34) -> bb13
+    %28 = move %27 + 0.5
+    %29 = call @console_log(move %28) -> bb13
   bb13:
-    %36 = global_get #0
-    %37 = call fn0(move %36) -> bb14
+    %30 = move %2 * 2py
+    %31 = call @console_log(move %30) -> bb14
   bb14:
-    %38 = call @console_log(move %37) -> bb15
+    %32 = global_get #0
+    %33 = call fn0(move %32) -> bb15
   bb15:
-    %39 = call fn3() -> bb16
+    %34 = global_get #0
+    %35 = call fn0(move %34) -> bb16
   bb16:
-    %40 = call @console_log(move %39) -> bb17
+    %36 = call @console_log(move %35) -> bb17
   bb17:
-    %41 = global_get #0
-    %42 = call @console_log(copy %41.field2) -> bb18
+    %37 = call fn3() -> bb18
   bb18:
+    %38 = call @console_log(move %37) -> bb19
+  bb19:
+    %39 = global_get #0
+    %40 = call @console_log(copy %39.field2) -> bb20
+  bb20:
     return none
 
-fn main (FuncId(5)) -> None
+fn main (FuncId(5)) -> None throws
   locals
     %0 temp: None
     %1 temp: None

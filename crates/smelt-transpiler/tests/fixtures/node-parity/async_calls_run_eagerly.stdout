@@ -1,0 +1,15 @@
+b start
+a start
+executor
+floating start
+x start
+yy start
+sync in main
+end of module
+b after
+floating resume
+x resume
+yy resume
+then 2
+total 3
+main done

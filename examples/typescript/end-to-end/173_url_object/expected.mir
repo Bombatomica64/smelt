@@ -77,12 +77,12 @@ fn main (FuncId(3)) -> None throws
     %25 temp: None
     %26 temp: String
     %27 temp: URLSearchParams
-    %28 temp: Optional<String>
+    %28 temp: Nullable<String>
     %29 temp: String
     %30 temp: None
     %31 temp: String
     %32 temp: URLSearchParams
-    %33 temp: Optional<String>
+    %33 temp: Nullable<String>
     %34 temp: String
     %35 temp: URLSearchParams
     %36 temp: Bool

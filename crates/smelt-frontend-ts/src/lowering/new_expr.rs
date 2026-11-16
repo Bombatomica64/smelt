@@ -125,7 +125,7 @@ impl ModuleBuilder<'_> {
         // `Box.cache = new Map()` for `static cache?: Map<K, V>`) describes
         // it; the store widens it back.
         let type_hint = type_hint.map(|hint| match self.ctx.krate.types.get(hint) {
-            Some(Type::Optional(inner)) => *inner,
+            Some(Type::Optional(inner, _)) => *inner,
             _ => hint,
         });
         if let Some(selected) =

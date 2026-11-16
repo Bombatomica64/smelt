@@ -87,12 +87,12 @@ pub use expr::{
     HeadersOp, HostModuleOp, HttpServerOp, IncomingMessageOp, ListCallbackOp, ListProjectionOp,
     ListSearchOp, ListSpliceItem, Literal, NumericExtremaOp, NumericFormatMethod,
     NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp, PathOp, PrimitiveCastOp,
-    PropertyLookup, PythonDivisionOp, RegexMatchOp, RegexReplaceArg, RequestInitMember, RequestOp,
-    ResponseOp, ServerResponseOp, SetBinaryOp, SetProjectionOp, SetRelationOp, SetRemoveOp,
-    SqliteOp, StaticMember, StringAffixOp, StringCaseOp, StringNormalizeForm, StringPadOp,
-    StringPredicateOp, StringReplaceOp, StringSearchOp, StringSliceKind, StringTrimSide,
-    TextDecoderOp, TextEncoderOp, UnaryOp, UnboundRead, UnknownKind, UriTranscodeOp, UrlField,
-    UrlOp, UrlSearchParamsOp, bin_op_text,
+    PropertyLookup, PyNumericOp, PyStrOp, PythonDivisionOp, RegexMatchOp, RegexReplaceArg,
+    RequestInitMember, RequestOp, ResponseOp, ServerResponseOp, SetBinaryOp, SetProjectionOp,
+    SetRelationOp, SetRemoveOp, SqliteOp, StaticMember, StringAffixOp, StringCaseOp,
+    StringNormalizeForm, StringPadOp, StringPredicateOp, StringReplaceOp, StringSearchOp,
+    StringSliceKind, StringTrimSide, TextDecoderOp, TextEncoderOp, UnaryOp, UnboundRead,
+    UnknownKind, UriTranscodeOp, UrlField, UrlOp, UrlSearchParamsOp, bin_op_text,
 };
 pub use format::{format_compact, function_signature, string_units_text, type_display};
 pub use ids::{
@@ -113,5 +113,5 @@ pub use krate::{
 /// type HIR does rather than each reaching for the registry crate.
 pub use smelt_stdlib::TypedArrayElement;
 pub use symbol::{OriginalNameTable, SymbolInterner, SymbolOrigin, SynthesizedName};
-pub use ty::{FunctionType, IntWidth, Type, TypeInterner};
+pub use ty::{Absence, FunctionType, IntWidth, Type, TypeInterner};
 pub use validate::{ValidationError, validate};

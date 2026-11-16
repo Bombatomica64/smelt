@@ -157,10 +157,10 @@ fn possibly_unbound_bindings(
             match point {
                 Point::Statement { statement, .. } => {
                     non_capture_reads(statement, &mut mark_read);
-                    if let Rvalue::Closure {
+                    if let Some(Rvalue::Closure {
                         id,
                         captures: operands,
-                    } = statement.value()
+                    }) = statement.value()
                     {
                         let targets = mir.closure(*id).map(|closure| closure.captures.as_slice());
                         for (index, operand) in operands.iter().enumerate() {
@@ -206,7 +206,7 @@ fn share_with_captures(mir: &Mir, unbound: &mut HashMap<BodyOwner, HashSet<Local
                 continue;
             };
             for statement in body.blocks.iter().flat_map(|block| &block.statements) {
-                let Rvalue::Closure { id, captures } = statement.value() else {
+                let Some(Rvalue::Closure { id, captures }) = statement.value() else {
                     continue;
                 };
                 let Some(closure) = mir.closure(*id) else {
@@ -428,13 +428,14 @@ fn route_writes_through_assign(
                 }
                 Statement::Assign { .. }
                 | Statement::AssignPlace { .. }
-                | Statement::DictEntryUpdate { .. } => {}
+                | Statement::DictEntryUpdate { .. }
+                | Statement::StorageLive(_) => {}
             }
             let yield_handler = match body
                 .block_mut(block_id)?
                 .statements
                 .get(statement_index)
-                .map(Statement::value)
+                .and_then(Statement::value)
             {
                 Some(Rvalue::GeneratorYield {
                     unwind: Some(handler),
@@ -448,7 +449,7 @@ fn route_writes_through_assign(
                     .block_mut(block_id)?
                     .statements
                     .get_mut(statement_index)
-                    .map(Statement::value_mut)
+                    .and_then(Statement::value_mut)
             {
                 *unwind = Some(landed);
             }

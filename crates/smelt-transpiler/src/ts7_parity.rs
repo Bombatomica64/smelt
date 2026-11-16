@@ -118,7 +118,7 @@ fn shape_at_depth(krate: &Crate, id: TypeId, depth: usize) -> String {
     let symbol = |name| krate.symbols.source(name).unwrap_or("?");
     match ty {
         Type::List(inner) => format!("List<{}>", shape_at_depth(krate, *inner, next)),
-        Type::Optional(inner) => format!("Optional<{}>", shape_at_depth(krate, *inner, next)),
+        Type::Optional(inner, _) => format!("Optional<{}>", shape_at_depth(krate, *inner, next)),
         Type::Future(inner) => format!("Future<{}>", shape_at_depth(krate, *inner, next)),
         Type::Set(inner) => format!("Set<{}>", shape_at_depth(krate, *inner, next)),
         Type::Union(members) => join(members, " | "),
@@ -131,6 +131,7 @@ fn shape_at_depth(krate: &Crate, id: TypeId, depth: usize) -> String {
         }
         Type::Bool => "Bool".to_owned(),
         Type::Int => "Int".to_owned(),
+        Type::PyInt => "PyInt".to_owned(),
         Type::Float => "Float".to_owned(),
         Type::FixedInt(_) => "FixedInt".to_owned(),
         Type::BigInt => "BigInt".to_owned(),
@@ -138,7 +139,7 @@ fn shape_at_depth(krate: &Crate, id: TypeId, depth: usize) -> String {
         Type::PyStr => "PyStr".to_owned(),
         Type::Symbol => "Symbol".to_owned(),
         Type::PropKey => "PropKey".to_owned(),
-        Type::Unknown => "Unknown".to_owned(),
+        Type::Unknown | Type::IndexedAccess { .. } => "Unknown".to_owned(),
         Type::Never => "Never".to_owned(),
         Type::None => "None".to_owned(),
         Type::Dict(..) => "Dict".to_owned(),
@@ -241,7 +242,7 @@ impl Comparer<'_> {
             return true;
         }
         let next = depth.saturating_add(1);
-        if let Type::Optional(inner) = hir_type {
+        if let Type::Optional(inner, _) = hir_type {
             return self.optional_agrees(*inner, ts_type, next);
         }
         self.primitive_agrees(hir_type, &ts_type.kind)
@@ -252,9 +253,10 @@ impl Comparer<'_> {
     fn primitive_agrees(&self, hir: &Type, ts: &TsTypeKind) -> Option<bool> {
         match ts {
             TsTypeKind::String | TsTypeKind::StringLiteral(_) => Some(matches!(hir, Type::String)),
-            TsTypeKind::Number | TsTypeKind::NumberLiteral(_) => {
-                Some(matches!(hir, Type::Float | Type::Int | Type::FixedInt(_)))
-            }
+            TsTypeKind::Number | TsTypeKind::NumberLiteral(_) => Some(matches!(
+                hir,
+                Type::Float | Type::Int | Type::PyInt | Type::FixedInt(_)
+            )),
             TsTypeKind::Boolean | TsTypeKind::BooleanLiteral(_) => Some(matches!(hir, Type::Bool)),
             TsTypeKind::BigInt | TsTypeKind::BigIntLiteral(_) => Some(matches!(hir, Type::BigInt)),
             TsTypeKind::Void | TsTypeKind::Undefined | TsTypeKind::Null => {
@@ -347,7 +349,7 @@ impl Comparer<'_> {
         }
         let next = depth.saturating_add(1);
         match self.krate.types.get(hir) {
-            Some(Type::Optional(inner)) => {
+            Some(Type::Optional(inner, _)) => {
                 self.agrees(*inner, ts, next) || self.wider(*inner, ts, next)
             }
             Some(Type::Union(members)) => members
@@ -488,6 +490,7 @@ impl Comparer<'_> {
             }),
             Type::Bool
             | Type::Int
+            | Type::PyInt
             | Type::Float
             | Type::FixedInt(_)
             | Type::BigInt
@@ -496,13 +499,14 @@ impl Comparer<'_> {
             | Type::Symbol
             | Type::PropKey
             | Type::Unknown
+            | Type::IndexedAccess { .. }
             | Type::Never
             | Type::TypeParam { .. }
             | Type::None
             | Type::Set(_)
             | Type::Dict(..)
             | Type::JsMap(..)
-            | Type::Optional(_)
+            | Type::Optional(..)
             | Type::Union(_)
             | Type::Class { .. }
             | Type::Function(_)

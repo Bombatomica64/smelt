@@ -173,7 +173,8 @@ fn fresh_single_use_temps(
             }
             Statement::Assign { .. }
             | Statement::AssignPlace { .. }
-            | Statement::DictEntryUpdate { .. } => None,
+            | Statement::DictEntryUpdate { .. }
+            | Statement::StorageLive(_) => None,
         })
         .collect()
 }
@@ -183,7 +184,11 @@ fn fresh_single_use_temps(
 fn is_list_or_optional_list(types: &TypeInterner, ty: TypeId) -> bool {
     match types.get(ty) {
         Some(Type::List(_)) => true,
-        Some(Type::Optional(inner)) => matches!(types.get(*inner), Some(Type::List(_))),
+        // Every optional layer (`T[] | null | undefined` is two).
+        Some(Type::Optional(..)) => matches!(
+            types.get(smelt_hir::type_normalize::peel_optional(types, ty).0),
+            Some(Type::List(_))
+        ),
         _ => false,
     }
 }
@@ -276,7 +281,9 @@ fn coercion_before(
     }
     let coerced_ty = local_ty(locals, coerced.local()?)?;
     let coerces = match types.get(coerced_ty) {
-        Some(Type::Optional(inner)) => *inner == copy_ty,
+        Some(Type::Optional(..)) => {
+            smelt_hir::type_normalize::peel_optional(types, coerced_ty).0 == copy_ty
+        }
         Some(Type::Unknown | Type::TypeParam { .. }) => true,
         _ => false,
     };

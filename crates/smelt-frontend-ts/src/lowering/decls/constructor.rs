@@ -728,7 +728,11 @@ impl ModuleBuilder<'_> {
         let param_span = self.span(param.span.start, param.span.end);
         let unknown_ty = self.erase_at(ErasureReason::MissingAnnotation, param_span, "");
         if param.optional {
-            Ok(self.ctx.krate.types.intern(Type::Optional(unknown_ty)))
+            Ok(self
+                .ctx
+                .krate
+                .types
+                .intern(Type::Optional(unknown_ty, smelt_hir::Absence::Undefined)))
         } else {
             Ok(unknown_ty)
         }

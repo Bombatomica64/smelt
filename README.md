@@ -102,12 +102,12 @@ calls get a concrete Rust type, a real Rust generic, or an erased type
 <!-- results:typedness:begin -->
 | Corpus (baseline file) | Kind | Concrete | Generic | Erased | Erased share |
 | --- | --- | ---: | ---: | ---: | ---: |
-| examples, 178 programs ([`typedness-baseline.json`](blocker-logs/typedness-baseline.json)) | values | 8604 | 162 | 56 | 0.6% |
-|  | reads | 970 | 47 | 20 | 1.9% |
-|  | calls | 2383 | 16 | 2 | 0.1% |
-| es-toolkit, 744 programs ([`typedness-baseline-es-toolkit.json`](blocker-logs/typedness-baseline-es-toolkit.json)) | values | 14229 | 351 | 7072 | 32.7% |
-|  | reads | 367 | 50 | 979 | 70.1% |
-|  | calls | 2191 | 63 | 1182 | 34.4% |
+| examples, 180 programs ([`typedness-baseline.json`](blocker-logs/typedness-baseline.json)) | values | 8822 | 193 | 56 | 0.6% |
+|  | reads | 977 | 50 | 20 | 1.9% |
+|  | calls | 2477 | 16 | 2 | 0.1% |
+| es-toolkit, 744 programs ([`typedness-baseline-es-toolkit.json`](blocker-logs/typedness-baseline-es-toolkit.json)) | values | 14243 | 355 | 7041 | 32.5% |
+|  | reads | 367 | 51 | 978 | 70.1% |
+|  | calls | 2194 | 63 | 1179 | 34.3% |
 | remeda, 390 programs ([`typedness-baseline-remeda.json`](blocker-logs/typedness-baseline-remeda.json)) | values | 13667 | 268 | 9187 | 39.7% |
 |  | reads | 345 | 29 | 800 | 68.1% |
 |  | calls | 1733 | 51 | 2655 | 59.8% |
@@ -129,8 +129,8 @@ narrowing guards) or avoidable erasure (everything else). Methodology:
 <!-- results:unknown:begin -->
 | Corpus (baseline file) | Files | Runtime prelude | Legitimate boundary | Avoidable erasure | Gate |
 | --- | ---: | ---: | ---: | ---: | --- |
-| examples ([`smelt-unknown-baseline.json`](blocker-logs/smelt-unknown-baseline.json)) | 168 | 132775 | 6951 | 0 | blocking, must stay 0 |
-| es-toolkit ([`smelt-unknown-baseline-es-toolkit.json`](blocker-logs/smelt-unknown-baseline-es-toolkit.json)) | 744 | 2391 | 34691 | 12839 | blocking, may only fall |
+| examples ([`smelt-unknown-baseline.json`](blocker-logs/smelt-unknown-baseline.json)) | 177 | 132058 | 6990 | 0 | blocking, must stay 0 |
+| es-toolkit ([`smelt-unknown-baseline-es-toolkit.json`](blocker-logs/smelt-unknown-baseline-es-toolkit.json)) | 744 | 2461 | 34363 | 12730 | blocking, may only fall |
 | remeda ([`smelt-unknown-baseline-remeda.json`](blocker-logs/smelt-unknown-baseline-remeda.json)) | 391 | 1506 | 62265 | 20086 | advisory |
 | hono ([`smelt-unknown-baseline-hono.json`](blocker-logs/smelt-unknown-baseline-hono.json)) | 78 | 7445 | 78054 | 10078 | advisory |
 <!-- results:unknown:end -->
@@ -361,28 +361,39 @@ the library gates run on it.
 
 | Metric | Coverage |
 | --- | ---: |
-| Functions | 79.51% |
-| Lines | 82.28% |
-| Regions | 75.23% |
-| Branches | 70.10% |
+| Functions | 79.98% |
+| Lines | 82.63% |
+| Regions | 75.73% |
+| Branches | 70.49% |
 
 ### Per Crate
 
 | Crate | Functions | Lines | Branches |
 | --- | ---: | ---: | ---: |
-| `smelt-codegen-rust` | 91.10% | 85.77% | 73.13% |
-| `smelt-frontend-py` | 87.04% | 79.92% | 71.78% |
-| `smelt-frontend-ts` | 90.54% | 84.10% | 72.80% |
-| `smelt-hir` | 86.10% | 81.00% | 70.83% |
-| `smelt-mir` | 92.75% | 91.89% | 78.15% |
+| `smelt-codegen-rust` | 91.21% | 86.18% | 73.56% |
+| `smelt-frontend-py` | 87.21% | 80.62% | 72.41% |
+| `smelt-frontend-ts` | 90.67% | 84.29% | 72.93% |
+| `smelt-hir` | 86.16% | 79.80% | 71.01% |
+| `smelt-mir` | 92.88% | 92.01% | 78.39% |
 | `smelt-py-types` | 84.62% | 92.86% | 68.97% |
-| `smelt-runtime` | 30.48% | 34.04% | 31.04% |
-| `smelt-specialize` | 70.02% | 78.90% | 62.31% |
+| `smelt-runtime` | 34.67% | 40.43% | 37.19% |
+| `smelt-specialize` | 70.67% | 79.36% | 62.41% |
 | `smelt-stdlib` | 88.11% | 85.55% | 93.90% |
-| `smelt-transpiler` | 82.79% | 81.84% | 70.92% |
+| `smelt-transpiler` | 82.95% | 82.22% | 71.44% |
 | `smelt-ts-model` | 91.67% | 93.27% | 50.00% |
 | `smelt-ts-types` | 86.05% | 90.62% | 84.72% |
 <!-- COVERAGE:END -->
+
+
+
+
+
+
+
+
+
+
+
 
 
 

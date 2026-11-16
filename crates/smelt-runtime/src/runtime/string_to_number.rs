@@ -28,10 +28,11 @@
 
 // Emit `smelt_string_to_number(&str) -> f64`.
 //
-// Emitted unconditionally, like `smelt_number_to_string`: it is core coercion
-// machinery, reached by `Number(s)`/`+s` on a static string as well as by the
-// erased-value conversions, so no single feature flag owns it.
-// @smelt:item smelt_string_to_number
+// Core coercion machinery, reached by `Number(s)`/`+s` on a static string and by
+// the erased-value conversions, all of which go through a string: it is emitted
+// with the JavaScript string runtime (`smelt_js_string_to_number` below) or for
+// a Python program, and not for a program that holds no string.
+// @smelt:item smelt_string_to_number when string_to_number
 /// ECMA-262 `StringToNumber`: the number JavaScript's `Number(text)` answers.
 #[allow(dead_code)]
 fn smelt_string_to_number(text: &str) -> f64 {

@@ -1,12 +1,12 @@
-class Square fields [Public side: Int, Public name: PyStr] constructor Some(FuncId(2)) methods [FuncId(0), FuncId(1)]
-class Rect fields [Public w: Int, Public h: Int, Public name: PyStr] constructor Some(FuncId(5)) methods [FuncId(3), FuncId(4)]
+class Square fields [Public side: PyInt, Public name: PyStr] constructor Some(FuncId(2)) methods [FuncId(0), FuncId(1)]
+class Rect fields [Public w: PyInt, Public h: PyInt, Public name: PyStr] constructor Some(FuncId(5)) methods [FuncId(3), FuncId(4)]
 interface Named
 interface Shape
 
-fn area (FuncId(0)) -> Int
+fn area (FuncId(0)) -> PyInt
   locals
     %0 param self: Square
-    %1 temp: Int
+    %1 temp: PyInt
   bb0:
     %1 = copy %0.field8 * copy %0.field8
     return move %1
@@ -23,17 +23,17 @@ fn label (FuncId(1)) -> PyStr
 fn __init__ (FuncId(2)) -> None
   locals
     %0 user self: Square
-    %1 param side: Int
+    %1 param side: PyInt
   bb0:
     %0 = struct7 {}
     %0.field8 = copy %1
     %0.field2 = "square"
     return move %0
 
-fn area (FuncId(3)) -> Int
+fn area (FuncId(3)) -> PyInt
   locals
     %0 param self: Rect
-    %1 temp: Int
+    %1 temp: PyInt
   bb0:
     %1 = copy %0.field13 * copy %0.field14
     return move %1
@@ -62,8 +62,8 @@ fn label (FuncId(4)) -> PyStr
 fn __init__ (FuncId(5)) -> None
   locals
     %0 user self: Rect
-    %1 param w: Int
-    %2 param h: Int
+    %1 param w: PyInt
+    %2 param h: PyInt
   bb0:
     %0 = struct12 {}
     %0.field13 = copy %1
@@ -76,7 +76,7 @@ fn describe (FuncId(6)) -> PyStr throws
     %0 param shape: Shape
     %1 temp: PyStr
     %2 temp: PyStr
-    %3 temp: Int
+    %3 temp: PyInt
     %4 temp: PyStr
     %5 temp: PyStr
   bb0:
@@ -91,8 +91,8 @@ fn biggest (FuncId(7)) -> Shape throws
   locals
     %0 param a: Shape
     %1 param b: Shape
-    %2 temp: Int
-    %3 temp: Int
+    %2 temp: PyInt
+    %3 temp: PyInt
     %4 temp: Bool
   bb0:
     %2 = closure_call copy %0.field4()
@@ -120,26 +120,26 @@ fn run (FuncId(8)) -> None throws
     %11 temp: Shape
     %12 temp: None
   bb0:
-    %1 = call fn2(3) -> bb1
+    %1 = call fn2(3py) -> bb1
   bb1:
     %2 = call fn6(move %1) -> bb2
   bb2:
     %3 = call @console_log(move %2) -> bb3
   bb3:
-    %4 = call fn5(2, 5) -> bb4
+    %4 = call fn5(2py, 5py) -> bb4
   bb4:
     %5 = call fn6(move %4) -> bb5
   bb5:
     %6 = call @console_log(move %5) -> bb6
   bb6:
-    %7 = call fn2(4) -> bb7
+    %7 = call fn2(4py) -> bb7
   bb7:
     %0 = move %7
     %8 = call @console_log(copy %0.field2) -> bb8
   bb8:
-    %9 = call fn2(3) -> bb9
+    %9 = call fn2(3py) -> bb9
   bb9:
-    %10 = call fn5(2, 5) -> bb10
+    %10 = call fn5(2py, 5py) -> bb10
   bb10:
     %11 = call fn7(move %9, move %10) -> bb11
   bb11:

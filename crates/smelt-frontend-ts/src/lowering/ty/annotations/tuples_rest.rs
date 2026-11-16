@@ -434,48 +434,12 @@ impl ModuleBuilder<'_> {
                 self.ts_type_to_hir(&parenthesized.type_annotation)
             }
             TSTupleElement::TSFunctionType(function) => self.function_type_to_hir(function),
-            TSTupleElement::TSUnionType(union) => {
-                let mut lowered = Vec::new();
-                let mut nullish = Vec::new();
-                let mut saw_never = false;
-                for member in &union.types {
-                    let member_ty = self.ts_type_to_hir(member)?;
-                    if matches!(self.ctx.krate.types.get(member_ty), Some(Type::Never)) {
-                        saw_never = true;
-                    } else if matches!(self.ctx.krate.types.get(member_ty), Some(Type::None)) {
-                        nullish.push(member_ty);
-                    } else if !lowered.contains(&member_ty) {
-                        lowered.push(member_ty);
-                    }
-                }
-                if let Some(list_ty) = self.list_union_type(&lowered) {
-                    if nullish.is_empty() {
-                        return Ok(list_ty);
-                    }
-                    lowered = vec![list_ty];
-                }
-                if let Some(dict_ty) = self.dict_union_type(&lowered) {
-                    if nullish.is_empty() {
-                        return Ok(dict_ty);
-                    }
-                    lowered = vec![dict_ty];
-                }
-                if lowered.len() == 1 && !nullish.is_empty() {
-                    let single = lowered.remove(0);
-                    Ok(self.ctx.krate.types.intern(Type::Optional(single)))
-                } else if lowered.len() == 1 {
-                    let single = lowered.remove(0);
-                    Ok(single)
-                } else if lowered.is_empty() && nullish.is_empty() && saw_never {
-                    Ok(self.ctx.krate.types.intern(Type::Never))
-                } else {
-                    lowered.extend(nullish);
-                    Ok(self.ctx.krate.types.intern(Type::Union(lowered)))
-                }
-            }
             TSTupleElement::TSOptionalType(optional) => {
                 let inner = self.ts_type_to_hir(&optional.type_annotation)?;
-                Ok(self.ctx.krate.types.intern(Type::Optional(inner)))
+                Ok(smelt_hir::type_normalize::admit_undefined(
+                    &mut self.ctx.krate.types,
+                    inner,
+                ))
             }
             TSTupleElement::TSRestType(rest) => Err(SmeltError::unsupported(
                 self.span(rest.span.start, rest.span.end),
@@ -487,7 +451,7 @@ impl ModuleBuilder<'_> {
             TSTupleElement::TSNamedTupleMember(named) => {
                 let inner = self.tuple_element_type_to_hir(&named.element_type)?;
                 Ok(if named.optional {
-                    self.ctx.krate.types.intern(Type::Optional(inner))
+                    smelt_hir::type_normalize::admit_undefined(&mut self.ctx.krate.types, inner)
                 } else {
                     inner
                 })
@@ -495,6 +459,10 @@ impl ModuleBuilder<'_> {
             // A tuple element that is not one of the tuple-only forms above
             // (`TSOptionalType`, `TSRestType`, `TSNamedTupleMember`) IS an
             // ordinary type: `TSTupleElement` inherits every `TSType` variant.
+            // A union element is one of them: it lowers by the one union rule
+            // (`T | null` keeps its `null` absent value, function arms of
+            // different arities collapse), which a private copy here had
+            // fallen behind.
             // The arms above are shortcuts, not the whole grammar, so anything
             // they do not name is delegated to `ts_type_to_hir` rather than
             // rejected. Before this, a tuple element written as an intersection
@@ -537,7 +505,7 @@ impl ModuleBuilder<'_> {
     pub(in crate::lowering) fn mutable_abi_param_type(&self, ty: smelt_hir::TypeId) -> bool {
         match self.ctx.krate.types.get(ty) {
             Some(Type::Class { .. } | Type::List(_) | Type::Set(_) | Type::Dict(_, _)) => true,
-            Some(Type::Optional(inner)) => self.mutable_abi_param_type(*inner),
+            Some(Type::Optional(inner, _)) => self.mutable_abi_param_type(*inner),
             _ => false,
         }
     }
@@ -553,7 +521,7 @@ impl ModuleBuilder<'_> {
             Some(Type::Union(items)) => items
                 .iter()
                 .any(|item| self.return_type_tuple_contains(*item, target)),
-            Some(Type::Optional(inner) | Type::Future(inner)) => {
+            Some(Type::Optional(inner, _) | Type::Future(inner)) => {
                 self.return_type_tuple_contains(*inner, target)
             }
             _ => false,

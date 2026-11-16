@@ -44,7 +44,9 @@ impl<'mir> FunctionEmitter<'mir> {
                 generics: emit_role::OwnGenerics::Trial,
             } => Some(self.function.id),
             emit_role::EmitRole::Closure(scope) => scope.trial_function,
-            _ => None,
+            emit_role::EmitRole::Own { .. }
+            | emit_role::EmitRole::InheritedCopy { .. }
+            | emit_role::EmitRole::BaseInitializerCopy { .. } => None,
         }
     }
 
@@ -159,7 +161,7 @@ impl<'mir> FunctionEmitter<'mir> {
         let null_into_own_optional = |ty: TypeId| {
             matches!(
                 self.mir.types.get(ty),
-                Some(Type::Optional(inner))
+                Some(Type::Optional(inner, _))
                     if matches!(self.mir.types.get(*inner), Some(Type::TypeParam { name }) if own.contains(name))
             )
         };
@@ -257,7 +259,7 @@ impl<'mir> FunctionEmitter<'mir> {
         let null_into_own_optional = |ty: TypeId| {
             matches!(
                 self.mir.types.get(ty),
-                Some(Type::Optional(inner))
+                Some(Type::Optional(inner, _))
                     if matches!(self.mir.types.get(*inner), Some(Type::TypeParam { name }) if own.contains(name))
             )
         };
@@ -271,14 +273,8 @@ impl<'mir> FunctionEmitter<'mir> {
                     .and_then(|index| locals.get(index))
                     .map(|decl| decl.ty)
             };
-            let operand_ty = |operand: &Operand| -> Option<TypeId> {
-                match operand {
-                    Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) => {
-                        local_ty(*local)
-                    }
-                    _ => None,
-                }
-            };
+            let operand_ty =
+                |operand: &Operand| -> Option<TypeId> { operand.local().and_then(local_ty) };
             // An erased container (`unknown[]`) local, and whether this body
             // minted every buffer it holds and names it whole at most once:
             // then a recovered copy of it at that one use is unobservable.
@@ -286,10 +282,7 @@ impl<'mir> FunctionEmitter<'mir> {
             // at a typed signature is wrapped, not copied.
             let erased_container = |local: LocalId| {
                 local_ty(local).is_some_and(|ty| {
-                    let list = match self.mir.types.get(ty) {
-                        Some(Type::Optional(inner)) => *inner,
-                        _ => ty,
-                    };
+                    let list = smelt_hir::type_normalize::peel_optional(&self.mir.types, ty).0;
                     matches!(self.mir.types.get(list), Some(Type::List(_))) && holds_carrier(list)
                 })
             };
@@ -298,12 +291,7 @@ impl<'mir> FunctionEmitter<'mir> {
             // Locals some site reads whole other than a fresh copy or a length:
             // a site that can keep, mutate or compare the buffer itself.
             let mut handed_on: HashSet<LocalId> = HashSet::new();
-            let whole_local = |operand: &Operand| match operand {
-                Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) => {
-                    Some(*local)
-                }
-                _ => None,
-            };
+            let whole_local = Operand::local;
             for block in blocks {
                 for statement in &block.statements {
                     // An equality test or a negation reads presence or
@@ -330,7 +318,12 @@ impl<'mir> FunctionEmitter<'mir> {
                                         }
                                 )
                         }
-                        _ => false,
+                        // A store into a container or a whole-binding rebind
+                        // keeps what it reads; a fused entry update reads only
+                        // scalars, which hold no buffer.
+                        Statement::AssignPlace { .. }
+                        | Statement::DictEntryUpdate { .. }
+                        | Statement::StorageLive(_) => false,
                     };
                     statement.reads(|read| {
                         if let Read::Operand(operand) = read
@@ -352,10 +345,13 @@ impl<'mir> FunctionEmitter<'mir> {
                         Statement::AssignPlace {
                             place: Place::Local(dest),
                             ..
-                        } => {
+                        }
+                        | Statement::DictEntryUpdate { current: dest, .. } => {
                             fresh_defs.insert(*dest, false);
                         }
-                        _ => {}
+                        // A projected write defines no local, and a fresh binding
+                        // cell defines no value.
+                        Statement::AssignPlace { .. } | Statement::StorageLive(_) => {}
                     }
                 }
                 if let Some(terminator) = &block.terminator {
@@ -365,23 +361,27 @@ impl<'mir> FunctionEmitter<'mir> {
                         terminator,
                         Terminator::Switch { .. } | Terminator::Match { .. }
                     );
-                    let read_only_args: HashSet<usize> = match terminator {
-                        Terminator::Call {
-                            callee: Callee::Static(callee),
-                            args,
-                            ..
-                        } => (0..args.len())
+                    let read_only_args: HashSet<usize> = if let Terminator::Call {
+                        callee: Callee::Static(callee),
+                        args,
+                        ..
+                    } = terminator
+                    {
+                        (0..args.len())
                             .filter(|index| {
                                 self.context
                                     .read_only_arguments(self.mir)
                                     .argument_is_read_only(*callee, *index, args.len())
                             })
-                            .collect(),
-                        _ => HashSet::new(),
+                            .collect()
+                    } else {
+                        HashSet::new()
                     };
-                    let call_args: Vec<&Operand> = match terminator {
-                        Terminator::Call { args, .. } => args.iter().collect(),
-                        _ => Vec::new(),
+                    let call_args: Vec<&Operand> = if let Terminator::Call { args, .. } = terminator
+                    {
+                        args.iter().collect()
+                    } else {
+                        Vec::new()
                     };
                     terminator.reads(|operand| {
                         if let Some(local) = whole_local(operand) {
@@ -429,10 +429,7 @@ impl<'mir> FunctionEmitter<'mir> {
             // cross whole, as every bare `T` does.
             let is_list_local = |local: LocalId| {
                 local_ty(local).is_some_and(|ty| {
-                    let list = match self.mir.types.get(ty) {
-                        Some(Type::Optional(inner)) => *inner,
-                        _ => ty,
-                    };
+                    let list = smelt_hir::type_normalize::peel_optional(&self.mir.types, ty).0;
                     matches!(self.mir.types.get(list), Some(Type::List(_)))
                 })
             };
@@ -488,12 +485,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 if let Some(terminator) = &block.terminator {
                     let mut operands: Vec<Operand> = Vec::new();
                     terminator.reads(|operand| operands.push(operand.clone()));
-                    let dest = match terminator {
-                        Terminator::Call { dest, .. } | Terminator::Await { dest, .. } => {
-                            Some(*dest)
-                        }
-                        _ => None,
-                    };
+                    let dest = terminator.defs();
                     if !matches!(terminator, Terminator::Return(_))
                         && recovers_shared(&operands, dest)
                     {
@@ -557,7 +549,7 @@ impl<'mir> FunctionEmitter<'mir> {
                     }
                     if let Rvalue::Use(operand) = value
                         && let Some(source) = operand_ty(operand)
-                        && let Some(Type::Optional(inner)) = self.mir.types.get(source)
+                        && let Some(Type::Optional(inner, _)) = self.mir.types.get(source)
                         && *inner == dest_ty
                         && matches!(self.mir.types.get(dest_ty), Some(Type::TypeParam { .. }))
                         && mentions_own(dest_ty)
@@ -679,10 +671,7 @@ impl<'mir> FunctionEmitter<'mir> {
 /// parameters erase: `unknown`, a type parameter, or an optional of either.
 /// A value crosses such a slot whole, through `IntoSmeltUnknown`.
 fn whole_erased_slot(mir: &Mir, ty: TypeId) -> bool {
-    let payload = match mir.types.get(ty) {
-        Some(Type::Optional(inner)) => *inner,
-        _ => ty,
-    };
+    let payload = smelt_hir::type_normalize::peel_optional(&mir.types, ty).0;
     matches!(
         mir.types.get(payload),
         Some(Type::Unknown | Type::TypeParam { .. })

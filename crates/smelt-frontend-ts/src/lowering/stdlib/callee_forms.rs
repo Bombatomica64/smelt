@@ -102,7 +102,7 @@ impl ModuleBuilder<'_> {
             // top-level string prints raw, and a boolean prints its word
             // (a number does not: `-0` prints as `-0`, `String(-0)` is `0`).
             let prints_as_its_string = match self.ctx.krate.types.get(Self::expr_ty(body, value)) {
-                Some(Type::Optional(inner)) => {
+                Some(Type::Optional(inner, _)) => {
                     matches!(
                         self.ctx.krate.types.get(*inner),
                         Some(Type::String | Type::Bool)
@@ -111,7 +111,7 @@ impl ModuleBuilder<'_> {
                 _ => false,
             };
             args.push(if prints_as_its_string {
-                self.null_absent_string_operand(value, arg.span().start, arg.span().end, body)
+                self.string_conversion_operand(value, arg.span().start, arg.span().end, body)
             } else {
                 value
             });
@@ -233,12 +233,6 @@ impl ModuleBuilder<'_> {
         callee_call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        if let Some(expr) = self.slice_string_nested_call(callee_call, call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.partial_bind_nested_call(callee_call, call, body)? {
-            return Ok(expr);
-        }
         let callee = self.call_expression(callee_call, body)?;
         let callee_ty = Self::expr_ty(body, callee);
         // `f(x)(...args)`: the spread list is the argument list, not one argument.
@@ -448,7 +442,7 @@ impl ModuleBuilder<'_> {
                 callee_ty = asserted_ty;
             }
         }
-        if let Some(&Type::Optional(inner)) = self.ctx.krate.types.get(callee_ty) {
+        if let Some(&Type::Optional(inner, _)) = self.ctx.krate.types.get(callee_ty) {
             callee = body.push_expr(Expr {
                 kind: ExprKind::TypeAssert { value: callee },
                 ty: inner,
@@ -510,7 +504,7 @@ impl ModuleBuilder<'_> {
         )?;
         let callee_ty = Self::expr_ty(body, callee);
         let callable_ty = match self.ctx.krate.types.get(callee_ty) {
-            Some(Type::Optional(inner)) => *inner,
+            Some(Type::Optional(inner, _)) => *inner,
             _ => callee_ty,
         };
         let Some(Type::Function(function)) = self.ctx.krate.types.get(callable_ty).cloned() else {

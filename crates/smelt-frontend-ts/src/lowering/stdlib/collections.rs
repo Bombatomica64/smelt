@@ -69,7 +69,7 @@ impl ModuleBuilder<'_> {
         // optional-chained receiver instead of the optional case falling through
         // to a generic (mis-typed) field access.
         let optional_inner =
-            if let Some(Type::Optional(inner)) = self.ctx.krate.types.get(receiver_ty) {
+            if let Some(Type::Optional(inner, _)) = self.ctx.krate.types.get(receiver_ty) {
                 Some(self.type_param_constraint_or_self(*inner))
             } else {
                 None
@@ -446,7 +446,11 @@ impl ModuleBuilder<'_> {
                 "Map.get key must match the map key type",
             ));
         }
-        let ty = self.ctx.krate.types.intern(Type::Optional(value_ty));
+        let ty = self
+            .ctx
+            .krate
+            .types
+            .intern(Type::Optional(value_ty, smelt_hir::Absence::Undefined));
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::DictGet {
                 dict,
@@ -868,7 +872,7 @@ impl ModuleBuilder<'_> {
     fn set_type_from_hint(&self, hint: smelt_hir::TypeId) -> Option<smelt_hir::TypeId> {
         match self.ctx.krate.types.get(hint) {
             Some(Type::Set(_)) => Some(hint),
-            Some(Type::Optional(inner)) => self.set_type_from_hint(*inner),
+            Some(Type::Optional(inner, _)) => self.set_type_from_hint(*inner),
             Some(Type::Union(items)) => {
                 let mut found = None;
                 for item in items {
@@ -914,7 +918,7 @@ impl ModuleBuilder<'_> {
         span: oxc::span::Span,
         body: &mut Body,
     ) -> Option<smelt_hir::ExprId> {
-        let Some(Type::Optional(present_ty)) = self
+        let Some(Type::Optional(present_ty, _)) = self
             .ctx
             .krate
             .types

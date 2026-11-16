@@ -118,6 +118,20 @@ impl FunctionEmitter<'_> {
             Callee::Builtin(BuiltinFn::ConsoleLog { absent }) => {
                 self.console_log_call(*absent, args)
             }
+            Callee::Builtin(BuiltinFn::ErasedListWriteBack) => {
+                let [receiver, list] = args else {
+                    return Err(EmitError::new(
+                        "an erased list writeback takes the receiver and the list",
+                    ));
+                };
+                let erased_list = self.erase(list)?;
+                Ok(RustExpr::atom(format!(
+                    "{{ smelt_erased_list_write_back(&{}, {}); }}",
+                    self.operand_expr(receiver)?.tight(),
+                    erased_list.delimited()
+                ))
+                .into())
+            }
             Callee::Builtin(BuiltinFn::ConsoleWrite | BuiltinFn::ConsoleErrorWrite) => {
                 // `process.stdout.write` takes a string, so the optional arm is
                 // unreachable from here; the TypeScript spelling is the right
@@ -282,14 +296,14 @@ impl FunctionEmitter<'_> {
         dest_ty: TypeId,
         unwrap_errors: bool,
     ) -> Result<Option<RustExpr>, EmitError> {
-        let Some(Type::Optional(inner_callee_ty)) = self.mir.types.get(self.operand_ty(callee)?)
+        let Some(Type::Optional(inner_callee_ty, _)) = self.mir.types.get(self.operand_ty(callee)?)
         else {
             return Ok(None);
         };
         let Some(Type::Function(function)) = self.mir.types.get(*inner_callee_ty) else {
             return Ok(None);
         };
-        let Some(Type::Optional(inner_dest_ty)) = self.mir.types.get(dest_ty) else {
+        let Some(Type::Optional(inner_dest_ty, _)) = self.mir.types.get(dest_ty) else {
             return Ok(None);
         };
 
@@ -429,7 +443,9 @@ impl FunctionEmitter<'_> {
                         .unwrap_or(function.return_ty)
                 }
             }
-            _ => self.call_source_ty(callee, Some(dest_ty))?,
+            Callee::Indirect(_) | Callee::Builtin(_) | Callee::Op(..) => {
+                self.call_source_ty(callee, Some(dest_ty))?
+            }
         };
         Ok(source_ty)
     }
@@ -591,7 +607,9 @@ impl FunctionEmitter<'_> {
     fn base_initializer_owner(&self) -> Option<Symbol> {
         match &self.role {
             emit_role::EmitRole::BaseInitializerCopy { receiver, .. } => Some(receiver.owner),
-            _ => crate::base_init::constructor_class(self.function),
+            emit_role::EmitRole::Own { .. }
+            | emit_role::EmitRole::InheritedCopy { .. }
+            | emit_role::EmitRole::Closure(_) => crate::base_init::constructor_class(self.function),
         }
     }
 
@@ -605,7 +623,8 @@ impl FunctionEmitter<'_> {
             Callee::Builtin(
                 BuiltinFn::ConsoleLog { .. }
                 | BuiltinFn::ConsoleWrite
-                | BuiltinFn::ConsoleErrorWrite,
+                | BuiltinFn::ConsoleErrorWrite
+                | BuiltinFn::ErasedListWriteBack,
             ) => self.none_ty,
             Callee::Op(_, Some(ty)) => return Ok(*ty),
             Callee::Op(op, None) => return Ok(self.fallible_op_call(op, dest_ty)?.source_ty),

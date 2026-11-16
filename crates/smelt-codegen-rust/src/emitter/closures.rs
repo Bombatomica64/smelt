@@ -54,7 +54,7 @@ impl FunctionEmitter<'_> {
         target_ty: TypeId,
         local_ty: TypeId,
     ) -> bool {
-        let Some(Type::Optional(inner)) = self.mir.types.get(target_ty) else {
+        let Some(Type::Optional(inner, _)) = self.mir.types.get(target_ty) else {
             return false;
         };
         *inner == local_ty
@@ -743,6 +743,17 @@ impl FunctionEmitter<'_> {
             // `await` (nested Promise-continuation closures are separate MIR
             // functions and are excluded by `closure_body_awaits`).
             let awaits_inside_body = emitter.closure_body_awaits();
+            // A closure that is not `async` and only hands back a promise it
+            // got (`() => later()`, a function item's value wrapper) returns
+            // THAT promise, as JavaScript does: wrapping it in an async block
+            // that awaits it made a second promise settling a job turn later,
+            // which reordered reactions on it. A fallible body keeps the
+            // wrapper, which turns its throw into a rejection.
+            let forwards_future = returns_future
+                && !closure.is_async
+                && !awaits_inside_body
+                && !closure.can_throw
+                && emitter.closure_yields_future_value()?;
             if returns_generator {
                 // A generator function expression is still an ordinary `Fn`
                 // value when invoked: calling it constructs suspended state and
@@ -802,7 +813,7 @@ impl FunctionEmitter<'_> {
                         "|{params_text}| {{ {owned_param_prelude}{capture_lines} let smelt_generator_input = ::std::rc::Rc::new(::std::cell::RefCell::new(None)); let smelt_generator_producer_input = smelt_generator_input.clone(); let mut smelt_generator = genawaiter::rc::Gen::new(move |smelt_co| {{ let smelt_generator_input = smelt_generator_producer_input; async move {{\n{body_text}    }} }}); SmeltGenerator{generator_turbofish}::new({resume}){erase_suffix} }}"
                     )
                 }
-            } else if returns_future || awaits_inside_body {
+            } else if (returns_future || awaits_inside_body) && !forwards_future {
                 let output_ty = match emitter.mir.types.get(function.return_ty) {
                     Some(Type::Future(item)) => *item,
                     _ => function.return_ty,
@@ -888,6 +899,7 @@ impl FunctionEmitter<'_> {
                 };
                 let async_value_annotation_text = async_value_annotation.unwrap_or_default();
                 let mut cloned_async_captures = HashSet::new();
+                let self_keep_alive: RefCell<Vec<String>> = RefCell::new(Vec::new());
                 let async_capture_lines = closure
                     .captures
                     .iter()
@@ -922,11 +934,34 @@ impl FunctionEmitter<'_> {
                             .capture_body_binding(id, closure, capture, &capture_aliases)
                             .ok()?;
                         let handle = binding.cell_handle();
-                        cloned_async_captures
-                            .insert(handle.clone())
-                            .then(|| format!("let {handle} = {handle}.clone();"))
+                        // A self-recursive async closure reaches itself through a
+                        // `Weak` (it must not own its own cell). Its body is a job
+                        // that resumes after an `await`, possibly after the frame
+                        // that owns the cell has returned (`compose`'s
+                        // `dispatch(0)` returning its promise, then `next()`
+                        // calling `dispatch(i + 1)` from a later job), so each
+                        // call upgrades the `Weak` while the cell is certainly
+                        // alive and the running body keeps that strong handle
+                        // until it settles: no cycle outlives the call.
+                        let keep_alive_name = self
+                            .closure_capture_is_non_escaping_self_reference(closure, capture)
+                            .then(|| format!("smelt_keep_alive_{}", self_keep_alive.borrow().len()));
+                        cloned_async_captures.insert(handle.clone()).then(|| match keep_alive_name {
+                            Some(keep_alive) => {
+                                let line = format!("let {handle} = {handle}.clone(); let {keep_alive} = {handle}.upgrade();");
+                                self_keep_alive.borrow_mut().push(keep_alive);
+                                line
+                            }
+                            None => format!("let {handle} = {handle}.clone();"),
+                        })
                     })
                     .collect::<Vec<_>>();
+                let keep_alive_uses = self_keep_alive
+                    .borrow()
+                    .iter()
+                    .map(|keep_alive| format!(" let _ = &{keep_alive};"))
+                    .collect::<Vec<_>>()
+                    .concat();
                 let async_capture_prelude = if async_capture_lines.is_empty() {
                     String::new()
                 } else {
@@ -936,7 +971,7 @@ impl FunctionEmitter<'_> {
                 // closure runs its synchronous prefix at call time (JS
                 // eager-async-prefix semantics; see `from_future_primed`).
                 format!(
-                    "|{params_text}| {{ {owned_param_prelude}{async_capture_prelude}SmeltFuture::from_future_primed(Box::pin(async move {{\n        let smelt_async_value{async_value_annotation_text} = {{\n{body_text}        }};\n        {return_value}\n    }}) as ::std::pin::Pin<Box<dyn ::std::future::Future<Output = {return_ty}>>>) }}"
+                    "|{params_text}| {{ {owned_param_prelude}{async_capture_prelude}SmeltFuture::from_future_primed(Box::pin(async move {{{keep_alive_uses}\n        let smelt_async_value{async_value_annotation_text} = {{\n{body_text}        }};\n        {return_value}\n    }}) as ::std::pin::Pin<Box<dyn ::std::future::Future<Output = {return_ty}>>>) }}"
                 )
             } else if function.can_throw {
                 // A fallible closure returns `Result<T, Box<dyn Error>>`. When its
@@ -1382,13 +1417,15 @@ impl FunctionEmitter<'_> {
         stop: Option<smelt_mir::BlockId>,
         in_loop: bool,
     ) -> Result<(), EmitError> {
-        let switch_join = match terminator {
-            Terminator::Switch {
-                then_block,
-                else_block,
-                ..
-            } => self.closure_branch_join(block.id, *then_block, *else_block, active, stop),
-            _ => None,
+        let switch_join = if let Terminator::Switch {
+            then_block,
+            else_block,
+            ..
+        } = terminator
+        {
+            self.closure_branch_join(block.id, *then_block, *else_block, active, stop)
+        } else {
+            None
         };
         match terminator {
             Terminator::Return(operand) if in_loop => {
@@ -1718,13 +1755,10 @@ impl FunctionEmitter<'_> {
 
     /// Resolve a callback operand to the Rust closure expression that constructed it.
     pub(super) fn closure_operand_expr(&self, operand: &Operand) -> Result<RustExpr, EmitError> {
-        let local = match operand {
-            Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) => *local,
-            _ => {
-                return Err(EmitError::new(
-                    "list callback must be a non-escaping closure local",
-                ));
-            }
+        let Some(local) = operand.local() else {
+            return Err(EmitError::new(
+                "list callback must be a non-escaping closure local",
+            ));
         };
         for block in &self.function.blocks {
             for statement in &block.statements {
@@ -1791,7 +1825,13 @@ impl FunctionEmitter<'_> {
                     place: Place::Local(written),
                     ..
                 } => *written == local,
-                _ => false,
+                Statement::DictEntryUpdate { current, .. } => *current == local,
+                // A projected write changes what the base holds, not which
+                // value the base local is.
+                Statement::AssignPlace { .. } => false,
+                // A fresh per-iteration cell holds no value until the
+                // declaration's own assignment writes it.
+                Statement::StorageLive(_) => false,
             })
             .count()
     }
@@ -1807,13 +1847,10 @@ impl FunctionEmitter<'_> {
         &self,
         operand: &Operand,
     ) -> Result<RustExpr, EmitError> {
-        let local = match operand {
-            Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) => *local,
-            _ => {
-                return Err(EmitError::new(
-                    "list callback must be a non-escaping closure local",
-                ));
-            }
+        let Some(local) = operand.local() else {
+            return Err(EmitError::new(
+                "list callback must be a non-escaping closure local",
+            ));
         };
         let dest_ty = self.operand_ty(operand)?;
         let source_local = self.closure_source_local(local);

@@ -120,7 +120,10 @@ impl FunctionEmitter<'_> {
                 && matches!(
                     self.mir.types.get(key_ty_of_operand),
                     Some(
-                        Type::Unknown | Type::Union(_) | Type::TypeParam { .. } | Type::Optional(_)
+                        Type::Unknown
+                            | Type::Union(_)
+                            | Type::TypeParam { .. }
+                            | Type::Optional(..)
                     )
                 )
             {
@@ -168,7 +171,7 @@ impl FunctionEmitter<'_> {
         fields
             .iter()
             .find(|field| self.symbol_source_name(field.name) == Ok(key))
-            .filter(|field| matches!(self.mir.types.get(field.ty), Some(Type::Optional(_))))
+            .filter(|field| matches!(self.mir.types.get(field.ty), Some(Type::Optional(..))))
             .map(|field| field.name)
     }
 
@@ -179,7 +182,7 @@ impl FunctionEmitter<'_> {
     /// marker-bearing host record can arrive as through the structural ABI — so the
     /// projections consult this before delegating to them, and keep their ordinary
     /// key/value filters for every concretely-typed record.
-    fn dict_holds_erased_values(&self, ty: TypeId) -> bool {
+    pub(super) fn dict_holds_erased_values(&self, ty: TypeId) -> bool {
         matches!(
             self.mir.types.get(ty),
             Some(Type::Dict(_, value_ty) | Type::JsMap(_, value_ty))
@@ -192,10 +195,10 @@ impl FunctionEmitter<'_> {
     /// Used to recognize a static discriminant key in `"field" in value` so the
     /// concrete-union field check can be emitted from a literal property name.
     fn operand_string_literal(&self, operand: &Operand) -> Option<String> {
-        match operand {
-            Operand::Const(Constant::String(value)) => Some(value.clone()),
-            _ => None,
-        }
+        let Operand::Const(Constant::String(value)) = operand else {
+            return None;
+        };
+        Some(value.clone())
     }
 
     /// Return whether a dictionary containment check must inspect an erased
@@ -291,7 +294,7 @@ impl FunctionEmitter<'_> {
             ));
         }
         match (self.mir.types.get(*value_ty), self.mir.types.get(dest_ty)) {
-            (Some(Type::Optional(value_inner)), Some(Type::Optional(dest_inner)))
+            (Some(Type::Optional(value_inner, _)), Some(Type::Optional(dest_inner, _)))
                 if value_inner == dest_inner =>
             {
                 let get_text = if self.map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty)
@@ -317,7 +320,7 @@ impl FunctionEmitter<'_> {
                 };
                 Ok(get_text.postfix(".flatten()"))
             }
-            (_, Some(Type::Optional(dest_inner))) if dest_inner == value_ty => {
+            (_, Some(Type::Optional(dest_inner, _))) if dest_inner == value_ty => {
                 if self.map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty)
                     || self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty)
                 {
@@ -473,7 +476,7 @@ impl FunctionEmitter<'_> {
         Ok(matches!(
             self.mir.types.get(operand_ty),
             Some(Type::Unknown | Type::TypeParam { .. })
-        ) || matches!(self.mir.types.get(operand_ty), Some(Type::Optional(inner)) if *inner == key_ty))
+        ) || matches!(self.mir.types.get(operand_ty), Some(Type::Optional(inner, _)) if *inner == key_ty))
     }
 
     /// Return whether a value operand can be stored into a dict/Map value slot.
@@ -511,7 +514,7 @@ impl FunctionEmitter<'_> {
         Ok(matches!(
             self.mir.types.get(operand_ty),
             Some(Type::Unknown | Type::TypeParam { .. })
-        ) || matches!(self.mir.types.get(operand_ty), Some(Type::Optional(inner)) if *inner == value_ty))
+        ) || matches!(self.mir.types.get(operand_ty), Some(Type::Optional(inner, _)) if *inner == value_ty))
     }
 
     /// Return whether a dict/Map key type is erased to `SmeltUnknown` at runtime.
@@ -534,7 +537,7 @@ impl FunctionEmitter<'_> {
     /// Render a dictionary key, unwrapping optional keys after frontend narrowing.
     fn dict_key_operand_expr(&self, key: &Operand, key_ty: TypeId) -> Result<RustExpr, EmitError> {
         let operand_ty = self.operand_ty(key)?;
-        if matches!(self.mir.types.get(operand_ty), Some(Type::Optional(inner)) if *inner == key_ty)
+        if matches!(self.mir.types.get(operand_ty), Some(Type::Optional(inner, _)) if *inner == key_ty)
         {
             let key_text = self.operand_expr(key)?;
             let default = self.default_value(key_ty)?;
@@ -599,16 +602,27 @@ impl FunctionEmitter<'_> {
             return Ok(None);
         }
         for field in self.class_or_interface_fields(*name) {
+            // Only an optional property (`x?: T`, whose outer layer is the
+            // `undefined` absence) can be deleted; its `None` is "absent".
             if self.symbol_source_name(field.name)? != key_text.as_str()
-                || !matches!(self.mir.types.get(field.ty), Some(Type::Optional(_)))
+                || !matches!(
+                    self.mir.types.get(field.ty),
+                    Some(Type::Optional(_, smelt_hir::Absence::Undefined))
+                )
             {
                 continue;
             }
-            let field_name = self.context.names().field_text(self.mir, field.name);
-            return Ok(Some(RustExpr::atom(format!(
-                "{{ {record}.0.borrow_mut().{field_name} = None; true }}",
-                record = self.operand_expr(record)?.delimited()
-            ))));
+            // The handle may be a structural view or a widened class's view:
+            // the write goes through the same place a field assignment uses.
+            let record_text = self.operand_expr(record)?.delimited().to_owned();
+            let place = match record {
+                Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) => self
+                    .reference_field_write_place_at(&record_text, *local, record_ty, field.name)?,
+                Operand::Copy(_) | Operand::Move(_) | Operand::Const(_) => {
+                    self.reference_field_write_place(&record_text, record_ty, field.name)?
+                }
+            };
+            return Ok(Some(RustExpr::atom(format!("{{ {place} = None; true }}"))));
         }
         Ok(None)
     }
@@ -882,10 +896,7 @@ impl FunctionEmitter<'_> {
         // then evaluate to the mutated dict. When `target` is not a place
         // (e.g. `Object.assign({}, a, b)`), fall back to merging into a fresh
         // clone since there is nothing to write back.
-        let target_place = match target {
-            Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) => Some(*local),
-            _ => None,
-        };
+        let target_place = target.local();
         let (accumulator, mut steps, final_value) = if let Some(local) = target_place {
             let target_text = self.local_mut_value(local)?;
             let final_value = format!("{target_text}.clone()", target_text = target_text.tight());
@@ -1321,7 +1332,11 @@ impl FunctionEmitter<'_> {
                 }
                 smelt_hir::DictProjectionOp::Values => Some("values"),
                 smelt_hir::DictProjectionOp::Entries => Some("iter"),
-                _ => None,
+                // No single own-entry iterator answers these; they take the
+                // general path below.
+                smelt_hir::DictProjectionOp::FromEntries
+                | smelt_hir::DictProjectionOp::OwnKeys
+                | smelt_hir::DictProjectionOp::Symbols => None,
             };
             if let Some(method) = projection {
                 return Ok(RustExpr::atom_on(
@@ -1569,8 +1584,19 @@ impl FunctionEmitter<'_> {
                         // A byte-backed view's values are its decoded elements, not
                         // its internal storage fields; see the `Keys` arm above.
                         if self.dict_holds_erased_values(self.operand_ty(dict)?) {
+                            // A value is read as a property read reads it: a
+                            // stored accessor (an object literal's `get`) runs.
+                            let value =
+                                if self.map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty) {
+                                    format!(
+                                        "smelt_record_own_value(&{dict_text}, smelt_value)",
+                                        dict_text = dict_text.tight()
+                                    )
+                                } else {
+                                    "smelt_value".to_owned()
+                                };
                             return Ok(RustExpr::chain(format!(
-                                "{helper}(&{dict_text}).unwrap_or_else(|| {dict_text}.iter().filter(|(smelt_key, _)| !smelt_key.starts_with(\"{SMELT_SYMBOL}\") && !smelt_key.starts_with(\"{SMELT_PROTO}:\") && !smelt_key.starts_with(\"{SMELT_METHOD}:\") && smelt_key != \"{SMELT_CLASS}\").map(|(_, smelt_value)| smelt_value).collect::<Vec<_>>())",
+                                "{helper}(&{dict_text}).unwrap_or_else(|| {dict_text}.iter().filter(|(smelt_key, _)| !smelt_key.starts_with(\"{SMELT_SYMBOL}\") && !smelt_key.starts_with(\"{SMELT_PROTO}:\") && !smelt_key.starts_with(\"{SMELT_METHOD}:\") && smelt_key != \"{SMELT_CLASS}\").map(|(_, smelt_value)| {value}).collect::<Vec<_>>())",
                                 helper =
                                     smelt_stdlib::runtime_symbols::byte_buffer::RECORD_ELEMENTS,
                                 dict_text = dict_text.tight(),
@@ -1641,8 +1667,19 @@ impl FunctionEmitter<'_> {
                         // A byte-backed view's entries pair its element indices with
                         // its decoded elements; see the `Keys` arm above.
                         if self.dict_holds_erased_values(self.operand_ty(dict)?) {
+                            // As `Values`: a stored accessor runs.
+                            let resolve = if self
+                                .map_op_uses_smelt_record(self.operand_ty(dict)?, *key_ty)
+                            {
+                                format!(
+                                    ".into_iter().map(|(smelt_key, smelt_value)| (smelt_key, smelt_record_own_value(&{dict_text}, smelt_value)))",
+                                    dict_text = dict_text.tight()
+                                )
+                            } else {
+                                String::new()
+                            };
                             return Ok(RustExpr::chain(format!(
-                                "{helper}(&{dict_text}).map_or_else(|| {dict_text}.iter().filter(|(smelt_key, _)| !smelt_key.starts_with(\"{SMELT_SYMBOL}\") && !smelt_key.starts_with(\"{SMELT_PROTO}:\") && !smelt_key.starts_with(\"{SMELT_METHOD}:\") && smelt_key != \"{SMELT_CLASS}\").collect::<Vec<_>>(), |smelt_values| smelt_values.into_iter().enumerate().map(|(smelt_index, smelt_value)| (JsString::from(smelt_index.to_string()), smelt_value)).collect::<Vec<_>>())",
+                                "{helper}(&{dict_text}).map_or_else(|| {dict_text}.iter().filter(|(smelt_key, _)| !smelt_key.starts_with(\"{SMELT_SYMBOL}\") && !smelt_key.starts_with(\"{SMELT_PROTO}:\") && !smelt_key.starts_with(\"{SMELT_METHOD}:\") && smelt_key != \"{SMELT_CLASS}\"){resolve}.collect::<Vec<_>>(), |smelt_values| smelt_values.into_iter().enumerate().map(|(smelt_index, smelt_value)| (JsString::from(smelt_index.to_string()), smelt_value)).collect::<Vec<_>>())",
                                 helper =
                                     smelt_stdlib::runtime_symbols::byte_buffer::RECORD_ELEMENTS,
                                 dict_text = dict_text.tight(),
@@ -1740,6 +1777,7 @@ impl FunctionEmitter<'_> {
     pub(super) fn json_stringify_expr(
         &self,
         value: &Operand,
+        replacer: Option<&Operand>,
         dest_ty: TypeId,
     ) -> Result<RustExpr, EmitError> {
         // `JSON.stringify` answers `undefined` for a top-level `undefined`,
@@ -1747,7 +1785,7 @@ impl FunctionEmitter<'_> {
         // undefined` (an `Optional<String>` destination).
         let optional_text = match self.mir.types.get(dest_ty) {
             Some(Type::String | Type::PyStr) => false,
-            Some(Type::Optional(inner))
+            Some(Type::Optional(inner, _))
                 if matches!(self.mir.types.get(*inner), Some(Type::String | Type::PyStr)) =>
             {
                 true
@@ -1778,6 +1816,24 @@ impl FunctionEmitter<'_> {
         // The operand-based erasure keeps a constant's own value (`undefined`
         // stays `undefined`, where its `None` type alone would say `null`).
         let value_text = self.erase(value)?;
+        // A replacer (a function or a key array) is read by the runtime at
+        // its erased form; see `smelt_json_stringify_with`.
+        if let Some(replacer_operand) = replacer {
+            let replacer_text = self.erase(replacer_operand)?;
+            if optional_text {
+                let text = self.text_from_string("smelt_text");
+                return Ok(RustExpr::chain(format!(
+                    "smelt_json_stringify_value_with(&{value_text}, &{replacer_text}).expect(\"JSON serialization failed\").map(|smelt_text| {text})",
+                    value_text = value_text.delimited(),
+                    replacer_text = replacer_text.delimited()
+                )));
+            }
+            return Ok(RustExpr::chain(self.text_from_string(&format!(
+                "smelt_json_stringify_with(&{value_text}, &{replacer_text}).expect(\"JSON serialization failed\")",
+                value_text = value_text.delimited(),
+                replacer_text = replacer_text.delimited()
+            ))));
+        }
         if optional_text {
             let text = self.text_from_string("smelt_text");
             return Ok(RustExpr::chain(format!(

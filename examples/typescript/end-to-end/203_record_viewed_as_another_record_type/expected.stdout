@@ -18,3 +18,5 @@ enrolled true
 20.5 K true
 {"value":20.5,"unit":"K"}
 mine true {"label":"mine"} enrolled
+true true {"x":1,"label":"d"}
+again true {"x":1,"label":"d","note":"again"}

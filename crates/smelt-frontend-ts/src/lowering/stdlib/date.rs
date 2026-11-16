@@ -24,7 +24,7 @@ impl ModuleBuilder<'_> {
             .get(self.type_param_constraint_or_self(ty))
         {
             Some(Type::Class { name, .. }) => self.ctx.krate.symbols.get(*name) == Some("Date"),
-            Some(Type::Optional(inner)) => self.type_is_known_date_value(*inner),
+            Some(Type::Optional(inner, _)) => self.type_is_known_date_value(*inner),
             Some(Type::Union(items)) => {
                 let values = items
                     .iter()
@@ -357,7 +357,7 @@ impl ModuleBuilder<'_> {
                 | Type::TypeParam { .. }
                 | Type::Class { .. },
             ) => true,
-            Some(Type::Optional(item)) => self.is_date_constructor_arg_type(*item),
+            Some(Type::Optional(item, _)) => self.is_date_constructor_arg_type(*item),
             Some(Type::Union(items)) => items.iter().copied().all(|item| {
                 matches!(self.ctx.krate.types.get(item), Some(Type::None))
                     || self.is_date_constructor_arg_type(item)

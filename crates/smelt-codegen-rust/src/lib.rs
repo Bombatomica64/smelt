@@ -32,10 +32,6 @@
     reason = "generated Rust format strings intentionally contain braces"
 )]
 #![expect(
-    clippy::wildcard_enum_match_arm,
-    reason = "operand formatting groups future constants with existing constants"
-)]
-#![expect(
     clippy::unused_self,
     reason = "helper methods stay on the emitter for future shared state"
 )]
@@ -78,12 +74,14 @@ pub(crate) mod bound_traits;
 pub(crate) mod class_identity;
 pub(crate) mod class_polymorphism;
 pub(crate) mod class_proto;
+pub(crate) mod class_widening;
 pub(crate) mod classes;
 pub(crate) mod classify;
 mod console_inspect_prelude;
 mod contract;
 mod crate_builder;
 mod crate_writer;
+pub(crate) mod deep_equality;
 pub(crate) mod deps;
 mod derive_impls;
 pub(crate) mod dict_adoption;
@@ -93,6 +91,7 @@ mod error;
 mod gates;
 pub(crate) mod generic_bindings;
 pub(crate) mod generic_elision;
+pub(crate) mod generic_inspection;
 pub(crate) mod generic_lifting;
 pub(crate) mod globals;
 pub(crate) mod lazy_view;
@@ -100,6 +99,8 @@ mod module_map;
 pub(crate) mod names;
 mod options;
 mod program_types;
+mod py_int;
+pub(crate) mod reachable_types;
 pub(crate) mod reference_origin;
 mod reference_storage;
 mod reflection_prelude;
@@ -116,8 +117,9 @@ pub(crate) mod type_substitution;
 mod typed_array_prelude;
 
 pub use contract::{
-    MODULE_SOURCE_HEADER, OPTIONAL_UNKNOWN_OR_UNDEFINED_FN, PRELUDE_END_MARKER,
-    RECORD_ADAPTER_HELPER_PREFIX, RECORD_CONVERSION_HELPER_PREFIX,
+    MODULE_SOURCE_HEADER, NULLISH_UNKNOWN_OR_UNDEFINED_FN, OPTIONAL_UNKNOWN_OR_UNDEFINED_FN,
+    PRELUDE_END_MARKER, RECORD_ADAPTER_HELPER_PREFIX, RECORD_CONVERSION_HELPER_PREFIX,
+    WIDENED_VIEW_MARKERS,
 };
 pub use crate_builder::{emit_source, emit_source_with_allocator};
 pub use crate_writer::{emit_crate, emit_crate_with_modules, emit_crate_with_modules_reporting};

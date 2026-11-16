@@ -3,10 +3,13 @@
 //! Design adapted from Bun's `--aot` (oven-sh/bun#45631), `src/sema/aot_rules.rs`:
 //! the reason an erased value exists is named where the erasure is decided.
 //! Most erasure is decided by the frontends (recorded in
-//! `smelt_hir::Crate::erasures`); four causes are decided only here, by
+//! `smelt_hir::Crate::erasures`); five causes are decided only here, by
 //! [`FunctionEmitter::rust_type`]:
 //!
 //! - `Type::Never` rendered as `SmeltUnknown` ([`ErasureReason::NeverValue`]);
+//! - a `Type::IndexedAccess` the frontend left unevaluated
+//!   ([`ErasureReason::TypeLevel`]); none is expected, the frontend erases
+//!   it itself wherever a value could carry it;
 //! - a type parameter whose substitution resolves to erased
 //!   ([`ErasureReason::ErasedGeneric`]);
 //! - a `Type::Class` that names no lowered class or interface

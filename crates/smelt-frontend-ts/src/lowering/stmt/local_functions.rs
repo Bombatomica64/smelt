@@ -36,10 +36,9 @@ impl ModuleBuilder<'_> {
             let mut params =
                 self.arrow_callback_param_types_with_hint(arrow, contextual_function.as_ref())?;
             for (param, ty) in arrow.params.items.iter().zip(params.iter_mut()) {
-                if param.optional
-                    && !matches!(self.ctx.krate.types.get(*ty), Some(Type::Optional(_)))
-                {
-                    *ty = self.ctx.krate.types.intern(Type::Optional(*ty));
+                if param.optional {
+                    *ty =
+                        smelt_hir::type_normalize::admit_undefined(&mut self.ctx.krate.types, *ty);
                 }
             }
             let rest = arrow.params.rest.as_ref().and_then(|_rest| {
@@ -464,7 +463,9 @@ impl ModuleBuilder<'_> {
             let declared_return_ty = function
                 .return_type
                 .as_ref()
-                .map(|annotation| this.ts_type_to_hir(&annotation.type_annotation))
+                .map(|annotation| {
+                    this.function_return_annotation_type(function, &annotation.type_annotation)
+                })
                 .transpose()?;
             // not a new erasure: provisional return, replaced by the inferred
             // one once the body is lowered.
@@ -594,7 +595,7 @@ impl ModuleBuilder<'_> {
             lowering_result?;
 
             let mut return_ty = if function.generator && declared_return_ty.is_none() {
-                this.inferred_generator_type(&closure_body, function.r#async)
+                this.inferred_generator_type(&closure_body, function.r#async, function)
             } else {
                 declared_return_ty
                     .or_else(|| this.last_return_type(&closure_body))
@@ -702,8 +703,8 @@ impl ModuleBuilder<'_> {
         let mut params =
             self.arrow_callback_param_types_with_hint(arrow, contextual_function.as_ref())?;
         for (param, ty) in arrow.params.items.iter().zip(params.iter_mut()) {
-            if param.optional && !matches!(self.ctx.krate.types.get(*ty), Some(Type::Optional(_))) {
-                *ty = self.ctx.krate.types.intern(Type::Optional(*ty));
+            if param.optional {
+                *ty = smelt_hir::type_normalize::admit_undefined(&mut self.ctx.krate.types, *ty);
             }
         }
         let return_ty = arrow

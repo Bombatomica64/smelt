@@ -11,7 +11,7 @@ fn block_nested (FuncId(0)) -> Float
   bb1:
     %3 = closure ClosureId(0) []
     %1 = move %3
-    %4 = closure_call move %1(copy %0, none)
+    %4 = closure_call move %1(copy %0, undefined)
     return move %4
   bb2:
     return 0.0
@@ -31,9 +31,9 @@ fn body_level (FuncId(1)) -> Float
   bb0:
     %2 = closure ClosureId(1) []
     %1 = move %2
-    %3 = closure_call copy %1(copy %0, none, none)
+    %3 = closure_call copy %1(copy %0, undefined, undefined)
     %4 = move %3 * 100.0
-    %5 = closure_call copy %1(copy %0, 1.0, none)
+    %5 = closure_call copy %1(copy %0, 1.0, undefined)
     %6 = move %5 * 10.0
     %7 = move %4 + move %6
     %8 = closure_call move %1(copy %0, 1.0, 1.0)
@@ -52,7 +52,7 @@ fn hoisted_call (FuncId(2)) -> Float
   bb0:
     %3 = closure ClosureId(2) []
     %1 = move %3
-    %2 = closure_call copy %1(copy %0, none, none)
+    %2 = closure_call copy %1(copy %0, undefined, undefined)
     %5 = closure_call move %1(copy %0, "abc", true)
     %6 = move %2 + move %5
     return move %6
@@ -66,7 +66,7 @@ fn recursive (FuncId(3)) -> Float
   bb0:
     %2 = closure ClosureId(3) [copy %1]
     %1 = move %2
-    %3 = closure_call copy %1(copy %0, none)
+    %3 = closure_call copy %1(copy %0, undefined)
     return move %3
 
 fn main (FuncId(4)) -> None

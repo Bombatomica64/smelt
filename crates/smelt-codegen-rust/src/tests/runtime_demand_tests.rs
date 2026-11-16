@@ -126,21 +126,32 @@ export function orDefault<TDefault = unknown>(value: any, defaultValue?: TDefaul
 /// that names a family it did not declare an edge to shows up here, by need,
 /// instead of as an E0425 in the one program that happens to demand it alone.
 /// The program facts a flag can also ask are checked both off and on.
+///
+/// The `util.inspect` items any `console.log` splices in are rendered too. When
+/// any TypeScript function demanded `JsString`, an item written against it
+/// behind another flag (the inspect core's string entries) never showed.
 #[test]
 fn every_need_closes_to_a_self_contained_runtime() {
-    use crate::runtime_prelude::{ProgramFacts, flag_for, rendered_text};
+    use crate::runtime_prelude::{ProgramFacts, flag_for, rendered_entries, rendered_text};
     let all_facts = ProgramFacts {
         reference_classes: true,
         erased_view_write_through: true,
         reads_this: true,
         live_records: true,
+        widened_classes: true,
     };
     let mut failures = Vec::new();
     for need in Need::ALL {
         for facts in [ProgramFacts::default(), all_facts] {
             let demand = RuntimeDemand::closed_over(&[*need]);
             let flags = |name: &str| flag_for(&demand, facts, name).unwrap_or(false);
-            let text = rendered_text(&flags);
+            // The `util.inspect` items are spliced in by any `console.log` of
+            // a typed value, whatever else the program demands.
+            let mut text = rendered_text(&flags);
+            text.push_str(&rendered_entries(
+                smelt_runtime::order::CONSOLE_INSPECT,
+                &flags,
+            ));
             let undefined = runtime_symbols_check::undefined_runtime_symbols([text.as_str()]);
             if !undefined.is_empty() {
                 failures.push(format!("{need:?} with {facts:?}: {}", undefined.join(", ")));
@@ -216,4 +227,59 @@ function points(): Point[] { return [{ x: 1 }]; }
 test('same', () => { expect(points()).toEqual(points()); });
 ";
     assert!(!demand_of(values).has(Need::Unknown), "value records");
+}
+
+/// A generic class whose bodies never convert a `T` does not pull the erased
+/// carrier into a program that has no other erased value: its parameters are
+/// bounded `Clone + Default + 'static` (`classes::generated_type_param_bounds`).
+///
+/// Before, every generic item demanded the carrier because its bounds named
+/// `IntoSmeltUnknown + SmeltFromUnknown`, and the program carried the whole
+/// runtime for nothing.
+#[test]
+fn a_generic_item_that_converts_nothing_carries_no_carrier() {
+    let source = source_for(
+        r"
+class Box<T> {
+  value: T;
+  constructor(value: T) { this.value = value; }
+  get(): T { return this.value; }
+}
+function first<T>(items: T[]): T { return items[0]; }
+const box = new Box<number>(4);
+console.log(box.get() + first([1, 2]));
+",
+    );
+    assert!(
+        !source.contains("enum SmeltUnknown"),
+        "no erased value, no carrier:\n{source}"
+    );
+    assert!(
+        !runtime_symbols_check::names_the_carrier([source.as_str()]),
+        "a carrier-free crate names no part of the carrier:\n{source}"
+    );
+    assert!(
+        source.contains("T: Clone + Default + 'static"),
+        "the generated bounds are the carrier-free set:\n{source}"
+    );
+}
+
+/// A generic body that DOES convert a `T` fails the carrier-free speculation,
+/// and the program is emitted with the carrier and the full bound set, as
+/// before. Two ways to fail it: a conversion the emitter writes through the
+/// carrier proof (`console.log` of a `T`) errors in the speculative emission;
+/// a `typeof` of a `T` emits without error but names the carrier, which only
+/// the check of the emitted text (`EmittedRoot::is_carrier_free`) sees.
+#[test]
+fn a_generic_item_that_converts_its_parameter_keeps_the_carrier() {
+    for program in [
+        "function show<T>(value: T): void { console.log(value); }\nshow<number>(1);\n",
+        "function kind<T>(value: T): string { return typeof value; }\nconsole.log(kind<number>(1));\n",
+    ] {
+        let source = source_for(program);
+        assert!(
+            source.contains("enum SmeltUnknown"),
+            "a converted `T` needs the carrier:\n{source}"
+        );
+    }
 }

@@ -720,7 +720,7 @@ impl ModuleBuilder<'_> {
         let optional_access = member.optional
             || matches!(
                 self.ctx.krate.types.get(receiver_ty),
-                Some(Type::Optional(_))
+                Some(Type::Optional(..))
             );
         let access_receiver_ty = self.optional_receiver_inner_type(receiver_ty);
         let field = self.intern_source_name(member.property.name.as_str());
@@ -779,7 +779,7 @@ impl ModuleBuilder<'_> {
                 if member.optional
                     && matches!(
                         self.ctx.krate.types.get(receiver_ty),
-                        Some(Type::Optional(_))
+                        Some(Type::Optional(..))
                     )
                 {
                     return Ok(self.wrap_optional_receiver_method(
@@ -959,7 +959,10 @@ impl ModuleBuilder<'_> {
                 let value_ty = if yield_ty == return_ty {
                     yield_ty
                 } else if self.ctx.krate.types.get(return_ty) == Some(&Type::None) {
-                    self.ctx.krate.types.intern(Type::Optional(yield_ty))
+                    self.ctx
+                        .krate
+                        .types
+                        .intern(Type::Optional(yield_ty, smelt_hir::Absence::Undefined))
                 } else {
                     self.ctx
                         .krate
@@ -1645,7 +1648,7 @@ impl ModuleBuilder<'_> {
         let optional_access = member.optional
             || matches!(
                 self.ctx.krate.types.get(receiver_ty),
-                Some(Type::Optional(_))
+                Some(Type::Optional(..))
             );
         let access_receiver_ty = self.optional_receiver_inner_type(receiver_ty);
         // A statically-negative bracket index on an array, string, or tuple is a
@@ -1669,7 +1672,7 @@ impl ModuleBuilder<'_> {
         let receiver = if optional_access
             && matches!(
                 self.ctx.krate.types.get(receiver_ty),
-                Some(Type::Optional(_))
+                Some(Type::Optional(..))
             )
             && matches!(
                 self.ctx.krate.types.get(access_receiver_ty),
@@ -1786,10 +1789,8 @@ impl ModuleBuilder<'_> {
                     [single] => *single,
                     _ => self.ctx.krate.types.intern(Type::Union(indexed_tys)),
                 };
-                let ty = if absent_in_an_arm
-                    && !matches!(self.ctx.krate.types.get(ty), Some(Type::Optional(_)))
-                {
-                    self.ctx.krate.types.intern(Type::Optional(ty))
+                let ty = if absent_in_an_arm {
+                    smelt_hir::type_normalize::admit_undefined(&mut self.ctx.krate.types, ty)
                 } else {
                     ty
                 };
@@ -1895,7 +1896,7 @@ impl ModuleBuilder<'_> {
         let optional_access = member.optional
             || matches!(
                 self.ctx.krate.types.get(receiver_ty),
-                Some(Type::Optional(_))
+                Some(Type::Optional(..))
             );
         if optional_access {
             let ty = self.optional_chain_result_type(field_ty);

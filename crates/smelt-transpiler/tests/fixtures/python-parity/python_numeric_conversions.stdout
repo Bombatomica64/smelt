@@ -1,0 +1,41 @@
+12
+-42
+7
+1000
+0
+0
+99999999999999999999999
+12
+ValueError: invalid literal for int() with base 10: 'x'
+ValueError: invalid literal for int() with base 10: ''
+ValueError: invalid literal for int() with base 10: '1__0'
+ValueError: invalid literal for int() with base 10: '_1'
+ValueError: invalid literal for int() with base 10: '1_'
+ValueError: invalid literal for int() with base 10: '0x1f'
+ValueError: invalid literal for int() with base 10: '1.5'
+ValueError: invalid literal for int() with base 10: ' '
+ValueError: invalid literal for int() with base 10: '12a'
+255 255 5
+35 ValueError: invalid literal for int() with base 0: '010' ValueError: int() base must be >= 2 and <= 36, or 0 ValueError: invalid literal for int() with base 8: '9'
+1.5
+2.0
+-0.0
+1000.0
+1000.5
+0.5
+5.0
+inf
+-inf
+nan
+ValueError: could not convert string to float: 'x'
+ValueError: could not convert string to float: ''
+ValueError: could not convert string to float: '1__0'
+ValueError: could not convert string to float: '1.5.5'
+ValueError: could not convert string to float: '--1'
+ValueError: could not convert string to float: '0x1p3'
+2
+-2
+100000000000000000000
+0
+ValueError: cannot convert float NaN to integer OverflowError: cannot convert float infinity to integer
+False True 1 1e+20 -7.0

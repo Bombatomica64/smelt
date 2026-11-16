@@ -180,6 +180,7 @@ pub(super) fn type_text(krate: &Crate, ty: &Type) -> String {
     match ty {
         Type::Bool => "Bool".to_owned(),
         Type::Int => "Int".to_owned(),
+        Type::PyInt => "PyInt".to_owned(),
         Type::Float => "Float".to_owned(),
         Type::FixedInt(width) => width.rust_name().to_owned(),
         Type::BigInt => "BigInt".to_owned(),
@@ -215,7 +216,10 @@ pub(super) fn type_text(krate: &Crate, ty: &Type) -> String {
                 .join(", ");
             format!("({items})")
         }
-        Type::Optional(item) => format!("Optional<{}>", type_ref(krate, *item)),
+        Type::Optional(item, absence) => match absence {
+            crate::Absence::Undefined => format!("Optional<{}>", type_ref(krate, *item)),
+            crate::Absence::Null => format!("Nullable<{}>", type_ref(krate, *item)),
+        },
         Type::Union(items) => items
             .iter()
             .map(|item| type_ref(krate, *item))
@@ -276,6 +280,10 @@ pub(super) fn type_text(krate: &Crate, ty: &Type) -> String {
             type_ref(krate, *yield_ty),
             type_ref(krate, *return_ty)
         ),
+        // Source spelling: `T[K]`.
+        Type::IndexedAccess { object, index } => {
+            format!("{}[{}]", type_ref(krate, *object), type_ref(krate, *index))
+        }
     }
 }
 

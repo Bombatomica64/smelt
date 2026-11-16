@@ -98,6 +98,7 @@ impl Drop for HoistedModuleItemScope<'_, '_> {
 /// in a couple of instructions and removes that cost without changing behavior.
 pub(crate) type BlockIdSet = rustc_hash::FxHashSet<smelt_mir::BlockId>;
 
+mod absent_value;
 mod aggregate_literal;
 mod async_op;
 mod backend_erasure;
@@ -143,8 +144,10 @@ mod url;
 pub(crate) use function_item::static_method_rust_name;
 mod abort_signal;
 mod crypto;
+pub(crate) mod deep_equality;
 mod form_data;
 mod generator;
+mod generic_scrutinee;
 mod generic_trial;
 mod host_interop;
 mod host_member_read;
@@ -173,6 +176,9 @@ mod polymorphic_cast;
 mod post_dominance;
 mod primitive_cast;
 mod py_exception;
+mod py_int;
+mod py_str;
+pub(crate) mod py_text_protocol;
 mod receiver_bound_slot;
 mod record_slot_abi;
 mod redeclared_field;
@@ -209,6 +215,7 @@ pub(crate) mod view_write_through;
 mod virtual_slots;
 mod vitest_mock;
 pub(crate) mod weak_receiver;
+mod widened_view;
 
 pub(crate) use callback_handle::is_erased_unknown_rest_function_in;
 pub(crate) use capture_analysis::parameter_is_mutable_reference;
@@ -326,6 +333,8 @@ pub(crate) struct EmitContext {
     /// The reference records whose erased and map views read and write the
     /// record itself (see [`live_view`]), computed once from the set above.
     live_records: HashSet<Symbol>,
+    /// The records with a generated `impl SmeltDeepEq` (`crate::deep_equality`).
+    deep_equality: crate::deep_equality::DeepEquality,
     /// Classes whose instances carry the hidden runtime class tag, computed
     /// once by [`crate::class_identity::identity_classes`].
     identity_classes: HashSet<Symbol>,
@@ -333,6 +342,8 @@ pub(crate) struct EmitContext {
     /// handles over shared storage, computed once by
     /// [`crate::class_polymorphism::polymorphic_classes`].
     polymorphic_classes: HashSet<Symbol>,
+    /// The widened generic classes ([`crate::class_widening`]).
+    widened_classes: HashSet<Symbol>,
     /// Which object shapes are viewed as which other shapes, sharing the
     /// object ([`crate::structural_views`]).
     structural_views: crate::structural_views::StructuralViews,
@@ -399,6 +410,15 @@ impl Drop for ContextCheckpoint<'_> {
 impl EmitContext {
     /// Builds crate-level name and signature indexes for Rust emission.
     pub(crate) fn new(mir: &Mir) -> Result<Self, EmitError> {
+        Self::new_with(mir, crate::runtime_demand::GenericsCarrier::Always)
+    }
+
+    /// [`Self::new`], with the runtime demand's generics policy `generics`
+    /// (see `runtime_demand::GenericsCarrier`).
+    pub(crate) fn new_with(
+        mir: &Mir,
+        generics: crate::runtime_demand::GenericsCarrier,
+    ) -> Result<Self, EmitError> {
         let none_ty = mir
             .types
             .all()
@@ -413,6 +433,11 @@ impl EmitContext {
         let reference_classes = crate::classify::reference_classes(mir);
         let polymorphic_classes =
             crate::class_polymorphism::polymorphic_classes(mir, &reference_classes);
+        // The widened generic classes (`crate::class_widening`), decided over
+        // the handle arguments each class carries.
+        let type_param_elision = crate::generic_elision::compute(mir);
+        let widened_classes =
+            crate::class_widening::widened_classes(mir, &reference_classes, &type_param_elision);
         // Every declared item's Rust name, decided once by identity; see
         // `crate::names`. Declarations and references both read it.
         let mut names = crate::names::RustNames::plan(mir, none_ty, &reference_classes)?;
@@ -450,7 +475,7 @@ impl EmitContext {
             }
         }
         let owned_callback_params = compute_owned_callback_params(mir)?;
-        let demand = RuntimeDemand::of(mir, &reference_classes);
+        let demand = RuntimeDemand::of_with(mir, &reference_classes, generics);
 
         Ok(Self {
             none_ty,
@@ -479,11 +504,13 @@ impl EmitContext {
                 })
                 .collect(),
             polymorphic_classes,
+            widened_classes,
             structural_views: crate::structural_views::StructuralViews::plan(mir),
             live_records: live_view::live_records(mir, &reference_classes, &demand),
+            deep_equality: crate::deep_equality::DeepEquality::plan(mir, &reference_classes),
             reference_classes,
             static_receivers: crate::static_receiver::StaticReceiverPlan::compute(mir),
-            type_param_elision: crate::generic_elision::compute(mir),
+            type_param_elision,
             erased_view_write_through: view_write_through::program_writes_erased_fields(mir),
             program_reads_this: demand.has(Need::ThisRead),
             needs_bigint: demand.has(Need::BigInt),
@@ -604,6 +631,12 @@ impl EmitContext {
         self.live_records.contains(&symbol)
     }
 
+    /// The records the program's deep comparisons compare field with field
+    /// (see [`crate::deep_equality`]).
+    pub(crate) fn deep_equality(&self) -> &crate::deep_equality::DeepEquality {
+        &self.deep_equality
+    }
+
     /// Whether the crate emits any live record, which is what the live-view
     /// runtime (`smelt-runtime/src/runtime/live_view.rs`) is emitted for.
     pub(crate) fn has_live_records(&self) -> bool {
@@ -642,6 +675,16 @@ impl EmitContext {
     /// The polymorphic classes ([`crate::class_polymorphism`]).
     pub(crate) fn polymorphic_classes(&self) -> &HashSet<Symbol> {
         &self.polymorphic_classes
+    }
+
+    /// The widened generic classes ([`crate::class_widening`]).
+    pub(crate) fn widened_classes(&self) -> &HashSet<Symbol> {
+        &self.widened_classes
+    }
+
+    /// Whether the class named `symbol` is widened ([`crate::class_widening`]).
+    pub(crate) fn is_widened_class(&self, symbol: Symbol) -> bool {
+        self.widened_classes.contains(&symbol)
     }
 
     /// Return whether instances of the class named `symbol` carry the hidden
@@ -999,7 +1042,7 @@ fn callee_param_is_owned_callback_sink(mir: &Mir, callee: &MirFunction, param: L
         return false;
     };
     match mir.types.get(local.ty) {
-        Some(Type::Optional(inner)) => {
+        Some(Type::Optional(inner, _)) => {
             matches!(mir.types.get(*inner), Some(Type::Function(_)))
         }
         _ => false,
@@ -1043,16 +1086,12 @@ fn callback_param_escapes_locally(
         .blocks
         .iter()
         .flat_map(|block| &block.statements)
-        .filter_map(|statement| match statement {
-            Statement::Assign {
-                value: Rvalue::Closure { id, .. },
-                ..
+        .filter_map(|statement| {
+            if let Some(Rvalue::Closure { id, .. }) = statement.value() {
+                Some(*id)
+            } else {
+                None
             }
-            | Statement::AssignPlace {
-                value: Rvalue::Closure { id, .. },
-                ..
-            } => Some(*id),
-            _ => None,
         })
         .collect::<HashSet<_>>();
     let captured_by_any_closure = mir
@@ -1081,17 +1120,24 @@ fn callback_param_escapes_locally(
             if !type_erases_values(mir, dest_ty) {
                 return false;
             }
-            let maybe_source_local = match value {
-                Rvalue::Use(
-                    Operand::Copy(Place::Local(source) | Place::Field { base: source, .. })
-                    | Operand::Move(Place::Local(source) | Place::Field { base: source, .. }),
-                ) => Some(*source),
-                _ => None,
-            };
-            let Some(source_local) = maybe_source_local else {
+            let Rvalue::Use(
+                Operand::Copy(
+                    Place::Local(source_local)
+                    | Place::Field {
+                        base: source_local, ..
+                    },
+                )
+                | Operand::Move(
+                    Place::Local(source_local)
+                    | Place::Field {
+                        base: source_local, ..
+                    },
+                ),
+            ) = value
+            else {
                 return false;
             };
-            let Some(closure_id) = closure_defs.get(&source_local) else {
+            let Some(closure_id) = closure_defs.get(source_local) else {
                 return false;
             };
             mir.closures
@@ -1183,7 +1229,12 @@ fn callback_param_escapes_locally(
                 place: Place::Local(candidate),
                 ..
             } => *candidate == local,
-            _ => false,
+            // A projected write leaves the binding itself in place, and a
+            // fused entry update binds only its scalar `current` temporary;
+            // a fresh binding cell is a loop declaration's, never a parameter.
+            Statement::AssignPlace { .. }
+            | Statement::DictEntryUpdate { .. }
+            | Statement::StorageLive(_) => false,
         })
     });
     // A callback passed as the function argument of a timer async op
@@ -1353,7 +1404,7 @@ fn function_rvalues(function: &MirFunction) -> impl Iterator<Item = &Rvalue> {
                 Statement::Assign { value, .. } | Statement::AssignPlace { value, .. } => {
                     Some(value)
                 }
-                Statement::DictEntryUpdate { .. } => None,
+                Statement::DictEntryUpdate { .. } | Statement::StorageLive(_) => None,
             });
         let carried = match &block.terminator {
             Some(Terminator::Call {
@@ -1372,6 +1423,10 @@ fn function_rvalues(function: &MirFunction) -> impl Iterator<Item = &Rvalue> {
 /// generated runtime. If a source callback parameter is wrapped into unknown
 /// state, or passed to an erased closure-call result, the parameter cannot stay
 /// as `&dyn Fn`; it must enter the function as an owned handle.
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "single-shape recogniser: only container literals, callable-object assembly and plain copies wrap an operand into erased state"
+)]
 fn statement_erases_callback_param(
     mir: &Mir,
     function: &MirFunction,
@@ -1504,6 +1559,10 @@ fn statement_erases_callback_param(
 /// A container whose element type is *not* function-shaped cannot be holding the
 /// callback at all, so the destination type is checked with
 /// [`type_holds_function`] rather than assuming every container is a sink.
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "single-shape recogniser: only list, set, tuple and dict literals pack an operand into a container"
+)]
 fn statement_packs_callback_param_into_container(
     mir: &Mir,
     function: &MirFunction,
@@ -1513,10 +1572,18 @@ fn statement_packs_callback_param_into_container(
     let (dest, value) = match statement {
         Statement::Assign { dest, value } => (*dest, value),
         Statement::AssignPlace {
-            place: Place::Local(dest) | Place::Field { base: dest, .. },
+            place:
+                Place::Local(dest) | Place::Field { base: dest, .. } | Place::Index { base: dest, .. },
             value,
         } => (*dest, value),
-        _ => return false,
+        // A global's cell has no local whose type could say it holds a
+        // callback, and a fused entry update stores scalar arithmetic.
+        Statement::AssignPlace {
+            place: Place::Global { .. },
+            ..
+        }
+        | Statement::DictEntryUpdate { .. }
+        | Statement::StorageLive(_) => return false,
     };
     let Some(dest_ty) = id_index(dest.0, "local index does not fit usize")
         .ok()
@@ -1594,13 +1661,14 @@ fn closure_source_for_local(
                 if *dest != current {
                     return None;
                 }
-                match value {
-                    Rvalue::Use(
-                        Operand::Copy(Place::Local(source) | Place::Field { base: source, .. })
-                        | Operand::Move(Place::Local(source) | Place::Field { base: source, .. }),
-                    ) => Some(*source),
-                    _ => None,
-                }
+                let Rvalue::Use(
+                    Operand::Copy(Place::Local(source) | Place::Field { base: source, .. })
+                    | Operand::Move(Place::Local(source) | Place::Field { base: source, .. }),
+                ) = value
+                else {
+                    return None;
+                };
+                Some(*source)
             })
         })?;
         if let Some(closure_id) = closure_definitions.get(&next).copied() {
@@ -1615,7 +1683,7 @@ fn closure_source_for_local(
 fn type_erases_values(mir: &Mir, ty: TypeId) -> bool {
     match mir.types.get(ty) {
         Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => true,
-        Some(Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item)) => {
+        Some(Type::List(item) | Type::Set(item) | Type::Optional(item, _) | Type::Future(item)) => {
             type_erases_values(mir, *item)
         }
         Some(Type::Dict(key, value) | Type::JsMap(key, value)) => {
@@ -1650,7 +1718,12 @@ fn closure_definitions(
                         definitions.insert(*dest, id);
                     }
                 }
-                _ => {}
+                // Only a closure construction or a copy of a closure local
+                // defines one; any other statement defines no closure local.
+                Statement::Assign { .. }
+                | Statement::AssignPlace { .. }
+                | Statement::DictEntryUpdate { .. }
+                | Statement::StorageLive(_) => {}
             }
         }
     }

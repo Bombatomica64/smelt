@@ -146,19 +146,21 @@ return _smelt_tmp_2;
     );
 }
 
-/// A character read off a bounded `T extends string` is erased text with the JavaScript case conversion.
+/// A character read off an erased string-bounded `T` is erased text with the JavaScript case
+/// conversion. The bound is a template literal type so `T` stays erased; the bare `string`
+/// keyword now lowers as `JsString` (`lowering/ty/primitive_params.rs`).
 #[test]
 fn emits_case_conversion_for_erased_callback_string_indexes() {
     let source = source_for(
         r"
-function initialCaps<T extends string>(values: T[]): string[] {
+function initialCaps<T extends `a${string}`>(values: T[]): string[] {
   return values.map((value) => value[0].toUpperCase());
 }
 ",
     );
 
-    // The element type is left open here: `T extends string` has a knowable
-    // shape, so only the conversion is the requirement.
+    // The element type is left open here: the bound has a knowable shape,
+    // so only the conversion is the requirement.
     let item = rust_fn(&source, "initial_caps");
     assert!(
         item.contains("smelt_value.char_at(smelt_position)"),

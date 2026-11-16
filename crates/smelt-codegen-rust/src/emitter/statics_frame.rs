@@ -198,9 +198,12 @@ impl FunctionEmitter<'_> {
             .methods
             .iter()
             .filter_map(|id| self.function_by_id(*id))
-            .filter_map(|function| match function.origin {
-                smelt_mir::HirOrigin::ClassMethod { method, .. } => Some(method),
-                _ => None,
+            .filter_map(|function| {
+                if let smelt_mir::HirOrigin::ClassMethod { method, .. } = function.origin {
+                    Some(method)
+                } else {
+                    None
+                }
             })
             // The frame's synthesized members (inherited-static accessors,
             // chain-level and constructor hooks) are not source statics.

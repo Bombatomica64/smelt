@@ -11,6 +11,9 @@
 //! backend's coercion converts the representation, element by element through
 //! containers.
 //!
+//! Integers cross one way too: a Python `int` ([`Type::PyInt`], unbounded) is
+//! a TypeScript `number` ([`Type::Float`]) on the TypeScript side.
+//!
 //! Neither frontend produces the other language's text type itself, so the
 //! presence of [`Type::String`] in a Python expression's type (or
 //! [`Type::PyStr`] in a TypeScript one) is the crossing: no module bookkeeping
@@ -29,31 +32,43 @@ pub enum SourceLanguage {
 }
 
 impl SourceLanguage {
-    /// The text type of this language.
-    const fn own_text(self) -> Type {
+    /// Each type of the other language this language has its own spelling
+    /// for, paired with that spelling.
+    ///
+    /// Text crosses both ways. A Python `int` ([`Type::PyInt`], unbounded)
+    /// is a `number` once TypeScript holds it, as it is when Node reads a
+    /// Python integer; a TypeScript `number` is already a Python `float`, so
+    /// nothing maps the other way.
+    const fn foreign_types(self) -> &'static [(Type, Type)] {
         match self {
-            Self::TypeScript => Type::String,
-            Self::Python => Type::PyStr,
+            Self::TypeScript => &[(Type::PyStr, Type::String), (Type::PyInt, Type::Float)],
+            Self::Python => &[(Type::String, Type::PyStr)],
         }
     }
 
-    /// The text type of the other language.
-    const fn foreign_text(self) -> Type {
-        match self {
-            Self::TypeScript => Type::PyStr,
-            Self::Python => Type::String,
-        }
+    /// This language's spelling of `found`, when it is a type of the other
+    /// language.
+    fn own_spelling(self, found: &Type) -> Option<Type> {
+        self.foreign_types()
+            .iter()
+            .find(|(foreign, _)| foreign == found)
+            .map(|(_, own)| own.clone())
     }
 }
 
-/// Whether `ty` carries the other language's text anywhere, seen from `language`.
+/// Whether `ty` carries a type of the other language anywhere, seen from
+/// `language`.
 #[must_use]
 pub fn crosses_into(types: &TypeInterner, ty: TypeId, language: SourceLanguage) -> bool {
-    contains(types, ty, &language.foreign_text(), 0)
+    language
+        .foreign_types()
+        .iter()
+        .any(|(foreign, _)| contains(types, ty, foreign, 0))
 }
 
-/// `ty` as `language` sees it: every text type of the other language replaced
-/// by `language`'s own, through every container, union and signature.
+/// `ty` as `language` sees it: every type of the other language replaced by
+/// `language`'s own spelling of it, through every container, union and
+/// signature.
 pub fn view_in(types: &mut TypeInterner, ty: TypeId, language: SourceLanguage) -> TypeId {
     if !crosses_into(types, ty, language) {
         return ty;
@@ -83,7 +98,7 @@ fn contains(types: &TypeInterner, ty: TypeId, needle: &Type, depth: usize) -> bo
 /// The types directly inside `ty`.
 fn children(ty: &Type) -> Vec<TypeId> {
     match ty {
-        Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item) => {
+        Type::List(item) | Type::Set(item) | Type::Optional(item, _) | Type::Future(item) => {
             vec![*item]
         }
         Type::Dict(key, value) | Type::JsMap(key, value) => vec![*key, *value],
@@ -105,8 +120,10 @@ fn children(ty: &Type) -> Vec<TypeId> {
             yield_ty,
             return_ty,
         } => vec![*yield_ty, *return_ty],
+        Type::IndexedAccess { object, index } => vec![*object, *index],
         Type::Bool
         | Type::Int
+        | Type::PyInt
         | Type::Float
         | Type::FixedInt(_)
         | Type::BigInt
@@ -129,14 +146,14 @@ fn map(types: &mut TypeInterner, ty: TypeId, language: SourceLanguage, depth: us
     let Some(found) = types.get(ty).cloned() else {
         return ty;
     };
-    if found == language.foreign_text() {
-        return types.intern(language.own_text());
+    if let Some(own) = language.own_spelling(&found) {
+        return types.intern(own);
     }
     let each = |types: &mut TypeInterner, child: TypeId| map(types, child, language, depth + 1);
     let mapped = match found {
         Type::List(item) => Type::List(each(types, item)),
         Type::Set(item) => Type::Set(each(types, item)),
-        Type::Optional(item) => Type::Optional(each(types, item)),
+        Type::Optional(item, absence) => Type::Optional(each(types, item), absence),
         Type::Future(item) => Type::Future(each(types, item)),
         Type::Dict(key, value) => Type::Dict(each(types, key), each(types, value)),
         Type::JsMap(key, value) => Type::JsMap(each(types, key), each(types, value)),
@@ -177,8 +194,13 @@ fn map(types: &mut TypeInterner, ty: TypeId, language: SourceLanguage, depth: us
             yield_ty: each(types, yield_ty),
             return_ty: each(types, return_ty),
         },
+        Type::IndexedAccess { object, index } => Type::IndexedAccess {
+            object: each(types, object),
+            index: each(types, index),
+        },
         leaf @ (Type::Bool
         | Type::Int
+        | Type::PyInt
         | Type::Float
         | Type::FixedInt(_)
         | Type::BigInt
@@ -207,10 +229,13 @@ mod tests {
         let py = types.intern(Type::PyStr);
         let float = types.intern(Type::Float);
         let list = types.intern(Type::List(js));
-        let optional = types.intern(Type::Optional(list));
+        let optional = types.intern(Type::Optional(list, crate::Absence::Undefined));
         let viewed = view_in(&mut types, optional, SourceLanguage::Python);
         let py_list = types.intern(Type::List(py));
-        assert_eq!(types.get(viewed), Some(&Type::Optional(py_list)));
+        assert_eq!(
+            types.get(viewed),
+            Some(&Type::Optional(py_list, crate::Absence::Undefined))
+        );
         assert!(crosses_into(&types, optional, SourceLanguage::Python));
         assert!(!crosses_into(&types, optional, SourceLanguage::TypeScript));
         assert_eq!(view_in(&mut types, float, SourceLanguage::Python), float);

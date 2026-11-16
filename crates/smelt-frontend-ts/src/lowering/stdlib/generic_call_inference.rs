@@ -170,6 +170,42 @@ impl ModuleBuilder<'_> {
         self.call_result_shaped_by_checker(result, call, span)
     }
 
+    /// The result of one call of a function item whose declared return
+    /// indexes a type parameter, from the return its callers read
+    /// (`deferred`, see `ty/deferred_index.rs`); `None` when this call cannot
+    /// evaluate it, and the caller keeps the erased declared return.
+    ///
+    /// The callee's parameters are bound as [`Self::instantiated_call_return`]
+    /// binds them: from the lowered arguments, an explicit type argument
+    /// replacing a binding it widens.
+    pub(in crate::lowering) fn deferred_call_return(
+        &mut self,
+        type_params: &[TypeParamDef],
+        params: &[smelt_hir::TypeId],
+        args: &[smelt_hir::ExprId],
+        deferred: smelt_hir::TypeId,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &Body,
+    ) -> Option<smelt_hir::TypeId> {
+        let mut substitutions = self.infer_call_type_bindings(type_params, params, args, body);
+        let mut explicit_bindings: Vec<_> = self
+            .explicit_call_type_bindings(type_params, call)
+            .unwrap_or_default()
+            .into_iter()
+            .collect();
+        explicit_bindings.sort_unstable_by_key(|(name, _)| name.0);
+        for (name, explicit) in explicit_bindings {
+            if substitutions
+                .get(&name)
+                .is_none_or(|bound| self.type_accepts_all_of(explicit, *bound))
+            {
+                substitutions.insert(name, explicit);
+            }
+        }
+        let keys = self.literal_key_arguments_of(params, &call.arguments);
+        self.evaluated_deferred_return(deferred, type_params, &substitutions, &keys, call.span)
+    }
+
     /// Whether `ty` mentions any of `params` anywhere.
     pub(in crate::lowering) fn mentions_type_params(
         &self,
@@ -312,7 +348,7 @@ impl ModuleBuilder<'_> {
                 let wider = match actual_ty {
                     Type::Unknown => true,
                     Type::Union(members) => members.contains(&bound),
-                    Type::Optional(item) => item == bound,
+                    Type::Optional(item, _) => item == bound,
                     _ => false,
                 };
                 if wider && type_params.iter().any(|param| param.name == name) {
@@ -332,7 +368,7 @@ impl ModuleBuilder<'_> {
             | (Type::Future(declared), Type::Future(given)) => {
                 self.widen_call_binding(type_params, declared, given, substitutions);
             }
-            (Type::Optional(declared), Type::Optional(given)) => {
+            (Type::Optional(declared, _), Type::Optional(given, _)) => {
                 self.widen_call_binding(type_params, declared, given, substitutions);
             }
             (Type::Tuple(declared), Type::Tuple(given)) if declared.len() == given.len() => {
@@ -408,21 +444,21 @@ impl ModuleBuilder<'_> {
             {
                 true
             }
-            (Some(Type::Optional(expected_inner)), Some(Type::Optional(actual_inner))) => {
+            (Some(Type::Optional(expected_inner, _)), Some(Type::Optional(actual_inner, _))) => {
                 (self.function_member_type(expected_inner).is_some()
                     && self.function_member_type(actual_inner).is_some())
                     || self.infer_overload_type(expected_inner, actual_inner, substitutions)
             }
-            (Some(Type::Optional(_)), Some(Type::None)) => true,
-            (Some(Type::Optional(inner)), _) if inner == actual => true,
-            (Some(Type::Optional(inner)), _) => {
+            (Some(Type::Optional(..)), Some(Type::None)) => true,
+            (Some(Type::Optional(inner, _)), _) if inner == actual => true,
+            (Some(Type::Optional(inner, _)), _) => {
                 self.infer_overload_type(inner, actual, substitutions)
             }
             // The actual argument may keep an `Optional` wrapper that
             // source-level narrowing (a `typeof` switch or truthiness guard)
             // already peeled — Smelt's erased locals are not re-typed across
             // narrowing. tsc validated the call, so match the payload type.
-            (_, Some(Type::Optional(actual_inner))) => {
+            (_, Some(Type::Optional(actual_inner, _))) => {
                 self.infer_overload_type(expected, actual_inner, substitutions)
             }
             (Some(Type::List(expected_item)), Some(Type::List(actual_item)))

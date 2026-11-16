@@ -480,6 +480,10 @@ enum Unrewritable {
 ///
 /// The interner is frozen during codegen, so a rewritten layer is a lookup,
 /// never an insert.
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "the catch-all rewrites through `Type::try_map_children`, which visits every child of every other type"
+)]
 fn substitute_type(
     mir: &Mir,
     declared: TypeId,
@@ -602,6 +606,7 @@ fn literal_type(mir: &Mir, language: smelt_hir::Language, constant: &Constant) -
         Constant::Int(_) => Type::Int,
         Constant::Float(_) => Type::Float,
         Constant::BigInt(_) => Type::BigInt,
+        Constant::PyInt(_) => Type::PyInt,
         Constant::String(_) if language == smelt_hir::Language::Python => Type::PyStr,
         Constant::String(_) | Constant::StringUnits(_) => Type::String,
         Constant::None | Constant::Undefined => Type::None,
@@ -696,7 +701,7 @@ fn match_types_in(
     match (declared_ty, actual_ty) {
         (Type::List(left), Type::List(right))
         | (Type::Set(left), Type::Set(right))
-        | (Type::Optional(left), Type::Optional(right))
+        | (Type::Optional(left, _), Type::Optional(right, _))
         | (Type::Future(left), Type::Future(right)) => {
             match_types_in(mir, *left, *right, scope, bindings);
         }
@@ -1430,8 +1435,8 @@ mod tests {
         let nested_float = types.intern(Type::List(list_float));
         let set_param = types.intern(Type::Set(param));
         let set_float = types.intern(Type::Set(float));
-        let optional_param = types.intern(Type::Optional(param));
-        let optional_float = types.intern(Type::Optional(float));
+        let optional_param = types.intern(Type::Optional(param, smelt_hir::Absence::Undefined));
+        let optional_float = types.intern(Type::Optional(float, smelt_hir::Absence::Undefined));
         let future_param = types.intern(Type::Future(param));
         let future_float = types.intern(Type::Future(float));
         let dict_param = types.intern(Type::Dict(string, param));

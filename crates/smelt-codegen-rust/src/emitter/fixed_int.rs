@@ -105,11 +105,11 @@ impl FunctionEmitter<'_> {
                 "{operand_expr} as f64",
                 operand_expr = operand_expr.as_cast_operand()
             ))),
-            (smelt_hir::PrimitiveCastOp::ToFloat, Type::Optional(to), Type::Optional(from))
-                if is_float(to) && is_fixed(from) =>
-            {
-                Some(operand_expr.postfix(".map(f64::from)"))
-            }
+            (
+                smelt_hir::PrimitiveCastOp::ToFloat,
+                Type::Optional(to, _),
+                Type::Optional(from, _),
+            ) if is_float(to) && is_fixed(from) => Some(operand_expr.postfix(".map(f64::from)")),
             (smelt_hir::PrimitiveCastOp::ToInt32, Type::FixedInt(width), Type::Float) => {
                 Some(RustExpr::cast(format!(
                     "{operand_expr} as {}",
@@ -117,9 +117,11 @@ impl FunctionEmitter<'_> {
                     operand_expr = operand_expr.as_cast_operand()
                 )))
             }
-            (smelt_hir::PrimitiveCastOp::ToInt32, Type::Optional(to), Type::Optional(from))
-                if is_fixed(to) && is_float(from) =>
-            {
+            (
+                smelt_hir::PrimitiveCastOp::ToInt32,
+                Type::Optional(to, _),
+                Type::Optional(from, _),
+            ) if is_fixed(to) && is_float(from) => {
                 Some(operand_expr.postfix(".map(|value| value as i32)"))
             }
             _ => None,
@@ -170,6 +172,10 @@ impl FunctionEmitter<'_> {
     /// arithmetic (sign-propagating) shift, and `Math.imul` is the low 32 bits
     /// of the product read as signed. The int32 result converts to `f64`
     /// exactly (or to `i64` for an `Int` destination).
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "sub-dispatch: the only caller passes `Shl`, `Shr` or `IMul`, so the catch-all is `Shr`"
+    )]
     pub(super) fn js_int32_binary_expr(
         op: smelt_hir::BinOp,
         lhs_text: &RustExpr,

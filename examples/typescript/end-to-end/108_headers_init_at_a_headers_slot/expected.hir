@@ -56,6 +56,7 @@ interned types
   t9 = fn(Optional<Headers>, Optional<Dict<String, String>>) -> Response
   t10 = fn(Response) -> String
   t11 = Float
-  t12 = Optional<String>
+  t12 = Nullable<String>
   t13 = fn(Optional<Headers>, Optional<Dict<String, String>>) -> Response
   t14 = fn(Response) -> String
+  t15 = Optional<String>

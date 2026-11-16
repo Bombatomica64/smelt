@@ -10,7 +10,7 @@ module examples/typescript/end-to-end/121_callback_into_union_function_arm/input
     #0: fn(Float, Optional<Ex | fn(String) -> Ex>) -> Float = closure BodyId(1) captures 0 -> Float
     #1: fn(Float, Optional<Ex | fn(String) -> Ex>) -> Float = %0
     #2: Float = 1.0
-    #3: Optional<Ex | fn(String) -> Ex> = none
+    #3: Optional<Ex | fn(String) -> Ex> = undefined
     #4: Float = closure_call #1(#2, #3)
     #5: None = @7(console_log)
     #6: None = call #5(#4)

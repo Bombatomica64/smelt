@@ -17,7 +17,7 @@ impl ModuleBuilder<'_> {
         match self.ctx.krate.types.get(ty) {
             Some(Type::Never) => true,
             Some(
-                Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item),
+                Type::List(item) | Type::Set(item) | Type::Optional(item, _) | Type::Future(item),
             ) => self.concrete_type_requires_never_value(*item),
             Some(Type::Dict(key, value) | Type::JsMap(key, value)) => {
                 self.concrete_type_requires_never_value(*key)
@@ -49,6 +49,7 @@ impl ModuleBuilder<'_> {
             Some(
                 Type::Bool
                 | Type::Int
+                | Type::PyInt
                 | Type::FixedInt(_)
                 | Type::BigInt
                 | Type::Float
@@ -60,7 +61,9 @@ impl ModuleBuilder<'_> {
                 | Type::TypeParam { .. }
                 | Type::Class { .. }
                 | Type::Function(_)
-                | Type::None,
+                | Type::None
+                // Not a value's type; the `unknown` it erases to needs no `never`.
+                | Type::IndexedAccess { .. },
             )
             | None => false,
         }
@@ -122,7 +125,11 @@ impl ModuleBuilder<'_> {
             }
             Some(Type::Class { name, .. }) if self.match_stdlib_class(*name).is_some() => {
                 let string_ty = self.ctx.krate.types.intern(Type::String);
-                Ok(self.ctx.krate.types.intern(Type::Optional(string_ty)))
+                Ok(self
+                    .ctx
+                    .krate
+                    .types
+                    .intern(Type::Optional(string_ty, smelt_hir::Absence::Undefined)))
             }
             // A class with a declared string/number index signature keeps a keyed
             // store whose value type `T` is statically known. A dynamic keyed read
@@ -190,7 +197,7 @@ impl ModuleBuilder<'_> {
             Some(Type::String | Type::Unknown | Type::TypeParam { .. } | Type::Class { .. }) => {
                 true
             }
-            Some(Type::Optional(item)) => self.is_string_compatible_type(*item),
+            Some(Type::Optional(item, _)) => self.is_string_compatible_type(*item),
             Some(Type::Union(items)) => items
                 .iter()
                 .copied()
@@ -312,7 +319,7 @@ impl ModuleBuilder<'_> {
             .get(self.type_param_constraint_or_self(ty))
         {
             Some(Type::Unknown) => true,
-            Some(Type::Optional(inner)) => self.add_operand_is_erased(*inner),
+            Some(Type::Optional(inner, _)) => self.add_operand_is_erased(*inner),
             Some(Type::Union(items)) => items
                 .iter()
                 .copied()
@@ -344,7 +351,7 @@ impl ModuleBuilder<'_> {
             .get(self.type_param_constraint_or_self(ty))
         {
             Some(Type::String) => true,
-            Some(Type::Optional(inner)) => self.add_operand_is_definitely_string(*inner),
+            Some(Type::Optional(inner, _)) => self.add_operand_is_definitely_string(*inner),
             Some(Type::Union(items)) => {
                 !items.is_empty()
                     && items
@@ -367,7 +374,7 @@ impl ModuleBuilder<'_> {
             .get(self.type_param_constraint_or_self(ty))
         {
             Some(Type::Unknown) => true,
-            Some(Type::Optional(inner)) => self.add_operand_is_dynamic(*inner),
+            Some(Type::Optional(inner, _)) => self.add_operand_is_dynamic(*inner),
             Some(Type::Union(items)) => items.iter().copied().any(|item| {
                 matches!(
                     self.ctx
@@ -389,7 +396,7 @@ impl ModuleBuilder<'_> {
             .types
             .get(self.type_param_constraint_or_self(ty))
         {
-            Some(Type::Optional(inner)) => self.is_numeric_like_type(*inner),
+            Some(Type::Optional(inner, _)) => self.is_numeric_like_type(*inner),
             _ => false,
         }
     }
@@ -414,7 +421,7 @@ impl ModuleBuilder<'_> {
             .get(self.type_param_constraint_or_self(ty))
         {
             Some(Type::String) => true,
-            Some(Type::Optional(item)) => self.has_static_string_type(*item),
+            Some(Type::Optional(item, _)) => self.has_static_string_type(*item),
             Some(Type::Union(items)) => items
                 .iter()
                 .copied()
@@ -427,7 +434,7 @@ impl ModuleBuilder<'_> {
     pub(in crate::lowering) fn type_contains_unknown(&self, ty: smelt_hir::TypeId) -> bool {
         match self.ctx.krate.types.get(ty) {
             Some(Type::Unknown) => true,
-            Some(Type::Optional(item)) => self.type_contains_unknown(*item),
+            Some(Type::Optional(item, _)) => self.type_contains_unknown(*item),
             Some(Type::Union(items)) => items
                 .iter()
                 .copied()
@@ -439,7 +446,7 @@ impl ModuleBuilder<'_> {
     /// Return whether a type can hold a TypeScript nullish value at runtime.
     pub(in crate::lowering) fn is_nullishable_type(&self, ty: smelt_hir::TypeId) -> bool {
         match self.ctx.krate.types.get(ty) {
-            Some(Type::Optional(_) | Type::None) => true,
+            Some(Type::Optional(..) | Type::None) => true,
             Some(Type::Union(items)) => items.iter().copied().any(|item| {
                 self.ctx.krate.types.get(item) == Some(&Type::None)
                     || self.is_nullishable_type(item)
@@ -455,7 +462,7 @@ impl ModuleBuilder<'_> {
     ) -> bool {
         match self.ctx.krate.types.get(ty) {
             Some(Type::String) => true,
-            Some(Type::Optional(item)) => self.union_has_string_compatible_member(*item),
+            Some(Type::Optional(item, _)) => self.union_has_string_compatible_member(*item),
             Some(Type::Union(items)) => items
                 .iter()
                 .copied()

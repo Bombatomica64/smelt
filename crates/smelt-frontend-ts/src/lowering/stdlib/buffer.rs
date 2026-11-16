@@ -307,7 +307,7 @@ impl ModuleBuilder<'_> {
         let span = self.span(call.span.start, call.span.end);
         if matches!(
             self.ctx.krate.types.get(Self::expr_ty(body, value)),
-            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Optional(_))
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Optional(..))
         ) {
             let class = self.intern_type_name("Buffer");
             return Ok(Some(body.push_expr(Expr {

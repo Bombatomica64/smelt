@@ -62,6 +62,7 @@ pub(crate) fn emit_mapped_sources(
         module_functions,
         erasures,
         dependencies,
+        carries_carrier: _,
     } = emit_root(
         mir,
         allocator,

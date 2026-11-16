@@ -1,10 +1,10 @@
 fn pick (FuncId(0)) -> String
   locals
     %0 param path: String
-    %1 user m: Optional<__SmeltMatch>
+    %1 user m: Nullable<__SmeltMatch>
     %2 user index: Float
     %3 temp: RegExp
-    %4 temp: Optional<__SmeltMatch>
+    %4 temp: Nullable<__SmeltMatch>
     %5 temp: Bool
     %6 temp: __SmeltMatch
     %7 temp: List<Optional<String>>
@@ -54,13 +54,13 @@ fn pick (FuncId(0)) -> String
 fn describe (FuncId(1)) -> None
   locals
     %0 param text: String
-    %1 user m: Optional<__SmeltMatch>
+    %1 user m: Nullable<__SmeltMatch>
     %2 user rest: List<Optional<String>>
     %3 user group: Optional<String>
     %4 user first: Optional<String>
     %5 user second: Optional<String>
     %6 temp: RegExp
-    %7 temp: Optional<__SmeltMatch>
+    %7 temp: Nullable<__SmeltMatch>
     %8 temp: Bool
     %9 temp: None
     %10 temp: __SmeltMatch
@@ -148,7 +148,7 @@ fn describe (FuncId(1)) -> None
     %40 = copy %1
     %41 = move %1
     %42 = move %5 == undefined
-    %43 = call @console_log(move %39, copy %40.field12, copy %41.field22, move %4, move %42) -> bb13
+    %43 = call @console_log(move %39, copy %40.field12, copy %41.field23, move %4, move %42) -> bb13
   bb9:
     %29 = "undefined"
     goto bb11
@@ -165,17 +165,17 @@ fn describe (FuncId(1)) -> None
 fn digits (FuncId(2)) -> String
   locals
     %0 param text: String
-    %1 user all: Optional<List<String>>
+    %1 user all: Nullable<List<String>>
     %2 user joined: String
     %3 user tagged: String
     %4 temp: RegExp
-    %5 temp: Optional<List<String>>
+    %5 temp: Nullable<List<String>>
     %6 temp: Bool
     %7 temp: String
     %8 temp: List<String>
     %9 temp: String
     %10 temp: RegExp
-    %11 temp: Optional<List<String>>
+    %11 temp: Nullable<List<String>>
     %12 temp: List<String>
     %13 temp: List<String>
     %14 temp: fn(String, Int, List<String>) -> String
@@ -238,7 +238,7 @@ fn first_two (FuncId(3)) -> String
     %0 param text: String
     %1 param pattern: RegExp
     %2 user groups: List<Optional<String>>
-    %3 temp: Optional<__SmeltMatch>
+    %3 temp: Nullable<__SmeltMatch>
     %4 temp: Optional<List<Optional<String>>>
     %5 temp: List<Optional<String>>
     %6 temp: List<Optional<String>>

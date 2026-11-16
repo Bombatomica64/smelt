@@ -107,6 +107,41 @@ impl ModuleBuilder<'_> {
         (!out.is_empty()).then_some(out)
     }
 
+    /// `ty` without the absent values a failed nullish test rules out.
+    ///
+    /// `literal` is the value a strict `!==`/`===` compared with; `None` is a
+    /// loose `!=`/`==`, which rules out both. A strict test against an
+    /// absence the type does not admit rules out nothing, so the answer is
+    /// `None`, no narrowing (`x !== undefined` on a `T | null`); the one
+    /// exception is `x !== null` on a lone `undefined` tag, which also
+    /// tags optionality the source did not spell and is tested by presence. `T | null | undefined` narrows one layer at a time:
+    /// `!== undefined` leaves `T | null`, `!== null` leaves `T | undefined`.
+    pub(in crate::lowering) fn narrow_out_absence(
+        &mut self,
+        ty: smelt_hir::TypeId,
+        literal: Option<smelt_hir::Absence>,
+    ) -> Option<smelt_hir::TypeId> {
+        let (base, undefined, null) =
+            smelt_hir::type_normalize::peel_optional(&self.ctx.krate.types, ty);
+        let (keep_undefined, keep_null) = match literal {
+            None => (false, false),
+            Some(smelt_hir::Absence::Undefined) => (false, null),
+            // A lone `undefined` tag does not rule `null` out (it is also
+            // the tag of optionality the source did not spell), and `=== null`
+            // tests its presence; see `absence_equality_expr` in codegen.
+            Some(smelt_hir::Absence::Null) => (undefined && null, false),
+        };
+        if (keep_undefined, keep_null) == (undefined, null) {
+            return None;
+        }
+        Some(smelt_hir::type_normalize::rebuild_optional(
+            &mut self.ctx.krate.types,
+            base,
+            keep_undefined,
+            keep_null,
+        ))
+    }
+
     /// Recognize `value !== undefined/null` guards.
     pub(in crate::lowering) fn optional_some_guard(
         &mut self,
@@ -122,23 +157,26 @@ impl ModuleBuilder<'_> {
         ) {
             return None;
         }
-        let name = match (&binary.left, &binary.right) {
+        let (name, literal) = match (&binary.left, &binary.right) {
             (Expression::Identifier(identifier), Expression::Identifier(undefined))
                 if undefined.name == "undefined" =>
             {
-                identifier.name.as_str()
+                (identifier.name.as_str(), smelt_hir::Absence::Undefined)
             }
             (Expression::Identifier(identifier), Expression::NullLiteral(_)) => {
-                identifier.name.as_str()
+                (identifier.name.as_str(), smelt_hir::Absence::Null)
             }
             _ => return None,
         };
+        let strict = binary.operator == BinaryOperator::StrictInequality;
         let local = self.scope.lookup(name)?;
         let local_ty = self
             .narrowed_type(name)
             .unwrap_or_else(|| Self::local_ty(body, local));
         match self.ctx.krate.types.get(local_ty).cloned() {
-            Some(Type::Optional(inner)) => Some((name.to_owned(), inner)),
+            Some(Type::Optional(..)) => self
+                .narrow_out_absence(local_ty, strict.then_some(literal))
+                .map(|narrowed| (name.to_owned(), narrowed)),
             Some(Type::Union(items)) => {
                 let none_ty = self.ctx.krate.types.intern(Type::None);
                 let remaining = items
@@ -208,23 +246,26 @@ impl ModuleBuilder<'_> {
         ) {
             return None;
         }
-        let name = match (&binary.left, &binary.right) {
+        let (name, literal) = match (&binary.left, &binary.right) {
             (Expression::Identifier(identifier), Expression::Identifier(undefined))
                 if undefined.name == "undefined" =>
             {
-                identifier.name.as_str()
+                (identifier.name.as_str(), smelt_hir::Absence::Undefined)
             }
             (Expression::Identifier(identifier), Expression::NullLiteral(_)) => {
-                identifier.name.as_str()
+                (identifier.name.as_str(), smelt_hir::Absence::Null)
             }
             _ => return None,
         };
+        let strict = binary.operator == BinaryOperator::StrictEquality;
         let local = self.scope.lookup(name)?;
         let local_ty = self
             .narrowed_type(name)
             .unwrap_or_else(|| Self::local_ty(body, local));
         match self.ctx.krate.types.get(local_ty).cloned() {
-            Some(Type::Optional(inner)) => Some((name.to_owned(), inner)),
+            Some(Type::Optional(..)) => self
+                .narrow_out_absence(local_ty, strict.then_some(literal))
+                .map(|narrowed| (name.to_owned(), narrowed)),
             Some(Type::Union(items)) => {
                 let none_ty = self.ctx.krate.types.intern(Type::None);
                 let remaining = items
@@ -356,7 +397,9 @@ impl ModuleBuilder<'_> {
             .narrowed_type(name)
             .unwrap_or_else(|| Self::local_ty(body, local));
         match self.ctx.krate.types.get(local_ty).cloned() {
-            Some(Type::Optional(inner)) => Some(inner),
+            Some(Type::Optional(..)) => {
+                Some(smelt_hir::type_normalize::peel_optional(&self.ctx.krate.types, local_ty).0)
+            }
             Some(Type::Union(items)) => {
                 let none_ty = self.ctx.krate.types.intern(Type::None);
                 let remaining = items
@@ -436,7 +479,7 @@ impl ModuleBuilder<'_> {
             Some(ty) => ty,
             None => Self::local_ty_checked(body, local)?,
         };
-        let Some(Type::Optional(inner)) = self.ctx.krate.types.get(local_ty).cloned() else {
+        let Some(Type::Optional(inner, _)) = self.ctx.krate.types.get(local_ty).cloned() else {
             return None;
         };
         self.type_is_always_truthy_object_surface(inner)
@@ -464,7 +507,12 @@ impl ModuleBuilder<'_> {
             None => Self::local_ty_checked(body, local)?,
         };
         match self.ctx.krate.types.get(local_ty).cloned() {
-            Some(Type::Optional(inner)) => Some((name.to_owned(), inner)),
+            // A truthy value is neither `null` nor `undefined`: every optional
+            // layer goes.
+            Some(Type::Optional(..)) => Some((
+                name.to_owned(),
+                smelt_hir::type_normalize::peel_optional(&self.ctx.krate.types, local_ty).0,
+            )),
             Some(Type::Union(items)) => {
                 let none_ty = self.ctx.krate.types.intern(Type::None);
                 let remaining = items

@@ -469,6 +469,22 @@ impl<'mir> FunctionEmitter<'mir> {
         self.function.absent()
     }
 
+    /// Which absent value the `None` of the optional type `ty` is: the tag of
+    /// its outer layer, `undefined` for any other type.
+    pub(super) fn optional_absence(&self, ty: TypeId) -> smelt_hir::Absence {
+        match self.mir.types.get(ty) {
+            Some(Type::Optional(_, absence)) => *absence,
+            _ => smelt_hir::Absence::Undefined,
+        }
+    }
+
+    /// The word the source prints for the `None` of the optional type `ty`:
+    /// `null` for a TypeScript `T | null`, the language's absent word
+    /// otherwise.
+    pub(super) fn absent_text_of(&self, ty: TypeId) -> &'static str {
+        self.absent_spelling().text_for(self.optional_absence(ty))
+    }
+
     /// Gets the Rust-facing rendering of a symbol.
     ///
     /// A source name that is not a valid Rust spelling is case-folded when it is

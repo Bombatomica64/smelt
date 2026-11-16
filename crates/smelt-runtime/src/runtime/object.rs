@@ -101,7 +101,7 @@ impl SmeltObject {
 //=     fn with_id<K: Into<JsString>>(id: usize, entries: Vec<(K, SmeltUnknown)>) -> Self { let object = Self { id, store: ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltFieldStore::with_capacity(entries.len()))) }; for (key, value) in entries { object.insert(key, value); } object }
 // @smelt:end
     fn from_unknown_record(record: SmeltRecord<JsString, SmeltUnknown>) -> Self { Self { id: record.id, store: record.store } }
-    fn len(&self) -> usize { /*@if live_views*/self.store.sync(); /*@end*/self.store.borrow().len() }
+    fn len(&self) -> usize { /*@if live_views*/if let Some(keys) = self.store.live_keys() { return keys.len(); } /*@end*/self.store.borrow().len() }
     #[inline]
     fn contains_key(&self, key: &(impl SmeltObjectKey + ?Sized)) -> bool { key.with_js_key(|key| /*@if live_views*/self.store.live_has(key).unwrap_or_else(|| /*@end*/self.store.borrow().contains_key(key)/*@if live_views*/)/*@end*/) }
     #[inline]
@@ -121,13 +121,21 @@ impl SmeltObject {
     //~ whose static type erased it) sets the date it is a view of, so every
     //~ alias, typed or erased, sees one object as in JavaScript.
 // @smelt:if date
-    fn insert(&self, key: impl Into<JsString>, value: SmeltUnknown) -> Option<SmeltUnknown> { let key = key.into(); if key == "__smelt_date" && let SmeltUnknown::Number(time) = &value && let Some(date) = self.store.origin().as_ref().and_then(|origin| origin.downcast_ref::<SmeltDate>()) { date.set_time(*time); } /*@if live_views*/self.store.live_set(&key, &value); /*@end*/self.store.borrow_mut().insert(key, value) }
+    //~ A value a live view's record took and the view does not keep
+    //~ (`live_set`: anything but an erased array, object or function) is the
+    //~ record's alone: the view's cached entry is not written, since every
+    //~ read of it asks the record (`live_get`) or refreshes first (`sync`),
+    //~ and a view that only writes such values allocates no store of its
+    //~ own. There is no previous value to answer with (the cache never was
+    //~ one). A reference value is still stored: it replaces the handle the
+    //~ view hands out for that key.
+    fn insert(&self, key: impl Into<JsString>, value: SmeltUnknown) -> Option<SmeltUnknown> { let key = key.into(); if key == "__smelt_date" && let SmeltUnknown::Number(time) = &value && let Some(date) = self.store.origin().as_ref().and_then(|origin| origin.downcast_ref::<SmeltDate>()) { date.set_time(*time); } /*@if live_views*/if self.store.live_set(&key, &value) == Some(false) { return None; } /*@end*/self.store.borrow_mut().insert(key, value) }
 // @smelt:else
-//=     fn insert(&self, key: impl Into<JsString>, value: SmeltUnknown) -> Option<SmeltUnknown> { /*@if live_views*/let key = key.into(); self.store.live_set(&key, &value); /*@end*/self.store.borrow_mut().insert(key.into(), value) }
+//=     fn insert(&self, key: impl Into<JsString>, value: SmeltUnknown) -> Option<SmeltUnknown> { /*@if live_views*/let key = key.into(); if self.store.live_set(&key, &value) == Some(false) { return None; } /*@end*/self.store.borrow_mut().insert(key.into(), value) }
 // @smelt:end
     fn remove(&self, key: &(impl SmeltObjectKey + ?Sized)) -> Option<SmeltUnknown> { key.with_js_key(|key| /*@if live_views*/{ self.store.sync(); self.store.live_remove(key); /*@end*/self.store.borrow_mut().remove(key)/*@if live_views*/ }/*@end*/) }
     fn iter(&self) -> ::std::vec::IntoIter<(JsString, SmeltUnknown)> { /*@if live_views*/self.store.sync(); /*@end*/self.store.borrow().entries().iter().map(|entry| (entry.key.clone(), entry.value.clone())).collect::<Vec<_>>().into_iter() }
-    fn keys(&self) -> Vec<JsString> { /*@if live_views*/self.store.sync(); /*@end*/self.store.borrow().entries().iter().map(|entry| entry.key.clone()).collect() }
+    fn keys(&self) -> Vec<JsString> { /*@if live_views*/if let Some(keys) = self.store.live_keys() { return keys; } /*@end*/self.store.borrow().entries().iter().map(|entry| entry.key.clone()).collect() }
     fn values(&self) -> Vec<SmeltUnknown> { /*@if live_views*/self.store.sync(); /*@end*/self.store.borrow().entries().iter().map(|entry| entry.value.clone()).collect() }
 // @smelt:if reference_origins
     //~ Record the live typed value this erased object is a view of.
@@ -197,7 +205,7 @@ impl<V: 'static> SmeltRecord<JsString, V> {
         if self.store.is_live() || self.store.origin().is_some() { return; }
         let entries = { let store = self.store.borrow(); if store.has_internal_keys() { return; } store.entries().iter().map(|entry| (entry.key.clone(), unwrap(&entry.value))).collect::<Vec<_>>() };
         smelt_live_adopt(record, self.id, entries);
-        *self.store.live.borrow_mut() = Some(SmeltLiveLink { object: ::std::rc::Rc::new(record.clone()), key: |name| name, wrap: ::std::rc::Rc::new(wrap), unwrap: ::std::rc::Rc::new(unwrap), same: |_, _| false, apply: |store, entries, same| store.resync(entries, same) });
+        *self.store.live.borrow_mut() = Some(SmeltLiveLink { object: ::std::rc::Rc::new(record.clone()), key: |name| name, wrap: ::std::rc::Rc::new(wrap), unwrap: ::std::rc::Rc::new(unwrap), same: |_, _| false, apply: |store, entries, same| store.resync(entries, same), keeps: |_| false });
     }
 }
 // @smelt:end

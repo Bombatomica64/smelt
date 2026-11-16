@@ -209,7 +209,7 @@ mod tests {
         let float = types.intern(Type::Float);
         let param_name = symbols.intern("T");
         let param = types.intern(Type::TypeParam { name: param_name });
-        let declared_field = types.intern(Type::Optional(param));
+        let declared_field = types.intern(Type::Optional(param, smelt_hir::Absence::Undefined));
         let interface_name = symbols.intern("InitLike");
         types.intern(Type::Class {
             name: interface_name,
@@ -235,14 +235,18 @@ mod tests {
         });
 
         assert!(
-            !mir.types.all().contains(&Type::Optional(float)),
+            !mir.types
+                .all()
+                .contains(&Type::Optional(float, smelt_hir::Absence::Undefined)),
             "the substituted field type must be absent before the pass runs"
         );
 
         intern_generic_record_instantiations(&mut mir);
 
         assert!(
-            mir.types.all().contains(&Type::Optional(float)),
+            mir.types
+                .all()
+                .contains(&Type::Optional(float, smelt_hir::Absence::Undefined)),
             "Optional<Float> must be interned for InitLike<f64>"
         );
     }

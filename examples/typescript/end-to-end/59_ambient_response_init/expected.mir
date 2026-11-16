@@ -9,7 +9,7 @@ fn status_of (FuncId(0)) -> String
     %4 temp: String
     %5 temp: String
     %6 temp: Headers
-    %7 temp: Optional<String>
+    %7 temp: Nullable<String>
     %8 temp: String
     %9 temp: String
   bb0:
@@ -39,14 +39,14 @@ fn main (FuncId(1)) -> None
     %11 temp: String
     %12 temp: None
     %13 temp: Headers
-    %14 temp: Optional<String>
+    %14 temp: Nullable<String>
     %15 temp: String
     %16 temp: None
     %17 temp: Response
     %18 temp: Float
     %19 temp: None
     %20 temp: Headers
-    %21 temp: Optional<String>
+    %21 temp: Nullable<String>
     %22 temp: String
     %23 temp: None
     %24 temp: Dict<String, String>
@@ -69,7 +69,7 @@ fn main (FuncId(1)) -> None
     %41 temp: String
     %42 temp: None
     %43 temp: Headers
-    %44 temp: Optional<String>
+    %44 temp: Nullable<String>
     %45 temp: String
     %46 temp: None
   bb0:
@@ -89,7 +89,7 @@ fn main (FuncId(1)) -> None
     %15 = move %14 ?? "none"
     %16 = call @console_log(move %15) -> bb3
   bb3:
-    %2 = closure_call move %0(none, none)
+    %2 = closure_call move %0(undefined, undefined)
     %18 = response_status copy %2
     %19 = call @console_log(move %18) -> bb4
   bb4:

@@ -72,7 +72,8 @@ impl FunctionEmitter<'_> {
                 "&{}",
                 self.operand_expr(operand)?.tight()
             ))),
-            _ => Ok(RustExpr::loose(format!(
+            // Any other place read renders an owned value to borrow.
+            Operand::Copy(_) | Operand::Move(_) => Ok(RustExpr::loose(format!(
                 "&({})",
                 self.operand_expr(operand)?.delimited()
             ))),
@@ -82,11 +83,10 @@ impl FunctionEmitter<'_> {
     /// Renders a bigint operand as an OWNED `BigInt`, converting a numeric
     /// constant the frontend left untyped.
     fn bigint_owned_expr(&self, operand: &Operand) -> Result<RustExpr, EmitError> {
-        match operand {
-            Operand::Const(Constant::BigInt(digits)) => {
-                Ok(crate::bigint_prelude::literal_expr(digits))
-            }
-            _ => self.operand_expr(operand),
+        if let Operand::Const(Constant::BigInt(digits)) = operand {
+            Ok(crate::bigint_prelude::literal_expr(digits))
+        } else {
+            self.operand_expr(operand)
         }
     }
 
@@ -96,7 +96,7 @@ impl FunctionEmitter<'_> {
         match self.mir.types.get(ty) {
             Some(Type::BigInt) => true,
             Some(Type::Union(items)) => items.iter().any(|item| self.type_may_hold_bigint(*item)),
-            Some(Type::Optional(inner)) => self.type_may_hold_bigint(*inner),
+            Some(Type::Optional(inner, _)) => self.type_may_hold_bigint(*inner),
             _ => false,
         }
     }
@@ -125,20 +125,23 @@ impl FunctionEmitter<'_> {
         if !self.context.needs_bigint() {
             return Ok(None);
         }
-        let op_text = match op {
+        if !matches!(
+            op,
             BinOp::Add
-            | BinOp::Sub
-            | BinOp::Mul
-            | BinOp::Div
-            | BinOp::Rem
-            | BinOp::Shl
-            | BinOp::Shr
-            | BinOp::UShr
-            | BinOp::BitAnd
-            | BinOp::BitOr
-            | BinOp::BitXor => smelt_hir::bin_op_text(op),
-            _ => return Ok(None),
-        };
+                | BinOp::Sub
+                | BinOp::Mul
+                | BinOp::Div
+                | BinOp::Rem
+                | BinOp::Shl
+                | BinOp::Shr
+                | BinOp::UShr
+                | BinOp::BitAnd
+                | BinOp::BitOr
+                | BinOp::BitXor
+        ) {
+            return Ok(None);
+        }
+        let op_text = smelt_hir::bin_op_text(op);
         let lhs_ty = self.operand_ty(lhs)?;
         let rhs_ty = self.operand_ty(rhs)?;
         let unions = |ty: TypeId| !self.is_bigint_type(ty) && self.type_may_hold_bigint(ty);
@@ -465,6 +468,10 @@ impl FunctionEmitter<'_> {
                 ))))
             }
             BigIntOp::Div | BigIntOp::Rem | BigIntOp::Pow | BigIntOp::Shl | BigIntOp::Shr => {
+                #[expect(
+                    clippy::wildcard_enum_match_arm,
+                    reason = "sub-dispatch: the enclosing arm admits only `Div`/`Rem`/`Pow`/`Shl`/`Shr`"
+                )]
                 let helper = match op {
                     BigIntOp::Div => "smelt_bigint_div",
                     BigIntOp::Rem => "smelt_bigint_rem",

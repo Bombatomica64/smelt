@@ -380,13 +380,29 @@ impl ModuleBuilder<'_> {
             && item_tys.contains(&none_ty)
             && !Self::array_literal_mixes_nullish_spellings(items, body)
         {
+            // `[2, null]` holds `null` where an element is absent, as the
+            // annotation `(number | null)[]` does; `[2, undefined]` holds
+            // `undefined`.
+            let absence = if Self::array_literal_writes_null(items, body) {
+                smelt_hir::Absence::Null
+            } else {
+                smelt_hir::Absence::Undefined
+            };
             return self
                 .ctx
                 .krate
                 .types
-                .intern(Type::Optional(first_non_nullish));
+                .intern(Type::Optional(first_non_nullish, absence));
         }
         self.erase_with(ErasureReason::DynamicOperator, "mixed array literal")
+    }
+
+    /// Whether an array literal writes a `null` literal element.
+    fn array_literal_writes_null(items: &[smelt_hir::ExprId], body: &Body) -> bool {
+        items.iter().any(|item| {
+            body.expr_at(*item)
+                .is_some_and(|expr| matches!(expr.kind, ExprKind::Literal(Literal::None)))
+        })
     }
 
     /// Report whether an array literal writes BOTH `null` and `undefined`.
@@ -513,6 +529,10 @@ impl ModuleBuilder<'_> {
             let spread_value = self
                 .match_array_view(spread_value, element_span, body)
                 .unwrap_or(spread_value);
+            // An object spreads through its `[Symbol.iterator]()` generator.
+            let spread_value = self
+                .class_iterator_generator(spread_value, element_span, body)
+                .unwrap_or(spread_value);
             let value_ty = self.type_param_constraint_or_self(Self::expr_ty(body, spread_value));
             let item_ty = match self.ctx.krate.types.get(value_ty) {
                 Some(Type::List(item_ty) | Type::Set(item_ty)) => *item_ty,
@@ -527,7 +547,7 @@ impl ModuleBuilder<'_> {
                 Some(
                     Type::TypeParam { .. }
                     | Type::Class { .. }
-                    | Type::Optional(_)
+                    | Type::Optional(..)
                     | Type::Union(_),
                 ) => self.erase_with(ErasureReason::DynamicOperator, "array spread"),
                 _ => {
@@ -556,6 +576,9 @@ impl ModuleBuilder<'_> {
                     // (`[...view, 0]`): convert it to its elements here, before
                     // the pieces are unified, so the list stays numeric.
                     let element_span = self.span(spread.span.start, spread.span.end);
+                    let spread_value = self
+                        .class_iterator_generator(spread_value, element_span, body)
+                        .unwrap_or(spread_value);
                     let spread_value = self
                         .typed_array_spread_list(spread_value, element_span, body)
                         .or_else(|| self.match_array_view(spread_value, element_span, body))
@@ -766,7 +789,7 @@ impl ModuleBuilder<'_> {
                 Type::Unknown
                 | Type::TypeParam { .. }
                 | Type::Class { .. }
-                | Type::Optional(_)
+                | Type::Optional(..)
                 | Type::Union(_),
             )
             | None => Ok(body.push_expr(Expr {

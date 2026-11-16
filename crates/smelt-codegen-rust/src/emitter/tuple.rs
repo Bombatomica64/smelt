@@ -24,7 +24,7 @@ impl FunctionEmitter<'_> {
             // compares directly when its inner type is a tuple element type, or,
             // when it is erased (`unknown | undefined`), against each field
             // erased to the runtime `SmeltUnknown` value (JS `includes`).
-            if let Some(Type::Optional(opt_inner)) = self.mir.types.get(item_ty) {
+            if let Some(Type::Optional(opt_inner, _)) = self.mir.types.get(item_ty) {
                 let inner = *opt_inner;
                 if items_len == 0 {
                     return Ok(RustExpr::path("false"));

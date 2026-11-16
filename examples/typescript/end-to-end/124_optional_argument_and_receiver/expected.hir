@@ -9,7 +9,7 @@ module examples/typescript/end-to-end/124_optional_argument_and_receiver/input.t
     #0: fn(String, Optional<String>) -> String = closure BodyId(0) captures 0 -> String
     #1: fn(String, Optional<String>) -> String = %0
     #2: String = "p"
-    #3: Optional<String> = none
+    #3: Optional<String> = undefined
     #4: String = closure_call #1(#2, #3)
     #5: fn(String, Optional<String>) -> String = %0
     #6: String = "p"

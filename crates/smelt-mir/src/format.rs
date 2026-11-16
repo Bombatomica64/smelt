@@ -195,6 +195,7 @@ fn statement_text(statement: &Statement) -> String {
             local_ref(*current),
             rvalue_text(value)
         ),
+        Statement::StorageLive(local) => format!("storage_live {}", local_ref(*local)),
     }
 }
 
@@ -501,6 +502,7 @@ fn callee_text(callee: &Callee) -> String {
         Callee::Builtin(BuiltinFn::ConsoleLog { .. }) => "@console_log".to_owned(),
         Callee::Builtin(BuiltinFn::ConsoleWrite) => "@console_write".to_owned(),
         Callee::Builtin(BuiltinFn::ConsoleErrorWrite) => "@console_error_write".to_owned(),
+        Callee::Builtin(BuiltinFn::ErasedListWriteBack) => "@erased_list_write_back".to_owned(),
         Callee::Op(_, Some(_)) => "@callback_op".to_owned(),
         Callee::Op(op, None) => op_call_text(op),
     }
@@ -573,6 +575,7 @@ fn constant_text(constant: &Constant) -> String {
             }
         }
         Constant::BigInt(digits) => format!("{digits}n"),
+        Constant::PyInt(digits) => format!("{digits}py"),
         Constant::String(value) => format!("\"{value}\""),
         Constant::StringUnits(units) => format!("\"{}\"", smelt_hir::string_units_text(units)),
         Constant::Symbol(value) => format!("symbol({value:?})"),
@@ -594,6 +597,7 @@ fn type_ref(mir: &Mir, ty: TypeId) -> String {
     match ty_value {
         Type::Bool => "Bool".to_owned(),
         Type::Int => "Int".to_owned(),
+        Type::PyInt => "PyInt".to_owned(),
         Type::Float => "Float".to_owned(),
         Type::FixedInt(width) => width.rust_name().to_owned(),
         Type::BigInt => "BigInt".to_owned(),
@@ -621,7 +625,10 @@ fn type_ref(mir: &Mir, ty: TypeId) -> String {
                 .join(", ");
             format!("({item_list})")
         }
-        Type::Optional(item) => format!("Optional<{}>", type_ref(mir, *item)),
+        Type::Optional(item, absence) => match absence {
+            smelt_hir::Absence::Undefined => format!("Optional<{}>", type_ref(mir, *item)),
+            smelt_hir::Absence::Null => format!("Nullable<{}>", type_ref(mir, *item)),
+        },
         Type::Union(items) => items
             .iter()
             .map(|item| type_ref(mir, *item))
@@ -682,6 +689,10 @@ fn type_ref(mir: &Mir, ty: TypeId) -> String {
             type_ref(mir, *yield_ty),
             type_ref(mir, *return_ty)
         ),
+        // Never a MIR type (see `Type::IndexedAccess`); spelled as in source.
+        Type::IndexedAccess { object, index } => {
+            format!("{}[{}]", type_ref(mir, *object), type_ref(mir, *index))
+        }
     }
 }
 

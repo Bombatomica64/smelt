@@ -266,7 +266,7 @@ impl ModuleBuilder<'_> {
             // expands -- it just has to be unwrapped first. Hono reaches this
             // with `router.add(...routes[i])`, where the element read of an
             // optional private field is `Option<(String, String, T)>`.
-            Some(Type::Optional(inner))
+            Some(Type::Optional(inner, _))
                 if matches!(self.ctx.krate.types.get(inner), Some(Type::Tuple(_))) =>
             {
                 (inner, true)
@@ -428,7 +428,7 @@ impl ModuleBuilder<'_> {
                             self.index_type(Self::expr_ty(body, spread_list))
                                 .unwrap_or(rest.item_ty)
                         });
-                    let kind = if matches!(self.ctx.krate.types.get(ty), Some(Type::Optional(_))) {
+                    let kind = if matches!(self.ctx.krate.types.get(ty), Some(Type::Optional(..))) {
                         ExprKind::OptionalIndex {
                             receiver: spread_list,
                             index,

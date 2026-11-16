@@ -550,7 +550,7 @@ impl ModuleBuilder<'_> {
                     // TypeScript class fields carry for the `?` spelling.
                     let field_optional = matches!(
                         self.ctx.krate.types.get(field_ty),
-                        Some(Type::Optional(_))
+                        Some(Type::Optional(..))
                     );
                     let field = Field {
                         name: field_sym,
@@ -815,9 +815,22 @@ impl ModuleBuilder<'_> {
                     ),
                 ));
             }
-            let init_id = self.synthesize_dataclass_init(class_sym, class_ty, fields, span)?;
+            let init_id = self.synthesize_dataclass_init(class, class_sym, class_ty, fields, span)?;
             constructor_id = Some(init_id);
             hir_module.items.push(init_id);
+            // The decorator also generates `__repr__` unless the class has one.
+            let has_repr = self
+                .class_methods
+                .get(class_name_str)
+                .is_some_and(|methods| methods.contains_key("__repr__"));
+            if !has_repr && let Some(repr_id) = self.synthesize_dataclass_repr(class_sym, class_ty, fields, span)? {
+                method_ids.push(repr_id);
+                hir_module.items.push(repr_id);
+                self.class_methods
+                    .entry(class_name_str.to_owned())
+                    .or_default()
+                    .insert("__repr__".to_owned(), repr_id);
+            }
         } else if constructor_id.is_none() {
             // Python inherits `__init__` when a subclass does not declare one.
             // Preserve that signature and initialization under Smelt's flattened
@@ -999,7 +1012,7 @@ impl ModuleBuilder<'_> {
                 }
                 let optional = matches!(
                     self.ctx.krate.types.get(field_ty),
-                    Some(Type::Optional(_))
+                    Some(Type::Optional(..))
                 );
                 collected.push(Field {
                     name: field_sym,
@@ -1085,7 +1098,7 @@ impl ModuleBuilder<'_> {
         match value {
             Expr::Name(name) => param_types.get(name.id.as_str()).copied(),
             Expr::NumberLiteral(number) => match &number.value {
-                Number::Int(_) => Some(self.intern_type(Type::Int)),
+                Number::Int(_) => Some(self.intern_type(Type::PyInt)),
                 Number::Float(_) => Some(self.intern_type(Type::Float)),
                 Number::Complex { .. } => None,
             },
@@ -1360,7 +1373,7 @@ impl ModuleBuilder<'_> {
                             "class-variable integer literal is out of i64 range",
                         )
                     })?;
-                    (Literal::Int(value), self.intern_type(Type::Int))
+                    (Literal::Int(value), self.intern_type(Type::PyInt))
                 }
                 Number::Float(value) => {
                     (Literal::Float(*value), self.intern_type(Type::Float))
@@ -1514,7 +1527,7 @@ impl ModuleBuilder<'_> {
                         name: self.intern_name(target.id.as_str()),
                         ty,
                         visibility: Visibility::Public,
-                        optional: matches!(self.ctx.krate.types.get(ty), Some(Type::Optional(_))),
+                        optional: matches!(self.ctx.krate.types.get(ty), Some(Type::Optional(..))),
                         span: self.span(ann.range),
                     });
                 }
@@ -1827,7 +1840,8 @@ impl ModuleBuilder<'_> {
 
     /// Classify the typed Python `__add__` operator protocol for backend trait emission.
     ///
-    /// Only `__add__` and its super alias are classified. Protocol metadata is
+    /// `__add__`, `__str__` and `__repr__` (and their super aliases) are
+    /// classified. Protocol metadata is
     /// explicit HIR rather than a backend name check, so a TypeScript method
     /// that happens to use the same spelling does not acquire Python operator
     /// semantics. An inherited `__add__` is represented by the derived class's
@@ -1845,13 +1859,38 @@ impl ModuleBuilder<'_> {
                 )
             })
         };
+        let mut protocols = Vec::new();
+        // `__str__`/`__repr__` take only `self` and answer a `str`; the text a
+        // class has is its own method's, or the one its base defines.
+        for name in ["__str__", "__repr__"] {
+            let Some(method) = named_method(name).or_else(|| named_method(&format!("__smelt$super${name}"))) else {
+                continue;
+            };
+            let Item::Function(function) = self.item_ref(method) else {
+                continue;
+            };
+            if function.params.len() != 1
+                || function.is_async
+                || !matches!(self.ctx.krate.types.get(function.return_ty), Some(Type::PyStr))
+            {
+                return Err(SmeltError::unsupported(
+                    function.span,
+                    format!("Python {name} must be synchronous, take only self and return str"),
+                ));
+            }
+            protocols.push(if name == "__str__" {
+                ClassProtocol::Str { method }
+            } else {
+                ClassProtocol::Repr { method }
+            });
+        }
         let Some(method) = named_method("__add__")
             .or_else(|| named_method("__smelt$super$__add__"))
         else {
-            return Ok(Vec::new());
+            return Ok(protocols);
         };
         let Item::Function(function) = self.item_ref(method) else {
-            return Ok(Vec::new());
+            return Ok(protocols);
         };
         if function.params.len() != 2 || function.is_async {
             return Err(SmeltError::unsupported(
@@ -1859,7 +1898,8 @@ impl ModuleBuilder<'_> {
                 "Python __add__ must be synchronous and accept exactly one operand",
             ));
         }
-        Ok(vec![ClassProtocol::Add { method }])
+        protocols.push(ClassProtocol::Add { method });
+        Ok(protocols)
     }
 
     /// Return a class's effective instance methods under single inheritance.

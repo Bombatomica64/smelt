@@ -44,5 +44,5 @@ interned types
   t17 = List<(String, String)>
   t18 = Response
   t19 = ReadableStream
-  t20 = Optional<ReadableStream>
+  t20 = Nullable<ReadableStream>
   t21 = async fn() -> Future<None>

@@ -86,7 +86,7 @@ impl ModuleBuilder<'_> {
     fn contains_mutable_container(&self, ty: TypeId) -> bool {
         match self.ctx.krate.types.get(ty) {
             Some(Type::List(_) | Type::Dict(..) | Type::Set(_)) => true,
-            Some(Type::Optional(inner)) => self.contains_mutable_container(*inner),
+            Some(Type::Optional(inner, _)) => self.contains_mutable_container(*inner),
             Some(Type::Union(members) | Type::Tuple(members)) => {
                 members.clone().into_iter().any(|member| self.contains_mutable_container(member))
             }
@@ -158,7 +158,7 @@ impl ModuleBuilder<'_> {
     fn union_like_members(&self, ty: &Type) -> Option<Vec<TypeId>> {
         match ty {
             Type::Union(members) => Some(members.clone()),
-            Type::Optional(inner) => {
+            Type::Optional(inner, _) => {
                 let mut members = vec![*inner];
                 if let Some(none_id) = self.find_interned_type(&Type::None) {
                     members.push(none_id);
@@ -510,9 +510,9 @@ impl ModuleBuilder<'_> {
                 let items = substitute_all(self, &items);
                 self.intern_type(Type::Tuple(items))
             }
-            Type::Optional(inner) => {
+            Type::Optional(inner, _) => {
                 let inner = self.substitute_alias_params(inner, substitutions);
-                self.intern_type(Type::Optional(inner))
+                self.intern_type(Type::Optional(inner, smelt_hir::Absence::Undefined))
             }
             Type::List(item) => {
                 let item = self.substitute_alias_params(item, substitutions);
@@ -552,7 +552,7 @@ impl ModuleBuilder<'_> {
             return Ok(self.py_exception_type());
         }
         match name {
-            "int" => Ok(self.intern_type(Type::Int)),
+            "int" => Ok(self.intern_type(Type::PyInt)),
             "float" => Ok(self.intern_type(Type::Float)),
             "str" => Ok(self.intern_type(Type::PyStr)),
             "bool" => Ok(self.intern_type(Type::Bool)),
@@ -755,7 +755,7 @@ impl ModuleBuilder<'_> {
 /// Whether `ty` is the `int` primitive, for the numeric-tower widening rule in
 /// [`ModuleBuilder::type_assignable_to`].
 fn is_int_like(ty: &Type) -> bool {
-    matches!(ty, Type::Int)
+    matches!(ty, Type::PyInt)
 }
 
 /// Whether `ty` is the `float` primitive, for the numeric-tower widening rule in

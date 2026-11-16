@@ -159,6 +159,9 @@ impl FunctionEmitter<'_> {
         if let Some(key) = self.prop_key_conversion(&operand_expr, source_ty, target)? {
             return Ok(key);
         }
+        if let Some(converted) = self.py_int_conversion(&operand_expr, source_ty, target) {
+            return Ok(converted);
+        }
         if let Some(key) =
             self.key_union_at_string(&operand_expr.cloned_value(), source_ty, target)?
         {
@@ -296,8 +299,31 @@ impl FunctionEmitter<'_> {
         // that holds `null`. Slots whose payload cannot carry the tag (a
         // concrete inner or a tagged union with no nullish arm) keep the
         // collapsed `None` encoding.
+        // `null` in a slot that admits both absences (`Option<Option<T>>`,
+        // `undefined` outside) is the present-but-null `Some(None)`.
         if matches!(operand, Operand::Const(Constant::None))
-            && let Some(Type::Optional(inner)) = self.mir.types.get(target)
+            && let (base, true, true) =
+                smelt_hir::type_normalize::peel_optional(&self.mir.types, target)
+            && base != self.none_ty
+            && let Some(&Type::Optional(null_layer, _)) = self.mir.types.get(target)
+        {
+            return Ok(RustExpr::chain(format!(
+                "Some({})",
+                self.default_value(null_layer)?.delimited()
+            )));
+        }
+        // `null` in a `T | null` slot is its `None`, whatever `T` is: a generic
+        // body compiled once for every `T` tests `is_none()`. An erased
+        // payload may still carry a `null` tag of its own (a value converted
+        // in from `unknown`), so comparisons on such a slot accept both
+        // (`absence_equality_expr`).
+        if matches!(operand, Operand::Const(Constant::None))
+            && let Some(Type::Optional(_, smelt_hir::Absence::Null)) = self.mir.types.get(target)
+        {
+            return self.default_value(target);
+        }
+        if matches!(operand, Operand::Const(Constant::None))
+            && let Some(Type::Optional(inner, _)) = self.mir.types.get(target)
             && self.optional_inner_preserves_erased_singletons(*inner)
         {
             return Ok(RustExpr::chain(format!(
@@ -314,7 +340,7 @@ impl FunctionEmitter<'_> {
         // The same distinction in a `null | undefined` slot (`Option<()>`, see
         // the frontend's `null_or_undefined_join`): `null` is the present unit.
         if matches!(operand, Operand::Const(Constant::None))
-            && let Some(Type::Optional(inner)) = self.mir.types.get(target)
+            && let Some(Type::Optional(inner, _)) = self.mir.types.get(target)
             && *inner == self.none_ty
         {
             return Ok(RustExpr::chain("Some(())"));
@@ -336,6 +362,108 @@ impl FunctionEmitter<'_> {
         self.value_at_optional(operand, target, scope, source_ty, &operand_expr)
     }
 
+    /// Convert an owned optional `value` of `source` to `target` when the two
+    /// render a different number of `Option` layers.
+    ///
+    /// A type admitting both `null` and `undefined` is `Option<Option<T>>`
+    /// (`undefined` outside); one admitting a single absence is `Option<T>`.
+    /// Into the two-layer form, a `T | undefined` keeps its `None` outside
+    /// (`v.map(Some)`) and a `T | null` keeps its `None` inside
+    /// (`Some(v)`). Out of it, the two absences meet in one `None`
+    /// (`v.flatten()`), which is only reached where the source narrowed one
+    /// of them away. `None` when the layouts agree (the ordinary optional
+    /// rules apply) or when either side is not optional.
+    fn reshape_absence_layers(
+        &self,
+        value: &RustExpr,
+        source: TypeId,
+        target: TypeId,
+        scope: &RenderScope,
+    ) -> Result<Option<RustExpr>, EmitError> {
+        use smelt_hir::type_normalize::peel_optional;
+        let (source_base, source_undefined, source_null) = peel_optional(&self.mir.types, source);
+        let (target_base, target_undefined, target_null) = peel_optional(&self.mir.types, target);
+        let layers = |undefined: bool, null: bool| match (undefined, null) {
+            (true, true) => 2_u8,
+            (false, false) => 0,
+            _ => 1,
+        };
+        let source_layers = layers(source_undefined, source_null);
+        let target_layers = layers(target_undefined, target_null);
+        // Out of both layers into a bare value (a narrowed read): the two
+        // absences are one `None`, and the single-layer rules take it from
+        // there (`expect` after narrowing, a default, an erased payload).
+        // An erased target can hold either absence as a tag, so it takes the
+        // ordinary erasure, which keeps them apart.
+        let target_erased = matches!(
+            self.mir.types.get(target_base),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+        ) || self.is_erased_class_type(target_base);
+        if source_layers == 2 && target_layers == 0 && !target_erased {
+            // A read narrowed to the payload is present by construction, as
+            // the one-layer narrowing asserts (`expect`).
+            let present =
+                value.postfix(".flatten().expect(\"optional value was absent after narrowing\")");
+            if source_base == target {
+                return Ok(Some(present));
+            }
+            return self
+                .rendered_at_type(&present, source_base, target, scope)
+                .map(Some);
+        }
+        if source_layers == 0 || target_layers == 0 || source_layers == target_layers {
+            return Ok(None);
+        }
+        let payload = |from: TypeId, to: TypeId| {
+            if from == to {
+                Ok(RustExpr::path("smelt_value"))
+            } else {
+                self.rendered_at_type(&RustExpr::path("smelt_value"), from, to, scope)
+            }
+        };
+        Ok(Some(if source_layers == 1 {
+            if source_undefined {
+                // `undefined` stays the outer `None`; a present payload is
+                // converted to the inner `T | null` layer, so an erased
+                // payload holding `null` lands on `Some(None)`.
+                let inner_target = match self.mir.types.get(target) {
+                    Some(Type::Optional(inner, _)) => *inner,
+                    _ => target_base,
+                };
+                let mapped = payload(source_base, inner_target)?;
+                value.postfix(format!(
+                    ".map(|smelt_value| {mapped})",
+                    mapped = mapped.delimited()
+                ))
+            } else {
+                let mapped = payload(source_base, target_base)?;
+                RustExpr::atom(format!(
+                    "Some({value}.map(|smelt_value| {mapped}))",
+                    value = value.tight(),
+                    mapped = mapped.delimited()
+                ))
+            }
+        } else if target_erased && target_undefined {
+            // `undefined` stays the outer `None`; the inner `T | null` layer
+            // erases into the payload, `null` as its tag.
+            let inner_source = match self.mir.types.get(source) {
+                Some(Type::Optional(inner, _)) => *inner,
+                _ => source_base,
+            };
+            let mapped = payload(inner_source, target_base)?;
+            value.postfix(format!(
+                ".map(|smelt_value| {mapped})",
+                mapped = mapped.delimited()
+            ))
+        } else {
+            let mapped = payload(source_base, target_base)?;
+            value.postfix(format!(
+                ".flatten().map(|smelt_value| {mapped})",
+                mapped = mapped.delimited()
+            ))
+        }))
+    }
+
     /// Optional rules of [`Self::value_at_type_in`].
     fn value_at_optional(
         &self,
@@ -345,12 +473,25 @@ impl FunctionEmitter<'_> {
         source_ty: TypeId,
         operand_expr: &RustExpr,
     ) -> Result<RustExpr, EmitError> {
-        if let (Some(Type::Optional(source_inner)), Some(Type::Optional(target_inner))) = (
+        if let Some(reshaped) = self.reshape_absence_layers(
+            &self.operand_expr(operand)?.cloned_value(),
+            self.operand_ty(operand)?,
+            target,
+            scope,
+        )? {
+            return Ok(reshaped);
+        }
+        if let (Some(Type::Optional(source_inner, _)), Some(Type::Optional(target_inner, _))) = (
             self.mir.types.get(self.operand_ty(operand)?),
             self.mir.types.get(target),
         ) {
             let value_text = self.operand_expr(operand)?;
-            if self.mir.types.get(*source_inner) == Some(&Type::Optional(*target_inner)) {
+            if self.mir.types.get(*source_inner)
+                == Some(&Type::Optional(
+                    *target_inner,
+                    smelt_hir::Absence::Undefined,
+                ))
+            {
                 return Ok(value_text.cloned_value().postfix(".flatten()"));
             }
             if source_inner == target_inner {
@@ -358,7 +499,7 @@ impl FunctionEmitter<'_> {
             }
             return self.optional_value_map_expr(&value_text, *source_inner, *target_inner, scope);
         }
-        if matches!(self.mir.types.get(target), Some(Type::Optional(_)))
+        if matches!(self.mir.types.get(target), Some(Type::Optional(..)))
             && matches!(
                 operand,
                 Operand::Copy(Place::Field { .. }) | Operand::Move(Place::Field { .. })
@@ -370,7 +511,7 @@ impl FunctionEmitter<'_> {
         {
             return self.extract(operand, target, scope);
         }
-        if let Some(Type::Optional(inner)) = self.mir.types.get(target) {
+        if let Some(Type::Optional(inner, _)) = self.mir.types.get(target) {
             // A JS element read flowing into an optional slot keeps its own
             // fallibility instead of being made total and then re-wrapped in
             // `Some(..)`. Without this, `last<T>(arr: T[]): T | undefined`
@@ -379,7 +520,7 @@ impl FunctionEmitter<'_> {
                 return Ok(read);
             }
             let operand_ty = self.operand_ty(operand)?;
-            if matches!(self.mir.types.get(operand_ty), Some(Type::Optional(source_inner)) if matches!(self.mir.types.get(*source_inner), Some(Type::Unknown)))
+            if matches!(self.mir.types.get(operand_ty), Some(Type::Optional(source_inner, _)) if matches!(self.mir.types.get(*source_inner), Some(Type::Unknown)))
                 && (self.has_dynamic_shape(*inner))
             {
                 return self.operand_expr(operand);
@@ -401,7 +542,31 @@ impl FunctionEmitter<'_> {
             ) {
                 return self.extract(operand, target, scope);
             }
-            if operand_ty == *inner {
+            // An erased value carries its own tag: the slot's absence is its
+            // `None` (`extract_optional`). A generic callee's `is_none()`
+            // reads exactly that, also when the slot's payload is erased
+            // (`isDefined<T>(data: T | undefined)` at `T = unknown`).
+            if matches!(self.mir.types.get(operand_ty), Some(Type::Unknown)) {
+                return self.extract(operand, target, scope);
+            }
+            // An erased value into `T | null | undefined` carries its own tag:
+            // each absence lands on its own layer (see `rendered_at_optional`).
+            if matches!(self.mir.types.get(*inner), Some(Type::Optional(..)))
+                && matches!(self.mir.types.get(operand_ty), Some(Type::Unknown))
+            {
+                return self.rendered_at_type(
+                    &self.operand_expr(operand)?.cloned_value(),
+                    operand_ty,
+                    target,
+                    scope,
+                );
+            }
+            // A present value into `T | null | undefined` (`Option<Option<T>>`)
+            // is present in both layers.
+            if operand_ty == *inner
+                || (matches!(self.mir.types.get(*inner), Some(Type::Optional(..)))
+                    && !matches!(self.mir.types.get(operand_ty), Some(Type::Optional(..))))
+            {
                 return Ok(RustExpr::chain(format!(
                     "Some({})",
                     self.value_at_type_in(operand, *inner, scope)?.delimited()
@@ -506,7 +671,7 @@ impl FunctionEmitter<'_> {
             // deep-copy the temporary for nothing.
             return Ok(text.cloned_value());
         }
-        if let Some(Type::Optional(inner)) = self.mir.types.get(self.operand_ty(operand)?)
+        if let Some(Type::Optional(inner, _)) = self.mir.types.get(self.operand_ty(operand)?)
             && *inner == target
         {
             // As above: one clone, and the default only on the absent path.
@@ -518,14 +683,15 @@ impl FunctionEmitter<'_> {
                 ))
             });
         }
-        if let Some(Type::Optional(inner)) = self.mir.types.get(self.operand_ty(operand)?) {
+        if let Some(Type::Optional(inner, _)) = self.mir.types.get(self.operand_ty(operand)?) {
             let value_text =
                 self.rendered_at_type(&RustExpr::path("smelt_value"), *inner, target, scope)?;
+            let absent = self.absent_value_at(self.operand_ty(operand)?, target)?;
             return Ok({
                 let receiver = self.operand_expr(operand)?;
                 receiver.postfix(format!(
                     ".clone().map_or({}, |smelt_value| {value_text})",
-                    self.default_value(target)?.delimited(),
+                    absent.delimited(),
                     value_text = value_text.delimited()
                 ))
             });
@@ -762,7 +928,7 @@ impl FunctionEmitter<'_> {
         for field in &fields {
             if self.symbol_name(field.name)? == SMELT_CALL {
                 call_slot = Some(field.ty);
-            } else if !matches!(self.mir.types.get(field.ty), Some(Type::Optional(_))) {
+            } else if !matches!(self.mir.types.get(field.ty), Some(Type::Optional(..))) {
                 return Ok(None);
             }
         }
@@ -868,7 +1034,9 @@ impl FunctionEmitter<'_> {
         ));
         let interned_view_ty = self
             .find_type_id(&Type::String)
-            .and_then(|string_ty| self.find_type_id(&Type::Optional(string_ty)))
+            .and_then(|string_ty| {
+                self.find_type_id(&Type::Optional(string_ty, smelt_hir::Absence::Undefined))
+            })
             .and_then(|group_ty| self.find_type_id(&Type::List(group_ty)));
         if let Some(view_ty) = interned_view_ty {
             if view_ty == target {
@@ -910,6 +1078,9 @@ impl FunctionEmitter<'_> {
         if let Some(key) = self.prop_key_conversion(value_text, source, target)? {
             return Ok(key);
         }
+        if let Some(converted) = self.py_int_conversion(value_text, source, target) {
+            return Ok(converted);
+        }
         if let Some(key) = self.key_union_at_string(value_text, source, target)? {
             return Ok(key);
         }
@@ -941,6 +1112,24 @@ impl FunctionEmitter<'_> {
         let smelt_owned_value = value_text.cloned_value();
         if source == target && !matches!(self.mir.types.get(target), Some(Type::Function(_))) {
             return Ok(value_text.to_owned());
+        }
+        // A value of a type parameter that renders as a real Rust generic (a
+        // lifted `T`) into optional layers over that same `T`: present in
+        // every layer. It is a `T`, not the erased carrier, so it has no tag
+        // to inspect.
+        if matches!(self.mir.types.get(source), Some(Type::TypeParam { .. }))
+            && matches!(self.mir.types.get(target), Some(Type::Optional(..)))
+            && !self.renders_erased(source).unwrap_or(true)
+            && let (base, undefined, null) =
+                smelt_hir::type_normalize::peel_optional(&self.mir.types, target)
+            && base == source
+        {
+            let wrapped = if undefined && null {
+                format!("Some(Some({}))", smelt_owned_value.delimited())
+            } else {
+                format!("Some({})", smelt_owned_value.delimited())
+            };
+            return Ok(RustExpr::chain(wrapped));
         }
         // Text crossing between the two languages of a mixed crate: a
         // JavaScript string is UTF-16 (`JsString`), a Python `str` is UTF-8
@@ -1380,13 +1569,22 @@ impl FunctionEmitter<'_> {
         scope: &RenderScope,
         smelt_owned_value: RustExpr,
     ) -> Result<RustExpr, EmitError> {
-        if let (Some(Type::Optional(source_inner)), Some(Type::Optional(target_inner))) =
+        if let Some(reshaped) =
+            self.reshape_absence_layers(&smelt_owned_value, source, target, scope)?
+        {
+            return Ok(reshaped);
+        }
+        if let (Some(Type::Optional(source_inner, _)), Some(Type::Optional(target_inner, _))) =
             (self.mir.types.get(source), self.mir.types.get(target))
-            && self.mir.types.get(*source_inner) == Some(&Type::Optional(*target_inner))
+            && self.mir.types.get(*source_inner)
+                == Some(&Type::Optional(
+                    *target_inner,
+                    smelt_hir::Absence::Undefined,
+                ))
         {
             return Ok(smelt_owned_value.postfix(".flatten()"));
         }
-        if let (Some(Type::Optional(source_inner)), Some(Type::Optional(target_inner))) =
+        if let (Some(Type::Optional(source_inner, _)), Some(Type::Optional(target_inner, _))) =
             (self.mir.types.get(source), self.mir.types.get(target))
         {
             if source_inner == target_inner {
@@ -1399,11 +1597,28 @@ impl FunctionEmitter<'_> {
                 scope,
             );
         }
-        if let Some(Type::Optional(inner)) = self.mir.types.get(target)
-            && matches!(
+        // An erased value into `T | null | undefined`: each tag lands on its
+        // own layer, `undefined` outside and `null` inside.
+        if let (base, true, true) =
+            smelt_hir::type_normalize::peel_optional(&self.mir.types, target)
+            && base != self.none_ty
+            && matches!(self.mir.types.get(source), Some(Type::Unknown))
+        {
+            let mapped_value =
+                self.rendered_at_type(&RustExpr::path("smelt_value"), source, base, scope)?;
+            return Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
+                "match {smelt_owned_value} {{ SmeltUnknown::Undefined => None, SmeltUnknown::Null => Some(None), smelt_value => Some(Some({mapped_value})) }}", smelt_owned_value = smelt_owned_value.delimited(), mapped_value = mapped_value.delimited()
+            ))));
+        }
+        // A type parameter that renders as a real Rust generic (a lifted `T`)
+        // is a value of its own type, not the carrier: it takes the plain
+        // wrapping below.
+        if let Some(Type::Optional(inner, _)) = self.mir.types.get(target)
+            && (matches!(
                 self.mir.types.get(source),
-                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-            )
+                Some(Type::Unknown | Type::Union(_))
+            ) || (matches!(self.mir.types.get(source), Some(Type::TypeParam { .. }))
+                && (source != *inner || self.renders_erased(source).unwrap_or(true))))
         {
             let mapped_value =
                 self.rendered_at_type(&RustExpr::path("smelt_value"), source, *inner, scope)?;
@@ -1417,7 +1632,7 @@ impl FunctionEmitter<'_> {
                 "match {smelt_owned_value} {{ SmeltUnknown::Null | SmeltUnknown::Undefined => None, smelt_value => Some({mapped_value}) }}", smelt_owned_value = smelt_owned_value.delimited(), mapped_value = mapped_value.delimited()
             ))));
         }
-        if let Some(Type::Optional(inner)) = self.mir.types.get(target)
+        if let Some(Type::Optional(inner, _)) = self.mir.types.get(target)
             && source == *inner
         {
             return Ok(RustExpr::chain(format!(
@@ -1425,7 +1640,22 @@ impl FunctionEmitter<'_> {
                 value_text = value_text.delimited()
             )));
         }
-        if let Some(Type::Optional(inner)) = self.mir.types.get(target) {
+        // A present value into `T | null | undefined` is present in both
+        // layers.
+        if let Some(Type::Optional(inner, _)) = self.mir.types.get(target)
+            && matches!(self.mir.types.get(*inner), Some(Type::Optional(..)))
+            && !matches!(
+                self.mir.types.get(source),
+                Some(Type::Optional(..) | Type::None)
+            )
+        {
+            let mapped_value = self.rendered_at_type(value_text, source, *inner, scope)?;
+            return Ok(RustExpr::chain(format!(
+                "Some({mapped_value})",
+                mapped_value = mapped_value.delimited()
+            )));
+        }
+        if let Some(Type::Optional(inner, _)) = self.mir.types.get(target) {
             if self.mir.types.get(source) == Some(&Type::None) {
                 return Ok(RustExpr::path("None"));
             }
@@ -1437,7 +1667,7 @@ impl FunctionEmitter<'_> {
                 )));
             }
         }
-        if let Some(Type::Optional(inner)) = self.mir.types.get(source)
+        if let Some(Type::Optional(inner, _)) = self.mir.types.get(source)
             && *inner == target
         {
             return Ok(smelt_owned_value.postfix(format!(
@@ -1445,16 +1675,33 @@ impl FunctionEmitter<'_> {
                 self.default_value(target)?.delimited()
             )));
         }
-        if let Some(Type::Optional(inner)) = self.mir.types.get(source) {
+        if let Some(Type::Optional(inner, _)) = self.mir.types.get(source) {
             let mapped_value =
                 self.rendered_at_type(&RustExpr::path("smelt_value"), *inner, target, scope)?;
             return Ok(smelt_owned_value.postfix(format!(
                 ".map_or({}, |smelt_value| {mapped_value})",
-                self.default_value(target)?.delimited(),
+                self.absent_value_at(source, target)?.delimited(),
                 mapped_value = mapped_value.delimited()
             )));
         }
         self.rendered_across_containers(value_text, source, target, scope)
+    }
+
+    /// The value an absent `optional` stands for at `target`.
+    ///
+    /// The target's default, except where `target` is the erased carrier and
+    /// `optional` is a `T | null` (`TypeInterner::intern_null_optional`): its
+    /// only absent value is `null`, so at that dynamic boundary its `None` is
+    /// `SmeltUnknown::Null`, as the erasure of the value itself answers
+    /// (`erase::optional_absent_value`). `[1, null]` handed to an
+    /// `unknown[]` parameter kept `null === null` false otherwise.
+    fn absent_value_at(&self, optional: TypeId, target: TypeId) -> Result<RustExpr, EmitError> {
+        if self.mir.types.absent_is_null(optional)
+            && matches!(self.mir.types.get(target), Some(Type::Unknown))
+        {
+            return Ok(self.carrier_expr(self.carrier()?, &RustExpr::path("SmeltUnknown::Null")));
+        }
+        self.default_value(target)
     }
 
     /// Conversions between container kinds: a tuple, list, dict or record read as another.

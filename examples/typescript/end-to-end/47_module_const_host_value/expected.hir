@@ -59,7 +59,7 @@ module examples/typescript/end-to-end/47_module_const_host_value/input.ts (Modul
     #43: None = call #42(#41)
     #44: Headers = global_get @2(headers)
     #45: String = "content-type"
-    #46: Optional<String> = headers_get #44, #45
+    #46: Nullable<String> = headers_get #44, #45
     #47: String = "none"
     #48: String = #46 ?? #47
     #49: None = @23(console_log)
@@ -95,7 +95,7 @@ interned types
   t10 = None
   t11 = fn() -> None
   t12 = Uint8Array
-  t13 = Optional<String>
+  t13 = Nullable<String>
   t14 = fn(String) -> Float
   t15 = fn(String) -> String
   t16 = fn() -> String

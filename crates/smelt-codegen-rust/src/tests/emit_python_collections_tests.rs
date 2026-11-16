@@ -15,8 +15,8 @@ def run() -> None:
     assert_eq!(
         rust_fn(&source, "run"),
         r"fn run() -> () {
-let values: SmeltList<i64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<i64> = vec![1, 2]; smelt_list_items }));
-let copied: SmeltList<i64> = Into::<SmeltList<_>>::into(values.fresh_copy());
+let values: SmeltList<SmeltPyInt> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltPyInt> = vec![SmeltPyInt::Small(1), SmeltPyInt::Small(2)]; smelt_list_items }));
+let copied: SmeltList<SmeltPyInt> = Into::<SmeltList<_>>::into(values.fresh_copy());
 return;
 }"
     );
@@ -51,25 +51,25 @@ def run() -> None:
     assert_eq!(
         rust_fn(&source, "run"),
         r#"fn run() -> () {
-let values: SmeltList<i64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<i64> = vec![1, 2]; smelt_list_items }));
-let copied_values: SmeltList<i64> = Into::<SmeltList<_>>::into(values.clone().fresh_copy());
-let value_tuple: (i64, i64) = { let smelt_tuple_items = values.clone(); if smelt_tuple_items.len() != 2 { panic!("tuple() length mismatch"); } (smelt_tuple_items.borrow()[0].clone(), smelt_tuple_items.borrow()[1].clone()) };
-let empty_values: SmeltList<i64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<i64> = vec![]; smelt_list_items }));
-let value_set: SmeltPrimSet<i64> = values.borrow().iter().cloned().collect::<SmeltPrimSet<_>>();
-let items: SmeltPrimSet<i64> = SmeltPrimSet::from([1, 2]);
-let copied_items: SmeltPrimSet<i64> = items.fresh_copy();
-let empty_items: SmeltPrimSet<i64> = SmeltPrimSet::new();
-let names: SmeltRecord<String, i64> = SmeltRecord::from([("Ada".to_owned(), 1)]);
-let copied_names: SmeltRecord<String, i64> = names.iter().collect::<SmeltRecord<_, _>>();
-let empty_names: SmeltRecord<String, i64> = SmeltRecord::from([]);
-let _smelt_tmp_29: (String, i64) = ("Ada".to_owned(), 1);
-let pairs: SmeltList<(String, i64)> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<(String, i64)> = vec![_smelt_tmp_29.clone()]; smelt_list_items }));
-let pair_names: SmeltRecord<String, i64> = pairs.borrow().iter().cloned().collect::<SmeltRecord<String, i64>>();
-let item_list: SmeltList<i64> = Into::<SmeltList<_>>::into(items.iter().collect::<Vec<_>>());
+let values: SmeltList<SmeltPyInt> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltPyInt> = vec![SmeltPyInt::Small(1), SmeltPyInt::Small(2)]; smelt_list_items }));
+let copied_values: SmeltList<SmeltPyInt> = Into::<SmeltList<_>>::into(values.clone().fresh_copy());
+let value_tuple: (SmeltPyInt, SmeltPyInt) = { let smelt_tuple_items = values.clone(); if smelt_tuple_items.len() != 2 { panic!("tuple() length mismatch"); } (smelt_tuple_items.borrow()[0].clone(), smelt_tuple_items.borrow()[1].clone()) };
+let empty_values: SmeltList<SmeltPyInt> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltPyInt> = vec![]; smelt_list_items }));
+let value_set: SmeltPrimSet<SmeltPyInt> = values.borrow().iter().cloned().collect::<SmeltPrimSet<_>>();
+let items: SmeltPrimSet<SmeltPyInt> = SmeltPrimSet::from([SmeltPyInt::Small(1), SmeltPyInt::Small(2)]);
+let copied_items: SmeltPrimSet<SmeltPyInt> = items.fresh_copy();
+let empty_items: SmeltPrimSet<SmeltPyInt> = SmeltPrimSet::new();
+let names: SmeltRecord<String, SmeltPyInt> = SmeltRecord::from([("Ada".to_owned(), SmeltPyInt::Small(1))]);
+let copied_names: SmeltRecord<String, SmeltPyInt> = names.iter().collect::<SmeltRecord<_, _>>();
+let empty_names: SmeltRecord<String, SmeltPyInt> = SmeltRecord::from([]);
+let _smelt_tmp_29: (String, SmeltPyInt) = ("Ada".to_owned(), SmeltPyInt::Small(1));
+let pairs: SmeltList<(String, SmeltPyInt)> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<(String, SmeltPyInt)> = vec![_smelt_tmp_29.clone()]; smelt_list_items }));
+let pair_names: SmeltRecord<String, SmeltPyInt> = pairs.borrow().iter().cloned().collect::<SmeltRecord<String, SmeltPyInt>>();
+let item_list: SmeltList<SmeltPyInt> = Into::<SmeltList<_>>::into(items.iter().collect::<Vec<_>>());
 let name_keys: SmeltList<String> = Into::<SmeltList<_>>::into(names.keys().collect::<Vec<_>>());
-let coords: (i64, i64) = (1, 2);
-let coord_list: SmeltList<i64> = Into::<SmeltList<_>>::into(vec![coords.clone().0.clone(), coords.clone().1.clone()]);
-let coord_set: SmeltPrimSet<i64> = SmeltPrimSet::from([coords.0.clone(), coords.1.clone()]);
+let coords: (SmeltPyInt, SmeltPyInt) = (SmeltPyInt::Small(1), SmeltPyInt::Small(2));
+let coord_list: SmeltList<SmeltPyInt> = Into::<SmeltList<_>>::into(vec![coords.clone().0.clone(), coords.clone().1.clone()]);
+let coord_set: SmeltPrimSet<SmeltPyInt> = SmeltPrimSet::from([coords.0.clone(), coords.1.clone()]);
 return;
 }"#
     );
@@ -117,9 +117,9 @@ def run() -> None:
     assert_eq!(
         rust_fn(&source, "run"),
         r#"fn run() -> () {
-let mapping: SmeltRecord<String, i64> = SmeltRecord::from([("a".to_owned(), 1)]);
-let maybe: Option<i64> = mapping.get(&"a".to_owned());
-let fallback: i64 = mapping.get(&"b".to_owned()).unwrap_or(0);
+let mapping: SmeltRecord<String, SmeltPyInt> = SmeltRecord::from([("a".to_owned(), SmeltPyInt::Small(1))]);
+let maybe: Option<SmeltPyInt> = mapping.get(&"a".to_owned());
+let fallback: SmeltPyInt = mapping.get(&"b".to_owned()).unwrap_or(SmeltPyInt::Small(0));
 return;
 }"#
     );
@@ -138,8 +138,8 @@ def run() -> None:
     assert_eq!(
         rust_fn(&source, "run"),
         r#"fn run() -> () {
-let mut mapping: SmeltRecord<String, i64> = SmeltRecord::from([("a".to_owned(), 1)]);
-let value: i64 = { if let Some(smelt_value) = mapping.get(&"b".to_owned()) { smelt_value } else { mapping.insert("b".to_owned(), 2.clone()); 2 } };
+let mut mapping: SmeltRecord<String, SmeltPyInt> = SmeltRecord::from([("a".to_owned(), SmeltPyInt::Small(1))]);
+let value: SmeltPyInt = { if let Some(smelt_value) = mapping.get(&"b".to_owned()) { smelt_value } else { mapping.insert("b".to_owned(), SmeltPyInt::Small(2).clone()); SmeltPyInt::Small(2) } };
 return;
 }"#
     );
@@ -158,8 +158,8 @@ def run() -> None:
     assert_eq!(
         rust_fn(&source, "run"),
         r#"fn run() -> () {
-let mapping: SmeltRecord<String, i64> = SmeltRecord::from([("a".to_owned(), 1)]);
-let copied: SmeltRecord<String, i64> = mapping.iter().collect::<SmeltRecord<_, _>>();
+let mapping: SmeltRecord<String, SmeltPyInt> = SmeltRecord::from([("a".to_owned(), SmeltPyInt::Small(1))]);
+let copied: SmeltRecord<String, SmeltPyInt> = mapping.iter().collect::<SmeltRecord<_, _>>();
 return;
 }"#
     );
@@ -176,9 +176,9 @@ def choose(flag: bool, left: int, right: int) -> int:
 
     assert_eq!(
         rust_fn(&source, "choose"),
-        r"fn choose(flag: bool, left: i64, right: i64) -> i64 {
-let mut _smelt_tmp_3: i64;
-let _smelt_tmp_3: i64 = if flag { left } else { right };
+        r"fn choose(flag: bool, left: SmeltPyInt, right: SmeltPyInt) -> SmeltPyInt {
+let mut _smelt_tmp_3: SmeltPyInt;
+let _smelt_tmp_3: SmeltPyInt = if flag { left.clone() } else { right.clone() };
 return _smelt_tmp_3;
 }"
     );

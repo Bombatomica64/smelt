@@ -155,3 +155,19 @@ function main(): void {
 }
 
 main();
+
+// `delete` of an optional property through a view clears it on the object:
+// the write goes through the view's accessor, as an assignment does.
+type Draft = { x: number; label: string; note?: string };
+interface Annotated {
+  label: string;
+  note?: string;
+}
+function dropNote(a: Annotated): boolean {
+  return delete a.note;
+}
+const draft: Draft = { x: 1, label: "d", note: "hi" };
+console.log(dropNote(draft), draft.note === undefined, JSON.stringify(draft));
+const annotated: Annotated = draft;
+annotated.note = "again";
+console.log(draft.note, annotated === draft, JSON.stringify(draft));

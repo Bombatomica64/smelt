@@ -152,7 +152,7 @@ impl ModuleBuilder<'_> {
             ExprKind::ClosureCall { callee, .. } => {
                 let erased = match self.ctx.krate.types.get(node.ty) {
                     Some(Type::Unknown) => true,
-                    Some(Type::Optional(inner)) => {
+                    Some(Type::Optional(inner, _)) => {
                         self.ctx.krate.types.get(*inner) == Some(&Type::Unknown)
                     }
                     _ => false,
@@ -183,7 +183,7 @@ impl ModuleBuilder<'_> {
         };
         let callable = match self.ctx.krate.types.get(node.ty) {
             Some(Type::Function(_)) => true,
-            Some(Type::Optional(inner)) => {
+            Some(Type::Optional(inner, _)) => {
                 matches!(self.ctx.krate.types.get(*inner), Some(Type::Function(_)))
             }
             _ => false,

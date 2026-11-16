@@ -4,7 +4,7 @@ fn content_type_of (FuncId(0)) -> String
   locals
     %0 param init: List<(String, String)> | Dict<String, String> | Headers
     %1 temp: Headers
-    %2 temp: Optional<String>
+    %2 temp: Nullable<String>
     %3 temp: String
   bb0:
     %1 = headers_new copy %0
@@ -17,7 +17,7 @@ fn first_header (FuncId(1)) -> String
     %0 param init: InitLike
     %1 user copied: Headers
     %2 temp: Headers
-    %3 temp: Optional<String>
+    %3 temp: Nullable<String>
     %4 temp: String
   bb0:
     %1 = headers_new copy %0.field8
@@ -64,10 +64,10 @@ fn main (FuncId(2)) -> None
     %34 temp: Headers
     %35 temp: Headers
     %36 temp: None
-    %37 temp: Optional<String>
+    %37 temp: Nullable<String>
     %38 temp: String
     %39 temp: None
-    %40 temp: Optional<String>
+    %40 temp: Nullable<String>
     %41 temp: String
     %42 temp: None
     %43 temp: (String, String)

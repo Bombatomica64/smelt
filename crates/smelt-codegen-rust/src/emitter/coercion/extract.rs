@@ -39,11 +39,11 @@ impl FunctionEmitter<'_> {
         let source_ty = self.operand_ty(value)?;
         let target_is_primitive = matches!(
             self.mir.types.get(target),
-            Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::PyStr)
+            Some(Type::Bool | Type::Int | Type::PyInt | Type::Float | Type::String | Type::PyStr)
         );
         let source_inner_is_erased = matches!(
             self.mir.types.get(source_ty),
-            Some(Type::Optional(inner)) if self.has_dynamic_shape(*inner)
+            Some(Type::Optional(inner, _)) if self.has_dynamic_shape(*inner)
         );
         // The same holds for a FUNCTION target that is the optional's own inner
         // type: a narrowed `Option<Rc<dyn Fn ..>>` unwraps to its function. The
@@ -54,10 +54,10 @@ impl FunctionEmitter<'_> {
         let target_is_source_inner =
             matches!(
                 self.mir.types.get(source_ty),
-                Some(Type::Optional(inner)) if *inner == target
+                Some(Type::Optional(inner, _)) if *inner == target
             ) && matches!(self.mir.types.get(target), Some(Type::Function(_)));
         if (target_is_primitive || target_is_source_inner)
-            && matches!(self.mir.types.get(source_ty), Some(Type::Optional(_)))
+            && matches!(self.mir.types.get(source_ty), Some(Type::Optional(..)))
             && !source_inner_is_erased
         {
             return self.value_at_type(value, target);
@@ -343,6 +343,11 @@ impl FunctionEmitter<'_> {
                 "match {smelt_owned_text} {{ SmeltUnknown::Number(smelt_value) => smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get(\"{SMELT_DATE}\") {{ Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }}, SmeltUnknown::String(smelt_value) => smelt_js_string_to_number(&smelt_value), SmeltUnknown::Bool(smelt_value) => if smelt_value {{ 1.0 }} else {{ 0.0 }}, {smelt_bigint_arm}SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value),"), smelt_owned_text = smelt_owned_text.delimited()
             )))),
             Some(Type::Int) => self.extract_int(&smelt_owned_text),
+            // A Python `int` read back out of the carrier (a `json.loads`
+            // result, a value through an erased generic): the runtime's adapter.
+            Some(Type::PyInt) => Ok(RustExpr::chain(self.carrier_format(self.carrier()?, format_args!(
+                "<SmeltPyInt as SmeltFromUnknown>::smelt_from_unknown({smelt_owned_text})", smelt_owned_text = smelt_owned_text.delimited()
+            )))),
             // Reading an erased value out into a `String` slot is not the JS
             // `String(x)` CONVERSION -- nothing in the source asked for one; the
             // slot's declared type simply says `string`. So absence must not
@@ -537,7 +542,9 @@ impl FunctionEmitter<'_> {
                 union::union_name(target), text = text.delimited()
             )))),
             Some(Type::Never | Type::Union(_)) => Ok(text.to_owned()),
-            Some(Type::Optional(inner)) => self.extract_optional(text, *inner, scope),
+            Some(Type::Optional(inner, absence)) => {
+                self.extract_optional(text, *inner, *absence, scope)
+            }
             Some(Type::Tuple(items)) => self.extract_tuple(&smelt_owned_text, items, scope),
             // The prelude `SmeltFromUnknown` impl is the single inverse of the
             // `SmeltRegExp` erasure adapter, so `source`, `flags` AND the
@@ -590,9 +597,9 @@ impl FunctionEmitter<'_> {
             // An already-erased `SmeltUnknown` at a `Type::Future` position is a
             // `SmeltUnknown::Promise` (e.g. `await`ing the result of an erased
             // vitest-mock call, or an `x as Promise<T>` cast). It CAN be recovered:
-            // wrap a fresh promise-value handle whose body awaits the erased
-            // promise through `smelt_await_flatten` and extracts its settled value
-            // to the declared `Output`. Discarding it for `SmeltFuture::resolved`
+            // `SmeltFuture::from_erased` is the same promise seen at `T`, settling
+            // when the erased one does (flattening a nested promise) with its value
+            // extracted to the declared `Output`, so its reactions keep their turn. Discarding it for `SmeltFuture::resolved`
             // of a default would drop the real resolved value and leave the shared
             // settle state unobserved (breaking, e.g., mock result matchers and
             // chained awaits on the recovered promise).
@@ -606,7 +613,7 @@ impl FunctionEmitter<'_> {
                 // also what the source does: the promise value already exists at
                 // this point; only the `await` is deferred.
                 Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
-                    "{{ let smelt_erased_future = ({text}).into_smelt_unknown(); SmeltFuture::from_future(Box::pin(async move {{ let smelt_awaited = smelt_await_flatten(smelt_erased_future).await?; Ok::<_, {ERROR_BOX}>({extracted}) }})) }}", text = text.delimited(), extracted = extracted.delimited()
+                    "{{ let smelt_erased_future = ({text}).into_smelt_unknown(); SmeltFuture::from_erased(smelt_erased_future, move |smelt_awaited| Ok::<_, {ERROR_BOX}>({extracted})) }}", text = text.delimited(), extracted = extracted.delimited()
                 ))))
             }
             other => Err(EmitError::new(format!(
@@ -798,8 +805,13 @@ impl FunctionEmitter<'_> {
     /// a run-time `null` or `undefined`: `unknown`, an erased type parameter,
     /// or a union kept on the dynamic carrier. A concrete `SmeltUnion…` enum
     /// has no such arm.
+    ///
+    /// A type parameter that renders as a real Rust generic (a lifted `T`)
+    /// is no carrier: its values are matched by type, not by tag.
     fn inner_holds_erased_nullish(&self, ty: TypeId) -> bool {
-        self.concrete_union_members(ty).is_none() && self.has_dynamic_shape(ty)
+        self.concrete_union_members(ty).is_none()
+            && self.has_dynamic_shape(ty)
+            && self.renders_erased(ty).unwrap_or(true)
     }
 
     pub(in crate::emitter) fn optional_inner_preserves_erased_singletons(
@@ -1019,12 +1031,45 @@ pub(in crate::emitter) fn erased_to_bounded_list_expr(
 
 impl FunctionEmitter<'_> {
     /// Extraction at an optional type.
+    ///
+    /// `absence` is the optional's own absent value: an erased value holding
+    /// that tag is the slot's `None`. A slot that admits both absences
+    /// (`Option<Option<T>>`, `undefined` outside) puts each tag on its own
+    /// layer.
     fn extract_optional(
         &self,
         text: &RustExpr,
         inner: TypeId,
+        absence: smelt_hir::Absence,
         scope: &RenderScope,
     ) -> Result<RustExpr, EmitError> {
+        if let Some(&Type::Optional(base, smelt_hir::Absence::Null)) = self.mir.types.get(inner)
+            && absence == smelt_hir::Absence::Undefined
+        {
+            let base_text =
+                self.extract_rendered(&RustExpr::path("smelt_optional_source"), base, scope)?;
+            return Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
+                "{{ let smelt_optional_source = {text}; match smelt_optional_source {{ SmeltUnknown::Undefined => None, SmeltUnknown::Null => Some(None), smelt_optional_source => Some(Some({base_text})) }} }}",
+                text = text.delimited(),
+                base_text = base_text.delimited()
+            ))));
+        }
+        if absence == smelt_hir::Absence::Null
+            && self.optional_inner_preserves_erased_singletons(inner)
+        {
+            // A `T | null` over an erased payload: `null` is the slot's
+            // `None`; an `undefined` stays a present value of `T`. The tag
+            // test is the runtime narrowing of an erased value its
+            // `undefined` and nullish siblings below perform, spelled
+            // through the same family of prelude helpers.
+            let inner_text =
+                self.extract_rendered(&RustExpr::path("smelt_optional_source"), inner, scope)?;
+            return Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
+                "{{ let smelt_optional_source = {text}; if smelt_unknown_is_null(&smelt_optional_source) {{ None }} else {{ Some({inner_text}) }} }}",
+                text = text.delimited(),
+                inner_text = inner_text.delimited()
+            ))));
+        }
         if self.optional_inner_preserves_erased_singletons(inner) {
             // The slot keeps an explicit `null` as a present
             // `Some(SmeltUnknown::Null)`, but `undefined` IS the absent

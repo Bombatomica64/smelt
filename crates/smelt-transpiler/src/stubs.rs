@@ -697,12 +697,12 @@ fn is_ts_reserved_property_name(name: &str) -> bool {
 fn ts_type(krate: &Crate, ty: smelt_hir::TypeId) -> String {
     match krate.types.get(ty) {
         Some(Type::Bool) => "boolean".to_owned(),
-        Some(Type::Int | Type::FixedInt(_) | Type::Float) => "number".to_owned(),
+        Some(Type::Int | Type::PyInt | Type::FixedInt(_) | Type::Float) => "number".to_owned(),
         Some(Type::BigInt) => "bigint".to_owned(),
         Some(Type::String | Type::PyStr) => "string".to_owned(),
         Some(Type::Symbol) => "symbol".to_owned(),
         Some(Type::PropKey) => "string | symbol".to_owned(),
-        Some(Type::Unknown) | None => "unknown".to_owned(),
+        Some(Type::Unknown | Type::IndexedAccess { .. }) | None => "unknown".to_owned(),
         Some(Type::Never) => "never".to_owned(),
         Some(Type::TypeParam { name } | Type::Class { name, .. }) => {
             symbol_name(krate, *name).to_owned()
@@ -729,7 +729,7 @@ fn ts_type(krate: &Crate, ty: smelt_hir::TypeId) -> String {
                 .join(", ");
             format!("[{tuple_items}]")
         }
-        Some(Type::Optional(item)) => format!("{} | null", ts_union_member_type(krate, *item)),
+        Some(Type::Optional(item, _)) => format!("{} | null", ts_union_member_type(krate, *item)),
         Some(Type::Union(items)) => items
             .iter()
             .map(|item| ts_union_member_type(krate, *item))
@@ -781,12 +781,12 @@ fn py_type(krate: &Crate, ty: smelt_hir::TypeId) -> String {
     match krate.types.get(ty) {
         Some(Type::Bool) => "bool".to_owned(),
         // Python's `int` is already arbitrary-precision.
-        Some(Type::Int | Type::FixedInt(_) | Type::BigInt) => "int".to_owned(),
+        Some(Type::Int | Type::PyInt | Type::FixedInt(_) | Type::BigInt) => "int".to_owned(),
         Some(Type::Float) => "float".to_owned(),
         Some(Type::String | Type::PyStr) => "str".to_owned(),
         // Python has no symbols; an opaque value is the closest stub.
         Some(Type::Symbol | Type::PropKey) => "object".to_owned(),
-        Some(Type::Unknown) | None => "typing.Any".to_owned(),
+        Some(Type::Unknown | Type::IndexedAccess { .. }) | None => "typing.Any".to_owned(),
         Some(Type::Never) => "typing.NoReturn".to_owned(),
         Some(Type::TypeParam { name } | Type::Class { name, .. }) => {
             symbol_name(krate, *name).to_owned()
@@ -805,7 +805,7 @@ fn py_type(krate: &Crate, ty: smelt_hir::TypeId) -> String {
                 .join(", ");
             format!("tuple[{tuple_items}]")
         }
-        Some(Type::Optional(item)) => format!("{} | None", py_type(krate, *item)),
+        Some(Type::Optional(item, _)) => format!("{} | None", py_type(krate, *item)),
         Some(Type::Union(items)) => items
             .iter()
             .map(|item| py_type(krate, *item))

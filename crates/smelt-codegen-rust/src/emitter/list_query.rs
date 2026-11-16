@@ -162,6 +162,10 @@ impl FunctionEmitter<'_> {
     }
 
     /// Emits a list callback operation through a normal MIR closure body.
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "three callback ops have a dedicated closure; every other op takes the shared predicate path below"
+    )]
     fn list_callback_closure(
         &self,
         op: smelt_hir::ListCallbackOp,
@@ -245,7 +249,9 @@ impl FunctionEmitter<'_> {
                 )))
             }
             smelt_hir::ListCallbackOp::Find | smelt_hir::ListCallbackOp::FindLast => {
-                if self.mir.types.get(dest_ty) != Some(&Type::Optional(element_ty)) {
+                if self.mir.types.get(dest_ty)
+                    != Some(&Type::Optional(element_ty, smelt_hir::Absence::Undefined))
+                {
                     return Err(EmitError::new(
                         "array find destination must be optional element type",
                     ));
@@ -1104,6 +1110,17 @@ impl FunctionEmitter<'_> {
                     &receiver,
                     format!(
                         "{receiver}.iter().copied().sum::<i64>()",
+                        receiver = receiver.tight()
+                    ),
+                )
+            }),
+            // A Python `int` sum is exact at every magnitude.
+            Some(Type::PyInt) => Ok({
+                let receiver = list_read_expr(&self.operand_expr(list)?);
+                RustExpr::atom_on(
+                    &receiver,
+                    format!(
+                        "{receiver}.iter().sum::<SmeltPyInt>()",
                         receiver = receiver.tight()
                     ),
                 )

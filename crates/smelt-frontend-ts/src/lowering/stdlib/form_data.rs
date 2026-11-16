@@ -226,7 +226,11 @@ impl ModuleBuilder<'_> {
         let value_ty = self.form_data_value_type();
         let string_ty = self.ctx.krate.types.intern(Type::String);
         match op {
-            Op::Get => self.ctx.krate.types.intern(Type::Optional(value_ty)),
+            Op::Get => self
+                .ctx
+                .krate
+                .types
+                .intern(Type::Optional(value_ty, smelt_hir::Absence::Null)),
             Op::Has => self.ctx.krate.types.intern(Type::Bool),
             Op::Set | Op::Append | Op::Delete | Op::ForEach => {
                 self.ctx.krate.types.intern(Type::None)

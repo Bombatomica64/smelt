@@ -424,8 +424,10 @@ impl FunctionEmitter<'_> {
         // `""`. A float count already saturates at zero through `as usize`.
         let count_expr = self.operand_expr(count)?;
         let count_text = if matches!(self.mir.types.get(self.operand_ty(count)?), Some(Type::Int)) {
+            // `i64::max` pins the width: a bare negative literal count would
+            // otherwise default to `i32` against the `usize` cast.
             format!(
-                "({count_expr}).max(0) as usize",
+                "i64::max({count_expr}, 0) as usize",
                 count_expr = count_expr.delimited()
             )
         } else {
@@ -660,8 +662,9 @@ impl FunctionEmitter<'_> {
         };
         let string_ty = self.existing_type_id(Type::String);
         let float_ty = self.existing_type_id(Type::Float);
-        let optional_string_ty =
-            string_ty.and_then(|inner| self.existing_type_id(Type::Optional(inner)));
+        let optional_string_ty = string_ty.and_then(|inner| {
+            self.existing_type_id(Type::Optional(inner, smelt_hir::Absence::Undefined))
+        });
         let mut texts = Vec::with_capacity(args.len());
         for (index, arg) in args.iter().enumerate() {
             let (natural_text, natural_ty) = match arg {
@@ -785,7 +788,7 @@ impl FunctionEmitter<'_> {
         // The frontend types `String.prototype.match` `string[] | null` only
         // where the regex is statically GLOBAL; that answer is the list of
         // whole matches, which `match_all_strings` builds directly.
-        if let Some(Type::Optional(inner)) = self.mir.types.get(dest_ty)
+        if let Some(Type::Optional(inner, _)) = self.mir.types.get(dest_ty)
             && let Some(Type::List(item)) = self.mir.types.get(*inner)
             && self.mir.types.get(*item).is_some_and(Type::is_text)
         {
@@ -894,7 +897,7 @@ impl FunctionEmitter<'_> {
     fn optional_inner_is_erased_boundary(&self, dest_ty: TypeId) -> bool {
         matches!(
             self.mir.types.get(dest_ty),
-            Some(Type::Optional(inner))
+            Some(Type::Optional(inner, _))
                 if matches!(
                     self.mir.types.get(*inner),
                     Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
@@ -927,7 +930,7 @@ impl FunctionEmitter<'_> {
             // lookup) is `new RegExp(undefined)` in JavaScript: the empty
             // pattern, which matches at index 0. A present one converts as its
             // own type does.
-            Some(Type::Optional(inner))
+            Some(Type::Optional(inner, _))
                 if matches!(self.mir.types.get(*inner), Some(Type::Class { name, .. }) if self.is_regexp_class_symbol(*name).unwrap_or(false))
                     || matches!(self.mir.types.get(*inner), Some(Type::String | Type::PyStr)) =>
             {
@@ -1071,7 +1074,7 @@ impl FunctionEmitter<'_> {
             (scrutinee_text.clone(), String::new(), String::new())
         };
         Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
-            "{open}match {match_scrutinee} {{ {params_arm} {url_arm} {byte_view_arm} SmeltUnknown::Null => \"{null_text}\".to_owned(), SmeltUnknown::Undefined => \"{undefined_text}\".to_owned(), SmeltUnknown::Bool(smelt_value) => smelt_value.to_string(), SmeltUnknown::Number(smelt_value) => smelt_number_to_string(smelt_value), {smelt_bigint_arm}SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_symbol_to_string(&smelt_value), SmeltUnknown::Object(smelt_value) if smelt_value.contains_key(\"{SMELT_REGEXP}\") => smelt_regexp_literal(&smelt_value), {error_arm}SmeltUnknown::Array(smelt_values) => smelt_erased_to_js_string(&SmeltUnknown::Array(smelt_values)).to_string_lossy(), SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}{close}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => value.to_string(),"), match_scrutinee = match_scrutinee.delimited()
+            "{open}match {match_scrutinee} {{ {params_arm} {url_arm} {byte_view_arm} SmeltUnknown::Null => \"{null_text}\".to_owned(), SmeltUnknown::Undefined => \"{undefined_text}\".to_owned(), SmeltUnknown::Bool(smelt_value) => smelt_value.to_string(), SmeltUnknown::Number(smelt_value) => smelt_number_to_string(smelt_value), {smelt_bigint_arm}SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_symbol_to_string(&smelt_value), SmeltUnknown::Object(smelt_value) if smelt_value.contains_key(\"{SMELT_REGEXP}\") => smelt_regexp_literal(&smelt_value), {error_arm}SmeltUnknown::Array(smelt_values) => smelt_erased_to_js_string(&SmeltUnknown::Array(smelt_values)).to_string_lossy(), SmeltUnknown::Object(smelt_object) => smelt_erased_object_to_string(&smelt_object), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}{close}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => value.to_string(),"), match_scrutinee = match_scrutinee.delimited()
         ))))
     }
 
@@ -1153,14 +1156,13 @@ impl FunctionEmitter<'_> {
                 | Type::Union(_)
                 | Type::TypeParam { .. }
                 | Type::Never
-                | Type::Tuple(_)
                 | Type::Future(_)
                 | Type::Function(_)
                 | Type::Generator { .. }
                 | Type::GeneratorResult { .. },
             )
             | None => true,
-            Some(Type::Optional(inner)) => self.mir.types.get(*inner).is_some_and(Type::is_text),
+            Some(Type::Optional(inner, _)) => self.mir.types.get(*inner).is_some_and(Type::is_text),
             _ => false,
         };
         if self.indexes_utf16() && matches!(self.mir.types.get(operand_ty), Some(Type::None)) {
@@ -1177,7 +1179,10 @@ impl FunctionEmitter<'_> {
 
     /// [`Self::string_like_operand_expr`]'s value as a Rust `String`, except
     /// for an operand that is already a string or is erased (see there).
-    fn string_like_operand_rust_text(&self, operand: &Operand) -> Result<RustExpr, EmitError> {
+    pub(super) fn string_like_operand_rust_text(
+        &self,
+        operand: &Operand,
+    ) -> Result<RustExpr, EmitError> {
         match self.mir.types.get(self.operand_ty(operand)?) {
             Some(Type::String | Type::PyStr) => match operand {
                 Operand::Copy(place) => Ok(self.place_expr(place)?.cloned_value()),
@@ -1185,6 +1190,8 @@ impl FunctionEmitter<'_> {
                 Operand::Const(_) => self.operand_expr(operand),
             },
             Some(Type::Bool) => Ok(self.operand_expr(operand)?.postfix(".to_string()")),
+            // `str(n)` of a Python `int` is its decimal digits.
+            Some(Type::PyInt) => Ok(self.operand_expr(operand)?.postfix(".to_string()")),
             // `String(10n)` is `"10"`: a bigint's string form has no `n`.
             Some(Type::BigInt) => Ok(RustExpr::atom(format!(
                 "({}).to_string()",
@@ -1217,7 +1224,12 @@ impl FunctionEmitter<'_> {
                 fn_name = smelt_stdlib::runtime_symbols::number_text::NUMBER_TO_STRING_FN,
                 text = self.operand_expr(operand)?.delimited(),
             ))),
-            Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. }) => {
+            Some(
+                Type::Unknown
+                | Type::IndexedAccess { .. }
+                | Type::Union(_)
+                | Type::TypeParam { .. },
+            ) => {
                 let operand_ty = self.operand_ty(operand)?;
                 // A type parameter this scope spells as a real Rust generic
                 // (`impl<T> Box<T>`) is a `T`, not the carrier: it crosses into
@@ -1288,45 +1300,93 @@ impl FunctionEmitter<'_> {
             {
                 Ok(RustExpr::chain("\"[object DataView]\".to_owned()"))
             }
-            Some(Type::List(_) | Type::Set(_) | Type::Dict(_, _) | Type::Class { .. }) => {
+            // `Array.prototype.toString` is `join(",")`, with each element's
+            // own string form (`join_item_text`); a set and a map keep their
+            // tags, and any other object is `[object Object]`. (A class with a
+            // `toString` of its own is called by the frontend before here.)
+            Some(Type::List(item_ty)) => Ok(RustExpr::atom(format!(
+                "{items}.iter().map(|smelt_item| {{ {item} }}).collect::<Vec<String>>().join(\",\")",
+                items = list_read_expr(&self.operand_expr(operand)?).tight(),
+                item = self.join_item_text(*item_ty, 0)?,
+            ))),
+            Some(Type::Tuple(_)) => Ok(RustExpr::atom(format!(
+                "{{ let smelt_item = &{value}; {item} }}",
+                value = self.operand_expr(operand)?.tight(),
+                item = self.join_item_text(self.operand_ty(operand)?, 0)?,
+            ))),
+            Some(Type::Set(_)) => Ok(RustExpr::chain("\"[object Set]\".to_owned()")),
+            // An object of erased values may carry its own `toString` (an
+            // object literal's method), which `ToPrimitive` calls with the
+            // object as `this` (`smelt_erased_object_to_string`).
+            Some(Type::Dict(key_ty, _))
+                if self.map_op_uses_smelt_record(self.operand_ty(operand)?, *key_ty)
+                    && self.dict_holds_erased_values(self.operand_ty(operand)?) =>
+            {
+                Ok(RustExpr::atom(format!(
+                    "smelt_erased_object_to_string(&{}.shared_object())",
+                    self.operand_expr(operand)?.tight()
+                )))
+            }
+            Some(Type::Dict(_, _) | Type::Class { .. }) => {
                 Ok(RustExpr::chain("\"[object Object]\".to_owned()"))
             }
             Some(Type::JsMap(_, _)) => Ok(RustExpr::chain("\"[object Map]\".to_owned()")),
+            // `T | null | undefined` (`Option<Option<T>>`) stringifies through
+            // its erased value, whose tag says which absent word it is.
+            Some(Type::Optional(..))
+                if matches!(
+                    smelt_hir::type_normalize::peel_optional(&self.mir.types, self.operand_ty(operand)?),
+                    (base, true, true) if base != self.none_ty
+                ) =>
+            {
+                let erased = self.erase(operand)?;
+                self.js_string_coercion_match_expr(&erased, self.absent_spelling(), false)
+            }
             // An ABSENT optional stringifies as the language's absent word, not
             // as the empty string: `unwrap_or_default()` answered `""` for
             // every `${maybeString}` in the corpus.
-            Some(Type::Optional(inner))
+            Some(Type::Optional(inner, _))
                 if self.mir.types.get(*inner).is_some_and(Type::is_text) =>
             {
                 Ok({
                     let receiver = self.operand_expr(operand)?;
                     receiver.postfix(format!(
                         ".unwrap_or_else(|| {})",
-                        self.text_literal(self.absent_spelling().text()).delimited()
+                        self.text_literal(self.absent_text_of(self.operand_ty(operand)?))
+                            .delimited()
                     ))
                 })
             }
-            Some(Type::Optional(inner)) if self.has_dynamic_shape(*inner) => {
+            Some(Type::Optional(inner, _)) if self.has_dynamic_shape(*inner) => {
                 let text = self.operand_expr(operand)?;
                 // A concrete-union `Option` payload stores a tagged enum, so each
                 // present value projects back to `SmeltUnknown` before the erased
                 // string-coercion match.
-                let scrutinee =
-                    self.erase_concrete_union_expr(&RustExpr::path("smelt_value"), *inner)?;
+                // A real Rust generic payload (`Option<V>` inside `impl<V>`)
+                // erases through its `IntoSmeltUnknown` bound.
+                let scrutinee = if self.concrete_union_members(*inner).is_none()
+                    && !self.renders_erased(*inner)?
+                {
+                    RustExpr::path("smelt_value").postfix(
+                        self.carrier_format(self.carrier()?, format_args!(".into_smelt_unknown()")),
+                    )
+                } else {
+                    self.erase_concrete_union_expr(&RustExpr::path("smelt_value"), *inner)?
+                };
                 let error_arm = Self::js_error_to_string_arm_text();
                 // The absent arm carries no runtime tag, so it takes the
                 // language's absent word; the present arms still distinguish
                 // `null` from `undefined`, which the tag does know.
-                let absent_text = self.absent_spelling().text();
+                let absent_text = self.absent_text_of(self.operand_ty(operand)?);
                 let null_text = self.absent_spelling().null_text();
                 Ok(text.postfix(self.carrier_format(self.carrier()?, format_args!(
-                    ".map_or_else(|| \"{absent_text}\".to_owned(), |smelt_value| match {scrutinee} {{ SmeltUnknown::Null => \"{null_text}\".to_owned(), SmeltUnknown::Undefined => \"{absent_text}\".to_owned(), SmeltUnknown::Bool(smelt_value) => smelt_value.to_string(), SmeltUnknown::Number(smelt_value) => smelt_number_to_string(smelt_value), {smelt_bigint_arm}SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_symbol_to_string(&smelt_value), {error_arm}SmeltUnknown::Array(smelt_values) => smelt_erased_to_js_string(&SmeltUnknown::Array(smelt_values)).to_string_lossy(), SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }})", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => value.to_string(),"), scrutinee = scrutinee.delimited()
+                    ".map_or_else(|| \"{absent_text}\".to_owned(), |smelt_value| match {scrutinee} {{ SmeltUnknown::Null => \"{null_text}\".to_owned(), SmeltUnknown::Undefined => \"{absent_text}\".to_owned(), SmeltUnknown::Bool(smelt_value) => smelt_value.to_string(), SmeltUnknown::Number(smelt_value) => smelt_number_to_string(smelt_value), {smelt_bigint_arm}SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_symbol_to_string(&smelt_value), {error_arm}SmeltUnknown::Array(smelt_values) => smelt_erased_to_js_string(&SmeltUnknown::Array(smelt_values)).to_string_lossy(), SmeltUnknown::Object(smelt_object) => smelt_erased_object_to_string(&smelt_object), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }})", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => value.to_string(),"), scrutinee = scrutinee.delimited()
                 ))))
             }
             // An optional PRIMITIVE stringifies its value or the absent word.
             // This is the `${maybeNumber}` / `${maybeFlag}` shape, and it used
             // to fall into the placeholder below and render nothing at all.
-            Some(Type::Optional(inner))
+            Some(Type::Optional(inner, _))
                 if matches!(
                     self.mir.types.get(*inner),
                     Some(Type::Bool | Type::Int | Type::Float)
@@ -1336,7 +1396,7 @@ impl FunctionEmitter<'_> {
                     let receiver = self.operand_expr(operand)?;
                     receiver.postfix(format!(
                         ".map_or_else(|| {:?}.to_owned(), |smelt_value| smelt_value.to_string())",
-                        self.absent_spelling().text()
+                        self.absent_text_of(self.operand_ty(operand)?)
                     ))
                 })
             }
@@ -1344,14 +1404,14 @@ impl FunctionEmitter<'_> {
             // placeholder for the PRESENT arm — JavaScript renders a list as
             // its joined elements and an object as `[object Object]`, neither of
             // which this seam models yet — but the absent arm is the word.
-            Some(Type::Optional(_)) => Ok({
+            Some(Type::Optional(..)) => Ok({
                 let receiver = self.operand_expr(operand)?;
                 receiver.postfix(format!(
                     ".map_or_else(|| {:?}.to_owned(), |_| String::new())",
-                    self.absent_spelling().text()
+                    self.absent_text_of(self.operand_ty(operand)?)
                 ))
             }),
-            Some(Type::Tuple(_) | Type::Future(_)) => Ok(RustExpr::atom(self.text_empty())),
+            Some(Type::Future(_)) => Ok(RustExpr::atom(self.text_empty())),
             Some(Type::Function(_) | Type::Generator { .. } | Type::GeneratorResult { .. })
             | None => Ok(RustExpr::atom(self.text_empty())),
         }
@@ -1704,7 +1764,7 @@ impl FunctionEmitter<'_> {
                 self.operand_ty(separator)?,
             )?;
             self.carrier_format(self.carrier()?, format_args!(
-                "{{ let smelt_haystack = {haystack_text}; match {separator_unknown} {{ SmeltUnknown::Object(smelt_object) if smelt_object.contains_key(\"source\") => SmeltRegExp::new(match smelt_object.get(\"source\").cloned() {{ Some(SmeltUnknown::String(source)) => source.to_string(), _ => String::new() }}, match smelt_object.get(\"flags\").cloned() {{ Some(SmeltUnknown::String(flags)) => flags.to_string(), _ => String::new() }}).split_string(&smelt_haystack), smelt_separator_unknown => {{ let smelt_separator = match smelt_separator_unknown {{ SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Bool(smelt_value) => smelt_value.to_string(), SmeltUnknown::Number(smelt_value) => smelt_number_to_string(smelt_value), {smelt_bigint_arm}SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_symbol_to_string(&smelt_value), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}; {split} }} }} }}", split = if self.indexes_utf16() {
+                "{{ let smelt_haystack = {haystack_text}; match {separator_unknown} {{ SmeltUnknown::Object(smelt_object) if smelt_object.contains_key(\"source\") => SmeltRegExp::new(match smelt_object.get(\"source\").cloned() {{ Some(SmeltUnknown::String(source)) => source.to_string(), _ => String::new() }}, match smelt_object.get(\"flags\").cloned() {{ Some(SmeltUnknown::String(flags)) => flags.to_string(), _ => String::new() }}).split_string(&smelt_haystack), smelt_separator_unknown => {{ let smelt_separator = match smelt_separator_unknown {{ SmeltUnknown::Null => String::new(), SmeltUnknown::Undefined => \"undefined\".to_owned(), SmeltUnknown::Bool(smelt_value) => smelt_value.to_string(), SmeltUnknown::Number(smelt_value) => smelt_number_to_string(smelt_value), {smelt_bigint_arm}SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_symbol_to_string(&smelt_value), SmeltUnknown::Array(smelt_values) => smelt_erased_to_js_string(&SmeltUnknown::Array(smelt_values)).to_string_lossy(), SmeltUnknown::Object(smelt_object) => smelt_erased_object_to_string(&smelt_object), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}; {split} }} }} }}", split = if self.indexes_utf16() {
                     "smelt_haystack.split(&JsString::from(smelt_separator), usize::MAX)".to_owned()
                 } else {
                     format!("if smelt_separator.is_empty() {{ if smelt_haystack.is_empty() {{ Vec::new() }} else {{ {} }} }} else {{ smelt_haystack.split(&smelt_separator).map(str::to_owned).collect::<Vec<_>>() }}", self.string_units_text("smelt_haystack"))
@@ -1737,7 +1797,7 @@ impl FunctionEmitter<'_> {
                     "{{ let mut smelt_parts = {split_items}; let smelt_limit = {limit_text} as f64; if !smelt_limit.is_finite() || smelt_limit == 0.0 {{ smelt_parts.truncate(0); }} else if smelt_limit.is_sign_positive() {{ smelt_parts.truncate(smelt_limit.floor() as usize); }} smelt_parts }}",
                     limit_text = limit_text.as_cast_operand()
                 )),
-                Some(Type::Optional(inner))
+                Some(Type::Optional(inner, _))
                     if matches!(self.mir.types.get(*inner), Some(Type::Int | Type::Float)) =>
                 {
                     Ok(format!(
@@ -1745,7 +1805,7 @@ impl FunctionEmitter<'_> {
                         limit_text = limit_text.delimited()
                     ))
                 }
-                Some(Type::Optional(inner))
+                Some(Type::Optional(inner, _))
                     if matches!(
                         self.mir.types.get(*inner),
                         Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
@@ -1846,7 +1906,7 @@ impl FunctionEmitter<'_> {
     /// as `smelt_item`: each runtime arm of `String(item)` for the element type.
     fn join_erased_item_text(&self, item_ty: TypeId) -> Result<String, EmitError> {
         Ok(self.carrier_format(self.carrier()?, format_args!(
-            "match {item} {{ SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Bool(smelt_value) => smelt_value.to_string(), SmeltUnknown::Number(smelt_value) => smelt_number_to_string(smelt_value), {smelt_bigint_arm}SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_symbol_to_string(&smelt_value), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}",
+            "match {item} {{ SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Bool(smelt_value) => smelt_value.to_string(), SmeltUnknown::Number(smelt_value) => smelt_number_to_string(smelt_value), {smelt_bigint_arm}SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_symbol_to_string(&smelt_value), SmeltUnknown::Array(smelt_values) => smelt_erased_to_js_string(&SmeltUnknown::Array(smelt_values.clone())).to_string_lossy(), SmeltUnknown::Object(smelt_object) => smelt_erased_object_to_string(&smelt_object), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}",
             smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => value.to_string(),"),
             item = if matches!(self.mir.types.get(item_ty), Some(Type::Union(_) | Type::TypeParam { .. })) {
                 format!("({})", self.erase_rendered(&RustExpr::path("smelt_item").cloned_value(), item_ty)?.delimited())
@@ -1854,6 +1914,86 @@ impl FunctionEmitter<'_> {
                 "smelt_item".to_owned()
             },
         )))
+    }
+
+    /// Rust text that stringifies one array element bound BY REFERENCE as
+    /// `smelt_item`, as `Array.prototype.join` does: `String(item)`, except
+    /// that `null` and `undefined` are the empty string. Evaluates to a Rust
+    /// `String`.
+    ///
+    /// This is the element rule of JavaScript `ToString` for an array too
+    /// (`Array.prototype.toString` is `join(",")`), so a nested array joins its
+    /// own elements: `` `${[[1, 2], [3]]}` `` is `1,2,3`. A `Set` and a `Map`
+    /// are `[object Set]` and `[object Map]`; a record or class instance is
+    /// `[object Object]`. `depth` bounds the recursion through nested element
+    /// types and is not a value depth.
+    pub(super) fn join_item_text(
+        &self,
+        item_ty: TypeId,
+        depth: usize,
+    ) -> Result<String, EmitError> {
+        let number_to_string = smelt_stdlib::runtime_symbols::number_text::NUMBER_TO_STRING_FN;
+        if depth > 32 {
+            return Err(EmitError::new(
+                "array element type nests too deeply to stringify",
+            ));
+        }
+        Ok(match self.mir.types.get(item_ty) {
+            Some(Type::String | Type::PyStr) if self.indexes_utf16() => {
+                "smelt_item.to_string_lossy()".to_owned()
+            }
+            Some(Type::String | Type::PyStr) => "smelt_item.clone()".to_owned(),
+            Some(Type::Bool) => "smelt_item.to_string()".to_owned(),
+            Some(Type::Int | Type::FixedInt(_)) => {
+                format!("{number_to_string}(*smelt_item as f64)")
+            }
+            // A hole of a TypeScript `number[]` (`smelt_number_hole`) joins as
+            // the empty string, as `undefined` does: `[1, , 3].join()` is `1,,3`.
+            Some(Type::Float) if self.indexes_utf16() => format!(
+                "if smelt_is_number_hole(*smelt_item) {{ String::new() }} else {{ {number_to_string}(*smelt_item) }}"
+            ),
+            Some(Type::Float) => format!("{number_to_string}(*smelt_item)"),
+            Some(Type::None | Type::Never) => "String::new()".to_owned(),
+            // A union element (`(number | string)[]`) stringifies each value at
+            // its runtime arm: erase it to the tagged value and take the same
+            // `String(item)` arms an `unknown` element does.
+            Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. }) => {
+                self.join_erased_item_text(item_ty)?
+            }
+            // The closure parameter rebinds `smelt_item` to the present value.
+            Some(Type::Optional(inner, _)) => format!(
+                "smelt_item.as_ref().map_or_else(String::new, |smelt_item| {{ {item} }})",
+                item = self.join_item_text(*inner, depth.saturating_add(1))?,
+            ),
+            Some(Type::List(inner)) => format!(
+                "{items}.iter().map(|smelt_item| {{ {item} }}).collect::<Vec<String>>().join(\",\")",
+                items = list_read_expr(&RustExpr::path("smelt_item")).tight(),
+                item = self.join_item_text(*inner, depth.saturating_add(1))?,
+            ),
+            Some(Type::Tuple(items)) => {
+                let parts = items
+                    .iter()
+                    .enumerate()
+                    .map(|(index, item)| {
+                        Ok(format!(
+                            "{{ let smelt_item = &smelt_item.{index}; {item} }}",
+                            item = self.join_item_text(*item, depth.saturating_add(1))?
+                        ))
+                    })
+                    .collect::<Result<Vec<_>, EmitError>>()?;
+                format!("[{}].join(\",\")", parts.join(", "))
+            }
+            Some(Type::Set(_)) => "\"[object Set]\".to_owned()".to_owned(),
+            Some(Type::JsMap(_, _)) => "\"[object Map]\".to_owned()".to_owned(),
+            Some(Type::Dict(_, _) | Type::Class { .. }) => {
+                "\"[object Object]\".to_owned()".to_owned()
+            }
+            _ => {
+                return Err(EmitError::new(
+                    "array join over an element type with no modelled string form",
+                ));
+            }
+        })
     }
 
     /// Converts a string join operation to Rust text.
@@ -1881,63 +2021,7 @@ impl FunctionEmitter<'_> {
                 separator_text = separator_text.tight()
             )));
         }
-        let item_text = match self.mir.types.get(*item_ty) {
-            Some(Type::Bool) => "smelt_item.to_string()".to_owned(),
-            // `[1e21].join(",")` stringifies each item the way `String(item)`
-            // does, so the numeric arms take the same helper.
-            Some(Type::Int) => format!(
-                "{fn_name}(*smelt_item as f64)",
-                fn_name = smelt_stdlib::runtime_symbols::number_text::NUMBER_TO_STRING_FN,
-            ),
-            // A hole of a TypeScript `number[]` (`smelt_number_hole`) joins as
-            // the empty string, as `undefined` does: `[1, , 3].join()` is `1,,3`.
-            Some(Type::Float) if self.indexes_utf16() => format!(
-                "if smelt_is_number_hole(*smelt_item) {{ String::new() }} else {{ {fn_name}(*smelt_item) }}",
-                fn_name = smelt_stdlib::runtime_symbols::number_text::NUMBER_TO_STRING_FN,
-            ),
-            Some(Type::Float) => format!(
-                "{fn_name}(*smelt_item)",
-                fn_name = smelt_stdlib::runtime_symbols::number_text::NUMBER_TO_STRING_FN,
-            ),
-            // A union element (`(number | string)[]`) stringifies each value at
-            // its runtime arm: erase it to the tagged value and take the same
-            // `String(item)` arms an `unknown` element does.
-            Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. }) => self.join_erased_item_text(*item_ty)?,
-            Some(Type::Optional(inner)) => match self.mir.types.get(*inner) {
-                Some(Type::Bool) => {
-                    "smelt_item.as_ref().map_or_else(String::new, |smelt_value| smelt_value.to_string())".to_owned()
-                }
-                Some(Type::Int) => format!(
-                    "smelt_item.as_ref().map_or_else(String::new, |smelt_value| {fn_name}(*smelt_value as f64))",
-                    fn_name = smelt_stdlib::runtime_symbols::number_text::NUMBER_TO_STRING_FN,
-                ),
-                Some(Type::Float) => format!(
-                    "smelt_item.as_ref().map_or_else(String::new, |smelt_value| {fn_name}(*smelt_value))",
-                    fn_name = smelt_stdlib::runtime_symbols::number_text::NUMBER_TO_STRING_FN,
-                ),
-                Some(Type::String | Type::PyStr) => {
-                    let to_string = if self.indexes_utf16() { "|value| value.to_string_lossy()" } else { "Clone::clone" };
-                    format!("smelt_item.as_ref().map_or_else(String::new, {to_string})")
-                }
-                // An `(unknown | null)[]` element is absent or a tagged value; the
-                // closure parameter rebinds `smelt_item` to the present value, so the
-                // erased arms apply unchanged.
-                Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. }) => format!(
-                    "smelt_item.as_ref().map_or_else(String::new, |smelt_item| {{ {item} }})",
-                    item = self.join_erased_item_text(*inner)?,
-                ),
-                _ => {
-                    return Err(EmitError::new(
-                        "string join optional items must contain primitive values",
-                    ));
-                }
-            },
-            _ => {
-                return Err(EmitError::new(
-                    "string join items must be strings, primitives, or unknown",
-                ));
-            }
-        };
+        let item_text = self.join_item_text(*item_ty, 0)?;
         if self.indexes_utf16() {
             return Ok(RustExpr::chain(format!(
                 "JsString::join({items_text}.iter().map(|smelt_item| JsString::from({{ {item_text} }})), &{separator_text})",

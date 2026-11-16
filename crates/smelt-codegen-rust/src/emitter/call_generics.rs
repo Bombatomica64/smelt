@@ -146,7 +146,7 @@ impl FunctionEmitter<'_> {
             (Some(Type::TypeParam { name }), _) if params.contains(name) => true,
             (Some(Type::List(target_item)), Some(Type::List(source_item)))
             | (Some(Type::Set(target_item)), Some(Type::Set(source_item)))
-            | (Some(Type::Optional(target_item)), Some(Type::Optional(source_item)))
+            | (Some(Type::Optional(target_item, _)), Some(Type::Optional(source_item, _)))
             | (Some(Type::Future(target_item)), Some(Type::Future(source_item))) => {
                 self.generic_param_instantiated_by(*source_item, *target_item, params)
             }
@@ -225,7 +225,7 @@ impl FunctionEmitter<'_> {
             return Ok(None);
         };
         let Some(Type::TypeParam { name }) = self.mir.types.get(target_ty) else {
-            return Ok(None);
+            return self.receiver_bound_composite_argument_expr(function, receiver, arg, target_ty);
         };
         let ordered = self.callee_class_type_param_names(function);
         let Some(position) = ordered.iter().position(|param| param == name) else {
@@ -255,6 +255,40 @@ impl FunctionEmitter<'_> {
             Some(_) => self.value_at_type(arg, bound).map(Some),
             None => Ok(None),
         }
+    }
+
+    /// [`Self::receiver_bound_class_param_argument_expr`] for a parameter
+    /// whose type mentions a class parameter inside a larger type
+    /// (`set(x: V | null)`, `add(xs: V[])`): the argument is converted to the
+    /// parameter at the receiver's own type arguments (`Option<JsString>` on
+    /// a `Box<string>`). `None` when the type mentions no class parameter,
+    /// when the receiver does not fix every one of them concretely, or when
+    /// the substituted type is not interned.
+    fn receiver_bound_composite_argument_expr(
+        &self,
+        function: &MirFunction,
+        receiver: &Operand,
+        arg: &Operand,
+        target_ty: TypeId,
+    ) -> Result<Option<RustExpr>, EmitError> {
+        let class_params = self.callee_class_type_params(function);
+        if class_params.is_empty() || !self.type_mentions_any(target_ty, &class_params) {
+            return Ok(None);
+        }
+        let ordered = self.callee_class_type_param_names(function);
+        let Some(receiver_ty) =
+            self.declaring_class_instantiation(function, self.operand_ty(receiver)?)
+        else {
+            return Ok(None);
+        };
+        let bindings = bind_class_type_params(self.mir, &ordered, receiver_ty);
+        if !bindings.all_concrete() {
+            return Ok(None);
+        }
+        let Some(substituted) = substituted_type_id(self.mir, target_ty, &bindings) else {
+            return Ok(None);
+        };
+        self.value_at_type(arg, substituted).map(Some)
     }
 
     /// Return whether `ty` mentions any of `names` anywhere in its structure,
@@ -572,9 +606,8 @@ impl FunctionEmitter<'_> {
                     // Rendered as the erased value it is. A method read
                     // (`this.validate`) that no virtual slot stores is its
                     // bound method value, never a field of the struct.
-                    let erased_value = match arg {
-                        Operand::Copy(Place::Field { base, field, .. })
-                        | Operand::Move(Place::Field { base, field, .. }) => {
+                    let erased_value = match arg.place() {
+                        Some(Place::Field { base, field, .. }) => {
                             let base_place = Place::Local(*base);
                             let base_ty = self.place_ty(&base_place)?;
                             match self.mir.types.get(base_ty) {
@@ -593,7 +626,8 @@ impl FunctionEmitter<'_> {
                                 _ => self.value_at_type(arg, arg_ty)?,
                             }
                         }
-                        _ => self.value_at_type(arg, arg_ty)?,
+                        Some(Place::Local(_) | Place::Index { .. } | Place::Global { .. })
+                        | None => self.value_at_type(arg, arg_ty)?,
                     };
                     return self.extract_function_with_bindings(
                         &erased_value,

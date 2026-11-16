@@ -82,9 +82,10 @@ pub(crate) fn constructed_class_ty(
 
 /// The class whose constructor `function` is, if it is a constructor at all.
 pub(crate) const fn constructor_class(function: &MirFunction) -> Option<smelt_hir::Symbol> {
-    match function.origin {
-        HirOrigin::ClassConstructor { class, .. } => Some(class),
-        _ => None,
+    if let HirOrigin::ClassConstructor { class, .. } = function.origin {
+        Some(class)
+    } else {
+        None
     }
 }
 

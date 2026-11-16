@@ -13,7 +13,7 @@ fn header_of (FuncId(0)) -> String
     %8 temp: Optional<Headers>
     %9 temp: Bool
     %10 temp: Headers
-    %11 temp: Optional<String>
+    %11 temp: Nullable<String>
     %12 temp: String
   bb0:
     %3 = instanceof copy %0, class2
@@ -53,7 +53,7 @@ fn status_header_of (FuncId(1)) -> String
     %9 temp: Optional<Headers>
     %10 temp: Bool
     %11 temp: Headers
-    %12 temp: Optional<String>
+    %12 temp: Nullable<String>
     %13 temp: String
   bb0:
     %2 = unknown_is Object copy %0

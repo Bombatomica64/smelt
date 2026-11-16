@@ -88,7 +88,7 @@ pub(in crate::lowering) const DIFFERS_CODE: &str = "smelt::int32-differs";
 fn int32_slot(types: &smelt_hir::TypeInterner, ty: TypeId) -> Option<bool> {
     match types.get(ty)? {
         Type::FixedInt(IntWidth::I32) => Some(false),
-        Type::Optional(inner) if types.get(*inner) == Some(&Type::FixedInt(IntWidth::I32)) => {
+        Type::Optional(inner, _) if types.get(*inner) == Some(&Type::FixedInt(IntWidth::I32)) => {
             Some(true)
         }
         _ => None,
@@ -561,7 +561,10 @@ impl ModuleBuilder<'_> {
         };
         let float = self.ctx.krate.types.intern(Type::Float);
         let number = if optional {
-            self.ctx.krate.types.intern(Type::Optional(float))
+            self.ctx
+                .krate
+                .types
+                .intern(Type::Optional(float, smelt_hir::Absence::Undefined))
         } else {
             float
         };
@@ -1361,7 +1364,7 @@ impl ModuleBuilder<'_> {
             value
         };
         let value_ty = body.exprs[value.0 as usize].ty;
-        let optional_value = matches!(self.ctx.krate.types.get(value_ty), Some(Type::Optional(_)));
+        let optional_value = matches!(self.ctx.krate.types.get(value_ty), Some(Type::Optional(..)));
         let proven_value = match &body.exprs[value.0 as usize].kind {
             // An optional slot copied from an optional int32 slot.
             ExprKind::PrimitiveCast {
@@ -1380,7 +1383,10 @@ impl ModuleBuilder<'_> {
         }
         let int32 = self.ctx.krate.types.intern(Type::FixedInt(IntWidth::I32));
         let converted_ty = if optional_value {
-            self.ctx.krate.types.intern(Type::Optional(int32))
+            self.ctx
+                .krate
+                .types
+                .intern(Type::Optional(int32, smelt_hir::Absence::Undefined))
         } else {
             int32
         };

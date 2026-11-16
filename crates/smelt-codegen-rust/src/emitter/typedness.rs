@@ -247,6 +247,7 @@ fn measure_body(
                     read(default);
                     value.reads(&mut read);
                 }
+                Statement::StorageLive(_) => {}
             }
         }
         match &block.terminator {
@@ -428,20 +429,13 @@ fn closure_owners(mir: &Mir) -> HashMap<ClosureId, usize> {
     /// The closures a body constructs.
     fn created(blocks: &[BasicBlock]) -> impl Iterator<Item = ClosureId> + '_ {
         blocks.iter().flat_map(|block| {
-            block
-                .statements
-                .iter()
-                .filter_map(|statement| match statement {
-                    Statement::Assign {
-                        value: Rvalue::Closure { id, .. },
-                        ..
-                    }
-                    | Statement::AssignPlace {
-                        value: Rvalue::Closure { id, .. },
-                        ..
-                    } => Some(*id),
-                    _ => None,
-                })
+            block.statements.iter().filter_map(|statement| {
+                if let Some(Rvalue::Closure { id, .. }) = statement.value() {
+                    Some(*id)
+                } else {
+                    None
+                }
+            })
         })
     }
     let mut owners = HashMap::new();
@@ -545,7 +539,7 @@ impl FunctionEmitter<'_> {
         match self.mir.types.get(ty) {
             Some(Type::TypeParam { .. }) => true,
             Some(
-                Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item),
+                Type::List(item) | Type::Set(item) | Type::Optional(item, _) | Type::Future(item),
             ) => self.type_mentions_param(*item, next),
             Some(Type::Dict(key, value) | Type::JsMap(key, value)) => any(&[*key, *value]),
             Some(Type::Tuple(items) | Type::Union(items)) => any(items),

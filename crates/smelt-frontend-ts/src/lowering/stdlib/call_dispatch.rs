@@ -227,7 +227,7 @@ impl<'builder> ModuleBuilder<'builder> {
             .scope
             .narrowed_type(name)
             .unwrap_or_else(|| Self::local_ty(body, local));
-        let Some(Type::Optional(inner)) = self.ctx.krate.types.get(local_ty).cloned() else {
+        let Some(Type::Optional(inner, _)) = self.ctx.krate.types.get(local_ty).cloned() else {
             return Ok(None);
         };
         if !self.builtin_keyed_receiver_type(inner) {
@@ -617,7 +617,7 @@ impl<'builder> ModuleBuilder<'builder> {
     /// inner `T` of an `Optional`, or the one non-nullish arm of a union.
     fn optional_present_type(&self, ty: smelt_hir::TypeId) -> Option<smelt_hir::TypeId> {
         match self.ctx.krate.types.get(ty)? {
-            Type::Optional(inner) => Some(*inner),
+            Type::Optional(inner, _) => Some(*inner),
             Type::Union(items) => {
                 let mut present = items
                     .iter()
@@ -691,7 +691,7 @@ impl<'builder> ModuleBuilder<'builder> {
             return true;
         }
         match self.ctx.krate.types.get(ty) {
-            Some(Type::Optional(inner)) => self.callable_through_erased_abi(*inner),
+            Some(Type::Optional(inner, _)) => self.callable_through_erased_abi(*inner),
             Some(Type::Union(items)) => items.iter().copied().all(|item| {
                 matches!(self.ctx.krate.types.get(item), Some(Type::Function(_)))
                     || self.callable_through_erased_abi(item)
@@ -741,7 +741,7 @@ impl<'builder> ModuleBuilder<'builder> {
     ) -> smelt_hir::TypeId {
         let stored_optional_unknown = matches!(
             self.ctx.krate.types.get(stored_ty),
-            Some(Type::Optional(inner)) if matches!(self.ctx.krate.types.get(*inner), Some(Type::Unknown))
+            Some(Type::Optional(inner, _)) if matches!(self.ctx.krate.types.get(*inner), Some(Type::Unknown))
         );
         if stored_optional_unknown && self.ctx.krate.types.get(read_ty) == Some(&Type::Unknown) {
             stored_ty
@@ -773,7 +773,7 @@ impl<'builder> ModuleBuilder<'builder> {
         let callee = self.stored_erased_callee(callee, body);
         let callee_ty = Self::expr_ty(body, callee);
         let optional_unknown = match self.ctx.krate.types.get(callee_ty) {
-            Some(Type::Optional(inner))
+            Some(Type::Optional(inner, _))
                 if matches!(self.ctx.krate.types.get(*inner), Some(Type::Unknown)) =>
             {
                 Some(*inner)

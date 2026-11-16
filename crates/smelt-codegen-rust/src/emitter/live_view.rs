@@ -107,6 +107,10 @@ pub(crate) fn is_live_record(_mir: &Mir, context: &EmitContext, name: Symbol) ->
 /// value, and converting it would store something nobody wrote
 /// (`"[object Object]"`): a live record's setter refuses the write instead,
 /// and the runtime keeps the value on the object (`SmeltOpenShape::extras`).
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "the types not listed have no single runtime tag a write can be checked against: the write is admitted"
+)]
 fn erased_value_fits(mir: &Mir, ty: TypeId) -> Option<String> {
     let tag = |variant: &str| Some(format!("matches!(value, SmeltUnknown::{variant}(_))"));
     match mir.types.get(ty)? {
@@ -124,7 +128,7 @@ fn erased_value_fits(mir: &Mir, ty: TypeId) -> Option<String> {
             });
             (!callable).then(|| "matches!(value, SmeltUnknown::Object(_))".to_owned())
         }
-        Type::Optional(inner) => erased_value_fits(mir, *inner).map(|fits| {
+        Type::Optional(inner, _) => erased_value_fits(mir, *inner).map(|fits| {
             format!("(matches!(value, SmeltUnknown::Null | SmeltUnknown::Undefined) || {fits})")
         }),
         _ => None,
@@ -265,6 +269,19 @@ impl FunctionEmitter<'_> {
                 converted = converted.delimited()
             ));
         }
+        // Every statement that is an unconditional push names a property
+        // no value of the record can lack, so the record's own keys are its
+        // declared names and a view lists them without reading a value
+        // (`smelt_live_keys` in the runtime). A statement that may push
+        // nothing (an optional property) leaves the default, which asks.
+        let always_present = statements
+            .iter()
+            .all(|(_, statement)| statement.starts_with("smelt_object_entries.push(("));
+        let always_present_method = if always_present {
+            "    fn smelt_fields_always_present(&self) -> bool { true }\n"
+        } else {
+            ""
+        };
         // The cell the object is: a view target's handle holds it as its
         // trait object (`crate::structural_views`).
         let live_cell = if self.is_view_target_type(target) {
@@ -305,6 +322,7 @@ impl FunctionEmitter<'_> {
                  \x20   fn smelt_live_cell(&self) -> ::std::rc::Rc<dyn ::std::any::Any> {{ {live_cell} }}\n\
                  \x20   fn smelt_live_address(&self) -> usize {{ ::std::rc::Rc::as_ptr(&self.0) as *const () as usize }}\n\
                  \x20   fn smelt_live_handle(&self) -> &dyn ::std::any::Any {{ self }}\n\
+                 {always_present_method}\
                  }}\n"
             ),
         ))

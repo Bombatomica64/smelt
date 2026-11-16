@@ -341,7 +341,7 @@ impl ByValueGraph<'_> {
         active: &mut HashSet<Symbol>,
     ) {
         match self.mir.types.get(ty) {
-            Some(Type::Optional(inner)) => self.collect(*inner, shapes, params, active),
+            Some(Type::Optional(inner, _)) => self.collect(*inner, shapes, params, active),
             Some(Type::Tuple(items) | Type::Union(items)) => {
                 for item in items {
                     self.collect(*item, shapes, params, active);
@@ -585,7 +585,7 @@ fn collect_identity_comparison_triggers(mir: &Mir, references: &mut HashSet<Symb
             return None;
         };
         let mut ty = locals.get(usize::try_from(local.0).ok()?)?.ty;
-        if let Some(Type::Optional(inner)) = mir.types.get(ty) {
+        if let Some(Type::Optional(inner, _)) = mir.types.get(ty) {
             ty = *inner;
         }
         match mir.types.get(ty) {
@@ -715,7 +715,7 @@ fn holds_erased_slot(mir: &Mir, ty: smelt_hir::TypeId, depth: usize) -> bool {
 /// write it erased, and is not a flow.
 fn for_each_record_beside_an_erased_container(mir: &Mir, mut beside: impl FnMut(Symbol)) {
     let strip = |mut ty: smelt_hir::TypeId| {
-        while let Some(Type::Optional(inner)) = mir.types.get(ty) {
+        while let Some(Type::Optional(inner, _)) = mir.types.get(ty) {
             ty = *inner;
         }
         ty
@@ -743,7 +743,12 @@ fn for_each_record_beside_an_erased_container(mir: &Mir, mut beside: impl FnMut(
                 Statement::Assign { dest, .. } => {
                     local_ty(locals, *dest).is_some_and(|ty| holds_erased_slot(mir, ty, 0))
                 }
-                _ => false,
+                // A projected target's container is visited below as the
+                // statement's base read, and a fused entry update's `current`
+                // is a primitive scalar, which holds no erased slot.
+                Statement::AssignPlace { .. }
+                | Statement::DictEntryUpdate { .. }
+                | Statement::StorageLive(_) => false,
             };
             statement.reads(|read| {
                 let local = match read {
@@ -788,7 +793,7 @@ fn for_each_record_beside_an_erased_container(mir: &Mir, mut beside: impl FnMut(
 /// each treat a flow this misses as they did before either existed.
 pub(crate) fn for_each_record_flow(mir: &Mir, mut flow: impl FnMut(Symbol, smelt_hir::TypeId)) {
     let strip = |mut ty: smelt_hir::TypeId| {
-        while let Some(Type::Optional(inner)) = mir.types.get(ty) {
+        while let Some(Type::Optional(inner, _)) = mir.types.get(ty) {
             ty = *inner;
         }
         ty
@@ -880,7 +885,7 @@ fn scan_value_flows(
     mut flow: impl FnMut(smelt_hir::TypeId, smelt_hir::TypeId),
 ) {
     let strip = |mut ty: smelt_hir::TypeId| {
-        while let Some(Type::Optional(inner)) = mir.types.get(ty) {
+        while let Some(Type::Optional(inner, _)) = mir.types.get(ty) {
             ty = *inner;
         }
         ty
@@ -914,7 +919,7 @@ fn scan_value_flows(
                         _ => None,
                     }
                 }
-                _ => None,
+                Place::Field { .. } | Place::Index { .. } | Place::Global { .. } => None,
             };
             if let Some(source) = handed {
                 flow(source, slot);
@@ -998,13 +1003,16 @@ fn scan_value_flows(
                             hand(operand, slot);
                         }
                     }
-                    _ => {}
+                    Statement::Assign { .. }
+                    | Statement::AssignPlace { .. }
+                    | Statement::DictEntryUpdate { .. }
+                    | Statement::StorageLive(_) => {}
                 }
             }
             match &block.terminator {
                 Some(smelt_mir::Terminator::Call { callee, args, .. }) => {
-                    let params: Vec<smelt_hir::TypeId> = match callee {
-                        smelt_mir::Callee::Static(function) => usize::try_from(function.0)
+                    let static_params = |function: &smelt_mir::FuncId| -> Vec<smelt_hir::TypeId> {
+                        usize::try_from(function.0)
                             .ok()
                             .and_then(|index| mir.functions.get(index))
                             .map(|target| {
@@ -1014,17 +1022,35 @@ fn scan_value_flows(
                                     .filter_map(|param| local_ty(&target.locals, *param))
                                     .collect()
                             })
-                            .unwrap_or_default(),
-                        smelt_mir::Callee::Indirect(
-                            Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)),
-                        ) => match local_ty(locals, *local).and_then(|ty| mir.types.get(strip(ty)))
-                        {
-                            Some(Type::Function(function)) => function.params.clone(),
-                            _ => Vec::new(),
-                        },
-                        _ => Vec::new(),
+                            .unwrap_or_default()
                     };
-                    for (operand, slot) in args.iter().zip(params) {
+                    // `(arguments, parameter types)`: a base initializer's
+                    // first argument is the derived receiver, and the rest are
+                    // the base constructor's own arguments (`super(record)`).
+                    let (handed, params): (&[Operand], Vec<smelt_hir::TypeId>) = match callee {
+                        smelt_mir::Callee::Static(function) => (args, static_params(function)),
+                        smelt_mir::Callee::BaseInit(function) => {
+                            (args.get(1..).unwrap_or_default(), static_params(function))
+                        }
+                        smelt_mir::Callee::Indirect(operand) => {
+                            let params = operand
+                                .local()
+                                .and_then(|local| local_ty(locals, local))
+                                .and_then(|ty| mir.types.get(strip(ty)));
+                            if let Some(Type::Function(function)) = params {
+                                (args, function.params.clone())
+                            } else {
+                                (args, Vec::new())
+                            }
+                        }
+                        // A builtin's or an op's operands are not parameters
+                        // of a body: what they keep is read beside the
+                        // container they write (see above).
+                        smelt_mir::Callee::Builtin(_) | smelt_mir::Callee::Op(..) => {
+                            (args, Vec::new())
+                        }
+                    };
+                    for (operand, slot) in handed.iter().zip(params) {
                         hand(operand, slot);
                     }
                 }
@@ -1066,7 +1092,7 @@ pub(crate) fn deep_compares_a_reference_shape(mir: &Mir, references: &HashSet<Sy
             Some(Type::Class { name, args }) => {
                 args.is_empty() && references.contains(name) && !mir.has_class(*name)
             }
-            Some(Type::List(item) | Type::Optional(item) | Type::Dict(_, item)) => {
+            Some(Type::List(item) | Type::Optional(item, _) | Type::Dict(_, item)) => {
                 holds(mir, references, *item, deeper)
             }
             Some(Type::Tuple(items)) => items
@@ -1248,7 +1274,8 @@ fn collect_self_capture_triggers(
             };
             (class, self_local)
         }
-        _ => return,
+        // A static method or a free body has no instance to capture.
+        HirOrigin::ClassStaticMethod { .. } | HirOrigin::Body(_) => return,
     };
     for block in &function.blocks {
         for statement in &block.statements {

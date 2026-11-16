@@ -73,7 +73,7 @@ impl FunctionEmitter<'_> {
             // still checks containment against a `Vec<T>`: unwrap the optional
             // and guard on `Some`, since a `None`/`undefined` needle is never an
             // element of a list of non-optional `T`.
-            if let Some(Type::Optional(opt_inner)) = self.mir.types.get(needle_ty) {
+            if let Some(Type::Optional(opt_inner, _)) = self.mir.types.get(needle_ty) {
                 let inner = *opt_inner;
                 let compare = if inner == item_ty {
                     self.list_element_match_predicate(item_ty).to_owned()
@@ -215,7 +215,7 @@ impl FunctionEmitter<'_> {
         // list arm also proved the value present, and the `expect` message matches
         // the one the optional-narrowing paths already emit.
         let (text, inner_ty) = match self.mir.types.get(list_ty) {
-            Some(Type::Optional(inner)) => {
+            Some(Type::Optional(inner, _)) => {
                 let optional = self.operand_expr(list)?;
                 (
                     optional.postfix(".expect(\"optional value was absent after narrowing\")"),
@@ -345,7 +345,32 @@ impl FunctionEmitter<'_> {
         )))
     }
 
-    /// Converts a list concatenation operation to Rust text.
+    /// Python's `list * n`: a new list of the elements `n` times over.
+    ///
+    /// The elements are cloned, which for a list element is the shared
+    /// handle, so `[[0]] * 3` holds the same inner list three times as in
+    /// `CPython`. A count of zero or less is the empty list; the count is a
+    /// machine integer (the frontend converts a Python `int` with
+    /// `OverflowError` past one).
+    pub(super) fn list_repeat_expr(
+        &self,
+        list: &Operand,
+        count: &Operand,
+    ) -> Result<RustExpr, EmitError> {
+        if !matches!(
+            self.mir.types.get(self.operand_ty(list)?),
+            Some(Type::List(_))
+        ) {
+            return Err(EmitError::new("list repetition needs a list operand"));
+        }
+        let read = list_read_expr(&self.operand_borrow_expr(list)?);
+        Ok(RustExpr::atom(format!(
+            "{{ let smelt_count = usize::try_from(i64::max({count}, 0)).unwrap_or(0); let smelt_items = {read}; SmeltList::from(smelt_items.iter().cloned().cycle().take(smelt_items.len().saturating_mul(smelt_count)).collect::<Vec<_>>()) }}",
+            count = self.operand_expr(count)?.delimited(),
+            read = read.tight()
+        )))
+    }
+
     /// Converts a list concatenation operation to Rust text.
     pub(super) fn list_concat_expr(
         &self,
@@ -989,15 +1014,16 @@ impl FunctionEmitter<'_> {
         // receiver is unwrapped exactly as the narrowing copy it replaces would
         // (`ListCopyElision` forwards that copy into this one), converted when
         // the copy lands in a list of another element type, then copied.
-        if let Some(Type::Optional(inner_ty)) = self.mir.types.get(list_ty)
-            && matches!(self.mir.types.get(*inner_ty), Some(Type::List(_)))
-        {
-            let present = self.use_expr(list, *inner_ty)?;
-            if *inner_ty == dest_ty {
+        // Every optional layer: a `T[] | null | undefined` proven present is
+        // the list.
+        let inner_ty = smelt_hir::type_normalize::peel_optional(&self.mir.types, list_ty).0;
+        if inner_ty != list_ty && matches!(self.mir.types.get(inner_ty), Some(Type::List(_))) {
+            let present = self.use_expr(list, inner_ty)?;
+            if inner_ty == dest_ty {
                 return Ok(present.postfix(".fresh_copy()"));
             }
             let converted =
-                self.rendered_at_type(&present, *inner_ty, dest_ty, &self.render_scope())?;
+                self.rendered_at_type(&present, inner_ty, dest_ty, &self.render_scope())?;
             return Ok(RustExpr::atom(format!(
                 "SmeltList::fresh_copy(&{})",
                 converted.delimited()
@@ -1232,7 +1258,7 @@ impl FunctionEmitter<'_> {
             Some(depth_operand) => {
                 let text = self.operand_expr(depth_operand)?;
                 match self.mir.types.get(self.operand_ty(depth_operand)?) {
-                    Some(Type::Optional(inner))
+                    Some(Type::Optional(inner, _))
                         if self.mir.types.get(*inner) == Some(&Type::Float) =>
                     {
                         Ok(text.postfix(".clone().unwrap_or(1.0)"))

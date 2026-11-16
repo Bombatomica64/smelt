@@ -45,7 +45,7 @@ module examples/typescript/end-to-end/71_const_arrow_literal_hint/input.ts (Modu
     #34: None = @5(console_log)
     #35: None = call #34(#33)
     #36: fn(Optional<Opts>) -> String = %0
-    #37: Optional<Opts> = none
+    #37: Optional<Opts> = undefined
     #38: String = closure_call #36(#37)
     #39: None = @6(console_log)
     #40: None = call #39(#38)

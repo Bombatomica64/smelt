@@ -32,13 +32,20 @@ impl ModuleBuilder<'_> {
         let Some(argument) = call.arguments.first() else {
             return Ok(None);
         };
-        // Arguments in source order: the value, then the replacer (evaluated
-        // for its effects; only `null`/`undefined` replacers are modeled),
-        // then the indentation `space`, which lays the text out afterwards.
+        // Arguments in source order: the value, then the replacer (a function
+        // or an array of keys, applied by the runtime serializer; `null` and
+        // `undefined` mean none), then the indentation `space`, which lays the
+        // text out afterwards.
         let value = self.argument(argument, body)?;
         let mut space = None;
+        let mut replacer = None;
         for (index, extra) in call.arguments.iter().enumerate().skip(1) {
             let lowered = self.argument(extra, body)?;
+            if index == 1
+                && !matches!(Self::expr_ty(body, lowered), ty if matches!(self.ctx.krate.types.get(ty), Some(Type::None)))
+            {
+                replacer = Some(lowered);
+            }
             if index == 2 {
                 space = Some(lowered);
             }
@@ -60,13 +67,16 @@ impl ModuleBuilder<'_> {
         let ty = if self.json_stringify_may_answer_undefined(value_ty, 0)
             && !self.json_stringify_absent_is_null(value_ty, argument)
         {
-            self.ctx.krate.types.intern(Type::Optional(string_ty))
+            self.ctx
+                .krate
+                .types
+                .intern(Type::Optional(string_ty, smelt_hir::Absence::Undefined))
         } else {
             string_ty
         };
         let span = self.span(call.span.start, call.span.end);
         let text = body.push_expr(Expr {
-            kind: ExprKind::JsonStringify { value },
+            kind: ExprKind::JsonStringify { value, replacer },
             ty,
             span,
         });
@@ -83,10 +93,10 @@ impl ModuleBuilder<'_> {
     /// Whether the only undefined-answering case of the value is an absent
     /// case the checker types as `null`, whose JSON text is `"null"`.
     ///
-    /// The HIR's `None` carries both `null` and `undefined`, so `None` and
-    /// `Optional(T)` alone cannot tell `JSON.stringify(null)` (`"null"`) from
-    /// `JSON.stringify(undefined)` (`undefined`); the checker's type of the
-    /// argument can. Holds for `None`, or `Optional(T)` whose `T` never answers
+    /// The HIR's `None` carries both `null` and `undefined`, so `None` alone
+    /// cannot tell `JSON.stringify(null)` (`"null"`) from
+    /// `JSON.stringify(undefined)` (`undefined`); the literal or the checker's
+    /// type of the argument can, and an optional's own absence tag says it. Holds for `None`, or `Optional(T)` whose `T` never answers
     /// `undefined`, when the argument is the `null` literal or the checker
     /// admits `null` and not `undefined`/`void`.
     fn json_stringify_absent_is_null(
@@ -96,15 +106,21 @@ impl ModuleBuilder<'_> {
     ) -> bool {
         let present_answers_text = match self.ctx.krate.types.get(ty) {
             Some(Type::None) => true,
-            Some(Type::Optional(inner)) => !self.json_stringify_may_answer_undefined(*inner, 1),
+            Some(Type::Optional(inner, _)) => !self.json_stringify_may_answer_undefined(*inner, 1),
             _ => false,
         };
         // The `null` keyword carries no recorded checker type; it is `null`.
         let literal_null = argument.as_expression().is_some_and(|expression| {
             matches!(expression.without_parentheses(), Expression::NullLiteral(_))
         });
+        // A `T | null` says so in its type (`smelt_hir::Absence::Null`).
+        let tagged_null = matches!(
+            self.ctx.krate.types.get(ty),
+            Some(Type::Optional(_, smelt_hir::Absence::Null))
+        );
         let span = argument.span();
-        present_answers_text && (literal_null || self.checker_absent_is_null(span.start, span.end))
+        present_answers_text
+            && (literal_null || tagged_null || self.checker_absent_is_null(span.start, span.end))
     }
 
     /// Whether a value of `ty` may be one whose `JSON.stringify` is
@@ -119,7 +135,7 @@ impl ModuleBuilder<'_> {
                 Type::Unknown
                 | Type::TypeParam { .. }
                 | Type::None
-                | Type::Optional(_)
+                | Type::Optional(..)
                 | Type::Function(_)
                 | Type::Symbol
                 | Type::PropKey,
@@ -400,6 +416,7 @@ impl ModuleBuilder<'_> {
         match ty_kind {
             Type::Bool
             | Type::Int
+            | Type::PyInt
             | Type::FixedInt(_)
             | Type::Float
             | Type::String
@@ -409,13 +426,16 @@ impl ModuleBuilder<'_> {
             | Type::Symbol
             | Type::Unknown
             | Type::TypeParam { .. } => true,
+            // An unevaluated indexed access is never a value's type (see
+            // `Type::IndexedAccess`); it answers as the `unknown` it erases to.
+            Type::IndexedAccess { .. } => true,
             // Never a value on its own; only a record key.
             Type::PropKey => true,
             // `JSON.stringify(1n)` throws `TypeError: Do not know how to
             // serialize a BigInt`; there is no JSON spelling to emit. Only the
             // `bigint_ok` walk accepts it, to pick the fallible lowering.
             Type::BigInt => bigint_ok,
-            Type::List(item) | Type::Set(item) | Type::Optional(item) => {
+            Type::List(item) | Type::Set(item) | Type::Optional(item, _) => {
                 self.is_json_serializable_type_inner(item, seen, true, bigint_ok)
             }
             Type::Tuple(items) => items

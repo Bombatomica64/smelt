@@ -34,6 +34,11 @@ impl FunctionEmitter<'_> {
                 (self.mir.types.get(source), self.mir.types.get(inner)),
                 (Some(Type::Int), Some(Type::Float))
                     | (Some(Type::Float), Some(Type::Int))
+                    | (
+                        Some(Type::Int | Type::Float | Type::Bool),
+                        Some(Type::PyInt)
+                    )
+                    | (Some(Type::PyInt), Some(Type::Float | Type::Int))
                     | (Some(Type::List(_)), Some(Type::Tuple(_)))
                     | (Some(Type::List(_)), Some(Type::List(_)))
                     | (Some(Type::Dict(_, _)), Some(Type::Dict(_, _)))
@@ -140,7 +145,10 @@ impl FunctionEmitter<'_> {
                 && !is_downcast
                 && !self.is_virtual_method_storage_field(target, target_field.name)
                 && !self.is_interface_method_slot_bound_by_source(source, target, target_field.name)
-                && !matches!(self.mir.types.get(target_field.ty), Some(Type::Optional(_)))
+                && !matches!(
+                    self.mir.types.get(target_field.ty),
+                    Some(Type::Optional(..))
+                )
             {
                 return None;
             }
@@ -179,6 +187,12 @@ impl FunctionEmitter<'_> {
             )
         }) {
             return Ok(Some(value_text.cloned_value()));
+        }
+        // An instance seen at other type arguments of a widened class
+        // (`Parser<number>` as `Parser<unknown>`) stays the same object: the
+        // handle retargets it (`crate::class_widening`).
+        if let Some(retarget) = self.widened_retarget_expr(value_text, source, target)? {
+            return Ok(Some(retarget));
         }
         // A reference class is a handle newtype over `Rc<RefCell<Inner>>`, not a
         // field-wise struct, so it cannot be rebuilt with a `Name { field: .. }`
@@ -496,7 +510,11 @@ impl FunctionEmitter<'_> {
                 // An optional property the source does not expose is absent;
                 // any other missing member means this is not a structural
                 // conversion at all, so nothing is emitted.
-                None if matches!(self.mir.types.get(target_field.ty), Some(Type::Optional(_))) => {
+                None if matches!(
+                    self.mir.types.get(target_field.ty),
+                    Some(Type::Optional(..))
+                ) =>
+                {
                     RustExpr::path("None")
                 }
                 None => return Ok(None),
@@ -628,13 +646,13 @@ impl FunctionEmitter<'_> {
             };
             let value = if let Some(value) = receiver_bound {
                 value
-            } else if let Some(Type::Optional(inner)) = self.mir.types.get(field.ty)
+            } else if let Some(Type::Optional(inner, _)) = self.mir.types.get(field.ty)
                 && self.record_value_misses_concrete_union(source_value, *inner)
             {
                 // The record's values cannot be this field's type, so the key
                 // is absent from any value the source holds.
                 RustExpr::path("None")
-            } else if let Some(Type::Optional(inner)) = self.mir.types.get(field.ty) {
+            } else if let Some(Type::Optional(inner, _)) = self.mir.types.get(field.ty) {
                 if self.can_render_dict_value_as(source_value, *inner) {
                     let rendered = self.rendered_at_type(
                         &RustExpr::path("smelt_value"),
@@ -756,7 +774,7 @@ impl FunctionEmitter<'_> {
                 *name,
                 &field_text,
             )?;
-            let rebuild = RustExpr::atom(target_name).postfix(format!(
+            let rebuild = RustExpr::atom(target_name.clone()).postfix(format!(
                 "(::std::rc::Rc::new(::std::cell::RefCell::new({inner})))"
             ));
             // Only an erased-valued `SmeltRecord` view can share an erased
@@ -770,13 +788,34 @@ impl FunctionEmitter<'_> {
                             .iter()
                             .map(|arg| Ok(self.rendered_type(*arg)?.as_str().to_owned()))
                             .collect::<Result<Vec<_>, EmitError>>()?;
-                        crate::class_polymorphism::subclass_origins_at(
+                        let mut origins = crate::class_polymorphism::subclass_origins_at(
                             self.mir,
                             self.context,
                             class,
                             &arg_texts,
                             &|index, ty| args.get(index) == Some(&ty),
-                        )?
+                        )?;
+                        // A widened class also takes back an instance at
+                        // other arguments, as the same object
+                        // (`crate::class_widening`).
+                        if self.context.is_widened_class(*name) {
+                            let carried = self
+                                .context
+                                .type_param_elision()
+                                .retain_carried(*name, arg_texts);
+                            let path = if carried.is_empty() {
+                                target_name
+                            } else {
+                                format!("{target_name}::<{}>", carried.join(", "))
+                            };
+                            origins.extend(crate::class_widening::instantiation_origins(
+                                self.mir,
+                                self.context,
+                                class,
+                                &path,
+                            )?);
+                        }
+                        origins
                     }
                     _ => Vec::new(),
                 };
@@ -1002,7 +1041,7 @@ impl FunctionEmitter<'_> {
             } else {
                 RustExpr::path(format!("smelt_struct_value.{field_name}")).cloned_value()
             };
-            let value = if let Some(Type::Optional(inner)) = self.mir.types.get(field.ty) {
+            let value = if let Some(Type::Optional(inner, _)) = self.mir.types.get(field.ty) {
                 let mapped = self.rendered_at_type(
                     &RustExpr::path("smelt_value"),
                     *inner,
@@ -1075,7 +1114,7 @@ impl FunctionEmitter<'_> {
         source: TypeId,
         target: TypeId,
     ) -> bool {
-        if let Some(Type::Optional(inner)) = self.mir.types.get(target) {
+        if let Some(Type::Optional(inner, _)) = self.mir.types.get(target) {
             // An optional field accepts the inner type (the `get` already supplies
             // the outer `Option`) or an absent value. It must ALSO accept a source
             // that is itself optional-shaped — the checks below reach that through
@@ -1261,7 +1300,7 @@ impl FunctionEmitter<'_> {
             };
             match self.host_class_member_read(&RustExpr::path("smelt_host_value"), source, member) {
                 Ok(Some(_)) => true,
-                Ok(None) => matches!(self.mir.types.get(field.ty), Some(Type::Optional(_))),
+                Ok(None) => matches!(self.mir.types.get(field.ty), Some(Type::Optional(..))),
                 Err(_) => false,
             }
         })

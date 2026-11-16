@@ -22,7 +22,7 @@ impl FunctionEmitter<'_> {
         // of non-optional `T`. The narrowed `smelt_needle` already has the
         // element type, so it feeds the same per-element comparison directly.
         if needle_ty != item_ty
-            && let Some(Type::Optional(opt_inner)) = self.mir.types.get(needle_ty)
+            && let Some(Type::Optional(opt_inner, _)) = self.mir.types.get(needle_ty)
         {
             let inner = *opt_inner;
             // Read by borrow: both branches use `&self` methods

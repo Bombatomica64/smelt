@@ -97,7 +97,11 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let index = self.coerce_at_index_operand(index, span_start, span_end, body)?;
-        let ty = self.ctx.krate.types.intern(Type::Optional(item_ty));
+        let ty = self
+            .ctx
+            .krate
+            .types
+            .intern(Type::Optional(item_ty, smelt_hir::Absence::Undefined));
         Ok(body.push_expr(Expr {
             kind: ExprKind::OptionalIndex {
                 receiver,

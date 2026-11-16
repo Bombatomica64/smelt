@@ -237,7 +237,7 @@ fn optional_method_can_throw(
     // The receiver of an optional chain is usually `Option<Class>`; either
     // spelling names the same class.
     let receiver_ty = match types.get(decl.ty) {
-        Some(Type::Optional(inner)) => *inner,
+        Some(Type::Optional(inner, _)) => *inner,
         _ => decl.ty,
     };
     let Some(Type::Class { name, .. }) = types.get(receiver_ty) else {

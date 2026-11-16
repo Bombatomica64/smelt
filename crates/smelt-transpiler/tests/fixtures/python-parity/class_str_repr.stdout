@@ -1,0 +1,9 @@
+(1, 2)
+(1, 2) Point(1, 2) (1, 2) and Point(1, 2)
+[Point(1, 2), Point(3, 4)] (Point(1, 2), 5)
+Tag<a> Tag<a> Tag<a> <Tag<a>>
+[Tag<a>] {'k': Tag<a>}
+label: x label: x [label: x]
+b!2 Tag<b> [Tag<b>]
+fine
+ValueError: no text for this one

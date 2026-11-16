@@ -520,7 +520,7 @@ impl FunctionEmitter<'_> {
                 self.value_at_type(callable, field.ty)?
             } else if let Some(entry_value) = prop_values.get(&field_name) {
                 self.value_at_type(entry_value, field.ty)?
-            } else if matches!(self.mir.types.get(field.ty), Some(Type::Optional(_))) {
+            } else if matches!(self.mir.types.get(field.ty), Some(Type::Optional(..))) {
                 self.default_value(field.ty)?
             } else {
                 return Err(EmitError::new(format!(
@@ -575,11 +575,13 @@ impl FunctionEmitter<'_> {
             };
             for block in &self.function.blocks {
                 for statement in &block.statements {
-                    match statement.value() {
+                    if let Some(
                         Rvalue::ClosureCall { callee, .. }
                         | Rvalue::ClosureCallSpread { callee, .. }
-                        | Rvalue::ClosureCallRest { callee, .. } => note(callee),
-                        _ => {}
+                        | Rvalue::ClosureCallRest { callee, .. },
+                    ) = statement.value()
+                    {
+                        note(callee);
                     }
                 }
                 if let Some(Terminator::Call {
@@ -601,9 +603,10 @@ impl FunctionEmitter<'_> {
         let Place::Local(local) = place else {
             return None;
         };
-        match self.temp_call_receiver(*local, depth) {
-            ErasedCallReceiver::Snapshot(slot) => Some(slot),
-            _ => None,
+        if let ErasedCallReceiver::Snapshot(slot) = self.temp_call_receiver(*local, depth) {
+            Some(slot)
+        } else {
+            None
         }
     }
 
@@ -680,10 +683,7 @@ impl FunctionEmitter<'_> {
             .blocks
             .iter()
             .flat_map(|block| &block.statements)
-            .filter_map(|statement| match statement {
-                Statement::Assign { dest, value } if *dest == local => Some(value),
-                _ => None,
-            });
+            .filter_map(|statement| local_analysis::temp_assigned_value(statement, local));
         let value = assigned.next()?;
         assigned.next().is_none().then_some(value)
     }
@@ -691,6 +691,10 @@ impl FunctionEmitter<'_> {
     /// The receiver of the member read a temporary is assigned, when that read
     /// is off an erased value: `base` of `base.m` / `base[k]`, and the
     /// receiver of an optional `receiver?.m`.
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "single-shape recogniser: only a projected read, a receiver bind of one, or an optional member read is a member read"
+    )]
     fn member_read_receiver(&self, local: LocalId) -> Option<Operand> {
         match self.single_assigned_temp_value(local)? {
             Rvalue::Use(
@@ -717,7 +721,7 @@ impl FunctionEmitter<'_> {
                 let receiver = Operand::Copy(place.clone());
                 let erased = self.operand_ty(&receiver).is_ok_and(|ty| {
                     self.has_dynamic_shape(ty)
-                        || matches!(self.mir.types.get(ty), Some(Type::Optional(inner)) if self.has_dynamic_shape(*inner))
+                        || matches!(self.mir.types.get(ty), Some(Type::Optional(inner, _)) if self.has_dynamic_shape(*inner))
                 });
                 erased.then_some(receiver)
             }
