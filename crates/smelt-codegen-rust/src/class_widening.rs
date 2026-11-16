@@ -54,8 +54,9 @@
 //!
 //! A callable field over the class's parameters (a virtual method slot
 //! `parse: Rc<dyn Fn(JsString) -> Result_<T>>`) is handed out behind an
-//! adapter that converts the arguments and the answer that mention them. One
-//! whose slot takes arguments by reference has no such adapter; reading it
+//! adapter that converts the arguments and the answer that mention them (a
+//! `&T` argument through a converted local, a `&mut T` one converted back
+//! after the call). A slot of any other shape has no such adapter; reading it
 //! through a placeholder reports the gap (`smelt_widened_view_storage`)
 //! instead of reading the placeholder.
 
@@ -232,12 +233,86 @@ pub(crate) struct WidenedField {
     /// arguments by value: each parameter's and the answer's Rust type, with
     /// whether it mentions the class's parameters. A view hands out the
     /// source's callable behind an adapter converting exactly those.
-    pub(crate) callable: Option<(Vec<(String, bool)>, (String, bool))>,
+    pub(crate) callable: Option<(Vec<SlotParam>, (String, bool))>,
     /// The erasure of the field's value bound to `smelt_value` (a reference),
     /// or `None` for a field the erased carrier cannot take back (a callable
     /// slot): a view leaves its accessors to the record's own, which no view
     /// has, so such a field is never read through a view.
     pub(crate) erase: Option<String>,
+}
+
+/// How a callable slot takes one parameter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SlotPassing {
+    /// By value (`T`).
+    Value,
+    /// By shared reference (`&T`, the slot ABI of a borrowed record).
+    Shared,
+    /// By mutable reference (`&mut T`, a parameter the callee mutates).
+    Mutable,
+}
+
+/// One parameter of a callable slot a view adapts.
+#[derive(Debug, Clone)]
+pub(crate) struct SlotParam {
+    /// The parameter's type without its reference (`Value`).
+    pub(crate) ty_text: String,
+    /// How the slot takes it.
+    pub(crate) passing: SlotPassing,
+    /// Whether the type mentions the class's parameters (only those convert).
+    pub(crate) generic: bool,
+}
+
+impl SlotParam {
+    /// The parameter as the slot's signature spells it (`&mut SmeltDate`).
+    pub(crate) fn spelled(&self) -> String {
+        match self.passing {
+            SlotPassing::Value => self.ty_text.clone(),
+            SlotPassing::Shared => format!("&{}", self.ty_text),
+            SlotPassing::Mutable => format!("&mut {}", self.ty_text),
+        }
+    }
+}
+
+/// The top-level comma-separated parameter list of the rendered slot type
+/// `::std::rc::Rc<dyn Fn(A, B<C, D>) -> R>`, and its return text (`()` when the
+/// signature has none); `None` for any other shape.
+fn slot_signature(ty_text: &str) -> Option<(Vec<String>, String)> {
+    let inner = ty_text
+        .strip_prefix("::std::rc::Rc<dyn Fn(")?
+        .strip_suffix('>')?;
+    let mut depth = 0usize;
+    let mut params = Vec::new();
+    let mut current = String::new();
+    let mut tail = None;
+    for (index, ch) in inner.char_indices() {
+        match ch {
+            '<' | '(' | '[' => depth = depth.checked_add(1)?,
+            '>' | ']' => depth = depth.checked_sub(1)?,
+            ')' if depth == 0 => {
+                tail = Some(inner.get(index.checked_add(1)?..)?);
+                break;
+            }
+            ')' => depth = depth.checked_sub(1)?,
+            ',' if depth == 0 => {
+                params.push(current.trim().to_owned());
+                current.clear();
+                continue;
+            }
+            _ => {}
+        }
+        current.push(ch);
+    }
+    if !current.trim().is_empty() {
+        params.push(current.trim().to_owned());
+    }
+    let after = tail?.trim();
+    let ret = if after.is_empty() {
+        "()".to_owned()
+    } else {
+        after.strip_prefix("->")?.trim().to_owned()
+    };
+    Some((params, ret))
 }
 
 /// The fields of widened `class` (its own and every inherited one, each at the
@@ -291,22 +366,34 @@ pub(crate) fn widened_fields(
                 &crate::type_substitution::TypeSubstitution::lexical(&scoped),
             )
         };
-        let callable = match mir.types.get(stored_ty) {
-            Some(Type::Function(function)) if function.rest.is_none() => {
-                let params = function
-                    .params
-                    .iter()
-                    .map(|param| Ok((render(*param)?, mentions(*param))))
-                    .collect::<Result<Vec<_>, crate::EmitError>>()?;
-                let ret = (render(function.return_ty)?, mentions(function.return_ty));
-                let spelled = params
-                    .iter()
-                    .map(|(text, _)| text.as_str())
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                let by_value = format!("::std::rc::Rc<dyn Fn({spelled}) -> {}>", ret.0);
-                let unit = format!("::std::rc::Rc<dyn Fn({spelled})>");
-                (ty_text == by_value || (ret.0 == "()" && ty_text == unit)).then_some((params, ret))
+        // A callable slot whose rendered signature spells exactly its
+        // parameters (each by value, `&` or `&mut`) and its answer.
+        let callable = match (mir.types.get(stored_ty), slot_signature(&ty_text)) {
+            (Some(Type::Function(function)), Some((spelled, ret_text)))
+                if function.rest.is_none() && spelled.len() == function.params.len() =>
+            {
+                let mut params = Vec::new();
+                for (param, slot_text) in function.params.iter().zip(&spelled) {
+                    let rendered = render(*param)?;
+                    let passing = if *slot_text == rendered {
+                        SlotPassing::Value
+                    } else if *slot_text == format!("&mut {rendered}") {
+                        SlotPassing::Mutable
+                    } else if *slot_text == format!("&{rendered}") {
+                        SlotPassing::Shared
+                    } else {
+                        params.clear();
+                        break;
+                    };
+                    params.push(SlotParam {
+                        ty_text: rendered,
+                        passing,
+                        generic: mentions(*param),
+                    });
+                }
+                let ret = render(function.return_ty)?;
+                (params.len() == function.params.len() && ret == ret_text)
+                    .then(|| (params, (ret, mentions(function.return_ty))))
             }
             _ => None,
         };
@@ -350,6 +437,10 @@ pub(crate) fn source_side(text: &str, idents: &[String]) -> String {
 }
 
 /// What [`widened_items_text`] needs about the class being emitted.
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "independent facts about the emitted class, each read by one part of the text"
+)]
 pub(crate) struct WidenedClass<'a> {
     /// The handle type's Rust name (`Parser`).
     pub(crate) name: &'a str,
@@ -364,6 +455,10 @@ pub(crate) struct WidenedClass<'a> {
     /// Whether the class is a polymorphic handle (`crate::class_polymorphism`):
     /// the view then also answers the cell-trait probes.
     pub(crate) polymorphic: bool,
+    /// Whether the class has a cell trait of its own: a polymorphic class
+    /// upcasts through its trait's `smelt_as_<ancestor>`, a leaf subclass by
+    /// unsizing its concrete cell.
+    pub(crate) own_trait: bool,
     /// The cell-trait upcasts toward polymorphic ancestors: the method name,
     /// the ancestor's handle type name and its arguments at this class's
     /// parameters (`""` for a non-generic ancestor).
@@ -407,6 +502,7 @@ pub(crate) fn widened_items_text(class: &WidenedClass<'_>, fields: &[WidenedFiel
         type_args,
         source_name,
         polymorphic,
+        own_trait,
         upcasts,
         needs_unknown,
         has_proto_entries,
@@ -475,11 +571,16 @@ pub(crate) fn widened_items_text(class: &WidenedClass<'_>, fields: &[WidenedFiel
             declared.push(format!(
                 "fn {method}(&self) -> ::std::rc::Rc<dyn {ancestor_cell}{ancestor_args}>;"
             ));
-            let body = if ancestor_args.is_empty() {
+            let source_cell = if *own_trait {
                 format!("::std::rc::Rc::clone(&self.source.0).{method}()")
             } else {
+                "self.source.0.clone()".to_owned()
+            };
+            let body = if ancestor_args.is_empty() {
+                source_cell
+            } else {
                 format!(
-                    "{ancestor}::{ancestor_args}::smelt_retarget({ancestor}::{}(::std::rc::Rc::clone(&self.source.0).{method}())).0",
+                    "{ancestor}::{ancestor_args}::smelt_retarget({ancestor}::{}({source_cell})).0",
                     source_side(ancestor_args, idents)
                 )
             };
@@ -556,6 +657,8 @@ pub(crate) fn widened_items_text(class: &WidenedClass<'_>, fields: &[WidenedFiel
             // view's arguments goes to the source's, the answer comes back.
             let convert =
                 "SmeltFromUnknown::smelt_from_unknown(IntoSmeltUnknown::into_smelt_unknown(VALUE))";
+            // `to_source`: the closure is spelled at this view's arguments and
+            // calls the source's slot; otherwise the reverse.
             let adapter = |to_source: bool| {
                 let side = |text: &str| {
                     if to_source {
@@ -564,35 +667,49 @@ pub(crate) fn widened_items_text(class: &WidenedClass<'_>, fields: &[WidenedFiel
                         source_side(text, idents)
                     }
                 };
-                let names: Vec<String> = (0..params.len())
-                    .map(|index| format!("smelt_arg{index}"))
-                    .collect();
-                let declared_params = names
-                    .iter()
-                    .zip(params)
-                    .map(|(arg, (text, _))| format!("{arg}: {}", side(text)))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                let passed = names
-                    .iter()
-                    .zip(params)
-                    .map(|(arg, (_, mentions))| {
-                        if *mentions {
-                            convert.replace("VALUE", arg)
-                        } else {
-                            arg.clone()
+                let mut declared_params = Vec::new();
+                let mut before = String::new();
+                let mut passed = Vec::new();
+                let mut after = String::new();
+                for (index, param) in params.iter().enumerate() {
+                    let arg = format!("smelt_arg{index}");
+                    declared_params.push(format!("{arg}: {}", side(&param.spelled())));
+                    if !param.generic {
+                        passed.push(arg);
+                        continue;
+                    }
+                    let local = format!("smelt_converted{index}");
+                    match param.passing {
+                        SlotPassing::Value => passed.push(convert.replace("VALUE", &arg)),
+                        SlotPassing::Shared => {
+                            before.push_str(&format!(
+                                "let {local} = {}; ",
+                                convert.replace("VALUE", &format!("(*{arg}).clone()"))
+                            ));
+                            passed.push(format!("&{local}"));
                         }
-                    })
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                let call = format!("smelt_slot({passed})");
+                        SlotPassing::Mutable => {
+                            before.push_str(&format!(
+                                "let mut {local} = {}; ",
+                                convert.replace("VALUE", &format!("(*{arg}).clone()"))
+                            ));
+                            passed.push(format!("&mut {local}"));
+                            after.push_str(&format!(
+                                "*{arg} = {}; ",
+                                convert.replace("VALUE", &local)
+                            ));
+                        }
+                    }
+                }
+                let call = format!("smelt_slot({})", passed.join(", "));
                 let answer = if ret.1 {
-                    convert.replace("VALUE", &call)
+                    convert.replace("VALUE", "smelt_answer")
                 } else {
-                    call
+                    "smelt_answer".to_owned()
                 };
                 format!(
-                    "::std::rc::Rc::new(move |{declared_params}| -> {} {{ {answer} }})",
+                    "::std::rc::Rc::new(move |{}| -> {} {{ {before}let smelt_answer = {call}; {after}{answer} }})",
+                    declared_params.join(", "),
                     side(&ret.0)
                 )
             };

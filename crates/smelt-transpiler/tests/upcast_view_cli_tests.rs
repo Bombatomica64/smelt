@@ -287,3 +287,111 @@ fn a_virtual_slot_through_a_widened_handle_reaches_the_override() -> TestResult 
         "the view adapts the source's `parse` slot",
     )
 }
+
+/// The program of the `leaf_subclass` test.
+const LEAF_SUBCLASS_TS: &str = r#"abstract class Setter {
+  priority = 0;
+  abstract describe(): string;
+}
+class ValueSetter<Value> extends Setter {
+  value: Value;
+  constructor(value: Value, priority: number) { super(); this.value = value; this.priority = priority; }
+  describe(): string { return `set ${String(this.value)} @${this.priority}`; }
+}
+class Plain extends Setter {
+  describe(): string { return "plain"; }
+}
+function main(): void {
+  const v = new ValueSetter<number>(5, 2);
+  const wide: ValueSetter<unknown> = v;
+  const setters: Setter[] = [new Plain(), wide];
+  for (const s of setters) { console.log(s.describe(), s.priority); }
+  const up: Setter = wide;
+  up.priority = 9;
+  console.log(v.priority, up === v, wide.value, up instanceof ValueSetter);
+}
+main();
+"#;
+
+/// What Node prints for [`LEAF_SUBCLASS_TS`].
+const LEAF_SUBCLASS_OUTPUT: &str = concat!("plain 0\n", "set 5 @2 2\n", "9 true 5 true\n");
+
+/// A widened generic leaf subclass of a polymorphic base (date-fns'
+/// `ValueSetter<Value> extends Setter`): a placeholder upcast to the base is
+/// the original object, through the view.
+#[test]
+fn a_widened_leaf_subclass_upcasts_to_its_base_as_the_same_object() -> TestResult {
+    let all = agrees_with_node(
+        LEAF_SUBCLASS_TS,
+        LEAF_SUBCLASS_OUTPUT,
+        "widened leaf subclass",
+    )?;
+    ensure(
+        all.contains("struct ValueSetter<Value>(::std::rc::Rc<::std::cell::RefCell<ValueSetterInner<Value>>>);"),
+        "the leaf keeps its concrete handle",
+    )?;
+    ensure(
+        all.contains("Setter(match wide.clone().smelt_view() { Some(smelt_view) => smelt_view.smelt_as_Setter(), None => wide.clone().0.clone() })"),
+        "a placeholder upcasts through its view",
+    )
+}
+
+/// The program of the `by_reference_slot` test.
+const BY_REFERENCE_SLOT_TS: &str = r"type Flags = { touched: boolean };
+abstract class Step<V> {
+  priority = 1;
+  run(date: Date, flags: Flags, value: V): { at: number; ok: boolean } {
+    const ok = this.validate(value);
+    const out = this.set(date, flags, value);
+    return { at: out.getTime(), ok };
+  }
+  protected validate(_value: V): boolean { return true; }
+  protected abstract set(date: Date, flags: Flags, value: V): Date;
+}
+class YearStep extends Step<number> {
+  protected set(date: Date, flags: Flags, value: number): Date {
+    flags.touched = true;
+    date.setUTCFullYear(value);
+    return date;
+  }
+  protected validate(value: number): boolean { return value > 1900; }
+}
+function main(): void {
+  const steps: Step<any>[] = [new YearStep()];
+  for (const step of steps) {
+    const flags: Flags = { touched: false };
+    const date = new Date(0);
+    const r = step.run(date, flags, 2001);
+    console.log(r.at, r.ok, flags.touched, date.getUTCFullYear(), step.priority);
+    console.log(JSON.stringify(step.run(new Date(0), flags, 1800)));
+  }
+}
+main();
+";
+
+/// What Node prints for [`BY_REFERENCE_SLOT_TS`].
+const BY_REFERENCE_SLOT_OUTPUT: &str = concat!(
+    "978307200000 true true 2001 1\n",
+    "{\"at\":-5364662400000,\"ok\":false}\n"
+);
+
+/// A method that runs on a placeholder (it has no erased adapter) reads a
+/// virtual slot whose subclass fixed the parameter (`set(.., value: &V)`, the
+/// declaring level's by-reference ABI): the view adapts the source's slot,
+/// converting the borrowed argument (date-fns' `Parser.run` over `this.set`).
+#[test]
+fn a_by_reference_slot_through_a_widened_handle_reaches_the_override() -> TestResult {
+    let all = agrees_with_node(
+        BY_REFERENCE_SLOT_TS,
+        BY_REFERENCE_SLOT_OUTPUT,
+        "widened by-reference slot",
+    )?;
+    ensure(
+        all.contains("fn smelt_read_set_view(&self) -> ::std::rc::Rc<dyn Fn(SmeltDate, Flags, &V) -> SmeltDate>"),
+        "the view adapts the by-reference `set` slot",
+    )?;
+    ensure(
+        all.contains("SmeltList<Step<SmeltUnknown>>"),
+        "the array keeps its `Step<any>` element type",
+    )
+}

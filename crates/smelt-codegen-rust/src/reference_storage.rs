@@ -443,6 +443,7 @@ pub(crate) fn emit_reference_record_storage(
                 polymorphic: layout
                     .as_ref()
                     .is_some_and(|found| !found.cell_impls.is_empty()),
+                own_trait: polymorphic,
                 upcasts,
                 needs_unknown,
                 has_proto_entries: *has_proto_entries,
