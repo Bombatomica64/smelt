@@ -416,6 +416,9 @@ impl ModuleBuilder<'_> {
                 | Type::Unknown
                 | Type::Never
                 | Type::TypeParam { .. }
+                // A deferred `T[K]` is settled per call, like the type
+                // parameter it reads: no storage of its own here.
+                | Type::IndexedAccess { .. }
                 | Type::None
                 | Type::Optional(_),
             )

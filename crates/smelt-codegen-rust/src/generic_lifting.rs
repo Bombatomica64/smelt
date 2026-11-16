@@ -316,7 +316,7 @@ fn body_only_moves(
                     }
                     value
                 }
-                Statement::DictEntryUpdate { .. } => continue,
+                Statement::DictEntryUpdate { .. } | Statement::StorageLive(_) => continue,
             };
             let mut projected = false;
             value.reads(|operand| projected |= operand_projects_into(operand));

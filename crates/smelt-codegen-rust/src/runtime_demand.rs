@@ -861,8 +861,12 @@ impl RuntimeDemand {
         for ty in reachable.ids().filter_map(|id| mir.types.get(id)) {
             match ty {
                 // Unions render as the carrier, and a dict literal can erase its
-                // entries without interning `Unknown`.
-                Type::Unknown | Type::Never | Type::Union(_) => self.add(Need::Unknown),
+                // entries without interning `Unknown`. A deferred `T[K]` the
+                // frontend left unevaluated renders as the carrier too
+                // (`emitter::backend_erasure`).
+                Type::Unknown | Type::Never | Type::Union(_) | Type::IndexedAccess { .. } => {
+                    self.add(Need::Unknown);
+                }
                 Type::GeneratorResult { .. } => self.add(Need::IteratorResult),
                 Type::Class { name, .. } => {
                     if crate::classes::class_name_renders_erased(mir, *name) {
