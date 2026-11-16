@@ -121,6 +121,39 @@ impl FunctionEmitter<'_> {
     }
 
     /// A write to a field that needs more than a plain assignment.
+    /// The store of `value` under `key` into the map local `base` (of type
+    /// `base_ty`, keyed by `key_ty`), as one Rust expression.
+    ///
+    /// A string-keyed record of ERASED values is where an object literal's
+    /// accessors live (`{ __smelt_get, __smelt_setter }` markers), so its write
+    /// is JavaScript's [[Set]], `smelt_record_put`: a stored setter runs, with
+    /// the record as `this`. Every other map stores the value directly.
+    fn dict_store_text(
+        &self,
+        base: LocalId,
+        base_ty: TypeId,
+        key_ty: TypeId,
+        key_text: &RustExpr,
+        value: &RustExpr,
+    ) -> Result<String, EmitError> {
+        let base_text = self.local_mut_value(base)?;
+        if self.map_op_uses_smelt_record(base_ty, key_ty) && self.dict_holds_erased_values(base_ty)
+        {
+            return Ok(format!(
+                "smelt_record_put(&{base_text}, {key_text}, {value})",
+                base_text = base_text.tight(),
+                key_text = key_text.delimited(),
+                value = value.delimited()
+            ));
+        }
+        Ok(format!(
+            "{base_text}.insert({key_text}, {value})",
+            base_text = base_text.tight(),
+            key_text = key_text.delimited(),
+            value = value.delimited()
+        ))
+    }
+
     /// Answers whether the statement is complete; `false` hands it to the shared tail of
     /// [`Self::emit_assign_place_statement`].
     fn emit_field_write(
@@ -203,10 +236,8 @@ impl FunctionEmitter<'_> {
             let rendered_value = self.rvalue_expr_for_dest(value, *item)?;
             let key_text = self.dict_field_key_expr(*key, field)?;
             out.push_str(&format!(
-                "    {}.insert({key_text}, {rendered_value});\n",
-                self.local_mut_value(base)?.tight(),
-                key_text = key_text.delimited(),
-                rendered_value = rendered_value.delimited(),
+                "    {};\n",
+                self.dict_store_text(base, base_ty, *key, &key_text, &rendered_value)?
             ));
             return Ok(true);
         }
@@ -303,7 +334,7 @@ impl FunctionEmitter<'_> {
                     String::new()
                 };
                 out.push_str(&self.carrier_format(self.carrier()?, format_args!(
-                    "    {{ let smelt_value = {rendered_value}; match &mut {base_text} {{ SmeltUnknown::Object(smelt_map) => {{ smelt_map.insert({field_name:?}.to_owned(), smelt_value.clone());{view_write}{static_write} }}, SmeltUnknown::Array(smelt_values) => {{ smelt_values.set_named_property({field_name:?}.to_owned(), smelt_value); }}, SmeltUnknown::Function(smelt_function) => {{ smelt_set_function_property(smelt_function, {field_name:?}, smelt_value); }}, other => {{ *other = SmeltUnknown::Object(SmeltObject::new(Vec::from([({field_name:?}.to_owned(), smelt_value)]))); }} }} }}\n", rendered_value = rendered_value.delimited(), base_text = base_text.tight()
+                    "    {{ let smelt_value = {rendered_value}; match &mut {base_text} {{ SmeltUnknown::Object(smelt_map) => {{ smelt_object_put(smelt_map, {field_name:?}.to_owned(), smelt_value.clone());{view_write}{static_write} }}, SmeltUnknown::Array(smelt_values) => {{ smelt_values.set_named_property({field_name:?}.to_owned(), smelt_value); }}, SmeltUnknown::Function(smelt_function) => {{ smelt_set_function_property(smelt_function, {field_name:?}, smelt_value); }}, other => {{ *other = SmeltUnknown::Object(SmeltObject::new(Vec::from([({field_name:?}.to_owned(), smelt_value)]))); }} }} }}\n", rendered_value = rendered_value.delimited(), base_text = base_text.tight()
                 )));
                 return Ok(true);
             }
@@ -315,11 +346,11 @@ impl FunctionEmitter<'_> {
             // one-property record, so `(f as any).x = 1` lost `f`.
             if value.reads_local(base) {
                 out.push_str(&self.carrier_format(self.carrier()?, format_args!(
-                    "    {{ let smelt_value = {rendered_value}; match &mut {base_text} {{ SmeltUnknown::Object(smelt_map) => {{ smelt_map.insert({field_name:?}.to_owned(), smelt_value); }}, SmeltUnknown::Array(smelt_values) => {{ smelt_values.set_named_property({field_name:?}.to_owned(), smelt_value); }}, SmeltUnknown::Function(smelt_function) => {{ smelt_set_function_property(smelt_function, {field_name:?}, smelt_value); }}, other => {{ *other = SmeltUnknown::Object(SmeltObject::new(Vec::from([({field_name:?}.to_owned(), smelt_value)]))); }} }} }}\n", rendered_value = rendered_value.delimited(), base_text = base_text.tight()
+                    "    {{ let smelt_value = {rendered_value}; match &mut {base_text} {{ SmeltUnknown::Object(smelt_map) => {{ smelt_object_put(smelt_map, {field_name:?}.to_owned(), smelt_value); }}, SmeltUnknown::Array(smelt_values) => {{ smelt_values.set_named_property({field_name:?}.to_owned(), smelt_value); }}, SmeltUnknown::Function(smelt_function) => {{ smelt_set_function_property(smelt_function, {field_name:?}, smelt_value); }}, other => {{ *other = SmeltUnknown::Object(SmeltObject::new(Vec::from([({field_name:?}.to_owned(), smelt_value)]))); }} }} }}\n", rendered_value = rendered_value.delimited(), base_text = base_text.tight()
                 )));
             } else {
                 out.push_str(&self.carrier_format(self.carrier()?, format_args!(
-                    "    match &mut {base_text} {{ SmeltUnknown::Object(smelt_map) => {{ smelt_map.insert({field_name:?}.to_owned(), {rendered_value}); }}, SmeltUnknown::Array(smelt_values) => {{ smelt_values.set_named_property({field_name:?}.to_owned(), {rendered_value}); }}, SmeltUnknown::Function(smelt_function) => {{ smelt_set_function_property(smelt_function, {field_name:?}, {rendered_value}); }}, other => {{ *other = SmeltUnknown::Object(SmeltObject::new(Vec::from([({field_name:?}.to_owned(), {rendered_value})]))); }} }}\n", base_text = base_text.tight(), rendered_value = rendered_value.delimited()
+                    "    match &mut {base_text} {{ SmeltUnknown::Object(smelt_map) => {{ smelt_object_put(smelt_map, {field_name:?}.to_owned(), {rendered_value}); }}, SmeltUnknown::Array(smelt_values) => {{ smelt_values.set_named_property({field_name:?}.to_owned(), {rendered_value}); }}, SmeltUnknown::Function(smelt_function) => {{ smelt_set_function_property(smelt_function, {field_name:?}, {rendered_value}); }}, other => {{ *other = SmeltUnknown::Object(SmeltObject::new(Vec::from([({field_name:?}.to_owned(), {rendered_value})]))); }} }}\n", base_text = base_text.tight(), rendered_value = rendered_value.delimited()
                 )));
             }
             return Ok(true);
@@ -384,10 +415,8 @@ impl FunctionEmitter<'_> {
                     self.value_at_type(index, *key)?
                 };
                 out.push_str(&format!(
-                    "    {}.insert({}, {rendered_value});\n",
-                    self.local_mut_value(base)?.tight(),
-                    key_text.delimited(),
-                    rendered_value = rendered_value.delimited()
+                    "    {};\n",
+                    self.dict_store_text(base, base_ty, *key, &key_text, &rendered_value)?
                 ));
             }
             Some(Type::List(item)) => {

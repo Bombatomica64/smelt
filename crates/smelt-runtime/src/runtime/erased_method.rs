@@ -457,7 +457,7 @@ fn smelt_value_not_callable() -> ! { smelt_throw_not_callable("value") }
 //~ else the prototype members, else a host object's modelled members. `None`
 //~ when the read answers `undefined`, so an absent property and a present
 //~ `undefined` are the same to the conversion, as they are to a reader.
-fn smelt_erased_member(object: &SmeltObject, key: &str) -> Option<SmeltUnknown> { match object.get(key) { Some(SmeltUnknown::Undefined) => None, Some(SmeltUnknown::Object(getter)) if getter.contains_key("__smelt_get") => Some(smelt_resolve_accessor(SmeltUnknown::Object(getter))), Some(value) => Some(value), None => match smelt_get_unknown_field(&SmeltUnknown::Object(object.clone()), key) { SmeltUnknown::Undefined => None, value => Some(value) } } }
+fn smelt_erased_member(object: &SmeltObject, key: &str) -> Option<SmeltUnknown> { match object.get(key) { Some(SmeltUnknown::Undefined) => None, Some(SmeltUnknown::Object(accessor)) if smelt_is_accessor(&accessor) => Some(smelt_resolve_accessor(SmeltUnknown::Object(accessor), || SmeltUnknown::Object(object.clone()))), Some(value) => Some(value), None => match smelt_get_unknown_field(&SmeltUnknown::Object(object.clone()), key) { SmeltUnknown::Undefined => None, value => Some(value) } } }
 /// [`smelt_erased_member`] on a string-keyed record view of an erased object.
 fn smelt_erased_record_member(record: &SmeltRecord<JsString, SmeltUnknown>, key: &str) -> Option<SmeltUnknown> { smelt_erased_member(&SmeltObject::from_unknown_record(record.clone()), key) }
 /// The placeholder an erased class view holds for a method it cannot bridge
