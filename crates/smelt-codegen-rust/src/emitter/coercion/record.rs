@@ -684,8 +684,15 @@ pub(crate) fn record_field_unknown_expr(
         Some(Type::Optional(inner)) => {
             let inner_text =
                 record_field_unknown_expr(mir, &RustExpr::path("smelt_value"), *inner)?;
+            // A `T | null` (`TypeInterner::intern_null_optional`) has only
+            // `null` as its absent value; any other optional's is `undefined`.
+            let absent = if mir.types.absent_is_null(ty) {
+                "SmeltUnknown::Null"
+            } else {
+                "SmeltUnknown::Undefined"
+            };
             value_text.postfix(format!(
-                ".map_or(SmeltUnknown::Undefined, |smelt_value| {inner_text})",
+                ".map_or({absent}, |smelt_value| {inner_text})",
                 inner_text = inner_text.delimited()
             ))
         }

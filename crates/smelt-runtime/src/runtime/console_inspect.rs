@@ -26,6 +26,32 @@ trait SmeltInspect {
     fn smelt_console_text(&self) -> String { self.smelt_inspect(&mut SmeltInspectContext::default(), 0) }
 }
 
+/// How one entry of a container is inspected, when not by its Rust type's own impl.
+//~
+//~ The emitter hands one for an element type whose JavaScript rendering differs
+//~ from its Rust storage type's: a `(number | null)[]` stores `Option<f64>`,
+//~ whose impl prints `undefined` for `None`, but the source's absent value is
+//~ `null`. Every container impl is its `_with` helper over the element type's
+//~ own `smelt_inspect`.
+type SmeltInspector<'a, T> = &'a dyn Fn(&T, &mut SmeltInspectContext, usize) -> String;
+
+/// One container entry, drawn by an inspector (`SmeltInspector`).
+//~
+//~ Only the rendering is the inspector's: whether the entry is a number (array
+//~ column alignment) or a hole is a property of the value, answered by its own impl.
+struct SmeltInspectWith<'a, T> {
+    //~ The entry.
+    value: &'a T,
+    //~ How it is drawn.
+    inspect: SmeltInspector<'a, T>,
+}
+
+impl<T: SmeltInspect> SmeltInspect for SmeltInspectWith<'_, T> {
+    fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String { (self.inspect)(self.value, ctx, depth) }
+    fn smelt_inspect_is_number(&self) -> bool { self.value.smelt_inspect_is_number() }
+    fn smelt_inspect_is_hole(&self) -> bool { self.value.smelt_inspect_is_hole() }
+}
+
 /// The JavaScript `.length` of rendered text, in UTF-16 code units.
 fn smelt_inspect_len(text: &str) -> usize { text.encode_utf16().count() }
 
@@ -378,24 +404,32 @@ smelt_inspect_tuple!(A 0, B 1, C 2, D 3, E 4, F 5, G 6, H 7, I 8, J 9, K 10, L 1
 // @smelt:item impl_SmeltInspect_for_SmeltList when smelt_list
 
 impl<T: SmeltInspect> SmeltInspect for SmeltList<T> {
-    fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String {
-        let values = self.borrow();
-        //~ Named properties written through an erased view (`(list as any).x = 1`) follow the elements.
-        /*@if unknown*/let named = smelt_array_named_properties(self.id()); let keyed = named.iter().map(|(key, value)| SmeltInspectKeyed { key, value }).collect::<Vec<_>>();/*@end*/
-        let entries = values.iter().map(|value| value as &dyn SmeltInspect)/*@if unknown*/.chain(keyed.iter().map(|entry| entry as &dyn SmeltInspect))/*@end*/.collect::<Vec<_>>();
-        smelt_inspect_array(ctx, depth, &entries)
-    }
+    fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String { smelt_inspect_list_with(self, ctx, depth, &T::smelt_inspect) }
+}
+
+/// A typed array, each element drawn by `inspect`.
+fn smelt_inspect_list_with<T: SmeltInspect>(list: &SmeltList<T>, ctx: &mut SmeltInspectContext, depth: usize, inspect: SmeltInspector<'_, T>) -> String {
+    let values = list.borrow();
+    let elements = values.iter().map(|value| SmeltInspectWith { value, inspect }).collect::<Vec<_>>();
+    //~ Named properties written through an erased view (`(list as any).x = 1`) follow the elements.
+    /*@if unknown*/let named = smelt_array_named_properties(list.id()); let keyed = named.iter().map(|(key, value)| SmeltInspectKeyed { key, value }).collect::<Vec<_>>();/*@end*/
+    let entries = elements.iter().map(|value| value as &dyn SmeltInspect)/*@if unknown*/.chain(keyed.iter().map(|entry| entry as &dyn SmeltInspect))/*@end*/.collect::<Vec<_>>();
+    smelt_inspect_array(ctx, depth, &entries)
 }
 // @smelt:item-end
 
 // @smelt:item impl_SmeltInspect_for_SmeltPrimSet when prim_set
 
 impl<T: SmeltInspect> SmeltInspect for SmeltPrimSet<T> {
-    fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String {
-        let store = self.store.borrow();
-        let entries = store.entries.iter().map(|value| (value as &dyn SmeltInspect, None)).collect::<Vec<_>>();
-        smelt_inspect_collection(ctx, depth, "Set", &entries)
-    }
+    fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String { smelt_inspect_prim_set_with(self, ctx, depth, &T::smelt_inspect) }
+}
+
+/// A primitive `Set`, each member drawn by `inspect`.
+fn smelt_inspect_prim_set_with<T: SmeltInspect>(set: &SmeltPrimSet<T>, ctx: &mut SmeltInspectContext, depth: usize, inspect: SmeltInspector<'_, T>) -> String {
+    let store = set.store.borrow();
+    let members = store.entries.iter().map(|value| SmeltInspectWith { value, inspect }).collect::<Vec<_>>();
+    let entries = members.iter().map(|value| (value as &dyn SmeltInspect, None)).collect::<Vec<_>>();
+    smelt_inspect_collection(ctx, depth, "Set", &entries)
 }
 // @smelt:item-end
 
@@ -410,28 +444,40 @@ impl SmeltInspect for ::num_bigint::BigInt {
 // @smelt:item impl_SmeltInspect_for_SmeltRecord when unknown
 
 impl<V: SmeltInspect + Clone> SmeltInspect for SmeltRecord<JsString, V> {
-    fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String {
-        let pairs = self.iter().filter(|(key, _)| !key.eq_str_prefix("__smelt")).collect::<Vec<_>>();
-        let key_texts = pairs.iter().map(|(key, _)| key.to_string_lossy()).collect::<Vec<_>>();
-                let entries = pairs.iter().zip(&key_texts).map(|((_, value), key)| (key.as_str(), value as &dyn SmeltInspect)).collect::<Vec<_>>();
-        smelt_inspect_object(ctx, depth, "", &entries)
-    }
+    fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String { smelt_inspect_record_with(self, ctx, depth, &V::smelt_inspect) }
+}
+
+/// A string-keyed record, each value drawn by `inspect`.
+fn smelt_inspect_record_with<V: SmeltInspect + Clone>(record: &SmeltRecord<JsString, V>, ctx: &mut SmeltInspectContext, depth: usize, inspect: SmeltInspector<'_, V>) -> String {
+    let pairs = record.iter().filter(|(key, _)| !key.eq_str_prefix("__smelt")).collect::<Vec<_>>();
+    let key_texts = pairs.iter().map(|(key, _)| key.to_string_lossy()).collect::<Vec<_>>();
+    let values = pairs.iter().map(|(_, value)| SmeltInspectWith { value, inspect }).collect::<Vec<_>>();
+    let entries = values.iter().zip(&key_texts).map(|(value, key)| (key.as_str(), value as &dyn SmeltInspect)).collect::<Vec<_>>();
+    smelt_inspect_object(ctx, depth, "", &entries)
 }
 
 impl<K: SmeltInspect + SmeltJsKeyEq + Clone, V: SmeltInspect + Clone> SmeltInspect for SmeltJsMap<K, V> {
-    fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String {
-        let pairs = self.iter().collect::<Vec<_>>();
-        let entries = pairs.iter().map(|(key, value)| (key as &dyn SmeltInspect, Some(value as &dyn SmeltInspect))).collect::<Vec<_>>();
-        smelt_inspect_collection(ctx, depth, "Map", &entries)
-    }
+    fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String { smelt_inspect_map_with(self, ctx, depth, &K::smelt_inspect, &V::smelt_inspect) }
+}
+
+/// A `Map`, each key and value drawn by `inspect_key`/`inspect_value`.
+fn smelt_inspect_map_with<K: SmeltInspect + SmeltJsKeyEq + Clone, V: SmeltInspect + Clone>(map: &SmeltJsMap<K, V>, ctx: &mut SmeltInspectContext, depth: usize, inspect_key: SmeltInspector<'_, K>, inspect_value: SmeltInspector<'_, V>) -> String {
+    let pairs = map.iter().collect::<Vec<_>>();
+    let drawn = pairs.iter().map(|(key, value)| (SmeltInspectWith { value: key, inspect: inspect_key }, SmeltInspectWith { value, inspect: inspect_value })).collect::<Vec<_>>();
+    let entries = drawn.iter().map(|(key, value)| (key as &dyn SmeltInspect, Some(value as &dyn SmeltInspect))).collect::<Vec<_>>();
+    smelt_inspect_collection(ctx, depth, "Map", &entries)
 }
 
 impl<T: SmeltInspect + Clone + IntoSmeltUnknown> SmeltInspect for SmeltJsSet<T> {
-    fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String {
-        let members = self.iter().collect::<Vec<_>>();
-        let entries = members.iter().map(|value| (value as &dyn SmeltInspect, None)).collect::<Vec<_>>();
-        smelt_inspect_collection(ctx, depth, "Set", &entries)
-    }
+    fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String { smelt_inspect_set_with(self, ctx, depth, &T::smelt_inspect) }
+}
+
+/// A `Set` of non-primitives, each member drawn by `inspect`.
+fn smelt_inspect_set_with<T: SmeltInspect + Clone + IntoSmeltUnknown>(set: &SmeltJsSet<T>, ctx: &mut SmeltInspectContext, depth: usize, inspect: SmeltInspector<'_, T>) -> String {
+    let members = set.iter().collect::<Vec<_>>();
+    let drawn = members.iter().map(|value| SmeltInspectWith { value, inspect }).collect::<Vec<_>>();
+    let entries = drawn.iter().map(|value| (value as &dyn SmeltInspect, None)).collect::<Vec<_>>();
+    smelt_inspect_collection(ctx, depth, "Set", &entries)
 }
 
 /// One `key: value` entry of an array's own named properties.

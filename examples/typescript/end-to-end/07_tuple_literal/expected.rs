@@ -717,6 +717,21 @@ trait SmeltInspect {
     fn smelt_console_text(&self) -> String { self.smelt_inspect(&mut SmeltInspectContext::default(), 0) }
 }
 
+/// How one entry of a container is inspected, when not by its Rust type's own impl.
+type SmeltInspector<'a, T> = &'a dyn Fn(&T, &mut SmeltInspectContext, usize) -> String;
+
+/// One container entry, drawn by an inspector (`SmeltInspector`).
+struct SmeltInspectWith<'a, T> {
+    value: &'a T,
+    inspect: SmeltInspector<'a, T>,
+}
+
+impl<T: SmeltInspect> SmeltInspect for SmeltInspectWith<'_, T> {
+    fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String { (self.inspect)(self.value, ctx, depth) }
+    fn smelt_inspect_is_number(&self) -> bool { self.value.smelt_inspect_is_number() }
+    fn smelt_inspect_is_hole(&self) -> bool { self.value.smelt_inspect_is_hole() }
+}
+
 /// The JavaScript `.length` of rendered text, in UTF-16 code units.
 fn smelt_inspect_len(text: &str) -> usize { text.encode_utf16().count() }
 

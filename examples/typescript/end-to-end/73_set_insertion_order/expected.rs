@@ -1588,7 +1588,11 @@ impl<K: SmeltJsKeyEq + Clone, V: PartialEq + Clone> PartialEq for SmeltJsMap<K, 
     fn eq(&self, other: &Self) -> bool { let store = self.store.borrow(); store.entries.len() == other.store.borrow().entries.len() && store.entries.iter().all(|(key, value)| other.get(key).is_some_and(|other_value| other_value == *value)) }
 }
 impl<K: SmeltJsKeyEq + Clone, V: Eq + Clone> Eq for SmeltJsMap<K, V> {}
-impl<K: IntoSmeltUnknown + Clone, V: IntoSmeltUnknown + Clone> IntoSmeltUnknown for SmeltJsMap<K, V> { fn into_smelt_unknown(self) -> SmeltUnknown { let id = self.id; let pairs = self.store.borrow().entries.clone().into_iter().map(|(key, value)| SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id(), vec![key.into_smelt_unknown(), value.into_smelt_unknown()]))).collect::<Vec<_>>(); let object = Vec::from([("__smelt_map".to_owned(), SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id(), pairs)))]); SmeltUnknown::Object(SmeltObject::with_id(id, object)) } }
+impl<K: IntoSmeltUnknown + Clone, V: IntoSmeltUnknown + Clone> IntoSmeltUnknown for SmeltJsMap<K, V> { fn into_smelt_unknown(self) -> SmeltUnknown { self.into_smelt_unknown_with(&K::into_smelt_unknown, &V::into_smelt_unknown) } }
+
+impl<K: Clone, V: Clone> SmeltJsMap<K, V> {
+    fn into_smelt_unknown_with(self, erase_key: &dyn Fn(K) -> SmeltUnknown, erase_value: &dyn Fn(V) -> SmeltUnknown) -> SmeltUnknown { let id = self.id; let pairs = self.store.borrow().entries.clone().into_iter().map(|(key, value)| SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id(), vec![erase_key(key), erase_value(value)]))).collect::<Vec<_>>(); let object = Vec::from([("__smelt_map".to_owned(), SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id(), pairs)))]); SmeltUnknown::Object(SmeltObject::with_id(id, object)) }
+}
 
 pub struct SmeltJsSet<T> {
     id: usize,
@@ -1702,7 +1706,11 @@ impl<T: Clone + IntoSmeltUnknown> PartialEq for SmeltJsSet<T> { fn eq(&self, oth
 
 /// Take the members out of a set store, reusing them when this is the last handle.
 fn smelt_js_set_into_members<T: Clone>(store: ::std::rc::Rc<::std::cell::RefCell<SmeltJsSetStore<T>>>) -> Vec<T> { match ::std::rc::Rc::try_unwrap(store) { Ok(store) => store.into_inner().entries, Err(shared) => shared.borrow().entries.clone() } }
-impl<T: IntoSmeltUnknown + Clone> IntoSmeltUnknown for SmeltJsSet<T> { fn into_smelt_unknown(self) -> SmeltUnknown { let id = self.id; let members = smelt_js_set_into_members(self.store).into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect::<Vec<_>>(); let object = Vec::from([("__smelt_set".to_owned(), SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id(), members)))]); SmeltUnknown::Object(SmeltObject::with_id(id, object)) } }
+impl<T: IntoSmeltUnknown + Clone> IntoSmeltUnknown for SmeltJsSet<T> { fn into_smelt_unknown(self) -> SmeltUnknown { self.into_smelt_unknown_with(&T::into_smelt_unknown) } }
+
+impl<T: Clone> SmeltJsSet<T> {
+    fn into_smelt_unknown_with(self, erase: &dyn Fn(T) -> SmeltUnknown) -> SmeltUnknown { let id = self.id; let members = smelt_js_set_into_members(self.store).into_iter().map(erase).collect::<Vec<_>>(); let object = Vec::from([("__smelt_set".to_owned(), SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id(), members)))]); SmeltUnknown::Object(SmeltObject::with_id(id, object)) }
+}
 
 fn smelt_js_hash_one<H: ::std::hash::Hash>(value: &H) -> u64 { let mut hasher = SmeltFieldHasher::default(); value.hash(&mut hasher); ::std::hash::Hasher::finish(&hasher) }
 
@@ -1875,19 +1883,21 @@ fn smelt_live_container_call(object: &SmeltObject, op: &str, args: Vec<SmeltUnkn
 fn smelt_live_container_take<T: 'static>(object: &SmeltObject) -> Option<T> { smelt_live_container_call(object, "handoff", Vec::new())?; SMELT_LIVE_HANDOFF.with(|slot| slot.borrow_mut().take()).and_then(|parked| parked.downcast::<T>().ok()).map(|parked| *parked) }
 
 impl<K: IntoSmeltUnknown + SmeltFromUnknown + SmeltJsKeyEq + Clone + 'static, V: IntoSmeltUnknown + SmeltFromUnknown + Clone + 'static> SmeltJsMap<K, V> {
-    fn into_live_smelt_unknown(self) -> SmeltUnknown {
+    fn into_live_smelt_unknown(self) -> SmeltUnknown { self.into_live_smelt_unknown_with(K::into_smelt_unknown, V::into_smelt_unknown) }
+    fn into_live_smelt_unknown_with(self, erase_key: impl Fn(K) -> SmeltUnknown + 'static, erase_value: impl Fn(V) -> SmeltUnknown + 'static) -> SmeltUnknown {
         let live = self.clone();
-        smelt_live_stamp(self.into_smelt_unknown(), move |args: Vec<SmeltUnknown>| {
+        let snapshot = self.into_smelt_unknown_with(&erase_key, &erase_value);
+        smelt_live_stamp(snapshot, move |args: Vec<SmeltUnknown>| {
             let mut map = live.clone();
             let (op, first, second) = smelt_live_args(args);
             Ok(match op.as_str() {
-                "get" => smelt_live_key::<K>(&first).and_then(|key| map.get(&key)).map_or(SmeltUnknown::Undefined, IntoSmeltUnknown::into_smelt_unknown),
+                "get" => smelt_live_key::<K>(&first).and_then(|key| map.get(&key)).map_or(SmeltUnknown::Undefined, &erase_value),
                 "has" => SmeltUnknown::Bool(smelt_live_key::<K>(&first).is_some_and(|key| map.contains_key(&key))),
                 "set" => { map.insert(K::smelt_from_unknown(first), V::smelt_from_unknown(second)); SmeltUnknown::Undefined }
                 "delete" => SmeltUnknown::Bool(smelt_live_key::<K>(&first).is_some_and(|key| map.remove(&key).is_some())),
                 "clear" => { map.clear(); SmeltUnknown::Undefined }
                 "size" => SmeltUnknown::Number(f64::from(u32::try_from(map.len()).unwrap_or(u32::MAX))),
-                "entries" => SmeltUnknown::Array(map.iter().map(|(key, value)| SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id(), vec![key.into_smelt_unknown(), value.into_smelt_unknown()]))).collect::<Vec<_>>().into()),
+                "entries" => SmeltUnknown::Array(map.iter().map(|(key, value)| SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id(), vec![erase_key(key), erase_value(value)]))).collect::<Vec<_>>().into()),
                 "handoff" => smelt_live_park(map),
                 "id" => SmeltUnknown::Number(f64::from(u32::try_from(map.id).unwrap_or(u32::MAX))),
                 _ => SmeltUnknown::Undefined,
@@ -1897,9 +1907,11 @@ impl<K: IntoSmeltUnknown + SmeltFromUnknown + SmeltJsKeyEq + Clone + 'static, V:
 }
 
 impl<T: IntoSmeltUnknown + SmeltFromUnknown + Clone + 'static> SmeltJsSet<T> {
-    fn into_live_smelt_unknown(self) -> SmeltUnknown {
+    fn into_live_smelt_unknown(self) -> SmeltUnknown { self.into_live_smelt_unknown_with(T::into_smelt_unknown) }
+    fn into_live_smelt_unknown_with(self, erase: impl Fn(T) -> SmeltUnknown + 'static) -> SmeltUnknown {
         let live = self.clone();
-        smelt_live_stamp(self.into_smelt_unknown(), move |args: Vec<SmeltUnknown>| {
+        let snapshot = self.into_smelt_unknown_with(&erase);
+        smelt_live_stamp(snapshot, move |args: Vec<SmeltUnknown>| {
             let mut set = live.clone();
             let (op, first, _) = smelt_live_args(args);
             Ok(match op.as_str() {
@@ -1908,7 +1920,7 @@ impl<T: IntoSmeltUnknown + SmeltFromUnknown + Clone + 'static> SmeltJsSet<T> {
                 "delete" => SmeltUnknown::Bool(smelt_live_key::<T>(&first).is_some_and(|member| set.remove(&member))),
                 "clear" => { set.clear(); SmeltUnknown::Undefined }
                 "size" => SmeltUnknown::Number(f64::from(u32::try_from(set.len()).unwrap_or(u32::MAX))),
-                "entries" => SmeltUnknown::Array(set.iter().map(IntoSmeltUnknown::into_smelt_unknown).collect::<Vec<_>>().into()),
+                "entries" => SmeltUnknown::Array(set.iter().map(&erase).collect::<Vec<_>>().into()),
                 "handoff" => smelt_live_park(set),
                 "id" => SmeltUnknown::Number(f64::from(u32::try_from(set.id).unwrap_or(u32::MAX))),
                 _ => SmeltUnknown::Undefined,
@@ -1918,9 +1930,11 @@ impl<T: IntoSmeltUnknown + SmeltFromUnknown + Clone + 'static> SmeltJsSet<T> {
 }
 
 impl<T: IntoSmeltUnknown + SmeltFromUnknown + Clone + ::std::cmp::Eq + ::std::hash::Hash + 'static> SmeltPrimSet<T> {
-    fn into_live_smelt_unknown(self) -> SmeltUnknown {
+    fn into_live_smelt_unknown(self) -> SmeltUnknown { self.into_live_smelt_unknown_with(T::into_smelt_unknown) }
+    fn into_live_smelt_unknown_with(self, erase: impl Fn(T) -> SmeltUnknown + 'static) -> SmeltUnknown {
         let live = self.clone();
-        smelt_live_stamp(self.into_smelt_unknown(), move |args: Vec<SmeltUnknown>| {
+        let snapshot = self.into_smelt_unknown_with(&erase);
+        smelt_live_stamp(snapshot, move |args: Vec<SmeltUnknown>| {
             let mut set = live.clone();
             let (op, first, _) = smelt_live_args(args);
             Ok(match op.as_str() {
@@ -1929,7 +1943,7 @@ impl<T: IntoSmeltUnknown + SmeltFromUnknown + Clone + ::std::cmp::Eq + ::std::ha
                 "delete" => SmeltUnknown::Bool(smelt_live_key::<T>(&first).is_some_and(|member| set.remove(&member))),
                 "clear" => { set.clear(); SmeltUnknown::Undefined }
                 "size" => SmeltUnknown::Number(f64::from(u32::try_from(set.len()).unwrap_or(u32::MAX))),
-                "entries" => SmeltUnknown::Array(set.iter().map(IntoSmeltUnknown::into_smelt_unknown).collect::<Vec<_>>().into()),
+                "entries" => SmeltUnknown::Array(set.iter().map(&erase).collect::<Vec<_>>().into()),
                 "handoff" => smelt_live_park(set),
                 "id" => SmeltUnknown::Number(f64::from(u32::try_from(set.id).unwrap_or(u32::MAX))),
                 _ => SmeltUnknown::Undefined,
@@ -1951,17 +1965,22 @@ trait SmeltLiveList {
     fn is_hole(&self, index: usize) -> bool;
 }
 
-impl<T: IntoSmeltUnknown + SmeltFromUnknown + Clone + 'static> SmeltLiveList for SmeltList<T> {
-    fn element_count(&self) -> usize { self.borrow().len() }
-    fn element(&self, index: usize) -> Option<SmeltUnknown> { self.borrow().get(index).cloned().map(smelt_list_slot_unknown) }
-    fn set_element(&self, index: usize, value: SmeltUnknown) { let mut values = self.borrow_mut(); if index >= values.len() { values.resize_with(index.saturating_add(1), smelt_list_hole::<T>); } values[index] = T::smelt_from_unknown(value); }
-    fn elements(&self) -> Vec<SmeltUnknown> { self.borrow().iter().cloned().map(smelt_list_slot_unknown).collect() }
-    fn splice_elements(&self, start: usize, delete: usize, items: Vec<SmeltUnknown>) -> Vec<SmeltUnknown> { let mut values = self.borrow_mut(); let start = start.min(values.len()); let end = start.saturating_add(delete).min(values.len()); values.splice(start..end, items.into_iter().map(T::smelt_from_unknown)).map(IntoSmeltUnknown::into_smelt_unknown).collect() }
-    fn replace_elements(&self, values: Vec<SmeltUnknown>) { *self.borrow_mut() = values.into_iter().map(T::smelt_from_unknown).collect(); }
-    fn typed_list(&self) -> &dyn ::std::any::Any { self }
-    fn holds(&self, value: &SmeltUnknown) -> bool { smelt_live_same_content(&T::smelt_from_unknown(value.clone()).into_smelt_unknown(), value, 0) }
-    fn grow_with_holes(&self, len: usize) { let mut values = self.borrow_mut(); if len > values.len() { values.resize_with(len, smelt_list_hole::<T>); } }
-    fn is_hole(&self, index: usize) -> bool { self.borrow().get(index).is_some_and(smelt_list_value_is_hole) }
+struct SmeltLiveListWith<T, E> {
+    list: SmeltList<T>,
+    erase: E,
+}
+
+impl<T: SmeltFromUnknown + Clone + 'static, E: Fn(T) -> SmeltUnknown + 'static> SmeltLiveList for SmeltLiveListWith<T, E> {
+    fn element_count(&self) -> usize { self.list.borrow().len() }
+    fn element(&self, index: usize) -> Option<SmeltUnknown> { self.list.borrow().get(index).cloned().map(|value| smelt_list_slot_unknown(value, &self.erase)) }
+    fn set_element(&self, index: usize, value: SmeltUnknown) { let mut values = self.list.borrow_mut(); if index >= values.len() { values.resize_with(index.saturating_add(1), smelt_list_hole::<T>); } values[index] = T::smelt_from_unknown(value); }
+    fn elements(&self) -> Vec<SmeltUnknown> { self.list.borrow().iter().cloned().map(|value| smelt_list_slot_unknown(value, &self.erase)).collect() }
+    fn splice_elements(&self, start: usize, delete: usize, items: Vec<SmeltUnknown>) -> Vec<SmeltUnknown> { let mut values = self.list.borrow_mut(); let start = start.min(values.len()); let end = start.saturating_add(delete).min(values.len()); values.splice(start..end, items.into_iter().map(T::smelt_from_unknown)).map(&self.erase).collect() }
+    fn replace_elements(&self, values: Vec<SmeltUnknown>) { *self.list.borrow_mut() = values.into_iter().map(T::smelt_from_unknown).collect(); }
+    fn typed_list(&self) -> &dyn ::std::any::Any { &self.list }
+    fn holds(&self, value: &SmeltUnknown) -> bool { smelt_live_same_content(&(self.erase)(T::smelt_from_unknown(value.clone())), value, 0) }
+    fn grow_with_holes(&self, len: usize) { let mut values = self.list.borrow_mut(); if len > values.len() { values.resize_with(len, smelt_list_hole::<T>); } }
+    fn is_hole(&self, index: usize) -> bool { self.list.borrow().get(index).is_some_and(smelt_list_value_is_hole) }
 }
 
 fn smelt_list_hole<T: SmeltFromUnknown + 'static>() -> T {
@@ -1971,7 +1990,7 @@ fn smelt_list_hole<T: SmeltFromUnknown + 'static>() -> T {
 
 fn smelt_list_value_is_hole<T: 'static>(value: &T) -> bool { (value as &dyn ::std::any::Any).downcast_ref::<f64>().is_some_and(|value| smelt_is_number_hole(*value)) }
 
-fn smelt_list_slot_unknown<T: IntoSmeltUnknown + 'static>(value: T) -> SmeltUnknown { if smelt_list_value_is_hole(&value) { SmeltUnknown::Undefined } else { value.into_smelt_unknown() } }
+fn smelt_list_slot_unknown<T: 'static>(value: T, erase: &impl Fn(T) -> SmeltUnknown) -> SmeltUnknown { if smelt_list_value_is_hole(&value) { SmeltUnknown::Undefined } else { erase(value) } }
 
 /// Whether two erased values hold the same content, ignoring object identity.
 fn smelt_live_same_content(left: &SmeltUnknown, right: &SmeltUnknown, depth: usize) -> bool {
@@ -1984,8 +2003,9 @@ fn smelt_live_same_content(left: &SmeltUnknown, right: &SmeltUnknown, depth: usi
     }
 }
 
-impl<T: IntoSmeltUnknown + SmeltFromUnknown + Clone + 'static> SmeltList<T> {
-    fn into_live_smelt_unknown(self) -> SmeltUnknown { SmeltUnknown::Array(SmeltArray { id: self.id(), values: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new())), detached: false, live: Some(::std::rc::Rc::new(::std::cell::RefCell::new(Some(::std::rc::Rc::new(self))))) }) }
+impl<T: SmeltFromUnknown + Clone + 'static> SmeltList<T> {
+    fn into_live_smelt_unknown(self) -> SmeltUnknown where T: IntoSmeltUnknown { self.into_live_smelt_unknown_with(IntoSmeltUnknown::into_smelt_unknown) }
+    fn into_live_smelt_unknown_with(self, erase: impl Fn(T) -> SmeltUnknown + 'static) -> SmeltUnknown { SmeltUnknown::Array(SmeltArray { id: self.id(), values: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new())), detached: false, live: Some(::std::rc::Rc::new(::std::cell::RefCell::new(Some(::std::rc::Rc::new(SmeltLiveListWith { list: self, erase }))))) }) }
 }
 
 impl SmeltArray {
@@ -3861,7 +3881,11 @@ fn smelt_panic_payload(error: &(dyn ::std::error::Error + 'static)) -> SmeltPani
 /// Present a caught panic as the value a `catch` binds.
 fn smelt_panic_error_value(panic: &(dyn ::std::any::Any + Send)) -> SmeltUnknown { if let Some(value) = SMELT_PANIC_VALUE.with(|slot| slot.borrow_mut().take()) { if panic.downcast_ref::<SmeltPanic>().is_some() { return value; } } SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_error".to_owned(), SmeltUnknown::String(smelt_panic_class(panic).into())), ("message".to_owned(), SmeltUnknown::String(smelt_panic_message(panic).into())), ("stack".to_owned(), SmeltUnknown::Undefined), ("cause".to_owned(), SmeltUnknown::Undefined)]))) }
 
-impl<T: IntoSmeltUnknown + Clone> IntoSmeltUnknown for SmeltPrimSet<T> { fn into_smelt_unknown(self) -> SmeltUnknown { let id = self.id; let members = self.into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect::<Vec<_>>(); let object = Vec::from([("__smelt_set".to_owned(), SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id(), members)))]); SmeltUnknown::Object(SmeltObject::with_id(id, object)) } }
+impl<T: IntoSmeltUnknown + Clone> IntoSmeltUnknown for SmeltPrimSet<T> { fn into_smelt_unknown(self) -> SmeltUnknown { self.into_smelt_unknown_with(&T::into_smelt_unknown) } }
+
+impl<T: Clone> SmeltPrimSet<T> {
+    fn into_smelt_unknown_with(self, erase: &dyn Fn(T) -> SmeltUnknown) -> SmeltUnknown { let id = self.id; let members = self.into_iter().map(erase).collect::<Vec<_>>(); let object = Vec::from([("__smelt_set".to_owned(), SmeltUnknown::Array(SmeltArray::with_id(smelt_next_object_id(), members)))]); SmeltUnknown::Object(SmeltObject::with_id(id, object)) }
+}
 /// Recover a primitive `Set` from its erased array, or a `SmeltJsSet` marker.
 impl<T: SmeltFromUnknown + Clone + ::std::cmp::Eq + ::std::hash::Hash + 'static> SmeltFromUnknown for SmeltPrimSet<T> { fn smelt_from_unknown(value: SmeltUnknown) -> Self { let members = match value { SmeltUnknown::Array(members) => members, SmeltUnknown::Object(object) => { if let Some(set) = smelt_live_container_take::<Self>(&object) { return set; } match object.get("__smelt_set") { Some(SmeltUnknown::Array(members)) => members, _ => return Self::default() } }, _ => return Self::default() }; members.into_vec().into_iter().map(T::smelt_from_unknown).collect() } }
 

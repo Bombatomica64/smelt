@@ -289,17 +289,11 @@ impl ModuleBuilder<'_> {
                 } else if lowered.is_empty() && nullish.is_empty() && saw_never {
                     Ok(self.ctx.krate.types.intern(Type::Never))
                 } else if nullish.is_empty()
-                    || absent_only_null
                     || lowered.len() < 2
                     || !lowered
                         .iter()
                         .all(|arm| self.union_arm_has_concrete_storage(*arm))
                 {
-                    // A union whose only absent value is `null` keeps it as an
-                    // arm: the erased carrier tells `null` from `undefined` on
-                    // every path, while an `Option` element of a typed list
-                    // erases through the live-list view as `undefined`
-                    // (`isJSONArray(['a', null])` would see no `null`).
                     // Fewer than two present arms leave no union to make
                     // optional, and a union with an arm the generated crate
                     // stores erased (`unknown`, a type parameter, a class
@@ -308,10 +302,17 @@ impl ModuleBuilder<'_> {
                     lowered.extend(nullish);
                     Ok(self.ctx.krate.types.intern(Type::Union(lowered)))
                 } else {
-                    // Two or more present arms and `undefined`: the optional of
-                    // the present union, as a single present arm already is (and
-                    // as an optional parameter `x?: A | B` is).
+                    // Two or more present arms and an absent value: the optional
+                    // of the present union, as a single present arm already is
+                    // (and as an optional parameter `x?: A | B` is). When every
+                    // absent arm is `null`, the optional is a `T | null`
+                    // (`TypeInterner::intern_null_optional`): its `None` erases
+                    // and prints as `null`, inside a container too
+                    // (`emitter::absent_value` in the Rust backend).
                     let present = self.ctx.krate.types.intern(Type::Union(lowered));
+                    if absent_only_null {
+                        return Ok(self.ctx.krate.types.intern_null_optional(present));
+                    }
                     Ok(self.ctx.krate.types.intern(Type::Optional(present)))
                 }
             }

@@ -146,6 +146,21 @@ trait SmeltInspect {
     fn smelt_console_text(&self) -> String { self.smelt_inspect(&mut SmeltInspectContext::default(), 0) }
 }
 
+/// How one entry of a container is inspected, when not by its Rust type's own impl.
+type SmeltInspector<'a, T> = &'a dyn Fn(&T, &mut SmeltInspectContext, usize) -> String;
+
+/// One container entry, drawn by an inspector (`SmeltInspector`).
+struct SmeltInspectWith<'a, T> {
+    value: &'a T,
+    inspect: SmeltInspector<'a, T>,
+}
+
+impl<T: SmeltInspect> SmeltInspect for SmeltInspectWith<'_, T> {
+    fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String { (self.inspect)(self.value, ctx, depth) }
+    fn smelt_inspect_is_number(&self) -> bool { self.value.smelt_inspect_is_number() }
+    fn smelt_inspect_is_hole(&self) -> bool { self.value.smelt_inspect_is_hole() }
+}
+
 /// The JavaScript `.length` of rendered text, in UTF-16 code units.
 fn smelt_inspect_len(text: &str) -> usize { text.encode_utf16().count() }
 
@@ -432,12 +447,16 @@ smelt_inspect_tuple!(A 0, B 1, C 2, D 3, E 4, F 5, G 6, H 7, I 8, J 9, K 10);
 smelt_inspect_tuple!(A 0, B 1, C 2, D 3, E 4, F 5, G 6, H 7, I 8, J 9, K 10, L 11);
 
 impl<T: SmeltInspect> SmeltInspect for SmeltList<T> {
-    fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String {
-        let values = self.borrow();
-        
-        let entries = values.iter().map(|value| value as &dyn SmeltInspect).collect::<Vec<_>>();
-        smelt_inspect_array(ctx, depth, &entries)
-    }
+    fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String { smelt_inspect_list_with(self, ctx, depth, &T::smelt_inspect) }
+}
+
+/// A typed array, each element drawn by `inspect`.
+fn smelt_inspect_list_with<T: SmeltInspect>(list: &SmeltList<T>, ctx: &mut SmeltInspectContext, depth: usize, inspect: SmeltInspector<'_, T>) -> String {
+    let values = list.borrow();
+    let elements = values.iter().map(|value| SmeltInspectWith { value, inspect }).collect::<Vec<_>>();
+    
+    let entries = elements.iter().map(|value| value as &dyn SmeltInspect).collect::<Vec<_>>();
+    smelt_inspect_array(ctx, depth, &entries)
 }
 
 // @smelt:prelude-end — generated program below
