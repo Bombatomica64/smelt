@@ -305,7 +305,9 @@ fn body_only_moves(
                     }
                     value
                 }
-                Statement::DictEntryUpdate { .. } => continue,
+                // A fused entry update and a fresh per-iteration binding cell
+                // write no value a `T` projection could read.
+                Statement::DictEntryUpdate { .. } | Statement::StorageLive(_) => continue,
             };
             let mut projected = false;
             value.reads(|operand| projected |= operand_projects_into(operand));
