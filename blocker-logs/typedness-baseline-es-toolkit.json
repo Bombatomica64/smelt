@@ -2,7 +2,7 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 14236,
+      "concrete": 14224,
       "generic": 351,
       "erased": 7067
     },
@@ -122,7 +122,7 @@
     },
     "src/_internal/isEqualsSameValueZero.ts": {
       "values": {
-        "concrete": 6,
+        "concrete": 4,
         "generic": 0,
         "erased": 2
       },
@@ -4015,7 +4015,7 @@
     },
     "src/compat/array/indexOf.ts": {
       "values": {
-        "concrete": 20,
+        "concrete": 18,
         "generic": 0,
         "erased": 6
       },
@@ -4168,7 +4168,7 @@
     },
     "src/compat/array/lastIndexOf.ts": {
       "values": {
-        "concrete": 22,
+        "concrete": 20,
         "generic": 0,
         "erased": 6
       },
@@ -4593,7 +4593,7 @@
     },
     "src/compat/array/sortedLastIndex.ts": {
       "values": {
-        "concrete": 19,
+        "concrete": 18,
         "generic": 0,
         "erased": 7
       },
@@ -5630,7 +5630,7 @@
     },
     "src/compat/math/max.ts": {
       "values": {
-        "concrete": 12,
+        "concrete": 11,
         "generic": 0,
         "erased": 8
       },
@@ -5698,7 +5698,7 @@
     },
     "src/compat/math/min.ts": {
       "values": {
-        "concrete": 12,
+        "concrete": 11,
         "generic": 0,
         "erased": 8
       },
@@ -7007,7 +7007,7 @@
     },
     "src/compat/predicate/isFinite.ts": {
       "values": {
-        "concrete": 2,
+        "concrete": 1,
         "generic": 0,
         "erased": 1
       },
@@ -7041,7 +7041,7 @@
     },
     "src/compat/predicate/isInteger.ts": {
       "values": {
-        "concrete": 2,
+        "concrete": 1,
         "generic": 0,
         "erased": 1
       },
@@ -8027,7 +8027,7 @@
     },
     "src/compat/util/defaultTo.ts": {
       "values": {
-        "concrete": 3,
+        "concrete": 2,
         "generic": 0,
         "erased": 3
       },

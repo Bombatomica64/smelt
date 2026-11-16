@@ -858,7 +858,27 @@ impl ModuleBuilder<'_> {
                 span: self.span(unary.span.start, unary.span.end),
             }));
         }
+        // The `null` literal is an object to `typeof`.
+        if matches!(
+            peel(&unary.argument, Wrappers::Parens),
+            Expression::NullLiteral(_)
+        ) {
+            let ty = self.ctx.krate.types.intern(Type::String);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::String("object".to_owned())),
+                ty,
+                span: self.span(unary.span.start, unary.span.end),
+            }));
+        }
         let operand = self.expression(&unary.argument, body)?;
+        // `typeof null` is `"object"`, where the storage's one absent case
+        // reads as `undefined` (`lowering::null_absent`).
+        let argument_span = unary.argument.span();
+        if let Some(null_aware) =
+            self.null_absent_typeof(operand, argument_span.start, argument_span.end, body)
+        {
+            return Ok(null_aware);
+        }
         let operand_ty = Self::expr_ty(body, operand);
         let ty = self.ctx.krate.types.intern(Type::String);
         // When the operand has no statically-known `typeof` spelling (erased

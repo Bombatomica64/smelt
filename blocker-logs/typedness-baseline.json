@@ -2,7 +2,7 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 8476,
+      "concrete": 8474,
       "generic": 162,
       "erased": 56
     },
@@ -2111,7 +2111,7 @@
     },
     "examples/typescript/end-to-end/44_node_http_echo/input.ts": {
       "values": {
-        "concrete": 71,
+        "concrete": 69,
         "generic": 0,
         "erased": 0
       },

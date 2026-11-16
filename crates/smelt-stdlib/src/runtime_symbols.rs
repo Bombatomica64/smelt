@@ -794,6 +794,8 @@ pub mod boundary {
     pub const PUSH_THIS_LAZY_CALL: &str = "smelt_push_this_lazy(";
     /// Reading the dynamic `this`.
     pub const THIS_CALL: &str = "smelt_this()";
+    /// A non-coercing `Number.*` predicate inspecting an erased value's tag.
+    pub const ERASED_NUMBER_IS: &str = "smelt_erased_number_is(";
     /// Binding a receiver.
     pub const BIND_THIS_CALL: &str = "smelt_bind_this(";
     /// The running frame's own `this`, taken off the channel at entry.
