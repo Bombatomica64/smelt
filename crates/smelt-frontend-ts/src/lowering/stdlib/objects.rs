@@ -834,9 +834,9 @@ impl ModuleBuilder<'_> {
             // `Array.from` does (`array_from_elements`), and the list of entries
             // is then built like an entries array. Without this an iterable
             // fell through to the empty-object fallback below and answered `{}`.
-            let value_ty = Self::expr_ty(body, value);
+            let entries_ty = Self::expr_ty(body, value);
             if matches!(
-                self.ctx.krate.types.get(value_ty),
+                self.ctx.krate.types.get(entries_ty),
                 Some(
                     Type::Set(_)
                         | Type::Generator {
@@ -846,7 +846,7 @@ impl ModuleBuilder<'_> {
                 )
             ) {
                 let span = self.span(call.span.start, call.span.end);
-                value = self.array_from_elements(value, value_ty, false, span, body);
+                value = self.array_from_elements(value, entries_ty, false, span, body);
             }
             match self
                 .ctx

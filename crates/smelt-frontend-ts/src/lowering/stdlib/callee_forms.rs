@@ -132,7 +132,7 @@ impl ModuleBuilder<'_> {
                 _ => false,
             };
             args.push(if prints_as_its_string {
-                self.to_string_operand(value, arg.span().start, arg.span().end, body)
+                self.string_conversion_operand(value, arg.span().start, arg.span().end, body)
             } else {
                 value
             });
@@ -157,13 +157,13 @@ impl ModuleBuilder<'_> {
                 || self.span(call.span.start, call.span.end),
                 |expr| expr.span,
             );
-            let local = match body.expr_at(arg).map(|expr| &expr.kind) {
-                Some(ExprKind::Local(local)) => *local,
-                _ => {
+            let local =
+                if let Some(ExprKind::Local(local)) = body.expr_at(arg).map(|expr| &expr.kind) {
+                    *local
+                } else {
                     let name = self.intern_synthesized_name("__smelt_console_arg");
                     self.capture_bind_value(arg, arg_ty, name, span, body)
-                }
-            };
+                };
             bound.push((Some(local), arg_ty, span));
         }
         Ok(self.console_output_choice(member, call, &bound, &null_absent, body))
@@ -219,10 +219,7 @@ impl ModuleBuilder<'_> {
                 .iter()
                 .map(|&(local, arg_ty, span)| {
                     body.push_expr(Expr {
-                        kind: match local {
-                            Some(local) => ExprKind::Local(local),
-                            None => ExprKind::Literal(Literal::None),
-                        },
+                        kind: local.map_or(ExprKind::Literal(Literal::None), ExprKind::Local),
                         ty: arg_ty,
                         span,
                     })
@@ -232,7 +229,9 @@ impl ModuleBuilder<'_> {
         };
         let present = self.console_output_choice(member, call, args, rest, body);
         let mut absent_args = args.to_vec();
-        absent_args[position] = (None, ty, span);
+        if let Some(slot) = absent_args.get_mut(position) {
+            *slot = (None, ty, span);
+        }
         let absent = self.console_output_choice(member, call, &absent_args, rest, body);
         let tested = body.push_expr(Expr {
             kind: ExprKind::Local(local),

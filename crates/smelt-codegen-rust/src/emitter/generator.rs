@@ -118,9 +118,9 @@ impl FunctionEmitter<'_> {
             _ => None,
         };
         let raw_value = value
-            .map(|value| match next_ty {
-                Some(next_ty) => self.value_at_type(value, next_ty),
-                None => self.operand_expr(value),
+            .map(|sent| match next_ty {
+                Some(sent_ty) => self.value_at_type(sent, sent_ty),
+                None => self.operand_expr(sent),
             })
             .transpose()?
             .unwrap_or_else(|| RustExpr::atom("Default::default()"));

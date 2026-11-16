@@ -159,10 +159,9 @@ impl ModuleBuilder<'_> {
             }
         }
         let return_ty = self.joined_inferred_type(returned);
-        let next_ty = match self.checker_generator_next_type(function) {
-            Some(next_ty) => next_ty,
-            None => self.erase(ErasureReason::MissingAnnotation),
-        };
+        let next_ty = self
+            .checker_generator_next_type(function)
+            .unwrap_or_else(|| self.erase(ErasureReason::MissingAnnotation));
         self.ctx.krate.types.intern(Type::Generator {
             is_async,
             yield_ty,

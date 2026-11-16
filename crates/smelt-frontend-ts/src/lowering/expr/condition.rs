@@ -21,7 +21,7 @@ impl ModuleBuilder<'_> {
         &mut self,
         value: smelt_hir::ExprId,
         value_ty: smelt_hir::TypeId,
-        span: smelt_hir::Span,
+        span: Span,
         body: &mut Body,
     ) -> smelt_hir::ExprId {
         let zero = body.push_expr(Expr {

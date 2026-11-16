@@ -47,10 +47,16 @@ impl ModuleBuilder<'_> {
         };
         if is_string(self, lhs) {
             let span = binary.right.span();
-            (lhs, self.to_string_operand(rhs, span.start, span.end, body))
+            (
+                lhs,
+                self.string_conversion_operand(rhs, span.start, span.end, body),
+            )
         } else if is_string(self, rhs) {
             let span = binary.left.span();
-            (self.to_string_operand(lhs, span.start, span.end, body), rhs)
+            (
+                self.string_conversion_operand(lhs, span.start, span.end, body),
+                rhs,
+            )
         } else {
             (lhs, rhs)
         }
@@ -160,7 +166,7 @@ impl ModuleBuilder<'_> {
     ///   otherwise.
     ///
     /// Any other operand is returned unchanged.
-    pub(in crate::lowering) fn to_string_operand(
+    pub(in crate::lowering) fn string_conversion_operand(
         &mut self,
         operand: smelt_hir::ExprId,
         start: u32,
@@ -236,8 +242,8 @@ impl ModuleBuilder<'_> {
         }
         let name = self.intern_synthesized_name("__smelt_nullable");
         let local = self.capture_bind_value(operand, operand_ty, name, span, body);
-        let read = |body: &mut Body| {
-            body.push_expr(Expr {
+        let read = |reads: &mut Body| {
+            reads.push_expr(Expr {
                 kind: ExprKind::Local(local),
                 ty: operand_ty,
                 span,
@@ -322,8 +328,8 @@ impl ModuleBuilder<'_> {
         }
         let name = self.intern_synthesized_name("__smelt_nullable");
         let local = self.capture_bind_value(operand, operand_ty, name, span, body);
-        let read = |body: &mut Body| {
-            body.push_expr(Expr {
+        let read = |reads: &mut Body| {
+            reads.push_expr(Expr {
                 kind: ExprKind::Local(local),
                 ty: operand_ty,
                 span,

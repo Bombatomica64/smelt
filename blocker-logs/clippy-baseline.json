@@ -9,7 +9,7 @@
       "clippy::expect_used": 54,
       "clippy::indexing_slicing": 12,
       "clippy::missing_docs_in_private_items": 1,
-      "clippy::shadow_reuse": 82,
+      "clippy::shadow_reuse": 81,
       "clippy::shadow_same": 16,
       "clippy::shadow_unrelated": 8,
       "clippy::unwrap_used": 8,
@@ -32,7 +32,7 @@
       "clippy::missing_docs_in_private_items": 11,
       "clippy::panic": 3,
       "clippy::shadow_same": 2,
-      "clippy::shadow_unrelated": 68,
+      "clippy::shadow_unrelated": 67,
       "clippy::unreachable": 1,
       "unused_qualifications": 4
     },

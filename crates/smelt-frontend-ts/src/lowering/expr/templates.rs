@@ -32,7 +32,8 @@ impl ModuleBuilder<'_> {
             let part = self.expression(interp, body)?;
             // An interpolation is a string conversion; an absent `null` reads
             // as `"null"` (`lowering::null_absent`).
-            let part = self.to_string_operand(part, interp.span().start, interp.span().end, body);
+            let part =
+                self.string_conversion_operand(part, interp.span().start, interp.span().end, body);
             acc = body.push_expr(Expr {
                 kind: ExprKind::BinOp {
                     op: BinOp::Add,
@@ -142,7 +143,8 @@ impl ModuleBuilder<'_> {
             let part = self.expression(interp, body)?;
             // An interpolation is a string conversion; an absent `null` reads
             // as `"null"` (`lowering::null_absent`).
-            let part = self.to_string_operand(part, interp.span().start, interp.span().end, body);
+            let part =
+                self.string_conversion_operand(part, interp.span().start, interp.span().end, body);
             acc = body.push_expr(Expr {
                 kind: ExprKind::BinOp {
                     op: BinOp::Add,

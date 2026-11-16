@@ -167,7 +167,13 @@ impl ModuleBuilder<'_> {
             let Some(carrier) = self.scope.lookup(&name) else {
                 continue;
             };
-            let declared = body.locals[carrier.0 as usize].clone();
+            let Some(declared) = usize::try_from(carrier.0)
+                .ok()
+                .and_then(|index| body.locals.get(index))
+                .cloned()
+            else {
+                continue;
+            };
             let fresh = body.push_local(LocalDecl {
                 name: declared.name,
                 ty: declared.ty,

@@ -382,9 +382,12 @@ impl<'hir> LoweringCtx<'hir> {
             .get_or_insert_with(|| {
                 body.exprs
                     .iter()
-                    .filter_map(|expr| match &expr.kind {
-                        smelt_hir::ExprKind::Closure(closure) => Some(closure),
-                        _ => None,
+                    .filter_map(|expr| {
+                        if let smelt_hir::ExprKind::Closure(closure) = &expr.kind {
+                            Some(closure)
+                        } else {
+                            None
+                        }
                     })
                     .flat_map(|closure| closure.captures.iter().map(|capture| capture.source_local))
                     .collect()

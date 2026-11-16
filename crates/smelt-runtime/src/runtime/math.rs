@@ -21,11 +21,11 @@
 // @smelt:item smelt_math_max when math_extrema
 /// JavaScript `Math.max` of two numbers.
 #[allow(dead_code)]
-fn smelt_math_max(left: f64, right: f64) -> f64 { if left.is_nan() || right.is_nan() { f64::NAN } else if left == right { if left == 0.0 && left.is_sign_negative() { right } else { left } } else if left > right { left } else { right } }
+fn smelt_math_max(left: f64, right: f64) -> f64 { if left.is_nan() || right.is_nan() { return f64::NAN; } match left.partial_cmp(&right) { Some(::std::cmp::Ordering::Greater) => left, Some(::std::cmp::Ordering::Less) => right, _ => if left.is_sign_negative() { right } else { left } } }
 
 /// JavaScript `Math.min` of two numbers.
 #[allow(dead_code)]
-fn smelt_math_min(left: f64, right: f64) -> f64 { if left.is_nan() || right.is_nan() { f64::NAN } else if left == right { if left == 0.0 && left.is_sign_positive() { right } else { left } } else if left < right { left } else { right } }
+fn smelt_math_min(left: f64, right: f64) -> f64 { if left.is_nan() || right.is_nan() { return f64::NAN; } match left.partial_cmp(&right) { Some(::std::cmp::Ordering::Less) => left, Some(::std::cmp::Ordering::Greater) => right, _ => if left.is_sign_positive() { right } else { left } } }
 // @smelt:item-end
 
 // @smelt:item smelt_math_round when math_round

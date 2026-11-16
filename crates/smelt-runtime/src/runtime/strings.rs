@@ -25,7 +25,7 @@ fn smelt_locale_compare(left: &(impl SmeltHostText + ?Sized), right: &(impl Smel
     thread_local! {
         //~ The root collator, `None` only if the compiled-in data could not
         //~ load, in which case the order falls back to scalar order.
-        static SMELT_COLLATOR: Option<icu_collator::CollatorBorrowed<'static>> = icu_collator::Collator::try_new(Default::default(), icu_collator::options::CollatorOptions::default()).ok();
+        static SMELT_COLLATOR: Option<icu_collator::CollatorBorrowed<'static>> = icu_collator::Collator::try_new(icu_collator::CollatorPreferences::default(), icu_collator::options::CollatorOptions::default()).ok();
     }
     let ordering = SMELT_COLLATOR.with(|collator| collator.as_ref().map_or_else(|| left.cmp(right), |collator| collator.compare(left, right)));
     match ordering {

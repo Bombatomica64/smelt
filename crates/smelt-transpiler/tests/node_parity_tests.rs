@@ -156,7 +156,7 @@ fn multi_argument_push() -> TestResult {
     verify_node_parity("multi_argument_push")
 }
 
-/// ToString is one rule across templates, `+` and `String(x)`: arrays join
+/// `ToString` is one rule across templates, `+` and `String(x)`: arrays join
 /// (nested and absent elements included), a `toString` of a class or object
 /// literal is called, sets, maps and plain objects keep their tags, and `null`
 /// and `undefined` are their words; `Number(array)` reads that string.

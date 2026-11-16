@@ -416,17 +416,16 @@ impl ModuleBuilder<'_> {
                     span,
                 })
             };
-            items = Some(match items {
-                None => piece,
-                Some(earlier) => body.push_expr(Expr {
+            items = Some(items.map_or(piece, |earlier| {
+                body.push_expr(Expr {
                     kind: ExprKind::ListConcat {
                         left: earlier,
                         right: piece,
                     },
                     ty: list_value_ty,
                     span,
-                }),
-            });
+                })
+            }));
         }
         let result = match (single, items) {
             (Some(item), _) => body.push_expr(Expr {

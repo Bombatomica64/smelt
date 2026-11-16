@@ -7592,10 +7592,10 @@ const router = {
     let marker_wraps_closure = body.exprs.iter().any(|expr| match &expr.kind {
         ExprKind::DictLit(pairs) => pairs.iter().any(|(key, value)| {
             matches!(
-                body.exprs.get(key.0 as usize).map(|key| &key.kind),
-                Some(ExprKind::Literal(smelt_hir::Literal::String(text))) if text == "__smelt_get"
+                usize::try_from(key.0).ok().and_then(|index| body.exprs.get(index)).map(|key| &key.kind),
+                Some(ExprKind::Literal(Literal::String(text))) if text == "__smelt_get"
             ) && matches!(
-                body.exprs.get(value.0 as usize).map(|value| &value.kind),
+                usize::try_from(value.0).ok().and_then(|index| body.exprs.get(index)).map(|value| &value.kind),
                 Some(ExprKind::Closure(_))
             )
         }),

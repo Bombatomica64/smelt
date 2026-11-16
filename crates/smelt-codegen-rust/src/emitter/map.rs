@@ -1759,8 +1759,8 @@ impl FunctionEmitter<'_> {
         let value_text = self.erase(value)?;
         // A replacer (a function or a key array) is read by the runtime at
         // its erased form; see `smelt_json_stringify_with`.
-        if let Some(replacer) = replacer {
-            let replacer_text = self.erase(replacer)?;
+        if let Some(replacer_operand) = replacer {
+            let replacer_text = self.erase(replacer_operand)?;
             if optional_text {
                 let text = self.text_from_string("smelt_text");
                 return Ok(RustExpr::chain(format!(

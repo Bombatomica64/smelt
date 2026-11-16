@@ -1215,7 +1215,7 @@ impl ModuleBuilder<'_> {
             return false;
         };
         let mut class = Some(*name);
-        for _ in 0..64 {
+        for _ in 0_u32..64 {
             let Some(symbol) = class else {
                 return false;
             };
@@ -1245,7 +1245,7 @@ impl ModuleBuilder<'_> {
             smelt_hir::Item::Class(class) if class.name == symbol => {
                 class.methods.iter().any(|method| {
                     matches!(
-                        self.ctx.krate.items.get(method.0 as usize),
+                        usize::try_from(method.0).ok().and_then(|index| self.ctx.krate.items.get(index)),
                         Some(smelt_hir::Item::Function(function))
                             if is_to_string(function.name) && function.params.is_empty()
                     )

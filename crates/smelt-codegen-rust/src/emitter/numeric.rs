@@ -339,7 +339,7 @@ impl FunctionEmitter<'_> {
                 dest_ty,
                 &self.render_scope(),
             )?;
-            let step = combine("smelt_acc".to_owned(), element_text.delimited().to_string());
+            let step = combine("smelt_acc".to_owned(), element_text.delimited().to_owned());
             rendered = list_text
                 .postfix(format!(
                     ".iter().cloned().fold({rendered}, |smelt_acc, smelt_element| {step})"

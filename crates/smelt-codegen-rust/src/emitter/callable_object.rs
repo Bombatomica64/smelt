@@ -575,13 +575,13 @@ impl FunctionEmitter<'_> {
             };
             for block in &self.function.blocks {
                 for statement in &block.statements {
-                    match statement.value() {
-                        Some(
-                            Rvalue::ClosureCall { callee, .. }
-                            | Rvalue::ClosureCallSpread { callee, .. }
-                            | Rvalue::ClosureCallRest { callee, .. },
-                        ) => note(callee),
-                        _ => {}
+                    if let Some(
+                        Rvalue::ClosureCall { callee, .. }
+                        | Rvalue::ClosureCallSpread { callee, .. }
+                        | Rvalue::ClosureCallRest { callee, .. },
+                    ) = statement.value()
+                    {
+                        note(callee);
                     }
                 }
                 if let Some(Terminator::Call {

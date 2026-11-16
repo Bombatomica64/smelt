@@ -85,7 +85,7 @@ impl ModuleBuilder<'_> {
         let operand = self.argument(arg, body)?;
         // `String(x)` spells an absent `null` as `"null"` (`lowering::null_absent`).
         let operand = if op == PrimitiveCastOp::ToString {
-            self.to_string_operand(operand, arg.span().start, arg.span().end, body)
+            self.string_conversion_operand(operand, arg.span().start, arg.span().end, body)
         } else {
             operand
         };

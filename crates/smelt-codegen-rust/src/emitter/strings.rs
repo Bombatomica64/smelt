@@ -1936,12 +1936,12 @@ impl FunctionEmitter<'_> {
             // The closure parameter rebinds `smelt_item` to the present value.
             Some(Type::Optional(inner)) => format!(
                 "smelt_item.as_ref().map_or_else(String::new, |smelt_item| {{ {item} }})",
-                item = self.join_item_text(*inner, depth + 1)?,
+                item = self.join_item_text(*inner, depth.saturating_add(1))?,
             ),
             Some(Type::List(inner)) => format!(
                 "{items}.iter().map(|smelt_item| {{ {item} }}).collect::<Vec<String>>().join(\",\")",
                 items = list_read_expr(&RustExpr::path("smelt_item")).tight(),
-                item = self.join_item_text(*inner, depth + 1)?,
+                item = self.join_item_text(*inner, depth.saturating_add(1))?,
             ),
             Some(Type::Tuple(items)) => {
                 let parts = items
@@ -1950,7 +1950,7 @@ impl FunctionEmitter<'_> {
                     .map(|(index, item)| {
                         Ok(format!(
                             "{{ let smelt_item = &smelt_item.{index}; {item} }}",
-                            item = self.join_item_text(*item, depth + 1)?
+                            item = self.join_item_text(*item, depth.saturating_add(1))?
                         ))
                     })
                     .collect::<Result<Vec<_>, EmitError>>()?;

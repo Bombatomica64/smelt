@@ -350,11 +350,13 @@ impl ModuleBuilder<'_> {
         entries: Vec<(smelt_hir::ExprId, smelt_hir::ExprId)>,
         body: &mut Body,
     ) -> Vec<(smelt_hir::ExprId, smelt_hir::ExprId)> {
-        let key_text =
-            |body: &Body, key: smelt_hir::ExprId| match body.expr_at(key).map(|expr| &expr.kind) {
-                Some(ExprKind::Literal(Literal::String(text))) => Some(text.clone()),
-                _ => None,
-            };
+        let key_text = |exprs: &Body, key: smelt_hir::ExprId| match exprs
+            .expr_at(key)
+            .map(|expr| &expr.kind)
+        {
+            Some(ExprKind::Literal(Literal::String(text))) => Some(text.clone()),
+            _ => None,
+        };
         let mut merged: Vec<(smelt_hir::ExprId, smelt_hir::ExprId)> = Vec::new();
         for (key, value) in entries {
             let Some(text) = key_text(body, key) else {
@@ -365,7 +367,7 @@ impl ModuleBuilder<'_> {
                 .iter()
                 .rposition(|(other, _)| key_text(body, *other).as_deref() == Some(text.as_str()));
             let pair = previous.and_then(|index| {
-                let earlier = merged[index].1;
+                let earlier = merged.get(index)?.1;
                 let earlier_pairs = Self::accessor_marker_pairs(body, earlier)?;
                 let later_pairs = Self::accessor_marker_pairs(body, value)?;
                 let ([(earlier_key, _)], [later]) = (earlier_pairs, later_pairs) else {
@@ -374,9 +376,8 @@ impl ModuleBuilder<'_> {
                 (Self::accessor_key(body, *earlier_key) != Self::accessor_key(body, later.0))
                     .then_some((index, *later))
             });
-            match pair {
-                Some((index, later)) => {
-                    let earlier = merged[index].1;
+            match pair.and_then(|(index, later)| Some((merged.get(index)?.1, later))) {
+                Some((earlier, later)) => {
                     if let Some(ExprKind::DictLit(pairs)) =
                         body.expr_at_mut(earlier).map(|expr| &mut expr.kind)
                     {

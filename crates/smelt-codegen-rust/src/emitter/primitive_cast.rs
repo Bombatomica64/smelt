@@ -109,11 +109,11 @@ impl FunctionEmitter<'_> {
                 Some(Type::List(_) | Type::Tuple(_))
             )
         {
-            let text = self.string_like_operand_rust_text(operand)?;
+            let joined = self.string_like_operand_rust_text(operand)?;
             let text = if self.indexes_utf16() {
-                RustExpr::chain(format!("JsString::from({})", text.delimited()))
+                RustExpr::chain(format!("JsString::from({})", joined.delimited()))
             } else {
-                text
+                joined
             };
             return Ok(self.js_number_from_string_expr(&text));
         }

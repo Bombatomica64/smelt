@@ -26,7 +26,7 @@ impl ModuleBuilder<'_> {
     ) -> Result<smelt_hir::TypeId, SmeltError> {
         if function.generator
             && let oxc::ast::ast::TSType::TSTypeReference(reference) = annotation
-            && let oxc::ast::ast::TSTypeName::IdentifierReference(name) = &reference.type_name
+            && let TSTypeName::IdentifierReference(name) = &reference.type_name
             && matches!(
                 name.name.as_str(),
                 "Iterator"
