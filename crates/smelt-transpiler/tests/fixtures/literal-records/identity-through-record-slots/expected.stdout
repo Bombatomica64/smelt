@@ -1,0 +1,19 @@
+passed true
+stored true true
+stored back false
+returned false true
+two true true true
+two back false true
+callee sees {"label":"renamed","n":2} label,n
+subset renamed {"label":"renamed","n":2}
+callee sees {"x":1,"label":"renamed"} x,label
+record renamed {"x":5,"label":"renamed"}
+opt {"a":1,"b":"set"} a,b
+opt deleted {"a":1} a
+nested 100
+nested view 7 true
+key hits
+key misses
+counts 1 {"hits":1,"misses":3}
+counts held 10 true
+spread true 1 true 2 {"touched":true,"n":2}

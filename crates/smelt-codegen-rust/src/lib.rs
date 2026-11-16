@@ -84,6 +84,7 @@ mod crate_writer;
 pub(crate) mod deep_equality;
 pub(crate) mod deps;
 mod derive_impls;
+pub(crate) mod dict_adoption;
 mod emitter;
 mod erased_list_alias;
 mod error;

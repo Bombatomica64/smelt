@@ -53,7 +53,7 @@ use smelt_ts_model::model::{TsObjectType, TsSymbolRef, TsTupleElement, TsTupleEl
 use smelt_ts_model::{TsTypeFacts, TsTypeId, TsTypeKind};
 
 use super::ModuleBuilder;
-use super::literal_record_uses::{ArgumentUse, Disqualifier, LiteralDecision};
+use super::literal_record_uses::{ArgumentUse, Disqualifier, LiteralDecision, SlotUse};
 
 /// The outermost kind of a value, as far as overload selection compares kinds
 /// (see [`ModuleBuilder::checker_call_value_kind`]).
@@ -267,11 +267,19 @@ impl ModuleBuilder<'_> {
     /// (`[true, null, 1, 'a']` is a list of a union codegen would erase, where
     /// the mixed literal already erases once) and no `never`.
     ///
-    /// And only when the binding's uses allow it: a struct is copied wherever
-    /// it is converted, so a literal whose identity, key set or key order is
-    /// observed, or that is passed, returned or stored, keeps the map lowering
-    /// (`literal_record_uses`, which also leaves alone every literal that
-    /// holds no object literal, a spread, or a value produced elsewhere).
+    /// And only when the binding's uses allow it: a literal whose key set or
+    /// key order is observed, or that lands in a slot whose conversion would
+    /// copy it, keeps the map lowering (`literal_record_uses`, which also
+    /// leaves alone every literal that holds no object literal, a spread, or
+    /// a value produced elsewhere). A literal that lands in slots of one
+    /// record type declaring exactly its properties is declared at that type
+    /// ([`Self::common_literal_target`]).
+    ///
+    /// Requirements: behavior — the program prints what Node prints, the
+    /// literal being one object at every slot (identity, writes both ways,
+    /// optional properties added and deleted, key order); type preservation
+    /// — the binding's type is a concrete record (the slot's or its own),
+    /// never an erased one.
     pub(in crate::lowering) fn checker_literal_binding_type(
         &mut self,
         start: u32,
@@ -283,53 +291,51 @@ impl ModuleBuilder<'_> {
         // somewhere a struct would be copied into, stays the map it was.
         let decision = self.literal_record_uses.decision(start)?;
         let trace = std::env::var_os("SMELT_LITERAL_RECORD_TRACE").is_some();
-        // A use as an argument is safe when the callee's parameter shares
-        // the caller's object, which only the checker's view of the callee
-        // can say (`checker_argument_shares`).
+        // Every declared slot the binding lands in is judged on the record
+        // type it lowers to (`literal_slot_targets`); the binding takes its
+        // own record, or the slot record that declares exactly its
+        // properties (`common_literal_target`), and every other slot must
+        // share with that type: the generated Rust then converts in place
+        // (`smelt-codegen-rust/src/structural_views.rs`).
         let decision = match decision {
-            LiteralDecision::Struct(arguments) => {
-                let mut declined = None;
-                for argument in &arguments {
-                    if !self.checker_argument_shares(argument)
-                        && !self.checker_argument_fits(argument)
-                    {
-                        declined = Some(argument);
-                        break;
-                    }
-                }
-                match declined {
-                    Some(argument) => {
+            LiteralDecision::Struct(slots) => match self.literal_slot_targets(&slots, start, end) {
+                Ok(targets) => {
+                    let Some(own) = self.checker_record_type(start, end) else {
                         #[expect(
                             clippy::print_stderr,
                             reason = "SMELT_LITERAL_RECORD_TRACE is an opt-in developer trace"
                         )]
                         if trace {
-                            // Which callee kept the map, for the cost table.
-                            let callee = self.ts_facts.and_then(|facts| {
-                                let id = facts.type_id_at(
-                                    &self.path,
-                                    argument.callee_start,
-                                    argument.callee_end,
-                                )?;
-                                facts.types.get(id).map(|ty| format!("{:?}", ty.kind))
-                            });
                             eprintln!(
-                                "literal-record {}:{start} call-declined-at {}..{} argument {} callee {}",
-                                self.path,
-                                argument.callee_start,
-                                argument.callee_end,
-                                argument.index,
-                                callee.map_or_else(
-                                    || "untyped".to_owned(),
-                                    |kind| kind.chars().take(160).collect()
-                                ),
+                                "literal-record {}:{start} struct checker=declined",
+                                self.path
                             );
                         }
-                        LiteralDecision::Map(Disqualifier::Call)
+                        return None;
+                    };
+                    let chosen = self.common_literal_target(own, &targets, start, end);
+                    let unshared = targets.iter().find(|(target, _)| {
+                        *target != chosen && !self.record_types_share(chosen, *target)
+                    });
+                    if let Some((_, disqualifier)) = unshared {
+                        LiteralDecision::Map(*disqualifier)
+                    } else {
+                        #[expect(
+                            clippy::print_stderr,
+                            reason = "SMELT_LITERAL_RECORD_TRACE is an opt-in developer trace"
+                        )]
+                        if trace {
+                            eprintln!(
+                                "literal-record {}:{start} struct checker=taken{}",
+                                self.path,
+                                if chosen == own { "" } else { " slot-type" }
+                            );
+                        }
+                        return Some(chosen);
                     }
-                    None => LiteralDecision::Struct(arguments),
                 }
-            }
+                Err((disqualifier, _declined)) => LiteralDecision::Map(disqualifier),
+            },
             map @ LiteralDecision::Map(_) => map,
         };
         if let LiteralDecision::Map(disqualifier) = decision {
@@ -350,25 +356,328 @@ impl ModuleBuilder<'_> {
                     if taken { "taken" } else { "declined" },
                 );
             }
+        }
+        None
+    }
+
+    /// The record types of the declared slots a literal binding lands in
+    /// (see [`SlotUse`]), each with the disqualifier that keeps the map when
+    /// the binding's type does not share with it; none for a slot that holds
+    /// a view of the record or that the record already shares with as the
+    /// literal's own type (`checker_slot_fits`). `Err` names the
+    /// disqualifier and the slot when a slot is neither, which keeps the map.
+    ///
+    /// # Why a slot of another record type no longer keeps the map
+    ///
+    /// A record converted to another plain object type it shares with is
+    /// that object there (`smelt-codegen-rust/src/structural_views.rs`), and
+    /// a literal whose slot record declares exactly its properties takes that
+    /// type and is not converted at all (`common_literal_target`). The
+    /// callee's write, a write through an annotated alias, through the array
+    /// element or through the returned value all reach the binding, and its
+    /// writes reach them.
+    ///
+    /// A class, a generic record or a callable shape is neither, and neither
+    /// is a slot whose type the checker does not give: those keep the map,
+    /// which the record built there adopts. An annotated alias, element or
+    /// return slot that only holds a view of the record (`unknown`,
+    /// `Record<string, unknown>[]`) keeps the map as it always did.
+    fn literal_slot_targets(
+        &mut self,
+        slots: &[SlotUse],
+        start: u32,
+        end: u32,
+    ) -> Result<Vec<(TypeId, Disqualifier)>, (Disqualifier, SlotUse)> {
+        let Some(facts) = self.ts_facts else {
+            return slots
+                .first()
+                .map_or_else(|| Ok(Vec::new()), |slot| Err((Disqualifier::Call, *slot)));
+        };
+        let mut targets = Vec::new();
+        for slot in slots {
+            let declined = |disqualifier| (disqualifier, *slot);
+            match *slot {
+                SlotUse::Argument(argument) => {
+                    if self.checker_argument_shares(&argument) {
+                        continue;
+                    }
+                    let callee = facts
+                        .type_id_at(&self.path, argument.callee_start, argument.callee_end)
+                        .ok_or_else(|| declined(Disqualifier::Call))?;
+                    let value = facts
+                        .type_id_at(&self.path, argument.value_start, argument.value_end)
+                        .ok_or_else(|| declined(Disqualifier::Call))?;
+                    let signatures = callee_signatures(facts, callee, argument.construct, 0)
+                        .ok_or_else(|| declined(Disqualifier::Call))?;
+                    let span = (argument.value_start, argument.value_end);
+                    for signature in signatures {
+                        let Some(parameter) = signature_parameter(facts, signature, argument.index)
+                        else {
+                            continue;
+                        };
+                        if checker_slot_shares(facts, parameter, 0) {
+                            continue;
+                        }
+                        // A plain record parameter is a slot the binding may
+                        // take the type of; any other one (an optional
+                        // record, an array of records) must hold the
+                        // literal's own record as it is (`checker_slot_fits`).
+                        match self.checker_linked_slot_type(facts, parameter, start, end) {
+                            Some(LinkedSlot::Record(target)) => {
+                                targets.push((target, Disqualifier::Call));
+                            }
+                            Some(LinkedSlot::View) => {}
+                            None if self.checker_slot_fits(facts, value, parameter, span, 0) => {}
+                            None => return Err(declined(Disqualifier::Call)),
+                        }
+                    }
+                }
+                SlotUse::Annotated {
+                    start: slot_start,
+                    end: slot_end,
+                    element,
+                } => {
+                    let disqualifier = if element {
+                        Disqualifier::Escape
+                    } else {
+                        Disqualifier::Other
+                    };
+                    let mut ty = facts
+                        .type_id_at(&self.path, slot_start, slot_end)
+                        .ok_or_else(|| declined(disqualifier))?;
+                    if element {
+                        ty = match facts.types.get(ty).map(|found| &found.kind) {
+                            Some(TsTypeKind::Array {
+                                element: element_ty,
+                                ..
+                            }) => *element_ty,
+                            _ => return Err(declined(disqualifier)),
+                        };
+                    }
+                    match self.checker_linked_slot_type(facts, ty, start, end) {
+                        Some(LinkedSlot::Record(target)) => targets.push((target, disqualifier)),
+                        Some(LinkedSlot::View) | None => return Err(declined(disqualifier)),
+                    }
+                }
+                SlotUse::Asserted {
+                    start: slot_start,
+                    end: slot_end,
+                } => {
+                    let ty = facts
+                        .type_id_at(&self.path, slot_start, slot_end)
+                        .ok_or_else(|| declined(Disqualifier::Other))?;
+                    if checker_slot_shares(facts, ty, 0) {
+                        continue;
+                    }
+                    match self.checker_linked_slot_type(facts, ty, start, end) {
+                        Some(LinkedSlot::Record(target)) => {
+                            targets.push((target, Disqualifier::Other));
+                        }
+                        Some(LinkedSlot::View) => {}
+                        None => return Err(declined(Disqualifier::Other)),
+                    }
+                }
+                SlotUse::Returned {
+                    start: slot_start,
+                    end: slot_end,
+                } => {
+                    let function = facts
+                        .type_id_at(&self.path, slot_start, slot_end)
+                        .ok_or_else(|| declined(Disqualifier::Escape))?;
+                    let signatures = callee_signatures(facts, function, false, 0)
+                        .filter(|signatures| !signatures.is_empty())
+                        .ok_or_else(|| declined(Disqualifier::Escape))?;
+                    for signature in signatures {
+                        match self.checker_linked_slot_type(
+                            facts,
+                            signature.return_type,
+                            start,
+                            end,
+                        ) {
+                            Some(LinkedSlot::Record(target)) => {
+                                targets.push((target, Disqualifier::Escape));
+                            }
+                            Some(LinkedSlot::View) | None => {
+                                return Err(declined(Disqualifier::Escape));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Ok(targets)
+    }
+
+    /// How a value crosses into a slot of checker type `id`, judged on the
+    /// type that slot lowers to (spelled in the scope of the binding at
+    /// `start..end`): a plain record type (whether the binding's type
+    /// shares with it is decided by the caller), a dictionary (a record
+    /// crosses it as a live typed view), or `None` for anything else.
+    fn checker_linked_slot_type(
+        &mut self,
+        facts: &TsTypeFacts,
+        id: TsTypeId,
+        start: u32,
+        end: u32,
+    ) -> Option<LinkedSlot> {
+        let plain = match &facts.types.get(id)?.kind {
+            TsTypeKind::Named {
+                type_arguments,
+                call_signatures,
+                ..
+            } => type_arguments.is_empty() && call_signatures.is_empty(),
+            TsTypeKind::Object(object) => {
+                !object.properties.is_empty()
+                    && object.call_signatures.is_empty()
+                    && object.construct_signatures.is_empty()
+                    && object.index_signatures.is_empty()
+            }
+            _ => false,
+        };
+        if !plain {
             return None;
         }
-        let lowered = self.checker_record_type(start, end);
-        #[expect(
-            clippy::print_stderr,
-            reason = "SMELT_LITERAL_RECORD_TRACE is an opt-in developer trace"
-        )]
-        if trace {
-            eprintln!(
-                "literal-record {}:{start} struct checker={}",
-                self.path,
-                if lowered.is_some() {
-                    "taken"
-                } else {
-                    "declined"
-                },
-            );
+        let records_before = self.ctx.krate.erasures.len();
+        let lowered = self.respell_and_lower_spelling(facts, id, start, end, false);
+        if self.ctx.krate.erasures.len() != records_before {
+            self.ctx.krate.erasures.truncate(records_before);
+            return None;
         }
-        lowered
+        let lowered = lowered?;
+        match self.ctx.krate.types.get(lowered) {
+            Some(Type::Dict(_, _)) => Some(LinkedSlot::View),
+            Some(Type::Class { name, args }) if args.is_empty() => {
+                let record = *name;
+                let accessors = self
+                    .ctx
+                    .krate
+                    .accessor_fields
+                    .iter()
+                    .any(|(owner, _)| *owner == record);
+                (!accessors && self.contextual_record_literal_fields(lowered).is_some())
+                    .then_some(LinkedSlot::Record(lowered))
+            }
+            _ => None,
+        }
+    }
+
+    /// The type a literal binding whose own record is `own` is declared at:
+    /// the first record type among the declared slots it lands in that
+    /// declares exactly the literal's properties, in the literal's order and
+    /// at the same types; else `own`. Every other slot's record is linked to
+    /// it where the value is converted.
+    ///
+    /// A hand port declares `const flags: Flags = { touched: false }` when
+    /// every use of `flags` is a `Flags`: the value is then a `Flags` from the
+    /// literal on, and no conversion (and no link) happens anywhere. Same
+    /// order, because a record's own-key order is its declaration's, and the
+    /// literal's is the object's (`Object.keys`, `JSON.stringify`).
+    ///
+    /// A literal whose values all have one type lowers, on its own, to a
+    /// dictionary of that type (`{ touched: false }` is
+    /// `SmeltRecord<JsString, bool>`): there the properties are the checker's
+    /// for the binding at `start..end`, each at the dictionary's value type.
+    fn common_literal_target(
+        &self,
+        own: TypeId,
+        targets: &[(TypeId, Disqualifier)],
+        start: u32,
+        end: u32,
+    ) -> TypeId {
+        if targets.iter().any(|(target, _)| *target == own) {
+            return own;
+        }
+        targets
+            .iter()
+            .map(|(target, _)| *target)
+            .find(|target| self.literal_matches_record(own, *target, start, end))
+            .unwrap_or(own)
+    }
+
+    /// Whether the record type `target` declares exactly the properties of a
+    /// literal binding whose own lowering is `own` (see
+    /// [`Self::common_literal_target`]), the checker's type of the binding at
+    /// `start..end` naming them.
+    fn literal_matches_record(&self, own: TypeId, target: TypeId, start: u32, end: u32) -> bool {
+        let Some(facts) = self.ts_facts else {
+            return false;
+        };
+        facts
+            .type_id_at(&self.path, start, end)
+            .is_some_and(|checker| self.literal_part_matches(facts, checker, own, target, 0))
+    }
+
+    /// Whether a part of a literal, of checker type `checker` and lowered on
+    /// its own to `own`, can be built as the record type `target` instead:
+    /// `target` declares the literal's properties first, in the literal's
+    /// order and each at the type the literal's value has (or, for a nested
+    /// object literal, at a record it matches the same way), and after them
+    /// only optional properties, which are absent until written (and then
+    /// enumerate after the literal's, as they would on the object).
+    ///
+    /// The literal's property types come from `own`: its fields when it
+    /// lowered to a record, its value type when it lowered to a dictionary
+    /// (a literal whose values share one type).
+    fn literal_part_matches(
+        &self,
+        facts: &TsTypeFacts,
+        checker: TsTypeId,
+        own: TypeId,
+        target: TypeId,
+        depth: usize,
+    ) -> bool {
+        if own == target {
+            return true;
+        }
+        if depth > MAX_DEPTH {
+            return false;
+        }
+        let Some(TsTypeKind::Object(object)) = facts.types.get(checker).map(|ty| &ty.kind) else {
+            return false;
+        };
+        let Some(target_fields) = self.contextual_record_literal_fields(target) else {
+            return false;
+        };
+        let own_fields = self.contextual_record_literal_fields(own);
+        let own_value = match self.ctx.krate.types.get(own) {
+            Some(Type::Dict(_, value)) => Some(*value),
+            _ => None,
+        };
+        if own_fields.is_none() && own_value.is_none() {
+            return false;
+        }
+        let properties = &object.properties;
+        if !target_fields
+            .get(properties.len()..)
+            .is_some_and(|rest| rest.iter().all(|field| field.optional))
+        {
+            return false;
+        }
+        properties
+            .iter()
+            .zip(&target_fields)
+            .all(|(property, field)| {
+                if property.optional
+                    || field.optional
+                    || self.ctx.krate.symbols.source(field.name) != Some(property.name.as_str())
+                {
+                    return false;
+                }
+                let part = match (&own_fields, own_value) {
+                    (Some(fields), _) => fields
+                        .iter()
+                        .find(|candidate| {
+                            self.ctx.krate.symbols.source(candidate.name)
+                                == Some(property.name.as_str())
+                        })
+                        .map(|candidate| candidate.ty),
+                    (None, value) => value,
+                };
+                part.is_some_and(|part| {
+                    part == field.ty
+                        || self.literal_part_matches(facts, property.ty, part, field.ty, depth + 1)
+                })
+            })
     }
 
     /// Whether the callee of `argument` shares the caller's object at that
@@ -388,9 +697,9 @@ impl ModuleBuilder<'_> {
     /// parameters are `any` or generic, like any user function's.
     ///
     /// A parameter of a DIFFERENT record type (an interface, a named or
-    /// inline object type with properties) still converts by building that
-    /// record, a copy, so such a call keeps the literal a map. `false` too
-    /// when the checker has no type for the callee.
+    /// inline object type with properties) is answered `false` here and
+    /// judged by [`Self::literal_slot_targets`]. `false` too when the checker has no
+    /// type for the callee.
     fn checker_argument_shares(&self, argument: &ArgumentUse) -> bool {
         let Some(facts) = self.ts_facts else {
             return false;
@@ -409,12 +718,12 @@ impl ModuleBuilder<'_> {
         })
     }
 
-    /// Whether the argument of `argument` is the caller's object at every
-    /// parameter [`Self::checker_argument_shares`] declined: each such
-    /// parameter is the argument's own lowered type, or a record type the
-    /// argument's record type shares with ([`Self::record_types_share`]), or
-    /// holds one where the argument holds the other (array elements, tuple
-    /// members, `T | null | undefined`).
+    /// Whether a value the checker types `value`, handed to a slot it types
+    /// `slot` (spelled at `span`), is the caller's object there: the slot
+    /// holds a view of it, or lowers to the value's own record type or one
+    /// it shares with ([`Self::record_types_share`]), or holds one where the
+    /// value holds the other (array elements, tuple members,
+    /// `T | null | undefined`).
     ///
     /// # Why the lowered types decide
     ///
@@ -426,33 +735,6 @@ impl ModuleBuilder<'_> {
     /// checker's: both types are lowered through the same annotation path
     /// ([`Self::respell_and_lower_spelling`]) and compared field by field.
     /// A pair this cannot prove keeps the map.
-    fn checker_argument_fits(&mut self, argument: &ArgumentUse) -> bool {
-        let Some(facts) = self.ts_facts else {
-            return false;
-        };
-        let Some(callee) = facts.type_id_at(&self.path, argument.callee_start, argument.callee_end)
-        else {
-            return false;
-        };
-        let Some(value) = facts.type_id_at(&self.path, argument.value_start, argument.value_end)
-        else {
-            return false;
-        };
-        let Some(signatures) = callee_signatures(facts, callee, argument.construct, 0) else {
-            return false;
-        };
-        let span = (argument.value_start, argument.value_end);
-        signatures.iter().all(|signature| {
-            signature_parameter(facts, signature, argument.index).is_none_or(|parameter| {
-                checker_slot_shares(facts, parameter, 0)
-                    || self.checker_slot_fits(facts, value, parameter, span, 0)
-            })
-        })
-    }
-
-    /// Whether a value the checker types `value`, handed to a slot it types
-    /// `slot`, is the caller's object there (see
-    /// [`Self::checker_argument_fits`]).
     fn checker_slot_fits(
         &mut self,
         facts: &TsTypeFacts,
@@ -1277,6 +1559,18 @@ fn checker_slot_shares(facts: &TsTypeFacts, ty: TsTypeId, depth: usize) -> bool 
             .all(|element| checker_slot_shares(facts, element.ty, depth + 1)),
         TsTypeKind::Named { .. } | TsTypeKind::Intersection(_) | TsTypeKind::Truncated => false,
     }
+}
+
+/// How a record crosses into a declared slot it is converted at
+/// (`ModuleBuilder::checker_linked_slot_type`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LinkedSlot {
+    /// A plain object type (a non-generic interface or object type with no
+    /// call signature and no accessor): the binding takes it, or shares with
+    /// it, or keeps the map.
+    Record(TypeId),
+    /// A dictionary the record crosses as a live typed view of itself.
+    View,
 }
 
 /// Whether checker type `id` holds a union of both `null` and `undefined`.

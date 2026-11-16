@@ -1557,8 +1557,28 @@ impl FunctionEmitter<'_> {
                 }
             }
             _ if self.is_reference_type(lhs_ty) || self.is_reference_type(rhs_ty) => {
-                let lhs_identity = self.reference_identity_expr(&self.operand_expr(lhs)?, lhs_ty);
-                let rhs_identity = self.reference_identity_expr(&self.operand_expr(rhs)?, rhs_ty);
+                // A reference record compared with a dictionary (one that may
+                // be its adopted view, `SmeltRecord::smelt_adopt_typed`) is read
+                // by its erased object id, which is the dictionary's space.
+                let record_against_dict = |record: TypeId, other: TypeId| {
+                    matches!(self.mir.types.get(record), Some(Type::Class { name, .. }) if self.context.is_reference_class(*name))
+                        && matches!(self.mir.types.get(other), Some(Type::Dict(key, _)) if self.dict_uses_smelt_record(*key))
+                        && self.context.demand().has(Need::Unknown)
+                };
+                let by_object_id =
+                    record_against_dict(lhs_ty, rhs_ty) || record_against_dict(rhs_ty, lhs_ty);
+                let identity = |text: RustExpr, ty: TypeId| {
+                    if by_object_id && matches!(self.mir.types.get(ty), Some(Type::Class { .. })) {
+                        Some(RustExpr::atom(format!(
+                            "smelt_reference_object_identity(&({text}).0)",
+                            text = text.delimited()
+                        )))
+                    } else {
+                        self.reference_identity_expr(&text, ty)
+                    }
+                };
+                let lhs_identity = identity(self.operand_expr(lhs)?, lhs_ty);
+                let rhs_identity = identity(self.operand_expr(rhs)?, rhs_ty);
                 match (lhs_identity, rhs_identity) {
                     (Some(left), Some(right)) => RustExpr::loose(format!(
                         "{left} == {right}",

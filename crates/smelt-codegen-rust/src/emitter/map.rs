@@ -577,6 +577,56 @@ impl FunctionEmitter<'_> {
         )))
     }
 
+    /// `delete record.key` on a reference record whose type declares `key` as
+    /// an optional property: the property becomes absent, which is what an
+    /// optional field holding `None` is (its reads are `undefined`, and key
+    /// enumeration, `in` and `JSON.stringify` skip it). TypeScript only
+    /// allows `delete` of an optional property. `None` for any other receiver
+    /// or key.
+    fn record_optional_field_delete_expr(
+        &self,
+        record: &Operand,
+        key: &Operand,
+        record_ty: TypeId,
+        dest_ty: TypeId,
+    ) -> Result<Option<RustExpr>, EmitError> {
+        let (Some(Type::Class { name, .. }), Some(key_text)) = (
+            self.mir.types.get(record_ty),
+            self.operand_string_literal(key),
+        ) else {
+            return Ok(None);
+        };
+        if !self.context.is_reference_class(*name)
+            || !matches!(self.mir.types.get(dest_ty), Some(Type::Bool))
+        {
+            return Ok(None);
+        }
+        for field in self.class_or_interface_fields(*name) {
+            // Only an optional property (`x?: T`, whose outer layer is the
+            // `undefined` absence) can be deleted; its `None` is "absent".
+            if self.symbol_source_name(field.name)? != key_text.as_str()
+                || !matches!(
+                    self.mir.types.get(field.ty),
+                    Some(Type::Optional(_, smelt_hir::Absence::Undefined))
+                )
+            {
+                continue;
+            }
+            // The handle may be a structural view or a widened class's view:
+            // the write goes through the same place a field assignment uses.
+            let record_text = self.operand_expr(record)?.delimited().to_owned();
+            let place = match record {
+                Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) => self
+                    .reference_field_write_place_at(&record_text, *local, record_ty, field.name)?,
+                Operand::Copy(_) | Operand::Move(_) | Operand::Const(_) => {
+                    self.reference_field_write_place(&record_text, record_ty, field.name)?
+                }
+            };
+            return Ok(Some(RustExpr::atom(format!("{{ {place} = None; true }}"))));
+        }
+        Ok(None)
+    }
+
     /// Converts a dictionary key removal operation to Rust text.
     pub(super) fn dict_remove_key_expr(
         &self,
@@ -629,6 +679,11 @@ impl FunctionEmitter<'_> {
                     return Err(EmitError::new("dict remove destination must be bool"));
                 }
                 return Ok(RustExpr::path("true"));
+            }
+            if let Some(removed) =
+                self.record_optional_field_delete_expr(dict, key, dict_ty, dest_ty)?
+            {
+                return Ok(removed);
             }
             return Err(EmitError::new(format!(
                 "dict remove receiver must be a dict, got {}",

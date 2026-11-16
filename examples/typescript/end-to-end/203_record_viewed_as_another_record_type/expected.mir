@@ -3,8 +3,10 @@ interface Spot
 interface Marker
 interface Reading
 interface Sample
+interface Draft
 interface Named
 interface Titled
+interface Annotated
 
 fn rename (FuncId(0)) -> Named
   locals
@@ -351,38 +353,69 @@ fn main_ (FuncId(10)) -> None
   bb31:
     return none
 
-fn smelt_global_init__kept_named__5 (FuncId(11)) -> Named
+fn drop_note (FuncId(11)) -> Bool
+  locals
+    %0 param a: Annotated
+    %1 temp: Bool
+  bb0:
+    %1 = dict_remove_key copy %0, "note"
+    return move %1
+
+fn smelt_global_init__kept_named__6 (FuncId(12)) -> Named
   locals
     %0 temp: Named
   bb0:
     %0 = {"label": "nobody"}
     return move %0
 
-fn smelt_global_init__kept_spot__6 (FuncId(12)) -> Spot
+fn smelt_global_init__kept_spot__7 (FuncId(13)) -> Spot
   locals
     %0 temp: Spot
   bb0:
     %0 = {"x": 0.0, "label": "nowhere"}
     return move %0
 
-fn smelt_global_init__roster__7 (FuncId(13)) -> List<Named>
+fn smelt_global_init__roster__8 (FuncId(14)) -> List<Named>
   locals
     %0 temp: List<Named>
   bb0:
     %0 = []
     return move %0
 
-fn main (FuncId(14)) -> None
+fn main (FuncId(15)) -> None
   locals
-    %0 temp: None
-    %1 temp: None
+    %0 user draft: Draft
+    %1 user annotated: Annotated
     %2 temp: None
     %3 temp: None
+    %4 temp: None
+    %5 temp: None
+    %6 temp: Draft
+    %7 temp: Bool
+    %8 temp: Bool
+    %9 temp: String
+    %10 temp: None
+    %11 temp: Bool
+    %12 temp: String
+    %13 temp: None
   bb0:
-    %0 = global_get #0
-    %1 = global_get #1
-    %2 = global_get #2
-    %3 = call fn10() -> bb1
+    %2 = global_get #0
+    %3 = global_get #1
+    %4 = global_get #2
+    %5 = call fn10() -> bb1
   bb1:
+    %0 = {"x": 1.0, "label": "d", "note": "hi"}
+    %7 = call fn11(copy %0) -> bb2
+  bb2:
+    %8 = copy %0.field11 == undefined
+    %9 = json_stringify copy %0
+    %10 = call @console_log(move %7, move %8, move %9) -> bb3
+  bb3:
+    %1 = copy %0
+    %1.field11 = "again"
+    %11 = move %1 == copy %0
+    %12 = json_stringify copy %0
+    %13 = call @console_log(copy %0.field11, move %11, move %12) -> bb4
+  bb4:
     return none
 

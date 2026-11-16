@@ -621,6 +621,14 @@ impl RuntimeDemand {
                 demand.add(Need::Unknown);
             }
         });
+        // A record built from a typed dictionary adopts it as a live view
+        // (`crate::dict_adoption::RecordFlows::adopters`), which the live-view
+        // runtime does, over the erased carrier and JavaScript strings.
+        if demand.has(Need::JsString)
+            && !crate::dict_adoption::record_flows(mir).adopters.is_empty()
+        {
+            demand.add(Need::Unknown);
+        }
         // A deep `==` over reference records reads them through their views
         // (`classify::deep_compares_a_reference_shape`), which only a program
         // with the erased runtime has.
