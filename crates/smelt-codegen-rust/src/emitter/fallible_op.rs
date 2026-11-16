@@ -145,6 +145,29 @@ impl FunctionEmitter<'_> {
         ))
     }
 
+    /// Renders Python's `xs.pop(i)`: the item at `i` (negative from the end),
+    /// removed, or `IndexError` with `CPython`'s message for an empty list or
+    /// a position out of range.
+    fn python_list_pop_at_call(
+        &self,
+        list: &Operand,
+        index: &Operand,
+    ) -> Result<(RenderedCall, TypeId), EmitError> {
+        let list_ty = self.operand_ty(list)?;
+        let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
+            return Err(EmitError::new("a Python list pop needs a list"));
+        };
+        let list_text = self.operand_borrow_expr(list)?;
+        Ok((
+            RenderedCall::propagating(RustExpr::atom(format!(
+                "{{ let smelt_index: i64 = {index}; let mut smelt_items = {list_text}.borrow_mut(); let smelt_len = i64::try_from(smelt_items.len()).unwrap_or(i64::MAX); let smelt_at = if smelt_index < 0 {{ smelt_index.saturating_add(smelt_len) }} else {{ smelt_index }}; if smelt_len == 0 {{ Err(smelt_py_index_error(\"pop from empty list\")) }} else {{ usize::try_from(smelt_at).ok().filter(|smelt_at| *smelt_at < smelt_items.len()).map(|smelt_at| smelt_items.remove(smelt_at)).ok_or_else(|| smelt_py_index_error(\"pop index out of range\")) }} }}",
+                index = self.operand_expr(index)?.delimited(),
+                list_text = list_text.tight()
+            ))),
+            *item_ty,
+        ))
+    }
+
     /// Renders Python's `xs[i]` on a list or a string: a negative index counts
     /// from the end (a string's in code points), and an index past either end
     /// raises `IndexError`.
@@ -330,6 +353,8 @@ impl FunctionEmitter<'_> {
             } => self.python_dict_pop_call(dict, key)?,
             Rvalue::DictPopItem { dict } => self.python_dict_popitem_call(dict)?,
             Rvalue::ListPop { list, .. } => self.python_list_pop_call(list)?,
+            Rvalue::PyListPopAt { list, index } => self.python_list_pop_at_call(list, index)?,
+            Rvalue::PyFormat { value, spec } => self.py_format_call(value, spec)?,
             Rvalue::ErasedPatternCall {
                 method,
                 receiver,
@@ -411,6 +436,7 @@ impl FunctionEmitter<'_> {
                     Type::BigInt
                 })?,
             ),
+            Rvalue::PyStrCall { op: str_op, .. } => self.py_str_fallible_call(*str_op, &args)?,
             Rvalue::PyNumericCall { op: numeric_op, .. } => (
                 self.py_int_call(*numeric_op, &args)?,
                 self.type_id(crate::py_int::py_numeric_op_result(

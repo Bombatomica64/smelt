@@ -172,6 +172,10 @@ declare_needs! {
     PyException,
     /// Python's arbitrary-precision `int`, `SmeltPyInt`.
     PyInt,
+    /// Python `str` methods with CPython's own rules (`py_str.rs`).
+    PyStrMethods,
+    /// Python's format-spec mini-language (`py_format.rs`).
+    PyFormat,
     /// `SmeltBinding`, the storage of a source binding that can be read
     /// before its first assignment.
     Binding,
@@ -325,6 +329,12 @@ const REQUIRES: &[(Need, &[Need])] = &[
     (Need::PythonDivision, &[Need::PyException]),
     // An `int` raises Python's arithmetic errors and prints through `repr`.
     (Need::PyInt, &[Need::PyException, Need::PyRepr]),
+    (Need::PyStrMethods, &[Need::PyException]),
+    // `format` of an `int` reads a `SmeltPyInt`, of a `float` its `repr`.
+    (
+        Need::PyFormat,
+        &[Need::PyException, Need::PyInt, Need::PythonNumberFormat],
+    ),
     (Need::PythonDictRead, &[Need::PyException]),
     // A checked binding read raises through the error its language throws.
     (Need::BindingTdz, &[Need::Binding, Need::Unknown]),

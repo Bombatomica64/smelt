@@ -2740,6 +2740,17 @@ macro_rules! op_group_transcribed {
                 fallible(true)
                 call(format!("@{}", op.name()))
                 => (format!("{} {}", op.name(), args.join(" ")));
+            /// A Python `str` method with `CPython`'s own rules (see
+            /// [`crate::PyStrOp`]); the ones that can raise take an unwind edge.
+            PyStrCall {
+                /// Which method this is.
+                op: [$crate::PyStrOp],
+                /// The receiver, then the method's operands.
+                args: many,
+            }
+                fallible(op.can_raise())
+                call(format!("@py_str_{}", op.name()))
+                => (format!("py_str_{} {}", op.name(), args.join(" ")));
             /// A raising Python numeric operation (see [`crate::PyNumericOp`]):
             /// `int(s)`, `int(x)` of a float, `float(n)`, `/`, `//`, `%`, `**`,
             /// the shifts, and the conversion to an index or a size.
@@ -2749,7 +2760,7 @@ macro_rules! op_group_transcribed {
                 /// The operands in source order.
                 args: many,
             }
-                fallible(true)
+                fallible(op.can_raise())
                 call(format!("@{}", op.name()))
                 => (format!("{} {}", op.name(), args.join(" ")));
             /// `new URL(input, base?)`: a parsed WHATWG URL value, which throws a
@@ -2954,6 +2965,31 @@ macro_rules! op_group_custom {
                 mutates(Some(list))
                 fallible(*raises_when_empty)
                 => (format!("list_pop {list}{}", if *raises_when_empty { " raises" } else { "" }));
+            /// Python's `format(value, spec)` (an f-string's `{value:spec}`) over an
+            /// `int`, a `float` or a `str`, with `CPython`'s format-spec
+            /// mini-language; a spec the type does not take is a `ValueError`.
+            PyFormat {
+                /// The formatted value.
+                value: one,
+                /// The format spec text.
+                spec: [String],
+            }
+                fallible(true)
+                call("@py_format".to_owned())
+                => (format!("py_format {value}, {spec:?}"));
+            /// Python's `xs.pop(i)`: remove and return the item at `i` (negative
+            /// from the end); an empty list or an `i` out of range raises
+            /// `IndexError`.
+            PyListPopAt {
+                /// List value to mutate.
+                list: one @RECV_MUT,
+                /// The position, a machine integer.
+                index: one,
+            }
+                mutates(Some(list))
+                fallible(true)
+                call("@py_list_pop_at".to_owned())
+                => (format!("py_list_pop_at {list}, {index}"));
             /// Remove and return the first item from a list.
             ListShift {
                 /// List value to mutate.

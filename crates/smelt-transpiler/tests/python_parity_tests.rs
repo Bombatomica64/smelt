@@ -310,3 +310,54 @@ fn sequence_arithmetic() -> TestResult {
 fn class_str_repr() -> TestResult {
     verify_python_parity("class_str_repr")
 }
+
+/// A `for`/`while` loop's `else` runs exactly when the loop ends without a
+/// `break` (nested loops keep their own); a chained comparison evaluates each
+/// middle operand once and stops at the first false link; `and`/`or` evaluate
+/// their right operand only when the left one does not decide (a call there
+/// runs only when reached).
+#[test]
+fn loop_else_and_chained_comparisons() -> TestResult {
+    verify_python_parity("loop_else_and_chained_comparisons")
+}
+
+/// `str` methods with `CPython`'s rules over code points: title case through
+/// Unicode's title mapping (`ß` → `Ss`), padding, bounded `count`/`find`/
+/// `index`, whitespace and `maxsplit` splitting, counted replacement and
+/// character-set stripping, with their `ValueError`/`TypeError`.
+#[test]
+fn python_str_methods() -> TestResult {
+    verify_python_parity("python_str_methods")
+}
+
+/// `round` (half to even; correctly rounded `ndigits`; an `int` stays an
+/// `int`), `divmod`, `pow` with and without a modulus, `chr`, `ord` and
+/// `list.pop(i)`, with `CPython`'s exceptions and messages.
+#[test]
+fn python_numeric_builtins() -> TestResult {
+    verify_python_parity("python_numeric_builtins")
+}
+
+/// f-string format specs follow the format-spec mini-language for `int`,
+/// `float`, `str` and `bool` (fill, alignment, sign, `z`, `#`, zero padding,
+/// width, grouping, precision, type); `{x=}` writes its own source text; a
+/// spec the value's type does not take raises `ValueError`.
+#[test]
+fn fstring_format_specs() -> TestResult {
+    verify_python_parity("fstring_format_specs")
+}
+
+/// A `@dataclass` has the generated `__repr__` (`Point(x=1, label='a')`)
+/// wherever `CPython` shows it, unless the class defines its own.
+#[test]
+fn dataclass_repr() -> TestResult {
+    verify_python_parity("dataclass_repr")
+}
+
+/// A comprehension binds a (nested) tuple target as a `for` statement does,
+/// and tuples order lexicographically in `sorted` (both directions), `min` and
+/// `max`, floats included.
+#[test]
+fn comprehension_targets_and_tuple_order() -> TestResult {
+    verify_python_parity("comprehension_targets_and_tuple_order")
+}

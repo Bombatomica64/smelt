@@ -488,20 +488,33 @@ def shout() -> str:
     clippy::literal_string_with_formatting_args,
     reason = "the literal is Python source intentionally containing an f-string"
 )]
-fn fstring_format_spec_is_rejected() -> TestResult {
+fn fstring_format_spec_lowers_to_py_format() -> TestResult {
+    // A written-out spec formats through `PyFormat` (the parity fixture
+    // `fstring_format_specs` checks the text); a spec with a nested
+    // replacement field is still refused. Old requirement: every spec was
+    // rejected.
     let source = py!(r#"
 def render(value: float) -> str:
     return f"{value:.2f}"
 "#);
     let mut ctx = HirCtx::new();
-    let errors = lower_errors(source, &mut ctx)?;
-    let error = first_error(&errors)?;
-    ensure_eq(&error.code, &"smelt::unsupported-py", "error code")?;
+    lower_module(source, &mut ctx)?;
     ensure(
-        error.message.contains("format specifications"),
-        "expected format specification rejection message",
+        all_exprs(&ctx)
+            .any(|expr| matches!(&expr.kind, ExprKind::PyFormat { spec, .. } if spec == ".2f")),
+        "expected a PyFormat with the spec text",
     )?;
-    Ok(())
+    let nested = py!(r#"
+def render(value: float, width: int) -> str:
+    return f"{value:{width}}"
+"#);
+    let mut nested_ctx = HirCtx::new();
+    let errors = lower_errors(nested, &mut nested_ctx)?;
+    let error = first_error(&errors)?;
+    ensure(
+        error.message.contains("nested replacement field"),
+        "nested spec refused",
+    )
 }
 
 #[test]
@@ -674,20 +687,21 @@ def chars(text: str) -> list[str]:
 }
 
 #[test]
-fn comprehension_destructuring_target_is_rejected() -> TestResult {
+fn comprehension_destructuring_target_lowers() -> TestResult {
+    // A tuple target binds as a `for` statement's does (the parity fixture
+    // `comprehension_targets_and_tuple_order` checks the values). Old
+    // requirement: it was rejected as unsupported.
     let source = py!(r"
 def firsts(pairs: list[tuple[int, int]]) -> list[int]:
     return [a for a, b in pairs]
 ");
     let mut ctx = HirCtx::new();
-    let errors = lower_errors(source, &mut ctx)?;
-    let error = first_error(&errors)?;
-    ensure_eq(&error.code, &"smelt::unsupported-py", "error code")?;
-    ensure(
-        error.message.contains("destructuring"),
-        "expected destructuring rejection message",
-    )?;
-    Ok(())
+    lower_module(source, &mut ctx)?;
+    ensure_signature(
+        &ctx,
+        "firsts",
+        "firsts(pairs: List<(PyInt, PyInt)>) -> List<PyInt>",
+    )
 }
 
 /// Every expression of every body in the crate.

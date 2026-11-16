@@ -198,6 +198,24 @@ impl SmeltError {
         self
     }
 
+    /// A failure that only follows from an earlier one: a use of a definition
+    /// whose own lowering failed and was already reported. It still fails the
+    /// module, but is not reported again.
+    pub(crate) fn cascade(span: Span, name: &str) -> Self {
+        Self {
+            code: "smelt::cascade",
+            category: DiagnosticCategory::UnsupportedLowering,
+            span,
+            message: format!("`{name}` failed to lower (reported above)"),
+            note: None,
+        }
+    }
+
+    /// Whether this is a [`Self::cascade`] of an earlier failure.
+    pub(crate) fn is_cascade(&self) -> bool {
+        self.code == "smelt::cascade"
+    }
+
     /// Create an "unsupported construct" error (an unimplemented lowering).
     pub(crate) fn unsupported(span: Span, message: impl Into<String>) -> Self {
         Self {

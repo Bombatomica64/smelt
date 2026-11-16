@@ -82,6 +82,7 @@ holds_no_types!(
     crate::Base64Op,
     crate::BigIntOp,
     crate::PyNumericOp,
+    crate::PyStrOp,
     crate::BlobOp,
     crate::BoolFoldOp,
     crate::ByteArrayOp,

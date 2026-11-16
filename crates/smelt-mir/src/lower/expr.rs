@@ -479,6 +479,27 @@ impl LoweringCtx<'_> {
                 self.write_back_mutation_receiver(writeback)?;
                 popped
             }
+            ExprKind::PyFormat { value, spec } => {
+                let formatted = self.lower_expr(*value)?;
+                self.finish_op(
+                    &expr,
+                    Rvalue::PyFormat {
+                        value: formatted,
+                        spec: spec.clone(),
+                    },
+                )?
+            }
+            ExprKind::PyListPopAt { list, index } => {
+                let index_operand = self.lower_expr(*index)?;
+                let (list_operand, writeback) = self.lower_mutation_receiver(*list)?;
+                let value = Rvalue::PyListPopAt {
+                    list: list_operand,
+                    index: index_operand,
+                };
+                let popped = self.finish_op(&expr, value)?;
+                self.write_back_mutation_receiver(writeback)?;
+                popped
+            }
             ExprKind::ListShift { list } => {
                 let (list_operand, writeback) = self.lower_mutation_receiver(*list)?;
                 self.assign_temp_with_writeback(

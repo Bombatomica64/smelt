@@ -460,8 +460,20 @@ impl RuntimeDemand {
             Rvalue::UrlNew { .. } => {
                 self.add(Need::UrlThrowing);
             }
-            Rvalue::PyNumericCall { .. } => {
+            Rvalue::PyNumericCall { op, .. } => {
                 self.add(Need::PyInt);
+                if matches!(op, smelt_hir::PyNumericOp::Chr | smelt_hir::PyNumericOp::Ord) {
+                    self.add(Need::PyStrMethods);
+                }
+            }
+            Rvalue::PyStrCall { .. } => {
+                self.add(Need::PyStrMethods);
+            }
+            Rvalue::PyFormat { .. } => {
+                self.add(Need::PyFormat);
+            }
+            Rvalue::PyListPopAt { .. } => {
+                self.add(Need::PyException);
             }
             Rvalue::JsonParse { .. } => {
                 self.add(Need::JsonParse);

@@ -1495,3 +1495,53 @@ mod py_int_family {
         assert_eq!(SmeltPyInt::from(-2_i64).abs(), SmeltPyInt::from(2_i64));
     }
 }
+
+/// Python `round`, `str` methods and format specs: what `python3` answers.
+mod py_text_family {
+    use super::*;
+
+    #[test]
+    fn round_is_correctly_rounded_half_to_even() {
+        assert_eq!(smelt_py_round_float(2.675, 2), 2.67, "the double below 2.675 rounds down");
+        assert_eq!(smelt_py_round_float(9.995, 2), 9.99);
+        assert_eq!(smelt_py_round_float(0.125, 2), 0.12, "an exact tie goes to even");
+        assert_eq!(smelt_py_round_float(0.375, 2), 0.38);
+        assert_eq!(smelt_py_round_float(1234.5678, -2), 1200.0);
+        assert_eq!(smelt_py_round_float(123_456_789.0, -10), 0.0);
+        assert_eq!(smelt_py_round_float(-2.5, 0).to_bits(), (-2.0_f64).to_bits());
+        assert_eq!(smelt_py_round_int(&SmeltPyInt::from(1250_i64), -2), SmeltPyInt::from(1200_i64));
+        assert_eq!(smelt_py_round_int(&SmeltPyInt::from(1350_i64), -2), SmeltPyInt::from(1400_i64));
+        assert_eq!(smelt_py_round_float_to_int(-0.5).ok(), Some(SmeltPyInt::from(0_i64)));
+    }
+
+    #[test]
+    fn str_methods_follow_cpython() {
+        assert_eq!(smelt_py_str_title("they're ßig"), "They'Re Ssig");
+        assert_eq!(smelt_py_str_pad("ab", 7, "*", 'c').ok().as_deref(), Some("***ab**"));
+        assert!(smelt_py_str_pad("ab", 7, "xy", 'c').is_err());
+        assert_eq!(smelt_py_str_count("abc", "", 0, i64::MAX), 4);
+        assert_eq!(smelt_py_str_find("abc", "", 5, i64::MAX, false), -1);
+        assert_eq!(smelt_py_str_split_whitespace(" a b c ", 1, false), ["a", "b c "]);
+        assert_eq!(smelt_py_str_split_whitespace(" a b c ", 1, true), [" a b", "c"]);
+        assert_eq!(smelt_py_str_replace("abc", "", "-", 2), "-a-bc");
+        assert_eq!(smelt_py_chr(0x1F600).ok().as_deref(), Some("\u{1F600}"));
+        assert!(smelt_py_ord("ab").is_err());
+    }
+
+    #[test]
+    fn format_specs_follow_the_mini_language() {
+        let float = |value: f64, spec: &str| smelt_py_format_float(value, spec).ok();
+        assert_eq!(float(1234.5678, "^12,.2f").as_deref(), Some("  1,234.57  "));
+        assert_eq!(float(1234.5678, "=+12,.1f").as_deref(), Some("+    1,234.6"));
+        assert_eq!(float(-0.0001, "z.1f").as_deref(), Some("0.0"));
+        assert_eq!(float(1e16, ".3").as_deref(), Some("1e+16"));
+        assert_eq!(float(1.0, ".3").as_deref(), Some("1.0"));
+        let int = |value: i64, spec: &str| smelt_py_format_int(&SmeltPyInt::from(value), spec).ok();
+        assert_eq!(int(-1_234_567, "#010b").as_deref(), Some("-0b100101101011010000111"));
+        assert_eq!(int(1234, "010,d").as_deref(), Some("00,001,234"));
+        assert_eq!(int(255, "_x").as_deref(), Some("ff"));
+        assert!(smelt_py_format_int(&SmeltPyInt::from(1_i64), ".2d").is_err());
+        assert!(smelt_py_format_str("a", ",").is_err());
+        assert_eq!(smelt_py_format_str("hi", "*^7.1").ok().as_deref(), Some("***h***"));
+    }
+}

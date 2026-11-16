@@ -53,7 +53,7 @@ impl ModuleBuilder<'_> {
     ///
     /// A local binding of `root` is that binding, and a name no import binds
     /// denotes nothing the standard library provides.
-    fn qualified_import_path(&self, root: &str, members: &[&str]) -> Option<String> {
+    pub(super) fn qualified_import_path(&self, root: &str, members: &[&str]) -> Option<String> {
         if self.scope.locals.contains_key(root) {
             return None;
         }

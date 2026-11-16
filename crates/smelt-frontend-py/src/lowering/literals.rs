@@ -442,19 +442,39 @@ impl ModuleBuilder<'_> {
                                 segments.push(Segment::Literal(literal.value.to_string()));
                             }
                             ruff_python_ast::InterpolatedStringElement::Interpolation(interp) => {
-                                if interp.debug_text.is_some() {
-                                    return Err(SmeltError::unsupported(
-                                        self.span(interp.range),
-                                        "f-string self-documenting expressions (trailing `=`) are not supported",
-                                    ));
-                                }
-                                if interp.format_spec.is_some() {
-                                    return Err(SmeltError::unsupported(
-                                        self.span(interp.range),
-                                        "f-string format specifications (a `:` conversion suffix) are not supported",
-                                    ));
-                                }
-                                if interp.conversion == ruff_python_ast::ConversionFlag::Ascii {
+                                // A format spec with a nested replacement field
+                                // (`{x:{width}}`) is built at run time; only a
+                                // spec written out in full is supported.
+                                let spec = match &interp.format_spec {
+                                    None => None,
+                                    Some(format_spec) => {
+                                        let mut text = String::new();
+                                        for spec_element in &format_spec.elements {
+                                            match spec_element {
+                                                ruff_python_ast::InterpolatedStringElement::Literal(literal) => text.push_str(&literal.value),
+                                                ruff_python_ast::InterpolatedStringElement::Interpolation(_) => {
+                                                    return Err(SmeltError::unsupported(
+                                                        self.span(interp.range),
+                                                        "an f-string format spec with a nested replacement field (`{x:{width}}`) is not supported",
+                                                    ));
+                                                }
+                                            }
+                                        }
+                                        Some(text).filter(|written| !written.is_empty())
+                                    }
+                                };
+                                // `{x=}` writes its own source text, then the
+                                // value: its `repr` unless a conversion or a
+                                // format spec says otherwise.
+                                let conversion = interp.debug_text.as_ref().map_or(interp.conversion, |debug| {
+                                    segments.push(Segment::Literal(debug.as_str().to_owned()));
+                                    if interp.conversion == ruff_python_ast::ConversionFlag::None && spec.is_none() {
+                                        ruff_python_ast::ConversionFlag::Repr
+                                    } else {
+                                        interp.conversion
+                                    }
+                                });
+                                if conversion == ruff_python_ast::ConversionFlag::Ascii {
                                     return Err(SmeltError::unsupported(
                                         self.span(interp.range),
                                         "f-string `!a` conversions are not supported",
@@ -466,13 +486,14 @@ impl ModuleBuilder<'_> {
                                 // string `+` fold below would spell the
                                 // JavaScript way.
                                 let expr_ty = Self::expr_ty(body, interpolated);
-                                let expr = if interp.conversion == ruff_python_ast::ConversionFlag::Repr {
+                                let expr = if conversion == ruff_python_ast::ConversionFlag::Repr {
                                     self.python_text_expr(interpolated, true, self.span(interp.range), body)?
-                                } else if !matches!(
-                                    self.ctx.krate.types.get(expr_ty),
-                                    Some(Type::Bool | Type::PyInt | Type::Float | Type::PyStr)
-                                ) && (self.has_python_text(expr_ty)
-                                    || self.class_text_method(expr_ty, false).is_some())
+                                } else if conversion == ruff_python_ast::ConversionFlag::Str
+                                    || !matches!(
+                                        self.ctx.krate.types.get(expr_ty),
+                                        Some(Type::Bool | Type::PyInt | Type::Float | Type::PyStr)
+                                    ) && (self.has_python_text(expr_ty)
+                                        || self.class_text_method(expr_ty, false).is_some())
                                 {
                                     self.python_text_expr(interpolated, false, self.span(interp.range), body)?
                                 } else {
@@ -484,7 +505,10 @@ impl ModuleBuilder<'_> {
                                 // float interpolates as `12.0` and an int keeps
                                 // all its digits (the string `+` fold below
                                 // would coerce it the JavaScript way).
-                                let expr = if matches!(
+                                let interp_span = self.span(interp.range);
+                                let expr = if let Some(spec_text) = spec {
+                                    self.formatted_value(expr, spec_text, interp_span, body)?
+                                } else if matches!(
                                     self.ctx.krate.types.get(Self::expr_ty(body, expr)),
                                     Some(Type::Bool | Type::PyInt | Type::Float)
                                 ) {
@@ -599,6 +623,34 @@ impl ModuleBuilder<'_> {
             ty,
             span,
         }))
+    }
+
+    /// `format(value, spec)` for a non-empty `spec`: an `int`, `float` or
+    /// `str` through `CPython`'s format-spec mini-language. A `bool` formats as
+    /// the `int` it is (`f"{True:>5}"` is `'    1'`); any other type would
+    /// call its `__format__`, which is not supported.
+    fn formatted_value(
+        &mut self,
+        value: smelt_hir::ExprId,
+        spec: String,
+        span: Span,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let shown = match self.ctx.krate.types.get(Self::expr_ty(body, value)) {
+            Some(Type::PyInt | Type::Float | Type::PyStr) => value,
+            Some(Type::Bool) => {
+                let ty = self.intern_type(Type::PyInt);
+                body.push_expr(HirExpr { kind: ExprKind::TypeAssert { value }, ty, span })
+            }
+            _ => {
+                return Err(SmeltError::unsupported(
+                    span,
+                    "a format spec is supported for int, float, bool and str values",
+                ));
+            }
+        };
+        let ty = self.intern_type(Type::PyStr);
+        Ok(body.push_expr(HirExpr { kind: ExprKind::PyFormat { value: shown, spec }, ty, span }))
     }
 
     /// Lower a Python conditional expression (`then if cond else else_`).
@@ -1023,13 +1075,17 @@ impl ModuleBuilder<'_> {
             | PyNumericOp::Pow
             | PyNumericOp::PowMod
             | PyNumericOp::Shl
-            | PyNumericOp::Shr => Type::PyInt,
+            | PyNumericOp::Shr
+            | PyNumericOp::RoundToInt
+            | PyNumericOp::RoundInt => Type::PyInt,
             PyNumericOp::ToFloat
             | PyNumericOp::TrueDiv
             | PyNumericOp::PowFloat
             | PyNumericOp::FloatPow
-            | PyNumericOp::ParseFloat => Type::Float,
-            PyNumericOp::ToIndex | PyNumericOp::ToSize => Type::Int,
+            | PyNumericOp::ParseFloat
+            | PyNumericOp::RoundFloat => Type::Float,
+            PyNumericOp::ToIndex | PyNumericOp::ToSize | PyNumericOp::Ord => Type::Int,
+            PyNumericOp::Chr => Type::PyStr,
             PyNumericOp::Range => Type::List(py_int),
         });
         body.push_expr(HirExpr {
@@ -1265,8 +1321,6 @@ impl ModuleBuilder<'_> {
             BoolOp::And => BinOp::And,
             BoolOp::Or => BinOp::Or,
         };
-        let bool_ty = self.intern_type(Type::Bool);
-
         // Left-fold: ((a op b) op c)
         let values: &[Expr] = b.values.as_ref();
         let Some((first, rest)) = values.split_first() else {
@@ -1291,13 +1345,36 @@ impl ModuleBuilder<'_> {
                     continue;
                 }
             }
-            acc = body.push_expr(HirExpr {
-                kind: ExprKind::BinOp { op, lhs: acc, rhs },
-                ty: bool_ty,
-                span,
-            });
+            acc = self.short_circuit(op, acc, rhs, span, body);
         }
         Ok(acc)
+    }
+
+    /// `lhs and rhs` / `lhs or rhs` over two `bool`s, evaluating `rhs` only
+    /// when `lhs` does not decide the result, as Python does: a conditional
+    /// (`rhs if lhs else False`, `True if lhs else rhs`), never an eager
+    /// operator, so a call in `rhs` runs only when it is reached.
+    #[expect(clippy::too_many_arguments, reason = "one operation, its operands and its lowering position")]
+    fn short_circuit(
+        &mut self,
+        op: BinOp,
+        lhs: smelt_hir::ExprId,
+        rhs: smelt_hir::ExprId,
+        span: Span,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let bool_ty = self.intern_type(Type::Bool);
+        let decided = body.push_expr(HirExpr {
+            kind: ExprKind::Literal(Literal::Bool(op == BinOp::Or)),
+            ty: bool_ty,
+            span,
+        });
+        let (then_expr, else_expr) = if op == BinOp::Or { (decided, rhs) } else { (rhs, decided) };
+        body.push_expr(HirExpr {
+            kind: ExprKind::Conditional { cond: lhs, then_expr, else_expr },
+            ty: bool_ty,
+            span,
+        })
     }
 
     /// Lower `lhs or rhs` when Python returns one of the operands instead of a bool.
@@ -1404,18 +1481,32 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let span = self.span(c.range);
-        if c.ops.len() != 1 || c.comparators().len() != 1 {
-            return Err(SmeltError::unsupported(
-                span,
-                "chained comparisons (e.g. a < b < c) are not supported",
-            ));
+        // `a < b < c` is `a < b and b < c` with `b` evaluated once and `c`
+        // only when `a < b` holds: each comparison reads the operand the one
+        // before it lowered, and the conjunction short-circuits.
+        let mut lhs = self.expression(c.first_operand(), body)?;
+        let mut chained: Option<smelt_hir::ExprId> = None;
+        for (op, comparator) in c.ops.iter().zip(c.comparators()) {
+            let rhs = self.expression(comparator, body)?;
+            let comparison = self.compare_pair(*op, lhs, rhs, span, body)?;
+            chained = Some(chained.map_or(comparison, |previous| {
+                self.short_circuit(BinOp::And, previous, comparison, span, body)
+            }));
+            lhs = rhs;
         }
-        let [op] = c.ops.as_ref() else {
-            return Err(SmeltError::unsupported(
-                span,
-                "chained comparisons (e.g. a < b < c) are not supported",
-            ));
-        };
+        chained.ok_or_else(|| SmeltError::unsupported(span, "a comparison needs an operator"))
+    }
+
+    /// One comparison `lhs op rhs` of two lowered operands.
+    #[expect(clippy::too_many_arguments, reason = "one operation, its operands and its lowering position")]
+    fn compare_pair(
+        &mut self,
+        op: CmpOp,
+        lhs: smelt_hir::ExprId,
+        rhs: smelt_hir::ExprId,
+        span: Span,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
         let bin_op = match op {
             CmpOp::Eq => BinOp::Eq,
             CmpOp::NotEq => BinOp::NotEq,
@@ -1423,18 +1514,10 @@ impl ModuleBuilder<'_> {
             CmpOp::LtE => BinOp::Lte,
             CmpOp::Gt => BinOp::Gt,
             CmpOp::GtE => BinOp::Gte,
-            CmpOp::In | CmpOp::NotIn => return self.contains_compare(c, body, *op),
+            CmpOp::In | CmpOp::NotIn => return self.contains_compare(lhs, rhs, span, body, op),
             CmpOp::Is => BinOp::Eq,
             CmpOp::IsNot => BinOp::NotEq,
         };
-        let lhs = self.expression(c.first_operand(), body)?;
-        let [rhs_expr] = c.comparators() else {
-            return Err(SmeltError::unsupported(
-                span,
-                "chained comparisons (e.g. a < b < c) are not supported",
-            ));
-        };
-        let rhs = self.expression(rhs_expr, body)?;
         // Ordering two sets is Python's subset order: `a <= b` is
         // `a.issubset(b)`, `a < b` a proper subset, and `>=`/`>` the
         // superset forms.
@@ -1485,22 +1568,16 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower Python containment comparisons (`in` and `not in`) for strings,
-    /// lists, sets, tuples and dicts.
+    /// lists, sets, tuples and dicts, over two lowered operands.
+    #[expect(clippy::too_many_arguments, reason = "one operation, its operands and its lowering position")]
     fn contains_compare(
         &mut self,
-        c: &ruff_python_ast::ExprCompare,
+        needle: smelt_hir::ExprId,
+        haystack: smelt_hir::ExprId,
+        span: Span,
         body: &mut Body,
         op: CmpOp,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        let span = self.span(c.range);
-        let needle = self.expression(c.first_operand(), body)?;
-        let [haystack_expr] = c.comparators() else {
-            return Err(SmeltError::unsupported(
-                span,
-                "containment requires a single comparison target",
-            ));
-        };
-        let haystack = self.expression(haystack_expr, body)?;
         let needle_ty = Self::expr_ty(body, needle);
         let haystack_ty = Self::expr_ty(body, haystack);
         let bool_ty = self.intern_type(Type::Bool);

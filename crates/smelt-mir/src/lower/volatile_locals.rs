@@ -143,6 +143,7 @@ const fn runs_code_or_stores(kind: &ExprKind) -> bool {
             | ExprKind::ListExtend { .. }
             | ExprKind::ListInsert { .. }
             | ExprKind::ListPop { .. }
+            | ExprKind::PyListPopAt { .. }
             | ExprKind::ListPush { .. }
             | ExprKind::ListRemove { .. }
             | ExprKind::ListReverse { .. }

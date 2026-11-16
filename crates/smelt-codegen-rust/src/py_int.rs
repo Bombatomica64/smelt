@@ -52,13 +52,17 @@ pub(crate) const fn py_numeric_op_result(
         | PyNumericOp::Pow
         | PyNumericOp::PowMod
         | PyNumericOp::Shl
-        | PyNumericOp::Shr => Type::PyInt,
+        | PyNumericOp::Shr
+        | PyNumericOp::RoundToInt
+        | PyNumericOp::RoundInt => Type::PyInt,
         PyNumericOp::ToFloat
         | PyNumericOp::TrueDiv
         | PyNumericOp::PowFloat
         | PyNumericOp::FloatPow
-        | PyNumericOp::ParseFloat => Type::Float,
-        PyNumericOp::ToIndex | PyNumericOp::ToSize => Type::Int,
+        | PyNumericOp::ParseFloat
+        | PyNumericOp::RoundFloat => Type::Float,
+        PyNumericOp::ToIndex | PyNumericOp::ToSize | PyNumericOp::Ord => Type::Int,
+        PyNumericOp::Chr => Type::PyStr,
         PyNumericOp::Range => Type::List(py_int),
     }
 }

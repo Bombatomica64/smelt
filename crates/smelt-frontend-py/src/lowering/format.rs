@@ -327,4 +327,184 @@ impl ModuleBuilder<'_> {
     }
 
     // Dict/module call helpers continue in `map.rs`.
+
+    /// Lower the `str` methods whose rules the runtime's `py_str.rs` carries:
+    /// `title`, `capitalize`, `swapcase`, `zfill`, `center`/`ljust`/`rjust`,
+    /// `count`, `index`/`rindex`, `find`/`rfind` with bounds, `split`/`rsplit`
+    /// with no separator or with `maxsplit`, `replace` with a count, and
+    /// `strip`/`lstrip`/`rstrip` with a character set. `None` for any other
+    /// call, which the narrower string handlers try next.
+    fn py_str_method_call_expression(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        use smelt_hir::PyStrOp;
+        let Expr::Attribute(attr) = call.func.as_ref() else {
+            return Ok(None);
+        };
+        let method = attr.attr.as_str();
+        let positional = call.arguments.args.len();
+        let keyword = |name: &str| call.arguments.keywords.iter().find(|keyword| keyword.arg.as_ref().is_some_and(|arg| arg.as_str() == name));
+        let known_keywords: &[&str] = match method {
+            "split" | "rsplit" => &["sep", "maxsplit"],
+            "replace" => &["count"],
+            _ => &[],
+        };
+        if call
+            .arguments
+            .keywords
+            .iter()
+            .any(|given| given.arg.as_ref().is_none_or(|arg| !known_keywords.contains(&arg.as_str())))
+        {
+            return Ok(None);
+        }
+        // Which methods this handler owns, by arity; anything else stays with
+        // the narrower handlers (`find(sub)`, `split(sep)`, `strip()`, ...).
+        let owned = match method {
+            "title" | "capitalize" | "swapcase" => positional == 0,
+            "zfill" => positional == 1,
+            "center" | "ljust" | "rjust" => (1..=2).contains(&positional),
+            "count" | "index" | "rindex" => (1..=3).contains(&positional),
+            "find" | "rfind" => (2..=3).contains(&positional),
+            "split" | "rsplit" => positional <= 2,
+            "replace" => positional == 3 || keyword("count").is_some(),
+            "strip" | "lstrip" | "rstrip" => positional == 1,
+            _ => false,
+        };
+        if !owned {
+            return Ok(None);
+        }
+        // `re.split(...)` and other module functions spelled like a method.
+        if let Expr::Name(name) = attr.value.as_ref()
+            && self.qualified_import_path(name.id.as_str(), &[]).is_some()
+        {
+            return Ok(None);
+        }
+        let receiver = self.expression(&attr.value, body)?;
+        if !matches!(self.ctx.krate.types.get(Self::expr_ty(body, receiver)), Some(Type::PyStr)) {
+            return Ok(None);
+        }
+        let span = self.span(call.range());
+        let mut lowered = Vec::new();
+        for arg in call.arguments.args.iter() {
+            lowered.push(if matches!(arg, Expr::NoneLiteral(_)) { None } else { Some(self.expression(arg, body)?) });
+        }
+        let keyword_value = |this: &mut Self, name: &str, target: &mut Body| -> Result<Option<Option<smelt_hir::ExprId>>, SmeltError> {
+            match keyword(name) {
+                Some(found) if matches!(found.value, Expr::NoneLiteral(_)) => Ok(Some(None)),
+                Some(found) => Ok(Some(Some(this.expression(&found.value, target)?))),
+                None => Ok(None),
+            }
+        };
+        let int_ty = self.intern_type(Type::Int);
+        let machine = |value: i64, target: &mut Body| {
+            target.push_expr(HirExpr { kind: ExprKind::Literal(Literal::Int(value)), ty: int_ty, span })
+        };
+        let mut args = vec![receiver];
+        let op = match method {
+            "title" => PyStrOp::Title,
+            "capitalize" => PyStrOp::Capitalize,
+            "swapcase" => PyStrOp::SwapCase,
+            "zfill" | "center" | "ljust" | "rjust" => {
+                let width = lowered.first().copied().flatten().ok_or_else(|| SmeltError::unsupported(span, "the width must be an int"))?;
+                args.push(self.py_int_as_size(width, body));
+                if method != "zfill" {
+                    let fill = lowered.get(1).copied().flatten().unwrap_or_else(|| {
+                        let ty = self.intern_type(Type::PyStr);
+                        body.push_expr(HirExpr { kind: ExprKind::Literal(Literal::String(" ".to_owned())), ty, span })
+                    });
+                    args.push(fill);
+                }
+                match method {
+                    "zfill" => PyStrOp::ZFill,
+                    "center" => PyStrOp::Center,
+                    "ljust" => PyStrOp::LJust,
+                    _ => PyStrOp::RJust,
+                }
+            }
+            "count" | "index" | "rindex" | "find" | "rfind" => {
+                let sub = lowered.first().copied().flatten().ok_or_else(|| SmeltError::unsupported(span, "the substring must be a str"))?;
+                args.push(sub);
+                let start = match lowered.get(1).copied().flatten() {
+                    Some(start) => self.py_int_as_clamped_bound(start, body),
+                    None => machine(0, body),
+                };
+                let end = match lowered.get(2).copied().flatten() {
+                    Some(end) => self.py_int_as_clamped_bound(end, body),
+                    None => machine(i64::MAX, body),
+                };
+                args.extend([start, end]);
+                match method {
+                    "count" => PyStrOp::Count,
+                    "index" => PyStrOp::Index,
+                    "rindex" => PyStrOp::RIndex,
+                    "find" => PyStrOp::Find,
+                    _ => PyStrOp::RFind,
+                }
+            }
+            "split" | "rsplit" => {
+                let sep = keyword_value(self, "sep", body)?.unwrap_or_else(|| lowered.first().copied().flatten());
+                let maxsplit = match keyword_value(self, "maxsplit", body)? {
+                    Some(Some(maxsplit)) => self.py_int_as_clamped_bound(maxsplit, body),
+                    Some(None) | None => match lowered.get(1).copied().flatten() {
+                        Some(maxsplit) => self.py_int_as_clamped_bound(maxsplit, body),
+                        None => machine(-1, body),
+                    },
+                };
+                let reverse = method == "rsplit";
+                if let Some(separator) = sep {
+                    args.extend([separator, maxsplit]);
+                    if reverse { PyStrOp::RSplit } else { PyStrOp::Split }
+                } else {
+                    args.push(maxsplit);
+                    if reverse { PyStrOp::RSplitWhitespace } else { PyStrOp::SplitWhitespace }
+                }
+            }
+            "replace" => {
+                let (Some(old), Some(new)) = (lowered.first().copied().flatten(), lowered.get(1).copied().flatten()) else {
+                    return Err(SmeltError::unsupported(span, "str.replace() needs str arguments"));
+                };
+                let count = match keyword_value(self, "count", body)? {
+                    Some(Some(count)) => self.py_int_as_clamped_bound(count, body),
+                    Some(None) | None => match lowered.get(2).copied().flatten() {
+                        Some(count) => self.py_int_as_clamped_bound(count, body),
+                        None => machine(-1, body),
+                    },
+                };
+                args.extend([old, new, count]);
+                PyStrOp::Replace
+            }
+            "strip" | "lstrip" | "rstrip" => {
+                // `strip(None)` is `strip()`, which the narrower handler owns.
+                let Some(chars) = lowered.first().copied().flatten() else {
+                    return Ok(None);
+                };
+                args.push(chars);
+                match method {
+                    "strip" => PyStrOp::StripChars,
+                    "lstrip" => PyStrOp::LStripChars,
+                    _ => PyStrOp::RStripChars,
+                }
+            }
+            _ => return Ok(None),
+        };
+        // Text operands must be `str`; a non-`str` argument is the type
+        // checker's error, which never reaches here.
+        let answer = match op {
+            PyStrOp::Count | PyStrOp::Find | PyStrOp::RFind | PyStrOp::Index | PyStrOp::RIndex => None,
+            PyStrOp::Split | PyStrOp::RSplit | PyStrOp::SplitWhitespace | PyStrOp::RSplitWhitespace => {
+                let text = self.intern_type(Type::PyStr);
+                Some(self.intern_type(Type::List(text)))
+            }
+            _ => Some(self.intern_type(Type::PyStr)),
+        };
+        let kind = ExprKind::PyStrCall { op, args };
+        Ok(Some(match answer {
+            Some(ty) => body.push_expr(HirExpr { kind, ty, span }),
+            // A position or a count is a machine integer the runtime answers,
+            // seen as the Python `int` it is.
+            None => self.machine_int_as_py_int(kind, span, body),
+        }))
+    }
 }

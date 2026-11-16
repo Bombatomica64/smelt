@@ -24,7 +24,7 @@ pub use ops::{
     DictProjectionOp, ErasedPatternMethod, EventEmitterOp, FormDataOp, HashOp, HeadersOp,
     HostModuleOp, HttpServerOp, IncomingMessageOp, ListCallbackOp, ListProjectionOp, ListSearchOp,
     NumericExtremaOp, NumericFormatMethod, NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp,
-    PathOp, PrimitiveCastOp, PyNumericOp, PythonDivisionOp, RegexMatchOp, RegexReplaceArg,
+    PathOp, PrimitiveCastOp, PyNumericOp, PyStrOp, PythonDivisionOp, RegexMatchOp, RegexReplaceArg,
     RequestInitMember, RequestOp, ResponseOp, ServerResponseOp, SetBinaryOp, SetProjectionOp,
     SetRelationOp, SetRemoveOp, SqliteOp, StringAffixOp, StringCaseOp, StringNormalizeForm,
     StringPadOp, StringPredicateOp, StringReplaceOp, StringSearchOp, StringSliceKind,

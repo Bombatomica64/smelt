@@ -228,12 +228,7 @@ impl ModuleBuilder<'_> {
         let element_ty = *item_ty;
         let (key, reverse) =
             self.sort_keyword_arguments(&call.arguments.keywords, element_ty, body)?;
-        if key.is_none()
-            && !matches!(
-                self.ctx.krate.types.get(element_ty),
-                Some(Type::Bool | Type::PyInt | Type::Float | Type::PyStr)
-            )
-        {
+        if key.is_none() && !self.is_python_orderable(element_ty) {
             return Err(SmeltError::unsupported(
                 self.span(call.arguments.args[0].range()),
                 "sorted() argument must be a sortable list",
@@ -248,6 +243,17 @@ impl ModuleBuilder<'_> {
             ty: list_ty,
             span: self.span(call.range()),
         })))
+    }
+
+    /// Whether Python orders values of `ty` with `<` and Smelt sorts them: the
+    /// scalars, and tuples of orderable items, which compare lexicographically
+    /// (as Rust's tuples do).
+    pub(super) fn is_python_orderable(&self, ty: smelt_hir::TypeId) -> bool {
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::Bool | Type::PyInt | Type::Float | Type::PyStr) => true,
+            Some(Type::Tuple(items)) => !items.is_empty() && items.iter().all(|item| self.is_python_orderable(*item)),
+            _ => false,
+        }
     }
 
     /// Parse Python `key=` and `reverse=` sort keyword arguments.

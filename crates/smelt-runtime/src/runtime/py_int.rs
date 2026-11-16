@@ -524,6 +524,87 @@ impl SmeltPyInt {
     }
 }
 
+/// `round(x)` of a `float`: the nearest `int`, a tie going to the even one;
+/// `NaN` is a `ValueError` and an infinity an `OverflowError`.
+#[allow(dead_code)]
+fn smelt_py_round_float_to_int(value: f64) -> Result<SmeltPyInt, Box<dyn ::std::error::Error>> {
+    SmeltPyInt::from_f64(value.round_ties_even())
+}
+
+/// `round(x, ndigits)` of a `float`: the `float` nearest the exact decimal
+/// value of `x` rounded half-to-even at `ndigits` digits after the point
+/// (before it, when negative), as `CPython`'s correctly rounded `double_round`.
+/// `round(2.675, 2)` is `2.67` because the double below 2.675 is what `x` is.
+#[allow(dead_code)]
+fn smelt_py_round_float(value: f64, ndigits: i64) -> f64 {
+    if !value.is_finite() || value == 0.0 || ndigits > 330 {
+        return value;
+    }
+    if ndigits < -330 {
+        return 0.0_f64.copysign(value);
+    }
+    //~ Every finite double has an exact decimal expansion with at most 1074
+    //~ digits after the point, which `{:.1074}` writes in full.
+    let exact = format!("{:.1074}", value.abs());
+    let (whole, fraction) = exact.split_once('.').unwrap_or((exact.as_str(), ""));
+    let mut digits: Vec<u8> = whole.bytes().chain(fraction.bytes()).map(|byte| byte - b'0').collect();
+    let point = i64::try_from(whole.len()).unwrap_or(i64::MAX);
+    let keep = point.saturating_add(ndigits);
+    if keep < 0 {
+        return 0.0_f64.copysign(value);
+    }
+    let keep = usize::try_from(keep).unwrap_or(usize::MAX).min(digits.len());
+    let rest = &digits[keep..];
+    let round_up = match rest.first() {
+        Some(first) if *first > 5 => true,
+        Some(5) => rest[1..].iter().any(|digit| *digit != 0) || keep.checked_sub(1).and_then(|last| digits.get(last)).is_some_and(|last| last % 2 == 1),
+        _ => false,
+    };
+    digits.truncate(keep);
+    if round_up {
+        let mut at = digits.len();
+        loop {
+            if at == 0 {
+                digits.insert(0, 1);
+                break;
+            }
+            at -= 1;
+            if digits[at] == 9 {
+                digits[at] = 0;
+            } else {
+                digits[at] += 1;
+                break;
+            }
+        }
+    }
+    //~ The kept digits scale by the position of the last one; a carry into a
+    //~ new leading digit does not move it.
+    let text: String = digits.iter().map(|digit| char::from(b'0' + digit)).collect();
+    let exponent = point.saturating_sub(i64::try_from(keep).unwrap_or(i64::MAX));
+    let magnitude = format!("{}e{exponent}", if text.is_empty() { "0" } else { &text }).parse::<f64>().unwrap_or(0.0);
+    magnitude.copysign(value)
+}
+
+/// `round(n, ndigits)` of an `int`: unchanged for `ndigits >= 0`, otherwise
+/// rounded half-to-even to a multiple of `10**-ndigits`.
+#[allow(dead_code)]
+fn smelt_py_round_int(value: &SmeltPyInt, ndigits: i64) -> SmeltPyInt {
+    if ndigits >= 0 {
+        return value.clone();
+    }
+    let Ok(power) = u32::try_from(ndigits.unsigned_abs()) else {
+        return SmeltPyInt::Small(0);
+    };
+    let scale = SmeltPyInt::from_big(::num_traits::Pow::pow(::num_bigint::BigInt::from(10), power));
+    let (Ok(quotient), Ok(remainder)) = (value.floor_div(&scale), value.modulo(&scale)) else {
+        return value.clone();
+    };
+    let twice = &remainder + &remainder;
+    let round_up = twice > scale || (twice == scale && ::num_integer::Integer::is_odd(&quotient.to_big()));
+    let rounded = if round_up { &quotient + &SmeltPyInt::Small(1) } else { quotient };
+    &rounded * &scale
+}
+
 /// `float(text)` with `CPython`'s grammar: surrounding whitespace, a decimal
 /// or exponent literal with single `_` separators between digits, or a signed
 /// `inf`/`infinity`/`nan` in any case. Anything else is the `ValueError`

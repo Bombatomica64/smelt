@@ -252,9 +252,18 @@ parts: list[str] = word.split(",")
     let module = module(&ctx, module_id)?;
     let code = module_code(&ctx, module)?;
 
+    // `str.split(sep)` follows CPython's rules (`""` is a `ValueError`)
+    // through the `py_str` runtime, like every other `split` form.
     ensure(
-        code.exprs()
-            .any(|expr| matches!(expr.kind, ExprKind::StringSplit { .. })),
+        code.exprs().any(|expr| {
+            matches!(
+                expr.kind,
+                ExprKind::PyStrCall {
+                    op: smelt_hir::PyStrOp::Split,
+                    ..
+                }
+            )
+        }),
         "expected string split lowering",
     )?;
     Ok(())

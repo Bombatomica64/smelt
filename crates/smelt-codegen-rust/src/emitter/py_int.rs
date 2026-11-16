@@ -111,6 +111,16 @@ impl FunctionEmitter<'_> {
         op: smelt_hir::PyNumericOp,
         args: &[Operand],
     ) -> Result<RenderedCall, EmitError> {
+        Ok(RenderedCall::propagating(self.py_numeric_text(op, args)?))
+    }
+
+    /// The text of a Python numeric operation's runtime call: a `Result` for
+    /// one that can raise, the value for the others.
+    fn py_numeric_text(
+        &self,
+        op: smelt_hir::PyNumericOp,
+        args: &[Operand],
+    ) -> Result<RustExpr, EmitError> {
         use smelt_hir::PyNumericOp;
         let arg = |index: usize| {
             args.get(index)
@@ -155,6 +165,28 @@ impl FunctionEmitter<'_> {
             PyNumericOp::Shr => method("shr", 2)?,
             PyNumericOp::ToIndex => method("to_index", 1)?,
             PyNumericOp::ToSize => method("to_size", 1)?,
+            PyNumericOp::RoundToInt => RustExpr::chain(format!(
+                "smelt_py_round_float_to_int({})",
+                self.operand_expr(arg(0)?)?.delimited()
+            )),
+            PyNumericOp::RoundFloat => RustExpr::chain(format!(
+                "smelt_py_round_float({}, {})",
+                self.operand_expr(arg(0)?)?.delimited(),
+                self.operand_expr(arg(1)?)?.delimited()
+            )),
+            PyNumericOp::RoundInt => RustExpr::chain(format!(
+                "smelt_py_round_int({}, {})",
+                int(0)?.delimited(),
+                self.operand_expr(arg(1)?)?.delimited()
+            )),
+            PyNumericOp::Chr => RustExpr::chain(format!(
+                "smelt_py_chr({})",
+                self.operand_expr(arg(0)?)?.delimited()
+            )),
+            PyNumericOp::Ord => RustExpr::chain(format!(
+                "smelt_py_ord(&{})",
+                self.operand_borrow_expr(arg(0)?)?.tight()
+            )),
             PyNumericOp::ParseFloat => RustExpr::chain(format!(
                 "smelt_py_float_parse(&{})",
                 self.operand_expr(arg(0)?)?.tight()
@@ -171,7 +203,17 @@ impl FunctionEmitter<'_> {
                 self.operand_expr(arg(1)?)?.delimited()
             )),
         };
-        Ok(RenderedCall::propagating(text))
+        Ok(text)
+    }
+
+    /// The value of a Python numeric operation that cannot raise
+    /// (`PyNumericOp::can_raise` is false), on the assignment path.
+    pub(super) fn py_numeric_value_expr(
+        &self,
+        op: smelt_hir::PyNumericOp,
+        args: &[Operand],
+    ) -> Result<RustExpr, EmitError> {
+        self.py_numeric_text(op, args)
     }
 
     /// Renders a binary operation with a Python `int` operand, if this is one.
