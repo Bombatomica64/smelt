@@ -900,8 +900,11 @@ fn bounded_type_param_liftable(
         }
     };
     let name = type_param.name;
-    let is_bare = |ty: TypeId| matches!(mir.types.get(ty), Some(Type::TypeParam { name: found }) if *found == name);
-    let mut bare_positions = Vec::new();
+    // Every parameter `T` occurs in, with its type: bare (`a: A`) or inside a
+    // container the call site's argument binds it through (`xs: T[]`,
+    // `pair: [T, string]`, `byId: Record<string, T>`). A position the binding
+    // cannot read (a callback's parameter, a class argument) keeps `T` erased.
+    let mut bound_positions = Vec::new();
     for (index, param) in function.params.iter().enumerate() {
         let Some(ty) = id_index(param.0, "local index does not fit usize")
             .ok()
@@ -910,13 +913,15 @@ fn bounded_type_param_liftable(
         else {
             return false;
         };
-        if is_bare(ty) {
-            bare_positions.push(index);
-        } else if generic_bindings::type_param_occurs(mir, ty, name) {
+        if !generic_bindings::type_param_occurs(mir, ty, name) {
+            continue;
+        }
+        if !binds_through_containers(mir, ty, name) {
             return false;
         }
+        bound_positions.push((index, ty));
     }
-    if bare_positions.is_empty() {
+    if bound_positions.is_empty() {
         return false;
     }
     let mut seen = HashSet::new();
@@ -962,7 +967,7 @@ fn bounded_type_param_liftable(
             if *target != function.id {
                 continue;
             }
-            for &position in &bare_positions {
+            for &(position, param_ty) in &bound_positions {
                 let Some(Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) =
                     args.get(position)
                 else {
@@ -975,30 +980,105 @@ fn bounded_type_param_liftable(
                 else {
                     return false;
                 };
-                if implemented_by(arg_ty) {
-                    continue;
+                let mut bindings = Vec::new();
+                if !bind_type_param(mir, param_ty, arg_ty, name, &mut bindings) {
+                    return false;
                 }
-                let Some(Type::TypeParam { name: arg_param }) = mir.types.get(arg_ty) else {
-                    return false;
-                };
-                let forwarded_by_caller = caller.is_some_and(|calling| {
-                    (calling.id == function.id && *arg_param == name)
-                        || (matches!(calling.origin, smelt_mir::HirOrigin::Body(_))
-                            && calling.type_params.iter().any(|declared| {
-                                declared.name == *arg_param
-                                    && crate::bound_traits::constraint_bound(
-                                        mir,
-                                        declared.constraint,
-                                    ) == Some(bound)
-                            }))
-                });
-                if !forwarded_by_caller {
-                    return false;
+                for bound_ty in bindings {
+                    if implemented_by(bound_ty) {
+                        continue;
+                    }
+                    let Some(Type::TypeParam { name: arg_param }) = mir.types.get(bound_ty) else {
+                        return false;
+                    };
+                    let forwarded_by_caller = caller.is_some_and(|calling| {
+                        (calling.id == function.id && *arg_param == name)
+                            || (matches!(calling.origin, smelt_mir::HirOrigin::Body(_))
+                                && calling.type_params.iter().any(|declared| {
+                                    declared.name == *arg_param
+                                        && crate::bound_traits::constraint_bound(
+                                            mir,
+                                            declared.constraint,
+                                        ) == Some(bound)
+                                }))
+                    });
+                    if !forwarded_by_caller {
+                        return false;
+                    }
                 }
             }
         }
     }
     true
+}
+
+/// Whether every occurrence of type parameter `name` in `ty` sits where a call
+/// site's argument type binds it structurally: `ty` is `name` itself, or a
+/// list, set, optional, tuple or dict (in its value) built from such
+/// positions. See [`bind_type_param`].
+fn binds_through_containers(mir: &Mir, ty: TypeId, name: Symbol) -> bool {
+    if !generic_bindings::type_param_occurs(mir, ty, name) {
+        return true;
+    }
+    match mir.types.get(ty) {
+        Some(Type::TypeParam { name: found }) => *found == name,
+        Some(Type::List(item) | Type::Set(item) | Type::Optional(item)) => {
+            binds_through_containers(mir, *item, name)
+        }
+        Some(Type::Tuple(items)) => items
+            .iter()
+            .all(|item| binds_through_containers(mir, *item, name)),
+        Some(Type::Dict(key, value)) => {
+            !generic_bindings::type_param_occurs(mir, *key, name)
+                && binds_through_containers(mir, *value, name)
+        }
+        _ => false,
+    }
+}
+
+/// The types an argument of type `arg` binds type parameter `name` to, read
+/// by matching it against the parameter type `param` arm by arm (a `User[]`
+/// argument at `xs: T[]` binds `T` to `User`). `false` when the shapes do not
+/// line up, so the binding cannot be read and `T` stays erased.
+fn bind_type_param(
+    mir: &Mir,
+    param: TypeId,
+    arg: TypeId,
+    name: Symbol,
+    bindings: &mut Vec<TypeId>,
+) -> bool {
+    if !generic_bindings::type_param_occurs(mir, param, name) {
+        return true;
+    }
+    match (mir.types.get(param), mir.types.get(arg)) {
+        (Some(Type::TypeParam { name: found }), _) if *found == name => {
+            bindings.push(arg);
+            true
+        }
+        (Some(Type::List(param_item)), Some(Type::List(arg_item)))
+        | (Some(Type::Set(param_item)), Some(Type::Set(arg_item)))
+        | (Some(Type::Optional(param_item)), Some(Type::Optional(arg_item))) => {
+            bind_type_param(mir, *param_item, *arg_item, name, bindings)
+        }
+        // A present value handed to an optional parameter binds its inner type.
+        (Some(Type::Optional(param_item)), Some(_)) => {
+            bind_type_param(mir, *param_item, arg, name, bindings)
+        }
+        (Some(Type::Tuple(param_items)), Some(Type::Tuple(arg_items)))
+            if param_items.len() == arg_items.len() =>
+        {
+            param_items
+                .iter()
+                .zip(arg_items)
+                .all(|(param_item, arg_item)| {
+                    bind_type_param(mir, *param_item, *arg_item, name, bindings)
+                })
+        }
+        (Some(Type::Dict(_, param_value)), Some(Type::Dict(_, arg_value))) => {
+            bind_type_param(mir, *param_value, *arg_value, name, bindings)
+        }
+        _ => false,
+    }
 }
 
 /// One bounded type parameter and its planned trait, for
