@@ -118,6 +118,14 @@ pub struct Mir {
     /// [`smelt_hir::Crate::accessor_fields`].
     #[serde(default)]
     pub accessor_fields: Vec<(Symbol, Symbol)>,
+    /// The types inherited member copies are emitted at: a base class's method
+    /// or constructor re-emitted into a subclass with the base's type
+    /// parameters substituted by the subclass's arguments. No function holds
+    /// them, so they are listed here for every pass that walks the program's
+    /// type positions ([`Mir::visit_types`]): codegen declares the unions and
+    /// demands the runtime these copies spell from that walk.
+    #[serde(default)]
+    pub inherited_member_types: Vec<TypeId>,
     /// Function-item keys (HIR item indexes, as in
     /// [`MirClosure::function_item_key`]) of JavaScript constructors; see
     /// [`smelt_hir::Crate::constructible_functions`].
@@ -177,6 +185,7 @@ impl Mir {
             symbols,
             names,
             accessor_fields: Vec::new(),
+            inherited_member_types: Vec::new(),
             constructible_function_items: std::collections::BTreeSet::new(),
             index: crate::index::MirIndex::default(),
         }

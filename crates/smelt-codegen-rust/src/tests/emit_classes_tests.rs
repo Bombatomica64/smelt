@@ -751,13 +751,20 @@ const second = counter.value;
 ",
     );
 
+    // The getter-aware read is the erased runtime's (`property_access.rs`):
+    // it reads `__smelt_get` without removing it. Old requirement: this
+    // program's own text carried that runtime. It did only because every
+    // TypeScript program demanded the erased carrier; this one spells no erased
+    // type, so the rule is checked on the runtime the carrier brings.
+    assert!(source.contains("fn make_counter"), "{source}");
+    let runtime = runtime_prelude::rendered_text(&|_| true);
     assert!(
-        source.contains("match getter.get(\"__smelt_get\")"),
-        "{source}"
+        runtime.contains("match getter.get(\"__smelt_get\")"),
+        "{runtime}"
     );
     assert!(
-        !source.contains("getter.remove(\"__smelt_get\")"),
-        "{source}"
+        !runtime.contains("getter.remove(\"__smelt_get\")"),
+        "{runtime}"
     );
 }
 
@@ -1697,12 +1704,18 @@ console.log(store.total());
 
     // `Store` has a subclass, so it is a polymorphic handle
     // (`crate::class_polymorphism`); both stay reference classes.
+    //
+    // `Object.keys` of the record reads its keys unfiltered: the program holds
+    // no erased value, so no record carries Smelt's internal marker keys
+    // (`emitter::map`'s `records_may_hold_markers`). Old requirement: the
+    // marker filter. It was emitted because every TypeScript program demanded
+    // the erased carrier; the demand now follows the types a program spells.
     assert_eq!(
         rust_items(
             &source,
             &["struct Store(", "struct CountingStore(", "fn total"]
         ),
-        r#"struct Store(::std::rc::Rc<dyn StoreSmeltCell>);
+        r"struct Store(::std::rc::Rc<dyn StoreSmeltCell>);
 
 struct CountingStore(::std::rc::Rc<::std::cell::RefCell<CountingStoreInner>>);
 
@@ -1712,7 +1725,7 @@ let mut _smelt_tmp_5: usize;
 let mut _smelt_tmp_6: bool;
 let mut _smelt_tmp_7: SmeltRecord<JsString, f64>;
 let mut sum: f64 = 0.0;
-let _smelt_tmp_3: SmeltList<JsString> = Into::<SmeltList<_>>::into(self.0.borrow().entries.clone().keys().filter(|smelt_key| !smelt_key.starts_with("__smelt_symbol") && smelt_is_for_in_record_key(&self.0.borrow().entries.clone(), smelt_key)).collect::<Vec<_>>());
+let _smelt_tmp_3: SmeltList<JsString> = Into::<SmeltList<_>>::into(self.0.borrow().entries.clone().keys().collect::<Vec<_>>());
 let mut _smelt_tmp_4: usize = 0;
 loop {
 _smelt_tmp_5 = _smelt_tmp_3.len();
@@ -1724,7 +1737,7 @@ sum = sum + _smelt_tmp_7.get(&key.clone()).unwrap_or(0.0);
 _smelt_tmp_4 = _smelt_tmp_4 + 1;
 }
 return sum;
-}"#
+}"
     );
 }
 

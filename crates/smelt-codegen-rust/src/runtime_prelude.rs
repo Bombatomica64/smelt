@@ -281,6 +281,7 @@ fn need_of_flag(name: &str) -> Option<Need> {
         "date" => Need::Date,
         "math_round" => Need::MathRound,
         "parse_number" => Need::ParseNumber,
+        "string_to_number" => Need::StringToNumber,
         "js_string" => Need::JsString,
         "py_repr" => Need::PyRepr,
         "erased_pattern_call" => Need::ErasedPatternCall,

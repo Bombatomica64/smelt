@@ -71,6 +71,9 @@ fn smelt_inspect_escape(out: &mut String, ch: char, quote: char) {
     }
 }
 
+//~ The string entries are JavaScript strings (`JsString`), present only in a
+//~ program that holds one.
+// @smelt:if js_string
 /// `strEscape` over a JavaScript string: a lone surrogate shows as its
 /// `\uXXXX` escape in lowercase hex, as Node prints it.
 fn smelt_inspect_quote_js(value: &JsStr) -> String {
@@ -101,6 +104,7 @@ fn smelt_inspect_string(ctx: &SmeltInspectContext, value: &JsStr) -> String {
     }
     smelt_inspect_quote_js(value)
 }
+// @smelt:end
 
 /// A property key: bare when it is an identifier (`/^[a-zA-Z_][a-zA-Z_0-9]*$/`), quoted otherwise.
 fn smelt_inspect_key(key: &str) -> String {
@@ -320,6 +324,7 @@ impl SmeltInspect for bool {
     fn smelt_inspect(&self, _ctx: &mut SmeltInspectContext, _depth: usize) -> String { self.to_string() }
 }
 
+// @smelt:if js_string
 impl SmeltInspect for String {
     fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, _depth: usize) -> String { smelt_inspect_string(ctx, &JsString::from(self.as_str())) }
     fn smelt_console_text(&self) -> String { self.clone() }
@@ -329,6 +334,7 @@ impl SmeltInspect for JsString {
     fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, _depth: usize) -> String { smelt_inspect_string(ctx, self) }
     fn smelt_console_text(&self) -> String { self.to_string_lossy() }
 }
+// @smelt:end
 
 impl SmeltInspect for () {
     fn smelt_inspect(&self, _ctx: &mut SmeltInspectContext, _depth: usize) -> String { "null".to_owned() }

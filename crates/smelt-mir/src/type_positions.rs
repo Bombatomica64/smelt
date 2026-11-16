@@ -396,7 +396,8 @@ impl MirGlobal {
 
 impl Mir {
     /// Visit every type id in the program: every function, closure, class,
-    /// interface and global.
+    /// interface and global, and the types inherited member copies are
+    /// emitted at ([`Mir::inherited_member_types`]).
     pub fn visit_types(&self, visit: &mut dyn FnMut(TypeId)) {
         for function in &self.functions {
             function.visit_types(visit);
@@ -412,6 +413,9 @@ impl Mir {
         }
         for global in &self.globals {
             global.visit_types(visit);
+        }
+        for ty in &self.inherited_member_types {
+            visit(*ty);
         }
     }
 
@@ -429,6 +433,7 @@ impl Mir {
         let mut classes = std::mem::take(&mut self.classes);
         let mut interfaces = std::mem::take(&mut self.interfaces);
         let mut globals = std::mem::take(&mut self.globals);
+        let mut inherited_member_types = std::mem::take(&mut self.inherited_member_types);
         let types = &mut self.types;
         let mut map = |ty| map_in(types, ty);
         for function in &mut functions {
@@ -446,10 +451,14 @@ impl Mir {
         for global in &mut globals {
             global.map_types(&mut map);
         }
+        for ty in &mut inherited_member_types {
+            *ty = map(*ty);
+        }
         self.functions = functions;
         self.closures = closures;
         self.classes = classes;
         self.interfaces = interfaces;
         self.globals = globals;
+        self.inherited_member_types = inherited_member_types;
     }
 }

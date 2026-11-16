@@ -2149,6 +2149,11 @@ pub(crate) fn emit_union_definitions(
     let Some(function) = mir.functions.first() else {
         return Ok(String::new());
     };
+    // The enums are written against the erased carrier (see
+    // `reachable_types`): a program without it can spell no union.
+    if !context.demand().has(Need::Unknown) {
+        return Ok(String::new());
+    }
     let emitter = FunctionEmitter::new(mir, context, function)?;
     let mut output = String::new();
     for (index, _) in mir.types.all().iter().enumerate() {
