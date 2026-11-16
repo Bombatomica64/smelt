@@ -3884,7 +3884,7 @@ impl IntoSmeltUnknown for bool {
 
 impl IntoSmeltUnknown for f64 {
     fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Number(self)
+        if smelt_is_number_hole(self) { SmeltUnknown::Undefined } else { SmeltUnknown::Number(self) }
     }
 }
 
@@ -4934,7 +4934,7 @@ fn main() {
     numbers = Into::<SmeltList<_>>::into(_smelt_tmp_8);
     _smelt_tmp_9 = numbers.len() as f64;
     _smelt_tmp_10 = Into::<SmeltList<_>>::into(numbers.borrow().get({ let smelt_normalized = 2.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| SmeltList::new(Vec::<f64>::new())));
-    _smelt_tmp_11 = _smelt_tmp_10.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0) + 1.0;
+    _smelt_tmp_11 = _smelt_tmp_10.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| smelt_number_hole()) + 1.0;
     let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_9), smelt_console_number(_smelt_tmp_11)); };
     _smelt_tmp_13 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("a"), JsString::from("b"), JsString::from("c")]; smelt_list_items }));
     let _smelt_tmp_14: SmeltList<SmeltList<JsString>> = chunk(_smelt_tmp_13, 2.0);

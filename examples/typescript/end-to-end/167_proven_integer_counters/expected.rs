@@ -933,7 +933,7 @@ pub(crate) fn sum_pairs(xs: SmeltList<f64>) -> f64 {
     _smelt_tmp_5 = _smelt_tmp_3 < _smelt_tmp_4;
     if !(_smelt_tmp_5) { break; }
     _smelt_tmp_6 = i + 1;
-    _smelt_tmp_7 = xs.borrow().get(i).cloned().unwrap_or_else(|| 0.0) * xs.borrow().get(_smelt_tmp_6).cloned().unwrap_or_else(|| 0.0);
+    _smelt_tmp_7 = xs.borrow().get(i).cloned().unwrap_or_else(|| smelt_number_hole()) * xs.borrow().get(_smelt_tmp_6).cloned().unwrap_or_else(|| smelt_number_hole());
     total = total + _smelt_tmp_7;
     i = i + 1;
     }
@@ -981,7 +981,7 @@ pub(crate) fn step_two(xs: SmeltList<f64>) -> JsString {
     _smelt_tmp_13 = i as f64;
     _smelt_tmp_5 = JsString::new() + &JsString::from(smelt_number_to_string(_smelt_tmp_13));
     _smelt_tmp_6 = _smelt_tmp_5 + &JsString::from(":");
-    _smelt_tmp_7 = _smelt_tmp_6 + &JsString::from(smelt_number_to_string(xs.borrow().get(i).cloned().unwrap_or_else(|| 0.0)));
+    _smelt_tmp_7 = _smelt_tmp_6 + &JsString::from(smelt_number_to_string(xs.borrow().get(i).cloned().unwrap_or_else(|| smelt_number_hole())));
     _smelt_tmp_8 = _smelt_tmp_7 + &JsString::from(" ");
     out = out + &_smelt_tmp_8;
     i = i + 2;
@@ -1039,7 +1039,7 @@ pub(crate) fn grid(rows: SmeltList<SmeltList<f64>>) -> f64 {
     if !(_smelt_tmp_8) { break; }
     _smelt_tmp_9 = r + 1;
     _smelt_tmp_15 = _smelt_tmp_9 as f64;
-    _smelt_tmp_10 = row.borrow().get(c).cloned().unwrap_or_else(|| 0.0) * _smelt_tmp_15;
+    _smelt_tmp_10 = row.borrow().get(c).cloned().unwrap_or_else(|| smelt_number_hole()) * _smelt_tmp_15;
     _smelt_tmp_16 = c as f64;
     _smelt_tmp_11 = _smelt_tmp_10 + _smelt_tmp_16;
     acc = acc + _smelt_tmp_11;
@@ -1138,7 +1138,7 @@ pub(crate) fn from_start(start: f64, xs: SmeltList<f64>) -> f64 {
     _smelt_tmp_4 = xs.len() as f64;
     _smelt_tmp_5 = i < _smelt_tmp_4;
     if !(_smelt_tmp_5) { break; }
-    acc = acc + xs.borrow().get({ let smelt_normalized = i as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0);
+    acc = acc + xs.borrow().get({ let smelt_normalized = i as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| smelt_number_hole());
     i = i + 1.0;
     }
     _smelt_tmp_8 = acc + i;

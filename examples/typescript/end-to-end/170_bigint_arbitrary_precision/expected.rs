@@ -4005,7 +4005,7 @@ impl IntoSmeltUnknown for bool {
 
 impl IntoSmeltUnknown for f64 {
     fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Number(self)
+        if smelt_is_number_hole(self) { SmeltUnknown::Undefined } else { SmeltUnknown::Number(self) }
     }
 }
 
@@ -5381,7 +5381,7 @@ pub(crate) fn as_big_int(bytes: SmeltList<f64>) -> Result<::num_bigint::BigInt, 
     _smelt_tmp_4 = bytes.len();
     _smelt_tmp_5 = _smelt_tmp_3 < _smelt_tmp_4;
     if !(_smelt_tmp_5) { break; }
-    byte = bytes.borrow().get(_smelt_tmp_3).cloned().unwrap_or_else(|| 0.0);
+    byte = bytes.borrow().get(_smelt_tmp_3).cloned().unwrap_or_else(|| smelt_number_hole());
     let _smelt_tmp_6: ::num_bigint::BigInt = smelt_bigint_shl(&result, &::num_bigint::BigInt::from(8_i64))?;
     let _smelt_tmp_7: ::num_bigint::BigInt = smelt_bigint_from_number(byte)?;
     result = &_smelt_tmp_6 + &_smelt_tmp_7;

@@ -284,7 +284,7 @@ pub(crate) fn indexed_read(n: f64) -> f64 {
     let _smelt_tmp_7: f64 = i;
     i = _smelt_tmp_7 + 1.0;
     let _smelt_tmp_9: f64 = i;
-    let v: f64 = values.borrow().get({ let smelt_normalized = __smelt_update_tmp as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0) + values.borrow().get({ let smelt_normalized = _smelt_tmp_9 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0);
+    let v: f64 = values.borrow().get({ let smelt_normalized = __smelt_update_tmp as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| smelt_number_hole()) + values.borrow().get({ let smelt_normalized = _smelt_tmp_9 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| smelt_number_hole());
     let _smelt_tmp_11: f64 = v * 100.0;
     let _smelt_tmp_13: f64 = _smelt_tmp_11 + i;
     return _smelt_tmp_13;
@@ -296,8 +296,8 @@ pub(crate) fn later_element_read(n: f64) -> f64 {
     let _smelt_tmp_5: f64 = i;
     i = _smelt_tmp_5 + 1.0;
     let pair: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![__smelt_update_tmp, i]; smelt_list_items }));
-    let _smelt_tmp_9: f64 = pair.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0) * 100.0;
-    let _smelt_tmp_10: f64 = pair.borrow().get({ let smelt_normalized = 1.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0) * 10.0;
+    let _smelt_tmp_9: f64 = pair.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| smelt_number_hole()) * 100.0;
+    let _smelt_tmp_10: f64 = pair.borrow().get({ let smelt_normalized = 1.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| smelt_number_hole()) * 10.0;
     let _smelt_tmp_11: f64 = _smelt_tmp_9 + _smelt_tmp_10;
     let _smelt_tmp_13: f64 = _smelt_tmp_11 + i;
     return _smelt_tmp_13;

@@ -2088,6 +2088,50 @@ impl FunctionEmitter<'_> {
         ))))
     }
 
+    /// Equality of two JavaScript numbers that may hold the number hole.
+    ///
+    /// IEEE equality, except that two number holes (`smelt_number_hole`, the
+    /// `undefined` a missing element of a `number[]` reads as) are equal, as
+    /// `undefined === undefined` and `undefined == undefined` are. A hole is
+    /// one signalling-NaN bit pattern arithmetic never produces, so a computed
+    /// `NaN` still equals nothing, itself included. A constant is never a hole,
+    /// so a comparison with one keeps the plain `==` of the later rules.
+    fn number_hole_equality_expr(
+        &self,
+        op: smelt_hir::BinOp,
+        lhs: &Operand,
+        rhs: &Operand,
+    ) -> Result<Option<RustExpr>, EmitError> {
+        let lhs_ty = self.operand_ty(lhs)?;
+        let rhs_ty = self.operand_ty(rhs)?;
+        let negated = if matches!(op, smelt_hir::BinOp::Eq | smelt_hir::BinOp::JsStrictEq) {
+            false
+        } else if matches!(
+            op,
+            smelt_hir::BinOp::NotEq | smelt_hir::BinOp::JsStrictNotEq
+        ) {
+            true
+        } else {
+            return Ok(None);
+        };
+        if self.indexes_utf16()
+            && matches!(self.mir.types.get(lhs_ty), Some(Type::Float))
+            && matches!(self.mir.types.get(rhs_ty), Some(Type::Float))
+            && !matches!(lhs, Operand::Const(_))
+            && !matches!(rhs, Operand::Const(_))
+        {
+            let lhs_text = self.float_operand_expr(lhs)?;
+            let rhs_text = self.float_operand_expr(rhs)?;
+            return Ok(Some(RustExpr::atom(format!(
+                "{{ let smelt_lhs: f64 = {lhs_text}; let smelt_rhs: f64 = {rhs_text}; {not}(smelt_lhs == smelt_rhs || (smelt_is_number_hole(smelt_lhs) && smelt_is_number_hole(smelt_rhs))) }}",
+                not = if negated { "!" } else { "" },
+                lhs_text = lhs_text.delimited(),
+                rhs_text = rhs_text.delimited()
+            ))));
+        }
+        Ok(None)
+    }
+
     /// A binary operator, trying each operand-shaped rule before the plain Rust form.
     pub(super) fn binary_expr(
         &self,
@@ -2096,6 +2140,9 @@ impl FunctionEmitter<'_> {
         rhs: &Operand,
         dest_ty: TypeId,
     ) -> Result<RustExpr, EmitError> {
+        if let Some(text) = self.number_hole_equality_expr(op, lhs, rhs)? {
+            return Ok(text);
+        }
         if let Some(text) = self.js_dynamic_addition_expr(op, lhs, rhs, dest_ty)? {
             return Ok(text);
         }

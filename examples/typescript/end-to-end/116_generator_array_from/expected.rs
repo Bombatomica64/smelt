@@ -3910,7 +3910,7 @@ impl IntoSmeltUnknown for bool {
 
 impl IntoSmeltUnknown for f64 {
     fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Number(self)
+        if smelt_is_number_hole(self) { SmeltUnknown::Undefined } else { SmeltUnknown::Number(self) }
     }
 }
 
@@ -4477,7 +4477,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_5: SmeltList<f64> = _smelt_tmp_4.try_collect_yields().map(SmeltList::new)?;
     from_range = Into::<SmeltList<_>>::into(_smelt_tmp_5);
     _smelt_tmp_6 = from_range.len() as f64;
-    let _ = { println!("{} {} {}", smelt_console_number(_smelt_tmp_6), smelt_console_number(from_range.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0)), smelt_console_number(from_range.borrow().get({ let smelt_normalized = 4.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0))); };
+    let _ = { println!("{} {} {}", smelt_console_number(_smelt_tmp_6), smelt_console_number(from_range.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| smelt_number_hole())), smelt_console_number(from_range.borrow().get({ let smelt_normalized = 4.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| smelt_number_hole()))); };
     let _smelt_tmp_8: SmeltGenerator<f64, (), ()> = range(0.0, 10.0, Some(5.0));
     let _smelt_tmp_9: SmeltList<f64> = _smelt_tmp_8.try_collect_yields().map(SmeltList::new)?;
     spread_range = Into::<SmeltList<_>>::into(_smelt_tmp_9);
@@ -4492,7 +4492,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_17: SmeltList<f64> = _smelt_tmp_16.try_collect_yields().map(SmeltList::new)?;
     again = Into::<SmeltList<_>>::into(_smelt_tmp_17);
     _smelt_tmp_18 = again.len() as f64;
-    _smelt_tmp_19 = again.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0) + again.borrow().get({ let smelt_normalized = 1.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0);
+    _smelt_tmp_19 = again.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| smelt_number_hole()) + again.borrow().get({ let smelt_normalized = 1.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| smelt_number_hole());
     let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_18), smelt_console_number(_smelt_tmp_19)); };
     return Ok(());
 }

@@ -351,7 +351,8 @@ impl FunctionEmitter<'_> {
     /// `None` when the base is not a view, so the caller falls through to its
     /// own arms. The element is decoded at the view's width. This is the
     /// TOTAL read, for a destination typed `number`: a missing element answers
-    /// zero, as a `number[]`'s total read answers its missing value. A read
+    /// the number hole (`undefined` in a number slot), as a `number[]`'s total
+    /// read answers its missing value. A read
     /// whose destination can hold `undefined` (an optional or erased slot)
     /// takes `optional_element_read_expr` / `erased_element_read_expr`, which
     /// keep the miss.
@@ -373,8 +374,10 @@ impl FunctionEmitter<'_> {
                 index_text = index_text.delimited()
             ))));
         }
+        // A miss is `undefined`, the number hole at a `number` destination
+        // (see `element_missing_value`), not the element `0`.
         Ok(Some(base_text.postfix(format!(
-            ".get({index_text}).unwrap_or(0.0)",
+            ".get({index_text}).unwrap_or_else(smelt_number_hole)",
             index_text = index_text.delimited()
         ))))
     }

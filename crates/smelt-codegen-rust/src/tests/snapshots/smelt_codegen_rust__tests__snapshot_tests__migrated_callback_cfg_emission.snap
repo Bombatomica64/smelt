@@ -67,7 +67,7 @@ fn collect_indices(values: SmeltList<f64>) -> SmeltList<f64> {
     _smelt_tmp_7 = values.len();
     _smelt_tmp_8 = _smelt_tmp_6 < _smelt_tmp_7;
     if !(_smelt_tmp_8) { break; }
-    _value = values.borrow().get(_smelt_tmp_6).cloned().unwrap_or_else(|| 0.0);
+    _value = values.borrow().get(_smelt_tmp_6).cloned().unwrap_or_else(|| smelt_number_hole());
     index = __for_each_index;
     __for_each_index = __for_each_index + 1.0;
     _smelt_tmp_10 = { let smelt_push_item = index; indices.borrow_mut().push(smelt_push_item); indices.len() as f64 };

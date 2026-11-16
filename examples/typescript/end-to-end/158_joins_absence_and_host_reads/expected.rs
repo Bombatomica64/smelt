@@ -4073,7 +4073,7 @@ impl IntoSmeltUnknown for bool {
 
 impl IntoSmeltUnknown for f64 {
     fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Number(self)
+        if smelt_is_number_hole(self) { SmeltUnknown::Undefined } else { SmeltUnknown::Number(self) }
     }
 }
 
@@ -4957,10 +4957,13 @@ pub(crate) fn label_of(parts: SmeltList<JsString>, index: f64) -> JsString {
 }
 
 pub(crate) fn port_of(ports: SmeltList<f64>) -> f64 {
-    let mut _smelt_tmp_2: f64;
-    let _smelt_tmp_1: bool = ports.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0) != 0.0;
-    let _smelt_tmp_2: f64 = if _smelt_tmp_1 { ports.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0) } else { 80.0 };
-    return _smelt_tmp_2;
+    let mut _smelt_tmp_5: f64;
+    let _smelt_tmp_1: bool = ports.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| smelt_number_hole()) != 0.0;
+    let _smelt_tmp_2: bool = ports.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| smelt_number_hole()).is_nan();
+    let _smelt_tmp_3: bool = !(_smelt_tmp_2);
+    let _smelt_tmp_4: bool = _smelt_tmp_1 && _smelt_tmp_3;
+    let _smelt_tmp_5: f64 = if _smelt_tmp_4 { ports.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| smelt_number_hole()) } else { 80.0 };
+    return _smelt_tmp_5;
 }
 
 pub(crate) async fn response_facts() -> Result<(), Box<dyn std::error::Error>> {

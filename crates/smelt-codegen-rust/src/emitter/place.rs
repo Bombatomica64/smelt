@@ -720,6 +720,14 @@ impl FunctionEmitter<'_> {
         {
             return Ok(self.carrier_expr(self.carrier()?, &RustExpr::undefined()));
         }
+        // A JavaScript `number` slot JavaScript leaves empty is the number
+        // hole (`smelt_number_hole`): it reads as `undefined` (text, `console.log`,
+        // `=== undefined` through an erased view), is `NaN` in arithmetic as
+        // `undefined` is, and `null` in JSON. `0`, the type's default, read
+        // as a number that was never there (`[1, 2, 3][5]` printed `0`).
+        if self.indexes_utf16() && matches!(self.mir.types.get(item_ty), Some(Type::Float)) {
+            return Ok(RustExpr::chain("smelt_number_hole()"));
+        }
         self.default_value(item_ty)
     }
 

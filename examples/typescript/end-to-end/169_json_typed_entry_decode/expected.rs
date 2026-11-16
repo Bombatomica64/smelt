@@ -4239,7 +4239,7 @@ impl IntoSmeltUnknown for bool {
 
 impl IntoSmeltUnknown for f64 {
     fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Number(self)
+        if smelt_is_number_hole(self) { SmeltUnknown::Undefined } else { SmeltUnknown::Number(self) }
     }
 }
 
@@ -5922,7 +5922,7 @@ smelt_local.block_on(&smelt_runtime, async move {
     let _smelt_tmp_36: SmeltList<f64> = smelt_json_decode_9(&JsString::from("[3,1,2]"))?;
     counts = Into::<SmeltList<_>>::into(_smelt_tmp_36);
     _smelt_tmp_37 = counts.len() as f64;
-    let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_37), smelt_console_number(counts.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0))); };
+    let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_37), smelt_console_number(counts.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| smelt_number_hole()))); };
     let _smelt_tmp_39 = SmeltFuture::from_future_primed(Box::pin(read_bodies()));
     _smelt_tmp_40 = _smelt_tmp_39.await?;
     let _smelt_tmp_41: SmeltFuture<()> = SmeltFuture::from_future(Box::pin(async move { smelt_run_until_exit().await; Ok::<_, Box<dyn std::error::Error>>(()) }));

@@ -3873,7 +3873,7 @@ impl IntoSmeltUnknown for bool {
 
 impl IntoSmeltUnknown for f64 {
     fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Number(self)
+        if smelt_is_number_hole(self) { SmeltUnknown::Undefined } else { SmeltUnknown::Number(self) }
     }
 }
 
@@ -4650,7 +4650,7 @@ fn main() {
     _smelt_tmp_9 = values.len();
     _smelt_tmp_10 = _smelt_tmp_8 < _smelt_tmp_9;
     if !(_smelt_tmp_10) { break; }
-    value = values.borrow().get(_smelt_tmp_8).cloned().unwrap_or_else(|| 0.0);
+    value = values.borrow().get(_smelt_tmp_8).cloned().unwrap_or_else(|| smelt_number_hole());
     _smelt_tmp_11 = JsString::new() + &JsString::from(smelt_number_to_string(value));
     _smelt_tmp_12 = _smelt_tmp_11 + &JsString::from("|");
     _smelt_tmp_13 = JsString::from(smelt_number_to_string(value));

@@ -874,15 +874,10 @@ fn smelt_panic_class(panic: &(dyn ::std::any::Any + Send)) -> String { panic.dow
 /// JavaScript `String.prototype.localeCompare(other)` with no `locales` or
 /// `options` arguments, i.e. the host's default collation.
 fn smelt_locale_compare(left: &(impl SmeltHostText + ?Sized), right: &(impl SmeltHostText + ?Sized)) -> f64 { let left = left.host_text(); let left: &str = &left; let right = right.host_text(); let right: &str = &right;
-    let primary = left
-        .chars()
-        .flat_map(char::to_lowercase)
-        .cmp(right.chars().flat_map(char::to_lowercase));
-    let ordering = primary.then_with(|| {
-        left.chars()
-            .map(|ch| (ch.is_uppercase(), ch))
-            .cmp(right.chars().map(|ch| (ch.is_uppercase(), ch)))
-    });
+    thread_local! {
+        static SMELT_COLLATOR: Option<icu_collator::CollatorBorrowed<'static>> = icu_collator::Collator::try_new(icu_collator::CollatorPreferences::default(), icu_collator::options::CollatorOptions::default()).ok();
+    }
+    let ordering = SMELT_COLLATOR.with(|collator| collator.as_ref().map_or_else(|| left.cmp(right), |collator| collator.compare(left, right)));
     match ordering {
         ::std::cmp::Ordering::Less => -1.0,
         ::std::cmp::Ordering::Greater => 1.0,
@@ -3876,7 +3871,7 @@ impl IntoSmeltUnknown for bool {
 
 impl IntoSmeltUnknown for f64 {
     fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Number(self)
+        if smelt_is_number_hole(self) { SmeltUnknown::Undefined } else { SmeltUnknown::Number(self) }
     }
 }
 

@@ -3901,7 +3901,7 @@ impl IntoSmeltUnknown for bool {
 
 impl IntoSmeltUnknown for f64 {
     fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Number(self)
+        if smelt_is_number_hole(self) { SmeltUnknown::Undefined } else { SmeltUnknown::Number(self) }
     }
 }
 
@@ -4727,7 +4727,7 @@ pub(crate) fn param_index_map(path: JsString) -> SmeltRecord<JsString, f64> {
     let _smelt_tmp_7: (f64, SmeltList<(JsString, f64)>) = path_data.clone().expect("optional value was absent after narrowing");
     let _smelt_tmp_8: SmeltList<(JsString, f64)> = Into::<SmeltList<_>>::into(_smelt_tmp_7.clone().1.clone());
     let _smelt_tmp_9: f64 = _smelt_tmp_8.borrow().get({ let smelt_normalized = closure_arg_2 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| (JsString::new(), 0.0)).1.clone();
-    let _smelt_tmp_10: f64 = _smelt_tmp_6.borrow().get({ let smelt_normalized = _smelt_tmp_9 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0) * 10.0;
+    let _smelt_tmp_10: f64 = _smelt_tmp_6.borrow().get({ let smelt_normalized = _smelt_tmp_9 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| smelt_number_hole()) * 10.0;
     let _smelt_tmp_11: f64 = _smelt_tmp_10 + closure_arg_2 as f64;
     closure_arg_0.insert(key.clone(), _smelt_tmp_11);
     closure_arg_0.clone()

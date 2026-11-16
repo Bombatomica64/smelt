@@ -143,7 +143,7 @@ fn main() {
     _smelt_tmp_5 = xs.len();
     _smelt_tmp_6 = _smelt_tmp_4 < _smelt_tmp_5;
     if !(_smelt_tmp_6) { break; }
-    x = xs.borrow().get(_smelt_tmp_4).cloned().unwrap_or_else(|| 0.0);
+    x = xs.borrow().get(_smelt_tmp_4).cloned().unwrap_or_else(|| smelt_number_hole());
     sum = sum + x;
     _smelt_tmp_4 = _smelt_tmp_4 + 1;
     }

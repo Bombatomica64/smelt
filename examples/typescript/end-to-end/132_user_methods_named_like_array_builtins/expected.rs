@@ -970,7 +970,7 @@ impl Bag {
     _smelt_tmp_7 = _smelt_tmp_5.len();
     _smelt_tmp_8 = _smelt_tmp_6 < _smelt_tmp_7;
     if !(_smelt_tmp_8) { break; }
-    x = _smelt_tmp_5.borrow().get(_smelt_tmp_6).cloned().unwrap_or_else(|| 0.0);
+    x = _smelt_tmp_5.borrow().get(_smelt_tmp_6).cloned().unwrap_or_else(|| smelt_number_hole());
     _smelt_tmp_9 = cb(acc, x);
     acc = _smelt_tmp_9 + 1.0;
     _smelt_tmp_6 = _smelt_tmp_6 + 1;

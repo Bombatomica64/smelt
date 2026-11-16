@@ -3967,7 +3967,7 @@ impl IntoSmeltUnknown for bool {
 
 impl IntoSmeltUnknown for f64 {
     fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Number(self)
+        if smelt_is_number_hole(self) { SmeltUnknown::Undefined } else { SmeltUnknown::Number(self) }
     }
 }
 
@@ -4587,12 +4587,15 @@ pub(crate) fn defer(task: &dyn Fn() -> ()) -> () {
 
 pub(crate) fn later() -> SmeltFuture<Reply> {
     let _smelt_tmp_0 = ::std::rc::Rc::new(|closure_arg_0: ::std::rc::Rc<dyn Fn(Reply) -> ()>| {
-    let _smelt_tmp_1 = ::std::rc::Rc::new(move || {
+    let _smelt_tmp_1 = ::std::rc::Rc::new({
+    let closure_arg_0 = closure_arg_0.clone();
+    move || {
     let _smelt_tmp_2: ();
     let _smelt_tmp_1: Reply = Reply::new(JsString::from("late reply"));
     _smelt_tmp_2 = closure_arg_0(_smelt_tmp_1.clone());
     ()
-    });
+    }
+});
     let _smelt_tmp_2: () = defer(&*_smelt_tmp_1);
     ()
     });

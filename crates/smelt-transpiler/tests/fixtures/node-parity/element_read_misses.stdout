@@ -2,3 +2,5 @@ undefined undefined true true -1 -1 undefined
 undefined undefined 0 1
 undefined 0 undefined
 undefined 0n
+true true true
+true true false false false

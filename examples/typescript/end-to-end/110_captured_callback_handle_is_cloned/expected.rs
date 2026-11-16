@@ -772,6 +772,7 @@ pub(crate) fn wrap(call: ::std::rc::Rc<dyn Fn(JsString, ::std::rc::Rc<dyn Fn() -
     let _smelt_tmp_4 = ::std::rc::Rc::new({
     let call = call.clone();
     let closure_arg_0 = closure_arg_0.clone();
+    let closure_arg_1 = closure_arg_1.clone();
     move || {
     let _smelt_tmp_3: JsString = (call)(closure_arg_0.clone(), { let smelt_handle_callback = closure_arg_1.clone(); ::std::rc::Rc::new(move || (smelt_handle_callback)()) });
     _smelt_tmp_3.clone()

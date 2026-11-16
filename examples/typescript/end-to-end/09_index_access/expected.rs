@@ -1017,6 +1017,6 @@ impl<T: SmeltObjectKey + ?Sized> SmeltObjectKey for &T { fn with_js_key<R>(&self
 fn main() {
     let values: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![5.0, 8.0, 13.0]; smelt_list_items }));
     let names: SmeltRecord<JsString, JsString> = SmeltRecord::from([(JsString::from("first"), JsString::from("Ada")), (JsString::from("second"), JsString::from("Grace"))]);
-    let _ = { println!("{} {}", smelt_console_number(values.borrow().get({ let smelt_normalized = 1.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0)), names.get(&JsString::from("second").clone()).unwrap_or(JsString::new())); };
+    let _ = { println!("{} {}", smelt_console_number(values.borrow().get({ let smelt_normalized = 1.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| smelt_number_hole())), names.get(&JsString::from("second").clone()).unwrap_or(JsString::new())); };
     return;
 }

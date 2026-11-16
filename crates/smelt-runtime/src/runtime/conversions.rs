@@ -25,9 +25,12 @@ impl IntoSmeltUnknown for bool {
     }
 }
 
+//~ A number hole (`smelt_number_hole`, the `undefined` a missing element of a
+//~ `number[]` holds) erases as the `undefined` it stands for; every other
+//~ number, a computed `NaN` included, is a Number.
 impl IntoSmeltUnknown for f64 {
     fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Number(self)
+        if smelt_is_number_hole(self) { SmeltUnknown::Undefined } else { SmeltUnknown::Number(self) }
     }
 }
 

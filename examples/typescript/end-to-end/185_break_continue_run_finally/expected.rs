@@ -3851,7 +3851,7 @@ impl IntoSmeltUnknown for bool {
 
 impl IntoSmeltUnknown for f64 {
     fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Number(self)
+        if smelt_is_number_hole(self) { SmeltUnknown::Undefined } else { SmeltUnknown::Number(self) }
     }
 }
 
@@ -4479,7 +4479,7 @@ pub(crate) fn break_out_of_for_of() -> Result<(), Box<dyn std::error::Error>> {
     _smelt_tmp_3 = _smelt_tmp_1.len();
     _smelt_tmp_4 = _smelt_tmp_2 < _smelt_tmp_3;
     if !(_smelt_tmp_4) { break; }
-    x = _smelt_tmp_1.borrow().get(_smelt_tmp_2).cloned().unwrap_or_else(|| 0.0);
+    x = _smelt_tmp_1.borrow().get(_smelt_tmp_2).cloned().unwrap_or_else(|| smelt_number_hole());
     smelt_pending_thrown = SmeltUnknown::Undefined;
     _smelt_tmp_6 = false;
     _smelt_tmp_7 = x == 2.0;
@@ -4591,7 +4591,7 @@ pub(crate) fn nested_try() -> () {
     _smelt_tmp_3 = _smelt_tmp_1.len();
     _smelt_tmp_4 = _smelt_tmp_2 < _smelt_tmp_3;
     if !(_smelt_tmp_4) { break; }
-    x = _smelt_tmp_1.borrow().get(_smelt_tmp_2).cloned().unwrap_or_else(|| 0.0);
+    x = _smelt_tmp_1.borrow().get(_smelt_tmp_2).cloned().unwrap_or_else(|| smelt_number_hole());
     smelt_pending_thrown = SmeltUnknown::Undefined;
     _smelt_tmp_6 = false;
     smelt_pending_thrown_1 = SmeltUnknown::Undefined;
@@ -4712,7 +4712,7 @@ pub(crate) fn break_from_catch() -> Result<(), Box<dyn std::error::Error>> {
     _smelt_tmp_3 = _smelt_tmp_1.len();
     _smelt_tmp_4 = _smelt_tmp_2 < _smelt_tmp_3;
     if !(_smelt_tmp_4) { break; }
-    x = _smelt_tmp_1.borrow().get(_smelt_tmp_2).cloned().unwrap_or_else(|| 0.0);
+    x = _smelt_tmp_1.borrow().get(_smelt_tmp_2).cloned().unwrap_or_else(|| smelt_number_hole());
     smelt_pending_thrown = SmeltUnknown::Undefined;
     _smelt_tmp_6 = false;
     _smelt_tmp_7 = x == 1.0;
