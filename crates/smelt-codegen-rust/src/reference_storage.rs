@@ -321,7 +321,10 @@ pub(crate) fn emit_reference_record_storage(
             (impl_generics.clone(), impl_generics.clone())
         } else {
             (
-                derive_generics_text(&record_param_idents, classes::GENERATED_TYPE_PARAM_BOUNDS),
+                derive_generics_text(
+                    &record_param_idents,
+                    classes::generated_type_param_bounds(context.demand()),
+                ),
                 type_params.clone(),
             )
         };

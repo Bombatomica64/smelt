@@ -898,7 +898,7 @@ fn scan_value_flows(
                         _ => None,
                     }
                 }
-                _ => None,
+                Place::Field { .. } | Place::Index { .. } => None,
             };
             if let Some(source) = handed {
                 flow(source, slot);
@@ -982,7 +982,10 @@ fn scan_value_flows(
                             hand(operand, slot);
                         }
                     }
-                    _ => {}
+                    Statement::Assign { .. }
+                    | Statement::AssignPlace { .. }
+                    | Statement::DictEntryUpdate { .. }
+                    | Statement::StorageLive(_) => {}
                 }
             }
             match &block.terminator {

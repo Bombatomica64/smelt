@@ -14,7 +14,8 @@ use smelt_mir::{
 
 use crate::{EmitError, emitter::EmitContext, generic_bindings};
 
-/// The trait bounds every generated type parameter carries.
+/// The trait bounds every generated type parameter carries in a program with
+/// the erased carrier.
 ///
 /// ONE set, spelled once. A generated type parameter is reached through the
 /// crate's own erasure round trip (`IntoSmeltUnknown` / `SmeltFromUnknown`), is
@@ -27,8 +28,26 @@ use crate::{EmitError, emitter::EmitContext, generic_bindings};
 /// appended by the caller, not added here: `SmeltJsKeyEq` for a parameter used
 /// as a map key (see [`class_type_param_used_as_map_key`]) and the generated
 /// `F{n}: Fn(..) + ?Sized` callback bounds are both of that kind.
-pub(crate) const GENERATED_TYPE_PARAM_BOUNDS: &str =
+const GENERATED_TYPE_PARAM_BOUNDS: &str =
     "Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static";
+
+/// The same set in a program without the erased carrier: the erasure traits
+/// do not exist there, and no body converts a value to or from the carrier
+/// (`runtime_demand::GenericsCarrier::Speculative` checks the emitted text).
+const CARRIER_FREE_TYPE_PARAM_BOUNDS: &str = "Clone + Default + 'static";
+
+/// The bounds every generated type parameter of the program `demand` describes
+/// carries: [`GENERATED_TYPE_PARAM_BOUNDS`] with the carrier, else
+/// [`CARRIER_FREE_TYPE_PARAM_BOUNDS`].
+pub(crate) const fn generated_type_param_bounds(
+    demand: &crate::runtime_demand::RuntimeDemand,
+) -> &'static str {
+    if demand.has(crate::runtime_demand::Need::Unknown) {
+        GENERATED_TYPE_PARAM_BOUNDS
+    } else {
+        CARRIER_FREE_TYPE_PARAM_BOUNDS
+    }
+}
 
 /// Return the Rust storage type name of a MIR class, from the crate's name
 /// plan (see [`crate::names`]).
@@ -123,7 +142,7 @@ pub(crate) fn interface_impl_generics_text(
             // The same field-driven key bound a class carries
             // (`class_type_param_used_as_map_key`): an object-shaped record with
             // a `Record<P, V>` field stores a `SmeltJsMap<P, V>`.
-            let mut bound = format!("{ident}: {GENERATED_TYPE_PARAM_BOUNDS}");
+            let mut bound = format!("{ident}: {}", generated_type_param_bounds(context.demand()));
             if interface
                 .fields
                 .iter()
@@ -207,7 +226,7 @@ pub(crate) fn class_impl_generics_text(
     let params = type_param_idents(mir, &class.type_params, "class")?
         .into_iter()
         .map(|(name, ident)| {
-            let mut bound = format!("{ident}: {GENERATED_TYPE_PARAM_BOUNDS}");
+            let mut bound = format!("{ident}: {}", generated_type_param_bounds(context.demand()));
             if class_type_param_used_as_map_key(mir, class, name) {
                 bound.push_str(" + SmeltJsKeyEq");
             }

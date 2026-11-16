@@ -2581,6 +2581,10 @@ fn build_lifts_a_date_bounded_generic_to_date_like() -> TestResult {
     // prints `172800000 172800000 true 1970-01-03T00:00:00.000Z` and
     // `true false false`. Types: both functions declare `D: DateLike + ..` and
     // read the date through its handle, not through an erased member lookup.
+    // The program holds no erased value, so the bounds are the carrier-free set
+    // (`classes::generated_type_param_bounds`), not `+ IntoSmeltUnknown +
+    // SmeltFromUnknown`, which every generic item carried when any generic item
+    // demanded the carrier.
     let files: &[(&str, &str)] = &[(
         "src/main.ts",
         r"function addDays<D extends Date>(date: D, amount: number): D {
@@ -2604,12 +2608,12 @@ console.log(isValid(start), isValid(invalid), isValid(addDays(invalid, 1)))
     ensure_emitted_signature(
         &generated,
         "add_days",
-        "pub(crate) fn add_days<D: DateLike + Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(mut date: D, amount: f64) -> D {",
+        "pub(crate) fn add_days<D: DateLike + Clone + Default + 'static>(mut date: D, amount: f64) -> D {",
     )?;
     ensure_emitted_signature(
         &generated,
         "is_valid",
-        "pub(crate) fn is_valid<D: DateLike + Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(date: D) -> bool {",
+        "pub(crate) fn is_valid<D: DateLike + Clone + Default + 'static>(date: D) -> bool {",
     )?;
     ensure(
         generated.contains(".smelt_date().get_time()"),

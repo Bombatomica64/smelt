@@ -2204,7 +2204,7 @@ pub(crate) fn emit_union_definitions(
                         Ok(format!(
                             "{}: {}",
                             emitter.union_type_param_name(*param)?,
-                            crate::classes::GENERATED_TYPE_PARAM_BOUNDS
+                            crate::classes::generated_type_param_bounds(context.demand())
                         ))
                     })
                     .collect::<Result<Vec<_>, EmitError>>()?

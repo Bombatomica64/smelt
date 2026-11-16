@@ -1,4 +1,13 @@
 //! Generated Rust for generic functions and type parameters.
+//!
+//! A program here that holds no erased value bounds its type parameters
+//! `Clone + Default + 'static`: the erasure traits exist only with the erased
+//! carrier (`classes::generated_type_param_bounds`). These tests used to pin the
+//! full set (`+ IntoSmeltUnknown + SmeltFromUnknown`), which every generic item
+//! carried because the carrier was then demanded by any generic item at all;
+//! the carrier-free emission is checked against its own text
+//! (`crate_builder::emit_root`), so the shorter set cannot reach a body that
+//! converts a `T`.
 
 use super::*;
 
@@ -469,7 +478,7 @@ export function useDropStrings(): string[] {
             &source,
             &["sig drop_first", "fn use_drop", "fn use_drop_strings"]
         ),
-        r#"fn drop_first<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(mut arr: &mut SmeltList<T>) -> SmeltList<T>
+        r#"fn drop_first<T: Clone + Default + 'static>(mut arr: &mut SmeltList<T>) -> SmeltList<T>
 
 fn use_drop() -> SmeltList<f64> {
 let mut xs: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0, 3.0]; smelt_list_items }));
@@ -510,7 +519,7 @@ export function useTake(): number {
 
     assert_eq!(
         rust_items(&source, &["sig take_held", "fn use_take"]),
-        r"fn take_held<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(mut arr: &mut SmeltList<T>) -> Holder<T>
+        r"fn take_held<T: Clone + Default + 'static>(mut arr: &mut SmeltList<T>) -> Holder<T>
 
 fn use_take() -> f64 {
 let held: Holder<f64>;
@@ -798,7 +807,10 @@ export function hold<T>(trunk: Trunk<T>): Trunk<T> {
             "expected a spelled-out `{spelled}` impl: {source}"
         );
     }
-    assert!(source.contains("impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Default for Trunk<T>"), "a generic value class takes the generated bound set on `Default`: {source}");
+    assert!(
+        source.contains("impl<T: Clone + Default + 'static> Default for Trunk<T>"),
+        "a generic value class takes the generated bound set on `Default`: {source}"
+    );
 }
 
 #[test]
@@ -814,7 +826,7 @@ export function repeat<T>(x: T, n: number): T { return n > 0 ? repeat(x, n - 1) 
 
     assert_eq!(
         rust_items(&source, &["fn repeat"]),
-        r"fn repeat<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(x: T, n: f64) -> T {
+        r"fn repeat<T: Clone + Default + 'static>(x: T, n: f64) -> T {
 let mut _smelt_tmp_3: T;
 let _smelt_tmp_4: f64;
 let _smelt_tmp_2: bool = n > 0.0;

@@ -102,9 +102,9 @@ calls get a concrete Rust type, a real Rust generic, or an erased type
 <!-- results:typedness:begin -->
 | Corpus (baseline file) | Kind | Concrete | Generic | Erased | Erased share |
 | --- | --- | ---: | ---: | ---: | ---: |
-| examples, 180 programs ([`typedness-baseline.json`](blocker-logs/typedness-baseline.json)) | values | 8822 | 193 | 56 | 0.6% |
-|  | reads | 977 | 50 | 20 | 1.9% |
-|  | calls | 2477 | 16 | 2 | 0.1% |
+| examples, 179 programs ([`typedness-baseline.json`](blocker-logs/typedness-baseline.json)) | values | 8694 | 193 | 56 | 0.6% |
+|  | reads | 939 | 50 | 20 | 2.0% |
+|  | calls | 2444 | 16 | 2 | 0.1% |
 | es-toolkit, 744 programs ([`typedness-baseline-es-toolkit.json`](blocker-logs/typedness-baseline-es-toolkit.json)) | values | 14243 | 355 | 7041 | 32.5% |
 |  | reads | 367 | 51 | 978 | 70.1% |
 |  | calls | 2194 | 63 | 1179 | 34.3% |
@@ -129,8 +129,8 @@ narrowing guards) or avoidable erasure (everything else). Methodology:
 <!-- results:unknown:begin -->
 | Corpus (baseline file) | Files | Runtime prelude | Legitimate boundary | Avoidable erasure | Gate |
 | --- | ---: | ---: | ---: | ---: | --- |
-| examples ([`smelt-unknown-baseline.json`](blocker-logs/smelt-unknown-baseline.json)) | 168 | 132775 | 6951 | 0 | blocking, must stay 0 |
-| es-toolkit ([`smelt-unknown-baseline-es-toolkit.json`](blocker-logs/smelt-unknown-baseline-es-toolkit.json)) | 744 | 2461 | 34363 | 12730 | blocking, may only fall |
+| examples ([`smelt-unknown-baseline.json`](blocker-logs/smelt-unknown-baseline.json)) | 177 | 132058 | 6990 | 0 | blocking, must stay 0 |
+| es-toolkit ([`smelt-unknown-baseline-es-toolkit.json`](blocker-logs/smelt-unknown-baseline-es-toolkit.json)) | 744 | 2457 | 34363 | 12730 | blocking, may only fall |
 | remeda ([`smelt-unknown-baseline-remeda.json`](blocker-logs/smelt-unknown-baseline-remeda.json)) | 391 | 1506 | 62265 | 20086 | advisory |
 | hono ([`smelt-unknown-baseline-hono.json`](blocker-logs/smelt-unknown-baseline-hono.json)) | 78 | 7445 | 78054 | 10078 | advisory |
 <!-- results:unknown:end -->
@@ -361,28 +361,29 @@ the library gates run on it.
 
 | Metric | Coverage |
 | --- | ---: |
-| Functions | 79.88% |
-| Lines | 82.46% |
+| Functions | 79.76% |
+| Lines | 82.50% |
 | Regions | 75.55% |
-| Branches | 70.36% |
+| Branches | 70.43% |
 
 ### Per Crate
 
 | Crate | Functions | Lines | Branches |
 | --- | ---: | ---: | ---: |
-| `smelt-codegen-rust` | 91.15% | 85.85% | 73.34% |
+| `smelt-codegen-rust` | 91.13% | 85.93% | 73.41% |
 | `smelt-frontend-py` | 87.21% | 80.62% | 72.41% |
-| `smelt-frontend-ts` | 90.61% | 84.20% | 72.88% |
-| `smelt-hir` | 86.09% | 79.96% | 70.83% |
-| `smelt-mir` | 92.88% | 91.99% | 78.35% |
+| `smelt-frontend-ts` | 90.66% | 84.30% | 73.01% |
+| `smelt-hir` | 86.09% | 79.98% | 71.01% |
+| `smelt-mir` | 92.88% | 92.06% | 78.39% |
 | `smelt-py-types` | 84.62% | 92.86% | 68.97% |
-| `smelt-runtime` | 34.33% | 39.93% | 36.56% |
+| `smelt-runtime` | 34.02% | 39.55% | 36.61% |
 | `smelt-specialize` | 70.67% | 79.36% | 62.41% |
 | `smelt-stdlib` | 88.11% | 85.55% | 93.90% |
 | `smelt-transpiler` | 82.95% | 82.22% | 71.44% |
 | `smelt-ts-model` | 91.67% | 93.27% | 50.00% |
 | `smelt-ts-types` | 86.05% | 90.62% | 84.72% |
 <!-- COVERAGE:END -->
+
 
 
 

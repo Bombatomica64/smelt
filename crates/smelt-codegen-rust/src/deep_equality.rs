@@ -238,7 +238,7 @@ impl DeepEquality {
                         .and_then(|index| locals.get(index))
                         .map(|decl| decl.ty)
                 }
-                _ => None,
+                Operand::Copy(_) | Operand::Move(_) | Operand::Const(_) => None,
             };
             for statement in blocks.iter().flat_map(|block| &block.statements) {
                 let Statement::Assign {
