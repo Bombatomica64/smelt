@@ -472,6 +472,42 @@ const REQUIRES: &[(Need, &[Need])] = &[
     ),
 ];
 
+/// Whether a program's generic items demand the erased carrier by themselves.
+///
+/// A generated type parameter is bounded by the erasure traits
+/// (`IntoSmeltUnknown + SmeltFromUnknown`) so its bodies can convert a `T` at a
+/// dynamic boundary. Most generic code never does, and in a program with no
+/// other erased value those bounds were the only reason the whole carrier was
+/// emitted. Whether a body converts a `T` is decided by the emitter (a demoted
+/// generic trial, an erased call boundary, a `console.log` of a `T`), not by a
+/// MIR scan, so the carrier-free answer is SPECULATIVE: `crate_builder::emit_root`
+/// emits the program without the carrier, checks that the result names no part
+/// of it, and otherwise emits it again under [`Self::Always`]. The fallback is
+/// the old demand exactly, so a speculation that fails costs one more emission
+/// and never a different program.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum GenericsCarrier {
+    /// Every generic item demands the carrier.
+    Always,
+    /// Generic items demand nothing by themselves; the emitted text is checked.
+    Speculative,
+}
+
+/// Whether the program declares a generic class, interface or function.
+pub(crate) fn has_generic_items(mir: &Mir) -> bool {
+    mir.classes
+        .iter()
+        .any(|class| !class.type_params.is_empty())
+        || mir
+            .interfaces
+            .iter()
+            .any(|interface| !interface.type_params.is_empty())
+        || mir
+            .functions
+            .iter()
+            .any(|function| !function.type_params.is_empty())
+}
+
 /// Proof that the closed demand holds a need: only [`RuntimeDemand::require`]
 /// constructs one, so a runtime use that takes it cannot be written for a
 /// family the program does not carry.
@@ -501,13 +537,23 @@ pub(crate) struct RuntimeDemand {
 impl RuntimeDemand {
     /// Scans `mir` once and closes what it found over the `requires` graph.
     #[must_use]
+    #[cfg(test)]
     pub(crate) fn of(
         mir: &Mir,
         reference_classes: &std::collections::HashSet<smelt_hir::Symbol>,
     ) -> Self {
+        Self::of_with(mir, reference_classes, GenericsCarrier::Always)
+    }
+
+    /// [`Self::of`], with the carrier demanded for generic items by `generics`.
+    pub(crate) fn of_with(
+        mir: &Mir,
+        reference_classes: &std::collections::HashSet<smelt_hir::Symbol>,
+        generics: GenericsCarrier,
+    ) -> Self {
         let mut demand = Self::default();
         let reachable = ReachableTypes::of(mir);
-        demand.scan_declarations(mir);
+        demand.scan_declarations(mir, generics);
         demand.scan_types(mir, &reachable);
         for function in &mir.functions {
             demand.scan_body_in(
@@ -782,7 +828,7 @@ impl RuntimeDemand {
     }
 
     /// Records what the shape of the program's declarations demands.
-    fn scan_declarations(&mut self, mir: &Mir) {
+    fn scan_declarations(&mut self, mir: &Mir, generics: GenericsCarrier) {
         if !mir.accessor_fields.is_empty() {
             self.add(Need::Accessors);
         }
@@ -793,24 +839,14 @@ impl RuntimeDemand {
             self.add(Need::ClassValue);
             self.add(Need::InstanceOfValue);
         }
-        // A generic class, interface or function emits `IntoSmeltUnknown +
-        // SmeltFromUnknown` bounds on its type parameters, so the erasure traits
-        // must exist even with no erased value in the program.
-        if mir
-            .classes
-            .iter()
-            .any(|class| !class.type_params.is_empty())
-            || mir
-                .interfaces
-                .iter()
-                .any(|interface| !interface.type_params.is_empty())
-        {
+        // A generic item emits `IntoSmeltUnknown + SmeltFromUnknown` bounds on
+        // its type parameters in a program with the carrier
+        // (`classes::generated_type_param_bounds`). Whether its generics alone
+        // demand the carrier is the caller's policy: see `GenericsCarrier`.
+        if generics == GenericsCarrier::Always && has_generic_items(mir) {
             self.add(Need::Unknown);
         }
         for function in &mir.functions {
-            if !function.type_params.is_empty() {
-                self.add(Need::Unknown);
-            }
             if function.language == smelt_hir::Language::Python {
                 self.add(Need::PythonNumberFormat);
                 // A container `print` may show is drawn by Python's `repr`.

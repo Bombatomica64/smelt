@@ -148,6 +148,7 @@ impl FunctionEmitter<'_> {
                 &self.context.bound_traits,
                 self.context.type_param_elision(),
                 &self.context.erased_arguments,
+                crate::classes::generated_type_param_bounds(self.context.demand()),
             )?;
             parts.extend(self.callback_generic_bounds_text()?);
             if parts.is_empty() {
@@ -702,6 +703,7 @@ impl FunctionEmitter<'_> {
             &self.context.bound_traits,
             self.context.type_param_elision(),
             &self.context.erased_arguments,
+            crate::classes::generated_type_param_bounds(self.context.demand()),
         )?;
         parts.extend(self.callback_generic_bounds_text()?);
         Ok(if parts.is_empty() {
@@ -731,6 +733,7 @@ impl FunctionEmitter<'_> {
             &self.context.bound_traits,
             self.context.type_param_elision(),
             &self.context.erased_arguments,
+            crate::classes::generated_type_param_bounds(self.context.demand()),
         )?
         .into_iter()
         .map(|_| "SmeltUnknown".to_owned())

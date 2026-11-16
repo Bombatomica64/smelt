@@ -1,4 +1,13 @@
 //! Generated Rust for closures and callbacks.
+//!
+//! A program here that holds no erased value bounds its type parameters
+//! `Clone + Default + 'static`: the erasure traits exist only with the erased
+//! carrier (`classes::generated_type_param_bounds`). These tests used to pin the
+//! full set (`+ IntoSmeltUnknown + SmeltFromUnknown`), which every generic item
+//! carried because the carrier was then demanded by any generic item at all;
+//! the carrier-free emission is checked against its own text
+//! (`crate_builder::emit_root`), so the shorter set cannot reach a body that
+//! converts a `T`.
 
 use super::*;
 
@@ -73,8 +82,7 @@ function read(localize: Localize<string>): string {
     );
 
     assert!(
-        source
-            .contains("impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Default for Localize<T>"),
+        source.contains("impl<T: Clone + Default + 'static> Default for Localize<T>"),
         "{source}"
     );
     assert!(
@@ -86,8 +94,7 @@ function read(localize: Localize<string>): string {
         "{source}"
     );
     assert!(
-        source
-            .contains("impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> ::std::fmt::Debug for Localize<T>"),
+        source.contains("impl<T: Clone + Default + 'static> ::std::fmt::Debug for Localize<T>"),
         "{source}"
     );
 }
