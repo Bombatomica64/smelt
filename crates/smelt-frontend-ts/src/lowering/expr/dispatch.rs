@@ -46,9 +46,30 @@ impl ModuleBuilder<'_> {
         let lowered = self.with_erasure_anchor(anchor, |this| {
             this.expression_shape_with_hint(expression, body, type_hint)
         })?;
+        let lowered =
+            self.kept_map_literal_at_record(oxc::span::GetSpan::span(expression), lowered, body);
         // A read of a Bun `int32` slot is a `number` to every consumer.
         let lowered = self.int32_read_as_number(lowered, body);
         Ok(self.in_own_language_view(lowered, body))
+    }
+
+    /// `lowered`, the value spelled at `span`, as the binding's own record
+    /// when it is a kept-dictionary literal landing in a record slot
+    /// (`kept_map_literal_record`); `lowered` itself otherwise.
+    pub(in crate::lowering) fn kept_map_literal_at_record(
+        &self,
+        span: oxc::span::Span,
+        lowered: smelt_hir::ExprId,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let Some(&record) = self.literal_adoptions.get(&(span.start, span.end)) else {
+            return lowered;
+        };
+        body.push_expr(Expr {
+            kind: ExprKind::TypeAssert { value: lowered },
+            ty: record,
+            span: self.span(span.start, span.end),
+        })
     }
 
     /// A value whose type carries Python text (it comes from a Python module:

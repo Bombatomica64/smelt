@@ -380,7 +380,10 @@ impl ModuleBuilder<'_> {
             return Ok(folded);
         }
         match self.static_member_with_absent_fallback(member, body, true, true, false) {
-            Ok(read) => Ok(self.erase_prototype_method_receiver(read, body)),
+            Ok(read) => {
+                let read = self.checker_narrowed_member_read(member.span, read, body);
+                Ok(self.erase_prototype_method_receiver(read, body))
+            }
             Err(error) => self.detached_prototype_method(member, body)?.ok_or(error),
         }
     }

@@ -11,17 +11,25 @@ fn area (FuncId(0)) -> Float
     %3 temp: Float
     %4 temp: Float
     %5 temp: Float
+    %6 temp: Float
+    %7 temp: Float
+    %8 temp: Float
+    %9 temp: Float
   bb0:
     %1 = copy %0.field15 == "circle"
     switch move %1 ? bb1 : bb2
   bb1:
-    %2 = 3.141592653589793 * copy %0.field16
-    %3 = move %2 * copy %0.field16
-    %4 = numeric_round move %3
-    return move %4
+    %2 = copy %0.field16
+    %3 = 3.141592653589793 * move %2
+    %4 = copy %0.field16
+    %5 = move %3 * move %4
+    %6 = numeric_round move %5
+    return move %6
   bb2:
-    %5 = copy %0.field17 * copy %0.field17
-    return move %5
+    %7 = copy %0.field17
+    %8 = copy %0.field17
+    %9 = move %7 * move %8
+    return move %9
 
 fn count_nodes (FuncId(1)) -> Float
   locals

@@ -53,6 +53,16 @@ impl<T> ::std::ops::DerefMut for SmeltFieldWrite<'_, T> { fn deref_mut(&mut self
 impl<T> Drop for SmeltFieldWrite<'_, T> { fn drop(&mut self) { if let Self::Converted(value, write_back) = self && let (Some(value), Some(write_back)) = (value.take(), write_back.take()) { write_back(value); } } }
 // @smelt:item-end
 
+// @smelt:item smelt_view_store when converted_views & unknown
+/// Store a value written through a view at a wider type than the object's
+/// field has (`{ n: number }` seen as `{ n: number | string }`, written a
+/// string): the field keeps its declared type, and the value is converted to
+/// it through the erased carrier's checked extraction, as a write through a
+/// widened class handle converts.
+#[allow(dead_code)]
+fn smelt_view_store<T: SmeltFromUnknown>(value: SmeltUnknown) -> T { T::smelt_from_unknown(value) }
+// @smelt:item-end
+
 // @smelt:item smelt_widened_view_storage when widened_views
 /// An access a placeholder for an object seen at other type arguments cannot
 /// answer: a callable slot over the class's parameters that takes its

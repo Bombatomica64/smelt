@@ -209,7 +209,7 @@ mod typed_array;
 pub(crate) use type_facts::{dict_key_uses_smelt_record, dict_renders_as_index_map};
 mod typeof_str_locals;
 mod types;
-mod union;
+pub(crate) mod union;
 /// Property writes through an erased view of a reference-class instance.
 pub(crate) mod view_write_through;
 mod virtual_slots;

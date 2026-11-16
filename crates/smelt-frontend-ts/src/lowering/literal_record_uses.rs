@@ -31,10 +31,15 @@
 //! (`smelt-codegen-rust/src/structural_views.rs`). And a literal whose
 //! declared slots name a record type declaring exactly its properties
 //! (optional ones after them allowed) takes that type and is not converted
-//! there at all (`checker_literal_binding_type`). What still copies is a
-//! record type that does neither (a property at a wider type, a class): a
-//! literal landing there keeps the map, which the record built from it
-//! adopts (`SmeltRecord::smelt_adopt_typed`), so the two stay one object.
+//! there at all (`checker_literal_binding_type`). A literal whose values
+//! share one type, landing in record types it does not match exactly, is
+//! built as its own record, which they all view. A record type that does
+//! neither (a class, a property at a type the view cannot convert) keeps the
+//! map, which the record built from it adopts
+//! (`SmeltRecord::smelt_adopt_typed`), so the two stay one object. A literal
+//! kept as a map for a key-set use goes to every record slot as its own
+//! record (`ModuleBuilder::kept_map_literal_record`), so one record adopts it
+//! and the slots view that record.
 //!
 //! # The rule
 //!
@@ -253,6 +258,9 @@ pub(in crate::lowering) enum LiteralDecision {
 pub(in crate::lowering) struct LiteralRecordUses {
     /// Bindings declared from a literal that holds an object literal.
     decisions: HashMap<u32, LiteralDecision>,
+    /// The record slots of the bindings that keep their dictionary for a
+    /// key-set use ([`Self::kept_map_slots`]).
+    kept_map_slots: HashMap<u32, Vec<(SlotUse, (u32, u32))>>,
 }
 
 impl LiteralRecordUses {
@@ -266,9 +274,11 @@ impl LiteralRecordUses {
             nodes: semantic.nodes(),
             scoping: semantic.scoping(),
             arguments: RefCell::new(Vec::new()),
+            values: RefCell::new(Vec::new()),
             ignored: ignored_disqualifiers(),
         };
         let mut decisions = HashMap::new();
+        let mut kept_map_slots = HashMap::new();
         for node in analysis.nodes.iter() {
             let AstKind::VariableDeclarator(declarator) = node.kind() else {
                 continue;
@@ -282,13 +292,45 @@ impl LiteralRecordUses {
                 continue;
             }
             analysis.arguments.borrow_mut().clear();
+            analysis.values.borrow_mut().clear();
             let decision = match analysis.decide(node.id(), binding.symbol_id.get(), init) {
-                Ok(()) => LiteralDecision::Struct(analysis.arguments.take()),
-                Err(disqualifier) => LiteralDecision::Map(disqualifier),
+                Ok(()) => {
+                    analysis.values.borrow_mut().clear();
+                    LiteralDecision::Struct(analysis.arguments.take())
+                }
+                Err(disqualifier) => {
+                    // A binding that stays a dictionary only because its key
+                    // set is observed still lands in record slots; those
+                    // uses are kept so each can go through the literal's own
+                    // record (`ModuleBuilder::kept_map_literal_record`).
+                    let slots = analysis.arguments.take();
+                    let values = analysis.values.take();
+                    if disqualifier == Disqualifier::Keys && !slots.is_empty() {
+                        kept_map_slots
+                            .insert(binding.span.start, slots.into_iter().zip(values).collect());
+                    }
+                    LiteralDecision::Map(disqualifier)
+                }
             };
             decisions.insert(binding.span.start, decision);
         }
-        Self { decisions }
+        Self {
+            decisions,
+            kept_map_slots,
+        }
+    }
+
+    /// The declared slots, each with the span of the value that lands in it,
+    /// of the binding identifier starting at `binding_start` when it keeps
+    /// its dictionary only because its key set is observed
+    /// ([`Disqualifier::Keys`]); empty otherwise.
+    pub(in crate::lowering) fn kept_map_slots(
+        &self,
+        binding_start: u32,
+    ) -> &[(SlotUse, (u32, u32))] {
+        self.kept_map_slots
+            .get(&binding_start)
+            .map_or(&[], Vec::as_slice)
     }
 
     /// The decision for the binding identifier starting at `binding_start`;
@@ -460,6 +502,9 @@ struct Analysis<'model, 'ast> {
     scoping: &'model Scoping,
     /// The declared slots the binding being decided lands in.
     arguments: RefCell<Vec<SlotUse>>,
+    /// The span of the value at each of `arguments`, in the same order: the
+    /// flow as it is spelled where it lands in the slot.
+    values: RefCell<Vec<(u32, u32)>>,
     /// Disqualifiers switched off for a measurement
     /// ([`ignored_disqualifiers`]); empty in every ordinary build.
     ignored: Vec<Disqualifier>,
@@ -508,6 +553,10 @@ impl<'ast> Analysis<'_, 'ast> {
         if !visiting.insert(symbol) {
             return Ok(());
         }
+        // A key-set use keeps the dictionary, but the other uses are still
+        // classified: any other disqualifier wins, and the record slots they
+        // land in are what a kept dictionary is shared through.
+        let mut keys = false;
         for reference in self.scoping.get_resolved_references(symbol) {
             if reference.is_write() {
                 // Reassigned: the binding would hold a converted value.
@@ -521,8 +570,12 @@ impl<'ast> Analysis<'_, 'ast> {
                 // Measurement only: the use is admitted as if it kept the
                 // value typed ([`ignored_disqualifiers`]).
                 Err(disqualifier) if self.ignored.contains(&disqualifier) => {}
+                Err(Disqualifier::Keys) => keys = true,
                 other => other?,
             }
+        }
+        if keys {
+            return Err(Disqualifier::Keys);
         }
         Ok(())
     }
@@ -576,11 +629,14 @@ impl<'ast> Analysis<'_, 'ast> {
                 if declarator.type_annotation.is_some() {
                     // The annotated alias holds the value at its declared
                     // type, which the checker judges (`SlotUse::Annotated`).
-                    self.slot(SlotUse::Annotated {
-                        start: alias.span.start,
-                        end: alias.span.end,
-                        element: false,
-                    });
+                    self.slot(
+                        SlotUse::Annotated {
+                            start: alias.span.start,
+                            end: alias.span.end,
+                            element: false,
+                        },
+                        span,
+                    );
                     return Ok(());
                 }
                 let alias = alias.symbol_id.get().ok_or(Disqualifier::Other)?;
@@ -641,10 +697,13 @@ impl<'ast> Analysis<'_, 'ast> {
                 ) {
                     return Err(Disqualifier::Other);
                 }
-                self.slot(SlotUse::Asserted {
-                    start: assertion.span.start,
-                    end: assertion.span.end,
-                });
+                self.slot(
+                    SlotUse::Asserted {
+                        start: assertion.span.start,
+                        end: assertion.span.end,
+                    },
+                    span,
+                );
                 Ok(())
             }
             AstKind::TSSatisfiesExpression(assertion) if assertion.expression.span() == span => {
@@ -661,18 +720,21 @@ impl<'ast> Analysis<'_, 'ast> {
                 let (start, end) = self
                     .returning_function(parent)
                     .ok_or(Disqualifier::Escape)?;
-                self.slot(SlotUse::Returned { start, end });
+                self.slot(SlotUse::Returned { start, end }, span);
                 Ok(())
             }
             AstKind::ArrayExpression(_) => {
                 let (start, end) = self
                     .annotated_array_binding(parent)
                     .ok_or(Disqualifier::Escape)?;
-                self.slot(SlotUse::Annotated {
-                    start,
-                    end,
-                    element: true,
-                });
+                self.slot(
+                    SlotUse::Annotated {
+                        start,
+                        end,
+                        element: true,
+                    },
+                    span,
+                );
                 Ok(())
             }
             AstKind::ThrowStatement(_)
@@ -776,19 +838,24 @@ impl<'ast> Analysis<'_, 'ast> {
     /// Record that the flow being classified, spelled at `value`, is argument
     /// `index` of the call (or `new`) whose callee spans `callee`.
     fn passed(&self, callee: Span, index: usize, construct: bool, value: Span) {
-        self.slot(SlotUse::Argument(ArgumentUse {
-            callee_start: callee.start,
-            callee_end: callee.end,
-            index,
-            construct,
-            value_start: value.start,
-            value_end: value.end,
-        }));
+        self.slot(
+            SlotUse::Argument(ArgumentUse {
+                callee_start: callee.start,
+                callee_end: callee.end,
+                index,
+                construct,
+                value_start: value.start,
+                value_end: value.end,
+            }),
+            value,
+        );
     }
 
-    /// Record that the flow being classified lands in the declared `slot`.
-    fn slot(&self, slot: SlotUse) {
+    /// Record that the flow being classified, spelled at `value`, lands in
+    /// the declared `slot`.
+    fn slot(&self, slot: SlotUse, value: Span) {
         self.arguments.borrow_mut().push(slot);
+        self.values.borrow_mut().push((value.start, value.end));
     }
 
     /// The name of the function a `return` at `statement` returns from, when
