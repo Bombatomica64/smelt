@@ -530,6 +530,36 @@ fn nullish_unknown_read_is_a_boundary() {
     assert_eq!(classify_line(by_hand, false), Category::AvoidableErasure);
 }
 
+/// A widened class's conversion between two of its instantiations is a
+/// boundary; the same erasure written for a program value is not.
+///
+/// Regression for `smelt_codegen_rust::WIDENED_VIEW_MARKERS`: a
+/// `Parser<number>` read as a `Parser<unknown>` keeps its `ParserInner<f64>`
+/// record, and the view converts a field typed by `V` through the erased
+/// carrier, because no concrete type, generated union or scoped generic can
+/// name the field at the arguments the object was built with
+/// (`upcast_view_cli_tests`).
+#[test]
+fn widened_view_conversion_is_a_boundary() {
+    for line in [
+        "    fn smelt_extract_field_items(smelt_value: SmeltUnknown) -> SmeltList<V> { SmeltFromUnknown::smelt_from_unknown(smelt_value) }",
+        "    fn smelt_erase_field_last(smelt_value: &Option<V>) -> SmeltUnknown { smelt_value.clone().map_or(SmeltUnknown::Null, |smelt_value| (smelt_value).into_smelt_unknown()) }",
+        "trait ParserSmeltView<V: 'static> { fn smelt_identity(&self) -> *const (); fn smelt_root(&self) -> ::std::rc::Rc<dyn ::std::any::Any>; fn smelt_erase(&self) -> SmeltUnknown; }",
+        "    fn smelt_may_view() -> bool { let smelt_self = ::std::any::TypeId::of::<Self>(); let _ = smelt_self; smelt_self == ::std::any::TypeId::of::<Parser<SmeltUnknown>>() }",
+    ] {
+        // These items sit after the prelude marker (program code by
+        // provenance), so only a boundary marker keeps them out of the
+        // avoidable count.
+        assert_eq!(
+            classify_program_line(line),
+            Category::LegitimateBoundary,
+            "a widened view conversion adds no erasure: {line}"
+        );
+    }
+    let by_hand = "    fn extract_items(smelt_value: SmeltUnknown) -> SmeltList<V> { SmeltFromUnknown::smelt_from_unknown(smelt_value) }";
+    assert_eq!(classify_program_line(by_hand), Category::AvoidableErasure);
+}
+
 /// An erased generic array handed to another erased slot is a boundary
 /// adapter; the general list conversion and a source `unknown[]` wrap are
 /// not.

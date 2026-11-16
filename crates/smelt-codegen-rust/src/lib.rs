@@ -78,6 +78,7 @@ pub(crate) mod bound_traits;
 pub(crate) mod class_identity;
 pub(crate) mod class_polymorphism;
 pub(crate) mod class_proto;
+pub(crate) mod class_widening;
 pub(crate) mod classes;
 pub(crate) mod classify;
 mod console_inspect_prelude;
@@ -116,6 +117,7 @@ mod typed_array_prelude;
 pub use contract::{
     MODULE_SOURCE_HEADER, NULLISH_UNKNOWN_OR_UNDEFINED_FN, OPTIONAL_UNKNOWN_OR_UNDEFINED_FN,
     PRELUDE_END_MARKER, RECORD_ADAPTER_HELPER_PREFIX, RECORD_CONVERSION_HELPER_PREFIX,
+    WIDENED_VIEW_MARKERS,
 };
 pub use crate_builder::{emit_source, emit_source_with_allocator};
 pub use crate_writer::{emit_crate, emit_crate_with_modules, emit_crate_with_modules_reporting};

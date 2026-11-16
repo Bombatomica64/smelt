@@ -54,17 +54,90 @@ impl FunctionEmitter<'_> {
             return Ok(None);
         }
         let constructor = self.handle_constructor_path(target)?;
-        let cell = if self.context.is_polymorphic_class(from) {
-            let target_type = self.type_rust_name(to)?;
-            format!(
-                "{}.0.clone().{}()",
-                value.tight(),
-                crate::class_polymorphism::upcast_method_name(&target_type)
-            )
+        let cell = self.upcast_cell_text(value, source, from, to)?;
+        Ok(Some(RustExpr::atom(format!("{constructor}({cell})"))))
+    }
+
+    /// The `Rc` of `value` (of class type `source`, class `from`) as a cell of
+    /// its polymorphic ancestor `to`: the same `Rc` unsized, or re-viewed
+    /// through a polymorphic source's upcast method. A widened source that
+    /// may be a placeholder (`crate::class_widening`) is upcast through its
+    /// view, which upcasts the object it stands for.
+    fn upcast_cell_text(
+        &self,
+        value: &RustExpr,
+        source: TypeId,
+        from: Symbol,
+        to: Symbol,
+    ) -> Result<String, EmitError> {
+        let target_type = self.type_rust_name(to)?;
+        let method = crate::class_polymorphism::upcast_method_name(&target_type);
+        let direct = if self.context.is_polymorphic_class(from) {
+            format!("{}.0.clone().{method}()", value.tight())
         } else {
             format!("{}.0.clone()", value.tight())
         };
-        Ok(Some(RustExpr::atom(format!("{constructor}({cell})"))))
+        Ok(
+            if crate::class_widening::handle_may_be_view(self.mir, self.context, source) {
+                format!(
+                    "match {}.smelt_view() {{ Some(smelt_view) => smelt_view.{method}(), None => {direct} }}",
+                    value.tight()
+                )
+            } else {
+                direct
+            },
+        )
+    }
+
+    /// `value` (of class type `source`) as the widened class type `target`
+    /// at other type arguments (`crate::class_widening`): the same object,
+    /// first viewed as `target`'s class at the arguments it has
+    /// (an upcast of a subclass), then retargeted, which hands out the same
+    /// cell when it is at `target`'s arguments and a converting view of it
+    /// otherwise. `None` when `target` is not widened or the arguments do not
+    /// change.
+    pub(super) fn widened_retarget_expr(
+        &self,
+        value: &RustExpr,
+        source: TypeId,
+        target: TypeId,
+    ) -> Result<Option<RustExpr>, EmitError> {
+        let (Some(Type::Class { name: from, .. }), Some(Type::Class { name: to, .. })) =
+            (self.mir.types.get(source), self.mir.types.get(target))
+        else {
+            return Ok(None);
+        };
+        let (source_text, target_text) = (
+            self.rendered_type(source)?.as_str().to_owned(),
+            self.rendered_type(target)?.as_str().to_owned(),
+        );
+        // An argument left to inference (`Node<_>` from `new Node()`) is the
+        // target's own: the handle is taken as it is.
+        if !self.context.is_widened_class(*to)
+            || crate::class_widening::renders_placeholder(&source_text)
+            || crate::class_widening::renders_placeholder(&target_text)
+            || (from == to && source_text == target_text)
+            || (from != to && self.upcast_keeps_type_arguments(source, target))
+        {
+            return Ok(None);
+        }
+        let constructor = self.handle_constructor_path(target)?;
+        let to_type = self.type_rust_name(*to)?;
+        let kept = if from == to {
+            value.cloned_value().into_string()
+        } else if polymorphic_ancestors(self.mir, self.context.polymorphic_classes(), *from)
+            .contains(to)
+        {
+            format!(
+                "{to_type}({})",
+                self.upcast_cell_text(value, source, *from, *to)?
+            )
+        } else {
+            return Ok(None);
+        };
+        Ok(Some(RustExpr::atom(format!(
+            "{constructor}::smelt_retarget({kept})"
+        ))))
     }
 
     /// Whether viewing `source` (a class type) as its ancestor `target` keeps
@@ -237,7 +310,7 @@ use crate::class_polymorphism::implementing_method;
 
 impl FunctionEmitter<'_> {
     /// The class whose `impl` this method emitter renders into.
-    fn method_impl_owner(&self) -> Option<Symbol> {
+    pub(super) fn method_impl_owner(&self) -> Option<Symbol> {
         self.role
             .inherited_impl_owner()
             .or(match self.function.origin {
