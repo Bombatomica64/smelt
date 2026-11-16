@@ -316,3 +316,24 @@ fn unmapped_python_imports_are_named_once() -> TestResult {
         format!("uses of a module variable whose initializer failed do not cascade:\n{typed_variable}"),
     )
 }
+
+/// A statement that fails only because it uses a definition whose own
+/// lowering failed (a function, at module level or inside another function)
+/// is not reported a second time.
+#[test]
+fn failed_definitions_do_not_cascade() -> TestResult {
+    let in_function = rejected_python_build(
+        "def gen(n: int) -> int:\n    yield n\n    return n\n\n\ndef main() -> None:\n    print(gen(1))\n\n\nmain()\n",
+    )?;
+    ensure(
+        in_function
+            .lines()
+            .filter(|line| line.contains("error["))
+            .count()
+            == 1,
+        format!(
+            "a call of a failed function inside another function is not a second diagnostic:\n{in_function}"
+        ),
+    )?;
+    Ok(())
+}

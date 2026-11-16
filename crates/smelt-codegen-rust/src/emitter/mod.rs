@@ -174,6 +174,7 @@ mod post_dominance;
 mod primitive_cast;
 mod py_exception;
 mod py_int;
+mod py_str;
 pub(crate) mod py_text_protocol;
 mod receiver_bound_slot;
 mod record_slot_abi;

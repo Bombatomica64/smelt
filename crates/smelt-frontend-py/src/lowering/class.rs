@@ -815,9 +815,22 @@ impl ModuleBuilder<'_> {
                     ),
                 ));
             }
-            let init_id = self.synthesize_dataclass_init(class_sym, class_ty, fields, span)?;
+            let init_id = self.synthesize_dataclass_init(class, class_sym, class_ty, fields, span)?;
             constructor_id = Some(init_id);
             hir_module.items.push(init_id);
+            // The decorator also generates `__repr__` unless the class has one.
+            let has_repr = self
+                .class_methods
+                .get(class_name_str)
+                .is_some_and(|methods| methods.contains_key("__repr__"));
+            if !has_repr && let Some(repr_id) = self.synthesize_dataclass_repr(class_sym, class_ty, fields, span)? {
+                method_ids.push(repr_id);
+                hir_module.items.push(repr_id);
+                self.class_methods
+                    .entry(class_name_str.to_owned())
+                    .or_default()
+                    .insert("__repr__".to_owned(), repr_id);
+            }
         } else if constructor_id.is_none() {
             // Python inherits `__init__` when a subclass does not declare one.
             // Preserve that signature and initialization under Smelt's flattened

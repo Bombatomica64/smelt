@@ -468,10 +468,12 @@ impl ModuleBuilder<'_> {
                     "async comprehensions are not supported",
                 ));
             }
-            if !matches!(&generator.target, Expr::Name(_)) {
+            // A name or a (nested) tuple/list target binds as a `for`
+            // statement's target does (`for k, v in d.items()`).
+            if !matches!(&generator.target, Expr::Name(_) | Expr::Tuple(_) | Expr::List(_)) {
                 return Err(SmeltError::unsupported(
                     self.span(generator.target.range()),
-                    "comprehension targets must be a single name (destructuring is not supported)",
+                    "comprehension targets must be a name or a tuple of names",
                 ));
             }
             let raw_iter = self.expression(&generator.iter, body)?;

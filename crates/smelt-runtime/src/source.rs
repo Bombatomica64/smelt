@@ -275,6 +275,14 @@ const MODULES: &[RuntimeModule] = &[
         source: include_str!("runtime/py_int.rs"),
     },
     RuntimeModule {
+        name: "py_format",
+        source: include_str!("runtime/py_format.rs"),
+    },
+    RuntimeModule {
+        name: "py_str",
+        source: include_str!("runtime/py_str.rs"),
+    },
+    RuntimeModule {
         name: "py_repr",
         source: include_str!("runtime/py_repr.rs"),
     },

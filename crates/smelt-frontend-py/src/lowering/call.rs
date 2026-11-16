@@ -55,6 +55,11 @@ impl ModuleBuilder<'_> {
         if let Some(error) = self.unmapped_import_use(call.func.as_ref(), span) {
             return Err(error);
         }
+        if let Expr::Name(name) = call.func.as_ref()
+            && self.failed_definitions.contains(name.id.as_str())
+        {
+            return Err(SmeltError::cascade(span, name.id.as_str()));
+        }
         if let Some(expr) = self.callable_expression_call(call, body)? {
             return Ok(expr);
         }
@@ -185,6 +190,9 @@ impl ModuleBuilder<'_> {
         call: &ruff_python_ast::ExprCall,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        if let Some(expr) = self.py_str_method_call_expression(call, body)? {
+            return Ok(Some(expr));
+        }
         if let Some(expr) = self.string_case_call_expression(call, body)? {
             return Ok(Some(expr));
         }
@@ -367,6 +375,9 @@ impl ModuleBuilder<'_> {
             }
             if name.id.as_str() == "abs" {
                 return self.numeric_abs_call_expression(call, body).map(Some);
+            }
+            if let Some(expr) = self.numeric_builtin_call_expression(name.id.as_str(), call, body, span)? {
+                return Ok(Some(expr));
             }
             if matches!(name.id.as_str(), "max" | "min") {
                 return self.numeric_extrema_call_expression(call, body).map(Some);

@@ -87,7 +87,7 @@ pub use expr::{
     HeadersOp, HostModuleOp, HttpServerOp, IncomingMessageOp, ListCallbackOp, ListProjectionOp,
     ListSearchOp, ListSpliceItem, Literal, NumericExtremaOp, NumericFormatMethod,
     NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp, PathOp, PrimitiveCastOp,
-    PropertyLookup, PyNumericOp, PythonDivisionOp, RegexMatchOp, RegexReplaceArg,
+    PropertyLookup, PyNumericOp, PyStrOp, PythonDivisionOp, RegexMatchOp, RegexReplaceArg,
     RequestInitMember, RequestOp, ResponseOp, ServerResponseOp, SetBinaryOp, SetProjectionOp,
     SetRelationOp, SetRemoveOp, SqliteOp, StaticMember, StringAffixOp, StringCaseOp,
     StringNormalizeForm, StringPadOp, StringPredicateOp, StringReplaceOp, StringSearchOp,

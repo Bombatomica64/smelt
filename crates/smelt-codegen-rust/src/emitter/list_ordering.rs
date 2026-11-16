@@ -53,9 +53,33 @@ impl FunctionEmitter<'_> {
                 "{{ let mut smelt_sorted = {list_text}.clone(); smelt_sorted.sort_by(|smelt_left, smelt_right| smelt_left.partial_cmp(smelt_right).expect(\"sorted incomparable float\")); smelt_sorted }}",
                 list_text = list_text.tight()
             ))),
+            // Python's tuples order lexicographically, as Rust's do: `Ord`
+            // when no item is a float, `PartialOrd` otherwise.
+            Some(Type::Tuple(_)) if self.tuple_is_totally_ordered(element_ty) => {
+                Ok(RustExpr::atom(format!(
+                    "{{ let mut smelt_sorted = {list_text}.clone(); smelt_sorted.sort(); smelt_sorted }}",
+                    list_text = list_text.tight()
+                )))
+            }
+            Some(Type::Tuple(_)) => Ok(RustExpr::atom(format!(
+                "{{ let mut smelt_sorted = {list_text}.clone(); smelt_sorted.sort_by(|smelt_left, smelt_right| smelt_left.partial_cmp(smelt_right).unwrap_or(::std::cmp::Ordering::Equal)); smelt_sorted }}",
+                list_text = list_text.tight()
+            ))),
             _ => Err(EmitError::new(
                 "sorted() supports bool, int, float, and string lists",
             )),
+        }
+    }
+
+    /// Whether a Python tuple type orders totally in Rust (`Ord`): every item a
+    /// `bool`, `int`, `str` or such a tuple, no float.
+    fn tuple_is_totally_ordered(&self, ty: TypeId) -> bool {
+        match self.mir.types.get(ty) {
+            Some(Type::Bool | Type::Int | Type::PyInt | Type::String | Type::PyStr) => true,
+            Some(Type::Tuple(items)) => items
+                .iter()
+                .all(|item| self.tuple_is_totally_ordered(*item)),
+            _ => false,
         }
     }
 
@@ -144,9 +168,15 @@ impl FunctionEmitter<'_> {
             Some(Type::Bool | Type::Int | Type::PyInt | Type::String | Type::PyStr) => {
                 format!("{first}.cmp({second})")
             }
+            Some(Type::Tuple(_)) if self.tuple_is_totally_ordered(element_ty) => {
+                format!("{first}.cmp({second})")
+            }
+            Some(Type::Tuple(_)) => {
+                format!("{first}.partial_cmp({second}).unwrap_or(::std::cmp::Ordering::Equal)")
+            }
             _ => {
                 return Err(EmitError::new(
-                    "sort supports bool, int, float, and string items",
+                    "sort supports bool, int, float, string and tuple items",
                 ));
             }
         };

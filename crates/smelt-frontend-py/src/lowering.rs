@@ -158,6 +158,10 @@ pub(crate) struct ModuleBuilder<'ctx> {
     /// Their diagnostic is already reported; a later statement that fails
     /// only because it uses one is a cascade, not a second problem.
     failed_definitions: HashSet<String>,
+    /// For each enclosing loop, innermost last: the flag its `break`s set
+    /// when the loop has an `else` clause (which runs only when the loop was
+    /// not left by a `break`), `None` when it has none.
+    loop_break_flags: Vec<Option<smelt_hir::LocalId>>,
     /// Pytest fixture functions available to tests in this module.
     pytest_fixtures: IndexMap<String, PytestFixture>,
     /// Whether this module should use pytest-specific test discovery rules.
@@ -398,6 +402,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             module_namespaces,
             import_aliases: HashMap::new(),
             failed_definitions: HashSet::new(),
+            loop_break_flags: Vec::new(),
             pytest_fixtures: IndexMap::new(),
             function_variadics: HashMap::new(),
             specialization,
@@ -507,13 +512,13 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 {
                     self.failed_definitions.insert(name.id.as_str().to_owned());
                 }
-                if !cascade {
+                if !cascade && !err.is_cascade() {
                     errors.push(err);
                 }
             }
         }
 
-        if !errors.is_empty() {
+        if !errors.is_empty() || !self.failed_definitions.is_empty() {
             return Err(errors);
         }
         hir_module.items.append(&mut self.pending_module_items);
@@ -575,7 +580,9 @@ impl ModuleBuilder<'_> {
                         Err(err) => {
                             self.failed_definitions
                                 .insert(func.name.as_str().to_owned());
-                            errors.push(err);
+                            if !err.is_cascade() {
+                                errors.push(err);
+                            }
                         }
                     }
                 }

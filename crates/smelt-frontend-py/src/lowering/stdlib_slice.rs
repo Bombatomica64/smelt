@@ -16,13 +16,27 @@ impl ModuleBuilder<'_> {
         let Some(Type::List(list_element_ty)) = self.ctx.krate.types.get(list_ty) else {
             return Ok(None);
         };
+        let ty = *list_element_ty;
+        if let [index_arg] = call.arguments.args.as_ref() {
+            let index = self.expression(index_arg, body)?;
+            if !matches!(self.ctx.krate.types.get(Self::expr_ty(body, index)), Some(Type::PyInt)) {
+                return Err(SmeltError::unsupported(self.span(call.range()), "list.pop() index must be an int"));
+            }
+            // A position past a machine word is out of range, which the
+            // saturated bound reports as `IndexError` like any other.
+            let position = self.py_int_as_clamped_bound(index, body);
+            return Ok(Some(body.push_expr(HirExpr {
+                kind: ExprKind::PyListPopAt { list, index: position },
+                ty,
+                span: self.span(call.range()),
+            })));
+        }
         if !call.arguments.args.is_empty() {
             return Err(SmeltError::unsupported(
                 self.span(call.range()),
-                "list.pop() index arguments are not supported yet",
+                "list.pop() takes at most one index argument",
             ));
         }
-        let ty = *list_element_ty;
         Ok(Some(body.push_expr(HirExpr {
             kind: ExprKind::ListPop { list, raises_when_empty: true },
             ty,

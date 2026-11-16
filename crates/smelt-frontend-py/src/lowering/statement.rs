@@ -115,14 +115,14 @@ impl ModuleBuilder<'_> {
 
             // `while test: …`
             Stmt::While(while_stmt) => {
-                if !while_stmt.orelse.is_empty() {
-                    return Err(SmeltError::unsupported(
-                        self.span(while_stmt.range),
-                        "while-else is not supported",
-                    ));
-                }
-                let cond = self.expression(&while_stmt.test, body)?;
-                let loop_block = self.block_from_stmts(&while_stmt.body, body)?;
+                let span = self.span(while_stmt.range);
+                let flag = self.enter_loop(&while_stmt.orelse, span, body, block);
+                let lowered = (|| {
+                    let cond = self.expression(&while_stmt.test, body)?;
+                    self.block_from_stmts(&while_stmt.body, body).map(|loop_block| (cond, loop_block))
+                })();
+                self.loop_break_flags.pop();
+                let (cond, loop_block) = lowered?;
                 body.push_stmt_to_block(
                     block,
                     HirStmt::While {
@@ -130,7 +130,7 @@ impl ModuleBuilder<'_> {
                         body: loop_block,
                     },
                 );
-                Ok(())
+                self.loop_else(flag, &while_stmt.orelse, span, body, block)
             }
 
             // `for target in iter: …`
@@ -171,7 +171,16 @@ impl ModuleBuilder<'_> {
                 Ok(())
             }
 
-            Stmt::Break(_) => {
+            Stmt::Break(break_stmt) => {
+                // A `break` out of a loop with an `else` records that the
+                // `else` must not run.
+                if let Some(Some(flag)) = self.loop_break_flags.last().copied() {
+                    let span = self.span(break_stmt.range);
+                    let bool_ty = self.intern_type(Type::Bool);
+                    let target = body.push_expr(HirExpr { kind: ExprKind::Local(flag), ty: bool_ty, span });
+                    let broke = body.push_expr(HirExpr { kind: ExprKind::Literal(Literal::Bool(true)), ty: bool_ty, span });
+                    body.push_stmt_to_block(block, HirStmt::Assign { target, value: broke });
+                }
                 body.push_stmt_to_block(block, HirStmt::Break);
                 Ok(())
             }
