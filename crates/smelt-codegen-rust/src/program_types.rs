@@ -264,7 +264,7 @@ fn emit_interface_type(
     if needs_bounded_impls {
         let default_generics = derive_generics_text(
             &interface_param_idents,
-            classes::GENERATED_TYPE_PARAM_BOUNDS,
+            classes::generated_type_param_bounds(context.demand()),
         );
         emit_default_impl_for_storage_type(
             writer,
@@ -487,7 +487,10 @@ fn emit_class_type(
         // and `classes::GENERATED_TYPE_PARAM_BOUNDS` for why the set is the
         // full one rather than the derive-equivalent `T: Default`.
         let default_generics = if is_generic {
-            derive_generics_text(&class_param_idents, classes::GENERATED_TYPE_PARAM_BOUNDS)
+            derive_generics_text(
+                &class_param_idents,
+                classes::generated_type_param_bounds(context.demand()),
+            )
         } else {
             impl_generics.clone()
         };

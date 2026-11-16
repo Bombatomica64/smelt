@@ -67,6 +67,26 @@ pub(crate) fn undefined_runtime_symbols<'a>(
         .collect()
 }
 
+/// Whether `sources` name any part of the erased carrier: the `SmeltUnknown`
+/// value, its conversion traits (`IntoSmeltUnknown`, `SmeltFromUnknown`) or
+/// their methods.
+///
+/// [`undefined_runtime_symbols`] cannot answer this alone: the traits and their
+/// methods are named without the emitter prefix (`IntoSmeltUnknown`,
+/// `.into_smelt_unknown()`), so a bound conversion in a crate that does not
+/// carry them would pass it and fail in rustc. Comments and string literals are
+/// skipped, as there.
+#[must_use]
+pub(crate) fn names_the_carrier<'a>(sources: impl IntoIterator<Item = &'a str>) -> bool {
+    sources.into_iter().any(|source| {
+        tokenize(source).iter().any(|token| {
+            matches!(token, Token::Ident(name) if name.contains("SmeltUnknown")
+                || name.contains("smelt_unknown")
+                || matches!(*name, "SmeltFromUnknown" | "smelt_from_unknown"))
+        })
+    })
+}
+
 /// Whether `name` is one the emitter or runtime mints: the reserved prefixes,
 /// which no source name renders to. The helpers a reservation declines are
 /// `__smelt_*` items, so a check of `smelt_`/`Smelt` alone missed exactly the

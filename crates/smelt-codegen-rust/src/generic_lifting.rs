@@ -22,12 +22,8 @@ use smelt_mir::{
 };
 
 use crate::{
-    EmitError,
-    bound_traits::BoundTraitPlan,
-    classes::{GENERATED_TYPE_PARAM_BOUNDS, type_param_in_dict_key},
-    generic_bindings,
-    generic_elision::TypeParamElision,
-    id_index,
+    EmitError, bound_traits::BoundTraitPlan, classes::type_param_in_dict_key, generic_bindings,
+    generic_elision::TypeParamElision, id_index,
 };
 
 /// Per function, whether a call site passes an erased argument at a bare
@@ -1825,6 +1821,7 @@ pub(crate) fn function_impl_generics_list(
     bounds: &BoundTraitPlan,
     elision: &TypeParamElision,
     erased_arguments: &ErasedArgumentMemo,
+    type_param_bounds: &str,
 ) -> Result<Vec<String>, EmitError> {
     let liftable = liftable_type_params(
         mir,
@@ -1867,7 +1864,7 @@ pub(crate) fn function_impl_generics_list(
                 .get(param.name)
                 .map(|name| {
                     format!(
-                        "{}: {bound_trait}{GENERATED_TYPE_PARAM_BOUNDS}",
+                        "{}: {bound_trait}{type_param_bounds}",
                         crate::names::type_param(name)
                     )
                 })

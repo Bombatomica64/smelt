@@ -129,7 +129,7 @@ narrowing guards) or avoidable erasure (everything else). Methodology:
 <!-- results:unknown:begin -->
 | Corpus (baseline file) | Files | Runtime prelude | Legitimate boundary | Avoidable erasure | Gate |
 | --- | ---: | ---: | ---: | ---: | --- |
-| examples ([`smelt-unknown-baseline.json`](blocker-logs/smelt-unknown-baseline.json)) | 168 | 132775 | 6951 | 0 | blocking, must stay 0 |
+| examples ([`smelt-unknown-baseline.json`](blocker-logs/smelt-unknown-baseline.json)) | 177 | 132058 | 6990 | 0 | blocking, must stay 0 |
 | es-toolkit ([`smelt-unknown-baseline-es-toolkit.json`](blocker-logs/smelt-unknown-baseline-es-toolkit.json)) | 744 | 2431 | 34570 | 12766 | blocking, may only fall |
 | remeda ([`smelt-unknown-baseline-remeda.json`](blocker-logs/smelt-unknown-baseline-remeda.json)) | 391 | 1506 | 62265 | 20086 | advisory |
 | hono ([`smelt-unknown-baseline-hono.json`](blocker-logs/smelt-unknown-baseline-hono.json)) | 78 | 7445 | 78054 | 10078 | advisory |

@@ -227,3 +227,58 @@ test('same', () => { expect(points()).toEqual(points()); });
 ";
     assert!(!demand_of(values).has(Need::Unknown), "value records");
 }
+
+/// A generic class whose bodies never convert a `T` does not pull the erased
+/// carrier into a program that has no other erased value: its parameters are
+/// bounded `Clone + Default + 'static` (`classes::generated_type_param_bounds`).
+///
+/// Before, every generic item demanded the carrier because its bounds named
+/// `IntoSmeltUnknown + SmeltFromUnknown`, and the program carried the whole
+/// runtime for nothing.
+#[test]
+fn a_generic_item_that_converts_nothing_carries_no_carrier() {
+    let source = source_for(
+        r"
+class Box<T> {
+  value: T;
+  constructor(value: T) { this.value = value; }
+  get(): T { return this.value; }
+}
+function first<T>(items: T[]): T { return items[0]; }
+const box = new Box<number>(4);
+console.log(box.get() + first([1, 2]));
+",
+    );
+    assert!(
+        !source.contains("enum SmeltUnknown"),
+        "no erased value, no carrier:\n{source}"
+    );
+    assert!(
+        !runtime_symbols_check::names_the_carrier([source.as_str()]),
+        "a carrier-free crate names no part of the carrier:\n{source}"
+    );
+    assert!(
+        source.contains("T: Clone + Default + 'static"),
+        "the generated bounds are the carrier-free set:\n{source}"
+    );
+}
+
+/// A generic body that DOES convert a `T` fails the carrier-free speculation,
+/// and the program is emitted with the carrier and the full bound set, as
+/// before. Two ways to fail it: a conversion the emitter writes through the
+/// carrier proof (`console.log` of a `T`) errors in the speculative emission;
+/// a `typeof` of a `T` emits without error but names the carrier, which only
+/// the check of the emitted text (`EmittedRoot::is_carrier_free`) sees.
+#[test]
+fn a_generic_item_that_converts_its_parameter_keeps_the_carrier() {
+    for program in [
+        "function show<T>(value: T): void { console.log(value); }\nshow<number>(1);\n",
+        "function kind<T>(value: T): string { return typeof value; }\nconsole.log(kind<number>(1));\n",
+    ] {
+        let source = source_for(program);
+        assert!(
+            source.contains("enum SmeltUnknown"),
+            "a converted `T` needs the carrier:\n{source}"
+        );
+    }
+}
