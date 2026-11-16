@@ -7,7 +7,7 @@
       "erased": 56
     },
     "reads": {
-      "concrete": 932,
+      "concrete": 931,
       "generic": 47,
       "erased": 20
     },
@@ -1266,7 +1266,7 @@
         "erased": 0
       },
       "reads": {
-        "concrete": 15,
+        "concrete": 14,
         "generic": 0,
         "erased": 0
       },

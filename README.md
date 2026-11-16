@@ -103,7 +103,7 @@ calls get a concrete Rust type, a real Rust generic, or an erased type
 | Corpus (baseline file) | Kind | Concrete | Generic | Erased | Erased share |
 | --- | --- | ---: | ---: | ---: | ---: |
 | examples, 177 programs ([`typedness-baseline.json`](blocker-logs/typedness-baseline.json)) | values | 8474 | 162 | 56 | 0.6% |
-|  | reads | 932 | 47 | 20 | 2.0% |
+|  | reads | 931 | 47 | 20 | 2.0% |
 |  | calls | 2350 | 16 | 2 | 0.1% |
 | es-toolkit, 744 programs ([`typedness-baseline-es-toolkit.json`](blocker-logs/typedness-baseline-es-toolkit.json)) | values | 14224 | 351 | 7067 | 32.7% |
 |  | reads | 367 | 50 | 979 | 70.1% |

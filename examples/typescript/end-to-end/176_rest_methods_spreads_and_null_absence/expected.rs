@@ -4959,11 +4959,10 @@ impl Bag {
     }
     fn add(&self, first: f64, more: SmeltList<f64>) -> f64 {
     let mut _smelt_tmp_3: SmeltList<f64> = Into::<SmeltList<_>>::into(self.0.borrow().items.clone());
-    let _smelt_tmp_4: f64 = { let smelt_push_item = first; _smelt_tmp_3.borrow_mut().push(smelt_push_item); _smelt_tmp_3.len() as f64 };
+    let _smelt_tmp_4: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![first]; smelt_list_items }));
+    let _smelt_tmp_5: SmeltList<f64> = Into::<SmeltList<_>>::into(_smelt_tmp_4.borrow().iter().cloned().chain(more.clone().borrow().iter().cloned()).collect::<Vec<_>>());
+    let _smelt_tmp_6: f64 = { let smelt_extend_list = _smelt_tmp_5; let smelt_extend_from: Vec<_> = smelt_extend_list.borrow().iter().cloned().collect(); _smelt_tmp_3.borrow_mut().extend(smelt_extend_from); _smelt_tmp_3.len() as f64 };
     self.0.borrow_mut().items = Into::<SmeltList<_>>::into(_smelt_tmp_3);
-    let mut _smelt_tmp_5: SmeltList<f64> = Into::<SmeltList<_>>::into(self.0.borrow().items.clone());
-    let _smelt_tmp_6: f64 = { let smelt_extend_list = more.clone(); let smelt_extend_from: Vec<_> = smelt_extend_list.borrow().iter().cloned().collect(); _smelt_tmp_5.borrow_mut().extend(smelt_extend_from); _smelt_tmp_5.len() as f64 };
-    self.0.borrow_mut().items = Into::<SmeltList<_>>::into(_smelt_tmp_5);
     let _smelt_tmp_7: f64 = self.0.borrow().items.clone().len() as f64;
     return _smelt_tmp_7;
     }
