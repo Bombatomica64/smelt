@@ -3210,6 +3210,14 @@ fn smelt_erased_at_index(value: Option<&SmeltUnknown>, len: usize) -> Option<usi
     (index >= 0.0 && index < len as f64).then_some(index as usize)
 }
 
+/// `Number.isNaN`/`isFinite`/`isInteger`/`isSafeInteger` of an erased value:
+/// whether it is a Number whose value passes `test`. These predicates never
+/// coerce, so a string, `null` or any other tag answers `false`.
+#[allow(dead_code)]
+fn smelt_erased_number_is(value: &SmeltUnknown, test: impl FnOnce(f64) -> bool) -> bool {
+    matches!(value, SmeltUnknown::Number(number) if test(*number))
+}
+
 /// JavaScript `ToString` of an erased value; an array joins its elements with `,`.
 fn smelt_erased_to_js_string(value: &SmeltUnknown) -> JsString {
     match value {
@@ -5929,24 +5937,24 @@ smelt_local.block_on(&smelt_runtime, async move {
     let base: JsString;
     let posted: SmeltResponse;
     let plain: SmeltResponse;
-    let mut _smelt_tmp_13: bool;
-    let _smelt_tmp_14: bool;
-    let mut _smelt_tmp_16: f64;
-    let _smelt_tmp_17: AddressInfo;
-    let _smelt_tmp_19: JsString;
-    let _smelt_tmp_20: JsString;
-    let _smelt_tmp_21: SmeltRequest;
-    let _smelt_tmp_24: f64;
+    let mut _smelt_tmp_11: bool;
+    let _smelt_tmp_12: bool;
+    let mut _smelt_tmp_14: f64;
+    let _smelt_tmp_15: AddressInfo;
+    let _smelt_tmp_17: JsString;
+    let _smelt_tmp_18: JsString;
+    let _smelt_tmp_19: SmeltRequest;
+    let _smelt_tmp_22: f64;
+    let _smelt_tmp_25: JsString;
     let _smelt_tmp_27: JsString;
-    let _smelt_tmp_29: JsString;
-    let _smelt_tmp_30: JsString;
-    let _smelt_tmp_33: f64;
-    let _smelt_tmp_36: JsString;
-    let _smelt_tmp_38: SmeltHttpServer;
-    let _smelt_tmp_39: Option<AddressInfo>;
-    let _smelt_tmp_40: f64;
-    let _smelt_tmp_41: SmeltUnion22;
-    let _smelt_tmp_44: ();
+    let _smelt_tmp_28: JsString;
+    let _smelt_tmp_31: f64;
+    let _smelt_tmp_34: JsString;
+    let _smelt_tmp_36: SmeltHttpServer;
+    let _smelt_tmp_37: Option<AddressInfo>;
+    let _smelt_tmp_38: f64;
+    let _smelt_tmp_39: SmeltUnion22;
+    let _smelt_tmp_42: ();
     let _smelt_tmp_6 = ::std::rc::Rc::new(|closure_arg_0: SmeltIncomingMessage, closure_arg_1: SmeltServerResponse| {
     let smelt_capture_received: ::std::rc::Rc<::std::cell::RefCell<JsString>> = ::std::rc::Rc::new(::std::cell::RefCell::new(JsString::new()));
     let _smelt_tmp_3 = ::std::rc::Rc::new({
@@ -6013,50 +6021,43 @@ smelt_local.block_on(&smelt_runtime, async move {
     });
     let _smelt_tmp_9: SmeltHttpServer = server.clone().listen(0.0, Some((JsString::from("127.0.0.1")).to_string()), Some({ let smelt_listening = _smelt_tmp_8; ::std::rc::Rc::new(move || { let _ = smelt_listening(); Ok(()) }) as ::std::rc::Rc<dyn Fn() -> Result<(), Box<dyn ::std::error::Error>>> }))?;
     let address: Option<AddressInfo> = server.clone().address().map(|(smelt_address, smelt_family, smelt_port)| AddressInfo { address: JsString::from(smelt_address), family: JsString::from(smelt_family), port: smelt_port });
-    let _smelt_tmp_11: bool = address.clone().is_none();
-    let _smelt_tmp_12: bool = !(_smelt_tmp_11);
-    let mut _smelt_tmp_13: bool = false;
-    if _smelt_tmp_12 {
-    _smelt_tmp_14 = address.clone().is_none();
-    _smelt_tmp_13 = !(_smelt_tmp_14);
+    _smelt_tmp_12 = address.clone().is_none();
+    _smelt_tmp_11 = !(_smelt_tmp_12);
+    let mut _smelt_tmp_14: f64 = 0.0;
+    if _smelt_tmp_11 {
+    _smelt_tmp_15 = address.clone().expect("optional value was absent after narrowing");
+    _smelt_tmp_14 = _smelt_tmp_15.port;
     } else {
-    _smelt_tmp_13 = false;
+    _smelt_tmp_14 = 0.0;
     }
-    let mut _smelt_tmp_16: f64 = 0.0;
-    if _smelt_tmp_13 {
-    _smelt_tmp_17 = address.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_16 = _smelt_tmp_17.port;
-    } else {
-    _smelt_tmp_16 = 0.0;
-    }
-    port = _smelt_tmp_16;
+    port = _smelt_tmp_14;
     base = JsString::from("http://127.0.0.1:") + &JsString::from(smelt_number_to_string(port));
-    _smelt_tmp_19 = JsString::new() + &base.clone();
-    _smelt_tmp_20 = _smelt_tmp_19 + &JsString::from("/echo?q=1");
-    _smelt_tmp_21 = SmeltRequest::from_parts_with_init(&_smelt_tmp_20, (JsString::from("POST")).to_string(), SmeltHeaders::new(), SmeltBody::from_text(&JsString::from("hello body")), { let mut smelt_request_init = SmeltRequestInit::default(); smelt_request_init.referrer = "about:client".to_owned(); smelt_request_init.referrer_policy = String::new(); smelt_request_init });
-    let _smelt_tmp_22: SmeltFuture<SmeltResponse> = SmeltFuture::from_future(Box::pin(async move { let smelt_request = _smelt_tmp_21; let smelt_method = reqwest::Method::from_bytes(smelt_request.method().as_bytes()).unwrap_or(reqwest::Method::GET); let mut smelt_builder = reqwest::Client::new().request(smelt_method, smelt_request.url()); for (smelt_name, smelt_value) in smelt_request.headers().entries_in_insertion_order() { smelt_builder = smelt_builder.header(smelt_name, smelt_value); } let smelt_sent = smelt_request.body().take_bytes()?; if !smelt_sent.is_empty() { smelt_builder = smelt_builder.body(smelt_sent); } let smelt_http = smelt_builder.send().await.expect("HTTP request failed"); let smelt_status = f64::from(smelt_http.status().as_u16()); let smelt_reason = smelt_http.status().canonical_reason().unwrap_or_default().to_owned(); let smelt_pairs: Vec<(String, String)> = smelt_http.headers().iter().map(|(smelt_name, smelt_value)| (smelt_name.as_str().to_owned(), smelt_value.to_str().unwrap_or_default().to_owned())).collect(); let smelt_bytes = smelt_http.bytes().await.expect("HTTP response body read failed").to_vec(); Ok::<_, Box<dyn std::error::Error>>(SmeltResponse::from_parts(smelt_status, smelt_reason, SmeltHeaders::from_pairs(smelt_pairs), SmeltBody::from_bytes(smelt_bytes))) }));
-    posted = _smelt_tmp_22.await?;
-    _smelt_tmp_24 = posted.clone().status();
-    let _ = { println!("{}", smelt_console_number(_smelt_tmp_24)); };
-    let _smelt_tmp_26: SmeltFuture<JsString> = { let smelt_response = posted.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(JsString::from(smelt_response.take_text()?)) })) };
-    _smelt_tmp_27 = _smelt_tmp_26.await?;
-    let _ = { println!("{}", _smelt_tmp_27); };
-    _smelt_tmp_29 = JsString::new() + &base;
-    _smelt_tmp_30 = _smelt_tmp_29 + &JsString::from("/again");
-    let _smelt_tmp_31: SmeltFuture<SmeltResponse> = SmeltFuture::from_future(Box::pin(async move { let _smelt_io = SmeltIoGuard::new();                      let smelt_http = reqwest::get(_smelt_tmp_30.to_string()).await.expect("HTTP request failed");                      let smelt_status = f64::from(smelt_http.status().as_u16());                      let smelt_reason = smelt_http.status().canonical_reason().unwrap_or_default().to_owned();                      let smelt_pairs: Vec<(String, String)> = smelt_http.headers().iter().map(|(smelt_name, smelt_value)| (smelt_name.as_str().to_owned(), smelt_value.to_str().unwrap_or_default().to_owned())).collect();                      let smelt_bytes = smelt_http.bytes().await.expect("HTTP response body read failed").to_vec();                      Ok::<_, Box<dyn std::error::Error>>(SmeltResponse::from_parts(smelt_status, smelt_reason, SmeltHeaders::from_pairs(smelt_pairs), SmeltBody::from_bytes(smelt_bytes))) }));
-    plain = _smelt_tmp_31.await?;
-    _smelt_tmp_33 = plain.clone().status();
-    let _ = { println!("{}", smelt_console_number(_smelt_tmp_33)); };
-    let _smelt_tmp_35: SmeltFuture<JsString> = { let smelt_response = plain.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(JsString::from(smelt_response.take_text()?)) })) };
-    _smelt_tmp_36 = _smelt_tmp_35.await?;
-    let _ = { println!("{}", _smelt_tmp_36); };
-    _smelt_tmp_38 = server.clone().close()?;
-    _smelt_tmp_39 = server.address().map(|(smelt_address, smelt_family, smelt_port)| AddressInfo { address: JsString::from(smelt_address), family: JsString::from(smelt_family), port: smelt_port });
-    _smelt_tmp_40 = -1.0;
-    _smelt_tmp_41 = _smelt_tmp_39.map_or_else(|| SmeltUnion22::M0(_smelt_tmp_40), |smelt_value| SmeltUnion22::M1(smelt_value));
-    let _ = { println!("{}", SmeltInspect::smelt_console_text(&_smelt_tmp_41)); };
-    let _smelt_tmp_43: SmeltFuture<()> = SmeltFuture::from_future(Box::pin(async move { smelt_run_until_exit().await; Ok::<_, Box<dyn std::error::Error>>(()) }));
-    _smelt_tmp_44 = _smelt_tmp_43.await?;
+    _smelt_tmp_17 = JsString::new() + &base.clone();
+    _smelt_tmp_18 = _smelt_tmp_17 + &JsString::from("/echo?q=1");
+    _smelt_tmp_19 = SmeltRequest::from_parts_with_init(&_smelt_tmp_18, (JsString::from("POST")).to_string(), SmeltHeaders::new(), SmeltBody::from_text(&JsString::from("hello body")), { let mut smelt_request_init = SmeltRequestInit::default(); smelt_request_init.referrer = "about:client".to_owned(); smelt_request_init.referrer_policy = String::new(); smelt_request_init });
+    let _smelt_tmp_20: SmeltFuture<SmeltResponse> = SmeltFuture::from_future(Box::pin(async move { let smelt_request = _smelt_tmp_19; let smelt_method = reqwest::Method::from_bytes(smelt_request.method().as_bytes()).unwrap_or(reqwest::Method::GET); let mut smelt_builder = reqwest::Client::new().request(smelt_method, smelt_request.url()); for (smelt_name, smelt_value) in smelt_request.headers().entries_in_insertion_order() { smelt_builder = smelt_builder.header(smelt_name, smelt_value); } let smelt_sent = smelt_request.body().take_bytes()?; if !smelt_sent.is_empty() { smelt_builder = smelt_builder.body(smelt_sent); } let smelt_http = smelt_builder.send().await.expect("HTTP request failed"); let smelt_status = f64::from(smelt_http.status().as_u16()); let smelt_reason = smelt_http.status().canonical_reason().unwrap_or_default().to_owned(); let smelt_pairs: Vec<(String, String)> = smelt_http.headers().iter().map(|(smelt_name, smelt_value)| (smelt_name.as_str().to_owned(), smelt_value.to_str().unwrap_or_default().to_owned())).collect(); let smelt_bytes = smelt_http.bytes().await.expect("HTTP response body read failed").to_vec(); Ok::<_, Box<dyn std::error::Error>>(SmeltResponse::from_parts(smelt_status, smelt_reason, SmeltHeaders::from_pairs(smelt_pairs), SmeltBody::from_bytes(smelt_bytes))) }));
+    posted = _smelt_tmp_20.await?;
+    _smelt_tmp_22 = posted.clone().status();
+    let _ = { println!("{}", smelt_console_number(_smelt_tmp_22)); };
+    let _smelt_tmp_24: SmeltFuture<JsString> = { let smelt_response = posted.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(JsString::from(smelt_response.take_text()?)) })) };
+    _smelt_tmp_25 = _smelt_tmp_24.await?;
+    let _ = { println!("{}", _smelt_tmp_25); };
+    _smelt_tmp_27 = JsString::new() + &base;
+    _smelt_tmp_28 = _smelt_tmp_27 + &JsString::from("/again");
+    let _smelt_tmp_29: SmeltFuture<SmeltResponse> = SmeltFuture::from_future(Box::pin(async move { let _smelt_io = SmeltIoGuard::new();                      let smelt_http = reqwest::get(_smelt_tmp_28.to_string()).await.expect("HTTP request failed");                      let smelt_status = f64::from(smelt_http.status().as_u16());                      let smelt_reason = smelt_http.status().canonical_reason().unwrap_or_default().to_owned();                      let smelt_pairs: Vec<(String, String)> = smelt_http.headers().iter().map(|(smelt_name, smelt_value)| (smelt_name.as_str().to_owned(), smelt_value.to_str().unwrap_or_default().to_owned())).collect();                      let smelt_bytes = smelt_http.bytes().await.expect("HTTP response body read failed").to_vec();                      Ok::<_, Box<dyn std::error::Error>>(SmeltResponse::from_parts(smelt_status, smelt_reason, SmeltHeaders::from_pairs(smelt_pairs), SmeltBody::from_bytes(smelt_bytes))) }));
+    plain = _smelt_tmp_29.await?;
+    _smelt_tmp_31 = plain.clone().status();
+    let _ = { println!("{}", smelt_console_number(_smelt_tmp_31)); };
+    let _smelt_tmp_33: SmeltFuture<JsString> = { let smelt_response = plain.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(JsString::from(smelt_response.take_text()?)) })) };
+    _smelt_tmp_34 = _smelt_tmp_33.await?;
+    let _ = { println!("{}", _smelt_tmp_34); };
+    _smelt_tmp_36 = server.clone().close()?;
+    _smelt_tmp_37 = server.address().map(|(smelt_address, smelt_family, smelt_port)| AddressInfo { address: JsString::from(smelt_address), family: JsString::from(smelt_family), port: smelt_port });
+    _smelt_tmp_38 = -1.0;
+    _smelt_tmp_39 = _smelt_tmp_37.map_or_else(|| SmeltUnion22::M0(_smelt_tmp_38), |smelt_value| SmeltUnion22::M1(smelt_value));
+    let _ = { println!("{}", SmeltInspect::smelt_console_text(&_smelt_tmp_39)); };
+    let _smelt_tmp_41: SmeltFuture<()> = SmeltFuture::from_future(Box::pin(async move { smelt_run_until_exit().await; Ok::<_, Box<dyn std::error::Error>>(()) }));
+    _smelt_tmp_42 = _smelt_tmp_41.await?;
     return Ok(());
 })
 }

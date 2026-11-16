@@ -119,6 +119,36 @@ fn object_literal_accessors() -> TestResult {
     verify_node_parity("object_literal_accessors")
 }
 
+/// The `Number.*` predicates answer `false` for every non-Number (an erased
+/// string, `null`, a union's string arm, an absent optional) while the global
+/// `isNaN`/`isFinite` convert their argument first.
+#[test]
+fn number_predicates_do_not_coerce() -> TestResult {
+    verify_node_parity("number_predicates_do_not_coerce")
+}
+
+/// `typeof null` is `"object"`, for the literal and for a `T | null` holding
+/// `null`, in the expression and in `typeof` guards; an absent optional stays
+/// `"undefined"`.
+#[test]
+fn typeof_null() -> TestResult {
+    verify_node_parity("typeof_null")
+}
+
+/// A user function runs as written whatever its name: no library helper's
+/// spelling is rewritten.
+#[test]
+fn same_name_user_functions() -> TestResult {
+    verify_node_parity("same_name_user_functions")
+}
+
+/// `Object.fromEntries` reads any iterable of entries: a map's entries, a map,
+/// a generator, a set, a list.
+#[test]
+fn object_from_entries_iterables() -> TestResult {
+    verify_node_parity("object_from_entries_iterables")
+}
+
 /// bigint arithmetic, its tag behind `unknown`, 64-bit views and its catchable errors.
 #[test]
 fn bigint_boundaries() -> TestResult {

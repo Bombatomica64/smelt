@@ -7,7 +7,9 @@
 //! - a string conversion: `` `${x}` ``, `String(x)` and `"a" + x` spell `null`
 //!   as `"null"` and `undefined` as `"undefined"`;
 //! - a strict comparison: `x === undefined` is `false` for a `null`;
-//! - `console.log(x)`, which prints the word.
+//! - `console.log(x)`, which prints the word;
+//! - `typeof x`, which is `"object"` for `null` and `"undefined"` for
+//!   `undefined`.
 //!
 //! The TypeScript 7 checker types every expression, so at each of those places
 //! the frontend asks it which nullish value the expression's type admits.
@@ -237,6 +239,84 @@ impl ModuleBuilder<'_> {
             ty: string_ty,
             span,
         })
+    }
+
+    /// `typeof` of an operand whose absent case the checker types as `null`.
+    ///
+    /// `typeof null` is `"object"`; the storage's single absent case reads as
+    /// `undefined`, which made `typeof null` answer `"undefined"`. `operand`
+    /// is the lowered expression and `start..end` its source span. A `null`
+    /// operand (`typeof null`, a read narrowed to `null`) is `"object"`; an
+    /// `Optional` admitting `null` and not `undefined` is
+    /// `x !== undefined ? typeof x : "object"`, with `x` bound once. `None`
+    /// for every other operand, which keeps the ordinary `typeof` rule.
+    pub(in crate::lowering) fn null_absent_typeof(
+        &mut self,
+        operand: smelt_hir::ExprId,
+        start: u32,
+        end: u32,
+        body: &mut Body,
+    ) -> Option<smelt_hir::ExprId> {
+        let operand_ty = Self::expr_ty(body, operand);
+        let absent_only = matches!(self.ctx.krate.types.get(operand_ty), Some(Type::None));
+        let optional = matches!(
+            self.ctx.krate.types.get(operand_ty),
+            Some(Type::Optional(_))
+        );
+        if !(absent_only || optional) || !self.checker_absent_is_null(start, end) {
+            return None;
+        }
+        let span = self.span(start, end);
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let object = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String("object".to_owned())),
+            ty: string_ty,
+            span,
+        });
+        if absent_only {
+            return Some(object);
+        }
+        let name = self.intern_synthesized_name("__smelt_nullable");
+        let local = self.capture_bind_value(operand, operand_ty, name, span, body);
+        let read = |reads: &mut Body| {
+            reads.push_expr(Expr {
+                kind: ExprKind::Local(local),
+                ty: operand_ty,
+                span,
+            })
+        };
+        let none_ty = self.ctx.krate.types.intern(Type::None);
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        let tested = read(body);
+        let absent = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::Undefined),
+            ty: none_ty,
+            span,
+        });
+        let cond = body.push_expr(Expr {
+            kind: ExprKind::BinOp {
+                op: BinOp::JsStrictNotEq,
+                lhs: tested,
+                rhs: absent,
+            },
+            ty: bool_ty,
+            span,
+        });
+        let present = read(body);
+        let then_expr = body.push_expr(Expr {
+            kind: ExprKind::TypeofValue { value: present },
+            ty: string_ty,
+            span,
+        });
+        Some(body.push_expr(Expr {
+            kind: ExprKind::Conditional {
+                cond,
+                then_expr,
+                else_expr: object,
+            },
+            ty: string_ty,
+            span,
+        }))
     }
 }
 

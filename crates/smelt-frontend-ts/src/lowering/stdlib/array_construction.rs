@@ -133,7 +133,7 @@ impl ModuleBuilder<'_> {
     /// `mapped` says a mapper follows. A mapped typed list is read in place,
     /// since the map itself builds the new array; every other source already
     /// yields a fresh list.
-    fn array_from_elements(
+    pub(in crate::lowering) fn array_from_elements(
         &mut self,
         source: smelt_hir::ExprId,
         source_ty: smelt_hir::TypeId,
