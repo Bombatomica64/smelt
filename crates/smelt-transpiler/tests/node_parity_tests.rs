@@ -300,6 +300,20 @@ fn bounded_generic_containers() -> TestResult {
     verify_node_parity("bounded_generic_containers")
 }
 
+/// `Promise.allSettled` entries are the tagged union of the fulfilled and the
+/// rejected record, discriminated by `status`.
+#[test]
+fn all_settled_entries() -> TestResult {
+    verify_node_parity("all_settled_entries")
+}
+
+/// A union of present types and a nullish arm is the optional of the present
+/// union.
+#[test]
+fn nullable_unions() -> TestResult {
+    verify_node_parity("nullable_unions")
+}
+
 /// Programs that end with an uncaught throw or rejection, with the message
 /// Node prints for each (see `uncaught_throw_exits_one_with_its_message`).
 /// One uncaught-throw case: its name, its source, and the message on stderr.

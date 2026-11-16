@@ -2,9 +2,9 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 14229,
+      "concrete": 14234,
       "generic": 351,
-      "erased": 7072
+      "erased": 7067
     },
     "reads": {
       "concrete": 367,
@@ -6004,9 +6004,9 @@
     },
     "src/compat/object/cloneDeepWith.ts": {
       "values": {
-        "concrete": 14,
+        "concrete": 15,
         "generic": 0,
-        "erased": 23
+        "erased": 22
       },
       "reads": {
         "concrete": 0,
@@ -9931,9 +9931,9 @@
     },
     "src/object/cloneDeepWith.spec.ts": {
       "values": {
-        "concrete": 84,
+        "concrete": 85,
         "generic": 0,
-        "erased": 92
+        "erased": 91
       },
       "reads": {
         "concrete": 7,
@@ -9948,9 +9948,9 @@
     },
     "src/object/cloneDeepWith.ts": {
       "values": {
-        "concrete": 106,
+        "concrete": 107,
         "generic": 0,
-        "erased": 125
+        "erased": 124
       },
       "reads": {
         "concrete": 3,
@@ -10781,9 +10781,9 @@
     },
     "src/predicate/isEqualWith.spec.ts": {
       "values": {
-        "concrete": 1024,
+        "concrete": 1025,
         "generic": 0,
-        "erased": 408
+        "erased": 407
       },
       "reads": {
         "concrete": 5,
@@ -10798,9 +10798,9 @@
     },
     "src/predicate/isEqualWith.ts": {
       "values": {
-        "concrete": 126,
+        "concrete": 127,
         "generic": 0,
-        "erased": 141
+        "erased": 140
       },
       "reads": {
         "concrete": 0,

@@ -5680,7 +5680,9 @@ export function reachedOptional(value: Slots | undefined): string {
     ensure_signature(
         &ctx,
         "reached_optional",
-        "reached_optional(value: (String, String) | (String) | None) -> String",
+        // Old requirement: `(String, String) | (String) | None`. Two present
+        // arms and a nullish one are the optional of the present union.
+        "reached_optional(value: Optional<(String, String) | (String)>) -> String",
     )?;
     ensure_exprs!(&ctx, PrimitiveCast);
     Ok(())

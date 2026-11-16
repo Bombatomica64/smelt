@@ -1139,7 +1139,10 @@ async function settled(): Promise<[PromiseSettledResult<number>, PromiseSettledR
     ensure_signature(
         &ctx,
         "settled",
-        "async settled() -> Future<(PromiseSettledResult<Float>, PromiseSettledResult<Float>)>",
+        // Old requirement: the lib name `PromiseSettledResult<Float>`, which no
+        // declaration backed (each entry erased). It is the tagged union of the
+        // two settled records (`ty::annotations::settled_result`).
+        "async settled() -> Future<(PromiseFulfilledResult<Float> | PromiseRejectedResult, PromiseFulfilledResult<Float> | PromiseRejectedResult)>",
     )?;
     ensure_exprs!(&ctx, AsyncOp, Await);
     Ok(())

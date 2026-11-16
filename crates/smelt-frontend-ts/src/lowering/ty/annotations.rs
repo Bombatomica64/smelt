@@ -14,6 +14,7 @@ mod host_types;
 mod method_resolution;
 mod object_types;
 mod record_keys;
+mod settled_result;
 mod structural_fields;
 mod tuples_rest;
 mod type_queries;
@@ -175,7 +176,7 @@ impl ModuleBuilder<'_> {
                 let mut absent_only_null = true;
                 for member in &union.types {
                     let mut member_ty = self.ts_type_to_hir(member)?;
-                    if !matches!(member, TSType::TSNullKeyword(_))
+                    if !Self::is_null_keyword(member)
                         && !self.ctx.krate.types.absent_is_null(member_ty)
                         && (matches!(
                             self.ctx.krate.types.get(member_ty),
@@ -287,9 +288,31 @@ impl ModuleBuilder<'_> {
                     Ok(single)
                 } else if lowered.is_empty() && nullish.is_empty() && saw_never {
                     Ok(self.ctx.krate.types.intern(Type::Never))
-                } else {
+                } else if nullish.is_empty()
+                    || absent_only_null
+                    || lowered.len() < 2
+                    || !lowered
+                        .iter()
+                        .all(|arm| self.union_arm_has_concrete_storage(*arm))
+                {
+                    // A union whose only absent value is `null` keeps it as an
+                    // arm: the erased carrier tells `null` from `undefined` on
+                    // every path, while an `Option` element of a typed list
+                    // erases through the live-list view as `undefined`
+                    // (`isJSONArray(['a', null])` would see no `null`).
+                    // Fewer than two present arms leave no union to make
+                    // optional, and a union with an arm the generated crate
+                    // stores erased (`unknown`, a type parameter, a class
+                    // nothing declares) is the erased value, which already
+                    // holds `null` and `undefined`: the union stays as written.
                     lowered.extend(nullish);
                     Ok(self.ctx.krate.types.intern(Type::Union(lowered)))
+                } else {
+                    // Two or more present arms and `undefined`: the optional of
+                    // the present union, as a single present arm already is (and
+                    // as an optional parameter `x?: A | B` is).
+                    let present = self.ctx.krate.types.intern(Type::Union(lowered));
+                    Ok(self.ctx.krate.types.intern(Type::Optional(present)))
                 }
             }
             TSType::TSIntersectionType(intersection) => {
@@ -632,5 +655,17 @@ impl ModuleBuilder<'_> {
         (number.value.fract() == 0.0 && number.value >= 0.0)
             .then(|| text.parse::<usize>().ok())
             .flatten()
+    }
+}
+
+impl ModuleBuilder<'_> {
+    /// Whether `ty` is the `null` keyword, through any parentheses: the
+    /// checker's respelled types parenthesize every union member
+    /// (`(string) | (null)`), and a source may write `(null)` too.
+    fn is_null_keyword(mut ty: &TSType<'_>) -> bool {
+        while let TSType::TSParenthesizedType(inner) = ty {
+            ty = &inner.type_annotation;
+        }
+        matches!(ty, TSType::TSNullKeyword(_))
     }
 }

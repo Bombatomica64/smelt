@@ -47,10 +47,12 @@ impl FunctionEmitter<'_> {
             PyStrOp::SwapCase => format!("smelt_py_str_swapcase({})", text(0)?),
             PyStrOp::ZFill => format!("smelt_py_str_zfill({}, {})", text(0)?, number(1)?),
             PyStrOp::Center | PyStrOp::LJust | PyStrOp::RJust => {
-                let side = match op {
-                    PyStrOp::LJust => 'l',
-                    PyStrOp::RJust => 'r',
-                    _ => 'c',
+                let side = if op == PyStrOp::LJust {
+                    'l'
+                } else if op == PyStrOp::RJust {
+                    'r'
+                } else {
+                    'c'
                 };
                 format!(
                     "smelt_py_str_pad({}, {}, {}, {side:?})",
@@ -103,10 +105,12 @@ impl FunctionEmitter<'_> {
                 number(3)?
             ),
             PyStrOp::StripChars | PyStrOp::LStripChars | PyStrOp::RStripChars => {
-                let side = match op {
-                    PyStrOp::LStripChars => 'l',
-                    PyStrOp::RStripChars => 'r',
-                    _ => 'b',
+                let side = if op == PyStrOp::LStripChars {
+                    'l'
+                } else if op == PyStrOp::RStripChars {
+                    'r'
+                } else {
+                    'b'
                 };
                 format!(
                     "smelt_py_str_strip_chars({}, {}, {side:?})",
@@ -125,13 +129,13 @@ impl FunctionEmitter<'_> {
         op: PyStrOp,
         args: &[Operand],
     ) -> Result<(RenderedCall, TypeId), EmitError> {
-        let answer = match op {
-            PyStrOp::Index | PyStrOp::RIndex => self.type_id(Type::Int)?,
-            PyStrOp::Split | PyStrOp::RSplit => {
-                let text = self.type_id(Type::PyStr)?;
-                self.type_id(Type::List(text))?
-            }
-            _ => self.type_id(Type::PyStr)?,
+        let answer = if matches!(op, PyStrOp::Index | PyStrOp::RIndex) {
+            self.type_id(Type::Int)?
+        } else if matches!(op, PyStrOp::Split | PyStrOp::RSplit) {
+            let text = self.type_id(Type::PyStr)?;
+            self.type_id(Type::List(text))?
+        } else {
+            self.type_id(Type::PyStr)?
         };
         Ok((
             RenderedCall::propagating(self.py_str_call_expr(op, args)?),

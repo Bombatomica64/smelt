@@ -295,6 +295,25 @@ impl ModuleBuilder<'_> {
                     .types
                     .intern(Type::JsMap(lowered_key, lowered_value)))
             }
+            // `Promise.allSettled`'s entry types: concrete records and the
+            // tagged union over them (`settled_result`), not erased lib names.
+            ("PromiseSettledResult", [item])
+                if !self.source_declares_type("PromiseSettledResult") =>
+            {
+                let value = self.ts_type_to_hir(item)?;
+                Ok(self.settled_result_type(value))
+            }
+            ("PromiseFulfilledResult", [item])
+                if !self.source_declares_type("PromiseFulfilledResult") =>
+            {
+                let value = self.ts_type_to_hir(item)?;
+                Ok(self.fulfilled_result_type(value))
+            }
+            ("PromiseRejectedResult", [])
+                if !self.source_declares_type("PromiseRejectedResult") =>
+            {
+                Ok(self.rejected_result_type())
+            }
             ("Promise", [item]) => {
                 let lowered_item = self.ts_type_to_hir(item)?;
                 Ok(self.ctx.krate.types.intern(Type::Future(lowered_item)))
