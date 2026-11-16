@@ -218,6 +218,7 @@ mod tests {
             min_rest: 0,
             required_params: None,
             return_ty: TypeId(return_ty),
+            deferred_return: None,
             is_async: false,
         }
     }

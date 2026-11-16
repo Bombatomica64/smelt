@@ -114,6 +114,11 @@ impl FunctionEmitter<'_> {
             );
             return Ok(if is_nullish { "true" } else { "false" }.to_owned());
         }
+        // A lifted type parameter value is asked through its erased copy
+        // (`emitter::generic_scrutinee`).
+        if let Some(copy) = self.lifted_param_copy(value)? {
+            return self.tag_check_raw(&copy, kind);
+        }
         if let Some(check) = self.concrete_union_tag_check(&text, value_ty, kind) {
             return Ok(check);
         }
@@ -190,6 +195,14 @@ impl FunctionEmitter<'_> {
         value: &Operand,
     ) -> Result<RustExpr, EmitError> {
         let value_ty = self.operand_ty(value)?;
+        // A lifted type parameter value is asked through its erased copy
+        // (`emitter::generic_scrutinee`).
+        if let Some(copy) = self.lifted_param_copy(value)? {
+            return Ok(RustExpr::chain(format!(
+                "smelt_typeof(&{copy})",
+                copy = copy.tight()
+            )));
+        }
         // `typeof` only reads the value's tag, so both paths take it by shared
         // reference. A callback parameter already spelled `&T` is passed through
         // rather than borrowed again -- see `shared_reference_argument_expr` for

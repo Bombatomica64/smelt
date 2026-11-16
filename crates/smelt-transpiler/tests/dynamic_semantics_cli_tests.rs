@@ -12,6 +12,9 @@
 //!   match is present.
 //! - **A record member named like a `Map` method** is that member:
 //!   `o.has(1)` on `{ has: (a: number) => string }` calls the property.
+//! - **A `bigint` ordered against an erased value** (`min <= value` with
+//!   `value: any` or of an erased type parameter) compares by mathematical
+//!   value, as JavaScript does, whatever the erased side holds at run time.
 //! - **Python sets** answer `len`, `in`, `min`/`max`/`sorted`/`sum`, set
 //!   comprehensions, the set operators (`|`, `&`, `-`, `^`, `<=`, `<`, ...)
 //!   and the in-place operators and `update` methods, which mutate the set
@@ -104,6 +107,76 @@ fn dynamic_addition_follows_javascript() -> TestResult {
         "fn g(u: SmeltUnknown, s: JsString) -> JsString",
         "fn h(u: SmeltUnknown) -> f64",
         "fn k(a: SmeltUnknown, b: SmeltUnknown) -> SmeltUnknown",
+    ] {
+        ensure(
+            generated.contains(signature),
+            format!("generated Rust keeps `{signature}`"),
+        )?;
+    }
+    Ok(())
+}
+
+/// `<`, `<=`, `>`, `>=` between a `bigint` and an erased value.
+///
+/// Behaviour: the erased side decides the comparison at run time (a bigint
+/// compares exactly, a number or numeric string by mathematical value,
+/// anything else is unordered and answers `false`), so `2n ** 64n` against
+/// `2n ** 64n + 1n` must not round through `f64`. Type preservation: the
+/// bigint parameters stay `BigInt`; only the comparison itself crosses into
+/// the carrier, where its other operand already is.
+const BIGINT_RELATIONAL_TS: &str = r#"function isBigInt<T>(x: T | bigint): x is bigint {
+  return typeof x === "bigint";
+}
+function when<input>(predicate: (value: input) => unknown): (value: input) => boolean {
+  return (value: input) => Boolean(predicate(value));
+}
+const between = <input>(min: bigint, max: bigint) =>
+  when<input>((value) => isBigInt(value) && min <= value && max >= value);
+const below = <input>(max: bigint) => when<input>((value) => isBigInt(value) && value < max);
+function under(value: any, max: bigint): boolean {
+  return value < max;
+}
+function atLeast(min: bigint, value: any): boolean {
+  return min <= value;
+}
+const big = 2n ** 64n;
+console.log(between<unknown>(1n, 5n)(3n), between<unknown>(1n, 5n)(9n), between<unknown>(1n, 5n)("x"));
+console.log(below<unknown>(5n)(3n), below<unknown>(5n)(7n), below<unknown>(5n)(3));
+console.log(below<unknown>(big + 1n)(big), below<unknown>(big)(big + 1n));
+console.log(under(3, 5n), under(5.5, 5n), under("4", 5n), under("x", 5n), under(big, big + 1n));
+console.log(atLeast(5n, 5), atLeast(5n, 4.5), atLeast(big + 1n, big), atLeast(1n, undefined));
+"#;
+
+/// What Node prints for [`BIGINT_RELATIONAL_TS`].
+const BIGINT_RELATIONAL_OUTPUT: &str = "true false false\ntrue false false\ntrue false\ntrue false true false true\ntrue false false false\n";
+
+/// A `bigint` ordered against an erased value follows JavaScript.
+///
+/// Before this rule the generated Rust did not compile (`BigInt <= SmeltUnknown`,
+/// E0308/E0277). Planted defect: with the bigint arm of
+/// `bare_erased_relational_expr` removed this test fails at the cargo build.
+#[test]
+fn bigint_ordered_against_an_erased_value_follows_javascript() -> TestResult {
+    let sources = [("main.ts", BIGINT_RELATIONAL_TS)];
+    ensure_node_agrees(
+        &sources,
+        "main.ts",
+        BIGINT_RELATIONAL_OUTPUT,
+        "bigint relational",
+    )?;
+    let temp = TempProject::new()?;
+    let root = temp.path();
+    write_project(root, "main.ts", &sources)?;
+    let output = build_and_run(root)?;
+    ensure_eq(
+        &output,
+        &BIGINT_RELATIONAL_OUTPUT.to_owned(),
+        "the bigint-relational program's output",
+    )?;
+    let generated = fs::read_to_string(root.join("dist/src/source_main.rs"))?;
+    for signature in [
+        "fn under(value: SmeltUnknown, max: ::num_bigint::BigInt) -> bool",
+        "fn at_least(min: ::num_bigint::BigInt, value: SmeltUnknown) -> bool",
     ] {
         ensure(
             generated.contains(signature),

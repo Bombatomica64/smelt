@@ -61,7 +61,9 @@ impl ModuleBuilder<'_> {
                 | Type::TypeParam { .. }
                 | Type::Class { .. }
                 | Type::Function(_)
-                | Type::None,
+                | Type::None
+                // Not a value's type; the `unknown` it erases to needs no `never`.
+                | Type::IndexedAccess { .. },
             )
             | None => false,
         }

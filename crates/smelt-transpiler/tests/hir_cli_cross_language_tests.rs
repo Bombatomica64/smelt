@@ -1436,6 +1436,8 @@ const END_TO_END_EXAMPLES: &[&str] = &[
     "198_record_shared_as_a_typed_dictionary",
     "199_record_shared_as_a_structural_subset",
     "200_record_shared_at_a_type_parameter",
+    "201_primitive_bounded_type_parameter",
+    "202_inspected_type_parameter_stays_generic",
     "14_c_for_loop",
     "15_break_continue",
     "16_switch_break_no_fallthrough",

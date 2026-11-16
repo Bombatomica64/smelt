@@ -250,9 +250,15 @@ impl ModuleBuilder<'_> {
                 span,
                 &mut substitutions,
             );
-            return Ok(Some(
-                self.instantiate_overload_signature(signature, &substitutions),
-            ));
+            let instantiated =
+                self.instantiate_overload_signature(signature.clone(), &substitutions);
+            return Ok(Some(self.overload_with_evaluated_return(
+                &signature,
+                instantiated,
+                &substitutions,
+                arguments,
+                span,
+            )));
         }
         // The author explicitly suppressed TypeScript's own rejection of this
         // call (`@ts-expect-error` / `@ts-ignore` on the preceding line), so no
@@ -316,9 +322,15 @@ impl ModuleBuilder<'_> {
                 }
             }
             if let Some((_, signature, substitutions)) = loose_selected {
-                return Ok(Some(
-                    self.instantiate_overload_signature(signature, &substitutions),
-                ));
+                let instantiated =
+                    self.instantiate_overload_signature(signature.clone(), &substitutions);
+                return Ok(Some(self.overload_with_evaluated_return(
+                    &signature,
+                    instantiated,
+                    &substitutions,
+                    arguments,
+                    span,
+                )));
             }
             return Ok(None);
         }
@@ -1030,8 +1042,43 @@ impl ModuleBuilder<'_> {
             min_rest: signature.min_rest,
             required_params: signature.required_params,
             return_ty,
+            // An instantiated signature states its result in `return_ty`;
+            // `overload_with_evaluated_return` evaluates the deferred one.
+            deferred_return: None,
             is_async: signature.is_async,
         }
+    }
+
+    /// `instantiated`, the selected overload `declared` instantiated with
+    /// `substitutions`, with its return replaced by the declared deferred
+    /// return evaluated for this call (`ty/deferred_index.rs`).
+    ///
+    /// A signature with no deferred return is returned as is. One whose
+    /// deferred return cannot be evaluated here keeps the erased return, and
+    /// the erasure is recorded at the call.
+    fn overload_with_evaluated_return(
+        &mut self,
+        declared: &OverloadSignature,
+        mut instantiated: OverloadSignature,
+        substitutions: &HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
+        arguments: &[Argument<'_>],
+        span: oxc::span::Span,
+    ) -> OverloadSignature {
+        let Some(deferred) = declared.deferred_return else {
+            return instantiated;
+        };
+        let keys = self.literal_key_arguments_of(&declared.params, arguments);
+        match self.evaluated_deferred_return(
+            deferred,
+            &declared.type_params,
+            substitutions,
+            &keys,
+            span,
+        ) {
+            Some(evaluated) => instantiated.return_ty = evaluated,
+            None => self.note_unevaluated_deferred_return(span),
+        }
+        instantiated
     }
 
     /// Return whether inferred generic overload arguments satisfy their declared bounds.
@@ -1128,6 +1175,9 @@ impl ModuleBuilder<'_> {
                 self.overload_constraint_contains_unresolved_type_param(*yield_ty)
                     || self.overload_constraint_contains_unresolved_type_param(*return_ty)
             }
+            // An indexed access that is still unevaluated depends on the call
+            // by construction: evaluating it is what the call's bindings do.
+            Some(Type::IndexedAccess { .. }) => true,
             Some(
                 Type::Bool
                 | Type::Int

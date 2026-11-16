@@ -77,6 +77,14 @@ impl FunctionEmitter<'_> {
                 RustExpr::js_string_literal(self.absent_spelling().text()).delimited()
             )));
         }
+        // The truthiness of a lifted type parameter value is that of its
+        // erased copy (`emitter::generic_scrutinee`).
+        if op == smelt_hir::PrimitiveCastOp::ToBool
+            && let Some(copy) = self.lifted_param_copy(operand)?
+        {
+            let unknown_ty = self.type_id(Type::Unknown)?;
+            return self.value_truthy_expr(&copy, unknown_ty);
+        }
         // A symbol's string is `Symbol(<description>)`, and every symbol is
         // truthy. (`Number(sym)` throws; the frontend never routes it here.)
         if self.mir.types.get(operand_ty) == Some(&Type::Symbol) {

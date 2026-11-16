@@ -221,6 +221,14 @@ console.log(withoutRepeats([1, 2, 1, 3, 1], "numbers").join(","));
 /// program. Type preservation: `second`, which reads an element out of a
 /// `T[]` (a container read), keeps its `T` beside the erased `K`.
 ///
+/// `second`'s `K` is bounded by `PropertyKey` so that it stays erased and the
+/// partial lift is what the test exercises. It was `K extends string` until
+/// a parameter bounded by one primitive keyword started lowering as that
+/// primitive (`lowering/ty/primitive_params.rs`): `_label` would be a
+/// `JsString` and `second` fully typed, which that rule's own example
+/// (`201_primitive_bounded_type_parameter`) covers. The pinned signature is
+/// unchanged.
+///
 /// Why this is not an end-to-end example: `T[K]` has no Rust type, so each
 /// member-reading function here is erased by construction, and that corpus
 /// must stay free of erased entries.
@@ -263,7 +271,7 @@ function hasKey<T, K extends keyof T>(obj: T, key: K): boolean {
 }
 
 // A read off a CONTAINER of `T` stays a move: `T` is still a Rust generic.
-function second<T, K extends string>(items: T[], _label: K): T {
+function second<T, K extends PropertyKey>(items: T[], _label: K): T {
   return items[1];
 }
 
@@ -296,5 +304,125 @@ console.log(second(["a", "b"], "s"));
         "main.ts",
         expected,
         "member_read_off_a_type_parameter_is_an_inspection",
+    )
+}
+
+/// Rule (`smelt_codegen_rust::generic_inspection::reinterprets_type_param`):
+/// a body that hands a `T` value, narrowed by `Array.isArray`, to a callback
+/// reading it as `T[]` reinterprets its `T` and stays erased, although the
+/// guard alone is a scalar inspection that would keep `T` generic.
+///
+/// Behaviour: the program prints Node's output for a `T` instantiated with
+/// `number[]` (the nested lists are walked, not rebuilt as empty lists).
+/// Type preservation: `depthFirst` is erased, and `countArrays`, which only
+/// asks the guard, keeps its `T`.
+///
+/// Planted defect: with `reinterprets_type_param` answering `false`,
+/// `depthFirst` lifts and prints `0` for the nested input.
+#[test]
+fn narrowed_type_parameter_read_as_a_container_stays_erased() -> TestResult {
+    let source = r"// `item` is a `T`; after the guard TypeScript lets it be passed as a `T[]`.
+function depthFirst<T>(items: readonly T[]): number {
+  let leaves = 0;
+  const visit = (arr: readonly T[]) => {
+    for (const item of arr) {
+      if (Array.isArray(item)) {
+        visit(item);
+      } else {
+        leaves += 1;
+      }
+    }
+  };
+  visit(items);
+  return leaves;
+}
+
+// Only the guard: `T` stays a Rust generic.
+function countArrays<T>(items: readonly T[]): number {
+  let arrays = 0;
+  for (const item of items) {
+    if (Array.isArray(item)) {
+      arrays += 1;
+    }
+  }
+  return arrays;
+}
+
+const nested: number[][] = [[1, 2], [3], []];
+console.log(depthFirst(nested), depthFirst([1, 2, 3]));
+console.log(countArrays(nested), countArrays([1, 2, 3]));
+";
+    let expected = "3 3\n3 0\n";
+    let (generated, stdout) = build_and_run(
+        "narrowed_type_parameter_read_as_a_container_stays_erased",
+        source,
+    )?;
+    for signature in [
+        r"pub(crate) fn depth_first(items: SmeltList<SmeltUnknown>) -> f64 {",
+        r"pub(crate) fn count_arrays<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(items: SmeltList<T>) -> f64 {",
+    ] {
+        ensure(
+            generated.contains(signature),
+            format!("missing `{signature}` in:\n{generated}"),
+        )?;
+    }
+    ensure_eq(&stdout, &expected.to_owned(), "unexpected stdout")?;
+    ensure_node_agrees(
+        &[("main.ts", source)],
+        "main.ts",
+        expected,
+        "narrowed_type_parameter_read_as_a_container_stays_erased",
+    )
+}
+
+/// Rule (`smelt_codegen_rust::generic_inspection`): a scalar inspection of an
+/// OPTIONAL type parameter value (`value?: T`) is answered on the erased copy
+/// of the whole optional, so an absent argument, a falsy one and a present
+/// one each answer as JavaScript does and the function keeps its `T`.
+///
+/// Behaviour: stdout equals Node's, including a class instance (recovering a
+/// `T` from `undefined` for the absent side of the test would panic there).
+/// Type preservation: both signatures keep `T`.
+///
+/// Why this is not in example `202_inspected_type_parameter_stays_generic`:
+/// a call passing a plain `T` where the parameter is `T | undefined` does not
+/// monomorphize today (the call site instantiates `T` at the erased value),
+/// which is avoidable erasure the examples corpus may not hold. The
+/// definition is what this rule is about; the call site is a separate gap.
+#[test]
+fn optional_type_parameter_is_inspected_through_its_erased_copy() -> TestResult {
+    let source = r"class Box {
+  constructor(public size: number) {}
+}
+function describe<T>(value?: T): string {
+  return value ? 'set' : 'unset';
+}
+function isGiven<T>(value?: T): boolean {
+  return value !== undefined;
+}
+const box = new Box(2);
+console.log(describe<number>(), describe(0), describe(1), describe('x'), describe(box));
+console.log(isGiven<string>(), isGiven(0), isGiven(''), isGiven(box));
+";
+    let expected = "unset unset set set set\nfalse true true true\n";
+    let (generated, stdout) = build_and_run(
+        "optional_type_parameter_is_inspected_through_its_erased_copy",
+        source,
+    )?;
+    for signature in [
+        r"pub(crate) fn describe<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(value: Option<T>) -> JsString {",
+        r"pub(crate) fn is_given<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(value: Option<T>) -> bool {",
+    ] {
+        ensure(
+            generated.contains(signature),
+            format!("missing `{signature}` in:\n{generated}"),
+        )?;
+    }
+    ensure_eq(&stdout, &expected.to_owned(), "unexpected stdout")?;
+    ensure_node_agrees(
+        &[("main.ts", source)],
+        "main.ts",
+        expected,
+        "optional_type_parameter_is_inspected_through_its_erased_copy",
     )
 }

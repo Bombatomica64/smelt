@@ -167,9 +167,7 @@ impl ModuleBuilder<'_> {
                 Ok(self.ctx.krate.types.intern(Type::Optional(none)))
             }
             TSType::TSUnionType(union) => {
-                let mut lowered = Vec::new();
-                let mut nullish = Vec::new();
-                let mut saw_never = false;
+                let mut members = Vec::new();
                 // Whether every absent arm is `null` (the keyword, or a member
                 // that is itself `T | null`): then the optional's absent value
                 // is `null`, not `undefined` (`TypeInterner::intern_null_optional`).
@@ -195,126 +193,9 @@ impl ModuleBuilder<'_> {
                     {
                         member_ty = self.erase(ErasureReason::UnmodeledType);
                     }
-                    // Flatten members that are themselves unions/optionals so the
-                    // resulting union has only concrete top-level arms. Type
-                    // aliases such as `type Criterion = A | B | null` lower to a
-                    // `Type::Union`, and composing them (`Criterion | C`) would
-                    // otherwise nest a union inside a union. Downstream typeof
-                    // narrowing, nullish narrowing, and coercion all inspect only
-                    // the top-level arms, so a nested union arm is treated as one
-                    // atomic member and gets dropped or mishandled wholesale.
-                    for flat_ty in self.flatten_union_member_types(member_ty) {
-                        if matches!(self.ctx.krate.types.get(flat_ty), Some(Type::Never)) {
-                            saw_never = true;
-                        } else if matches!(self.ctx.krate.types.get(flat_ty), Some(Type::None)) {
-                            if !nullish.contains(&flat_ty) {
-                                nullish.push(flat_ty);
-                            }
-                        } else if !lowered.contains(&flat_ty) {
-                            lowered.push(flat_ty);
-                        }
-                    }
+                    members.push(member_ty);
                 }
-                // A union whose arms are all function types but whose call
-                // shapes disagree (different parameter counts, or a rest arm
-                // mixed with a fixed-arity arm) has no single call signature to
-                // select: TypeScript would require a caller to satisfy every
-                // arm. Picking one arm inconsistently at different points (the
-                // `func` parameter type, the packed-argument wrapper, the
-                // `SmeltUnknown::Function` adapter) is exactly what produces
-                // mismatched arities in generated Rust (E0057 — e.g. es-toolkit
-                // `once<F extends (() => any) | ((...args: any[]) => void)>`).
-                //
-                // The honest JavaScript semantics of *calling* such a value is a
-                // variadic call: arguments are passed positionally and the result
-                // is observed dynamically. Collapse the arms into one variadic
-                // erased-rest signature (`(...args: unknown[]) => unknown`) so
-                // every consumer agrees on arity. Function unions that already
-                // share one call shape are left untouched so their concrete
-                // parameter/return types survive.
-                if lowered.len() >= 2
-                    && lowered.iter().all(|arm_ty| {
-                        matches!(self.ctx.krate.types.get(*arm_ty), Some(Type::Function(_)))
-                    })
-                {
-                    let mut shapes = lowered.iter().filter_map(|arm_ty| {
-                        if let Some(Type::Function(signature)) = self.ctx.krate.types.get(*arm_ty) {
-                            Some((signature.params.len(), signature.rest.is_some()))
-                        } else {
-                            None
-                        }
-                    });
-                    let first_shape = shapes.next();
-                    let arities_differ = shapes.any(|shape| Some(shape) != first_shape);
-                    if arities_differ {
-                        let item_ty = self.erase(ErasureReason::TypeLevel);
-                        let rest_list_ty = self.ctx.krate.types.intern(Type::List(item_ty));
-                        let return_ty = self.unknown_type(NotNewErasure::ErasedUpstream); // not a new erasure: same mixed-arity decision recorded for the rest item above
-                        let unified = self.ctx.krate.types.intern(Type::Function(FunctionType {
-                            params: vec![rest_list_ty],
-                            rest: Some(0),
-                            required_params: Some(0),
-                            mutable_params: Vec::new(),
-                            return_ty,
-                            is_async: false,
-                            may_throw: false,
-                        }));
-                        if nullish.is_empty() {
-                            return Ok(unified);
-                        }
-                        lowered = vec![unified];
-                    }
-                }
-                if let Some(list_ty) = self.list_union_type(&lowered) {
-                    if nullish.is_empty() {
-                        return Ok(list_ty);
-                    }
-                    lowered = vec![list_ty];
-                }
-                if let Some(dict_ty) = self.dict_union_type(&lowered) {
-                    if nullish.is_empty() {
-                        return Ok(dict_ty);
-                    }
-                    lowered = vec![dict_ty];
-                }
-                if lowered.len() == 1 && !nullish.is_empty() {
-                    let single = lowered.remove(0);
-                    if absent_only_null {
-                        return Ok(self.ctx.krate.types.intern_null_optional(single));
-                    }
-                    Ok(self.ctx.krate.types.intern(Type::Optional(single)))
-                } else if lowered.len() == 1 {
-                    let single = lowered.remove(0);
-                    Ok(single)
-                } else if lowered.is_empty() && nullish.is_empty() && saw_never {
-                    Ok(self.ctx.krate.types.intern(Type::Never))
-                } else if nullish.is_empty()
-                    || lowered.len() < 2
-                    || !lowered
-                        .iter()
-                        .all(|arm| self.union_arm_has_concrete_storage(*arm))
-                {
-                    // Fewer than two present arms leave no union to make
-                    // optional, and a union with an arm the generated crate
-                    // stores erased (`unknown`, a type parameter, a class
-                    // nothing declares) is the erased value, which already
-                    // holds `null` and `undefined`: the union stays as written.
-                    lowered.extend(nullish);
-                    Ok(self.ctx.krate.types.intern(Type::Union(lowered)))
-                } else {
-                    // Two or more present arms and an absent value: the optional
-                    // of the present union, as a single present arm already is
-                    // (and as an optional parameter `x?: A | B` is). When every
-                    // absent arm is `null`, the optional is a `T | null`
-                    // (`TypeInterner::intern_null_optional`): its `None` erases
-                    // and prints as `null`, inside a container too
-                    // (`emitter::absent_value` in the Rust backend).
-                    let present = self.ctx.krate.types.intern(Type::Union(lowered));
-                    if absent_only_null {
-                        return Ok(self.ctx.krate.types.intern_null_optional(present));
-                    }
-                    Ok(self.ctx.krate.types.intern(Type::Optional(present)))
-                }
+                Ok(self.union_of_member_types_with_absence(&members, absent_only_null))
             }
             TSType::TSIntersectionType(intersection) => {
                 // An intersection of a call signature with object members is a
@@ -626,6 +507,9 @@ impl ModuleBuilder<'_> {
         indexed: &oxc::ast::ast::TSIndexedAccessType<'_>,
     ) -> Result<smelt_hir::TypeId, SmeltError> {
         let object_ty = self.ts_type_to_hir(&indexed.object_type)?;
+        if let Some(deferred) = self.deferred_indexed_access(object_ty, &indexed.index_type)? {
+            return Ok(deferred);
+        }
         match self.ctx.krate.types.get(object_ty) {
             Some(Type::Tuple(items)) => {
                 if let Some(index) = Self::numeric_literal_type_index(&indexed.index_type) {

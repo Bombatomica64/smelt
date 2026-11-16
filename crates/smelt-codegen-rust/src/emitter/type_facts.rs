@@ -569,6 +569,7 @@ pub(crate) fn dict_key_uses_js_key_map(mir: &Mir, key_ty: TypeId) -> bool {
             .any(|item| dict_key_uses_js_key_map(mir, *item)),
         Some(
             Type::Unknown
+            | Type::IndexedAccess { .. }
             | Type::TypeParam { .. }
             | Type::Never
             | Type::List(_)

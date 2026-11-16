@@ -19,16 +19,23 @@ export function firstOf<T>(items: T[], size: number): T[] {
     assert!(source.contains("items: SmeltList<T>"), "{source}");
 }
 
+/// A body that compares two `T` values inspects them and loses its generics.
+///
+/// The body used to be `value === null`. An absence test of ONE `T` value is
+/// now a scalar inspection answered on an erased copy, which keeps `T`
+/// generic (`crate::generic_inspection`; pinned by
+/// `scalar_inspection_of_a_type_param_keeps_it_generic`), so this test asks
+/// with a comparison no single erased copy answers.
 #[test]
 fn inspecting_a_type_parameter_still_demotes_the_function() {
     let source = source_for(
         r"
-export function isAbsent<T>(value: T): boolean {
-    return value === null;
+export function isSame<T>(value: T, other: T): boolean {
+    return value === other;
 }
 ",
     );
-    assert!(!source.contains("fn is_absent<T"), "{source}");
+    assert!(!source.contains("fn is_same<T"), "{source}");
 }
 
 #[test]

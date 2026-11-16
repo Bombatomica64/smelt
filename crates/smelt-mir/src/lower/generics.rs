@@ -243,6 +243,16 @@ pub(super) fn substitute_type_id(
                 return_ty: substituted_return,
             })
         }
+        // Never a MIR type (see `Type::IndexedAccess`); substituted position
+        // by position like every other constructor, and never evaluated here.
+        Some(Type::IndexedAccess { object, index }) => {
+            let substituted_object = substitute_type_id(mir, object, substitutions);
+            let substituted_index = substitute_type_id(mir, index, substitutions);
+            mir.types.intern(Type::IndexedAccess {
+                object: substituted_object,
+                index: substituted_index,
+            })
+        }
         Some(
             Type::Bool
             | Type::Int
