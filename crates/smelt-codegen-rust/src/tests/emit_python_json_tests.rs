@@ -160,7 +160,7 @@ const values = JSON.parse(text);
     // erased `SmeltUnknown` (which is) and the record is reached by coercion.
     assert!(ts_source.contains("smelt_json_parse(&"), "{ts_source}");
     assert!(
-        ts_source.contains("serde_json::from_str::<SmeltUnknown>(text)"),
+        ts_source.contains("SmeltJsonReader::read(text)"),
         "{ts_source}"
     );
     assert!(
@@ -204,7 +204,7 @@ const bag = JSON.parse(text) as Record<string, unknown>;
     );
     assert!(ts_source.contains("smelt_json_parse(text)?"), "{ts_source}");
     assert!(
-        ts_source.contains("serde_json::from_str::<SmeltUnknown>(text)"),
+        ts_source.contains("SmeltJsonReader::read(text)"),
         "{ts_source}"
     );
     assert!(

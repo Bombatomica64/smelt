@@ -156,6 +156,31 @@ fn multi_argument_push() -> TestResult {
     verify_node_parity("multi_argument_push")
 }
 
+/// `ToString` is one rule across templates, `+` and `String(x)`: arrays join
+/// (nested and absent elements included), a `toString` of a class or object
+/// literal is called, sets, maps and plain objects keep their tags, and `null`
+/// and `undefined` are their words; `Number(array)` reads that string.
+#[test]
+fn to_string_rule() -> TestResult {
+    verify_node_parity("to_string_rule")
+}
+
+/// `Math.max`/`Math.min` propagate `NaN` from any argument, scalar or spread,
+/// and order `-0` below `+0`.
+#[test]
+fn math_extrema() -> TestResult {
+    verify_node_parity("math_extrema")
+}
+
+/// `JSON.stringify` applies `toJSON` (a class method, an object literal's, a
+/// `Date`'s), getters and a replacer function or key array per property;
+/// `JSON.parse` reads deep nesting, `1e400`, `-0` and lone surrogates, and
+/// throws `SyntaxError` on non-JSON numbers and trailing commas.
+#[test]
+fn json_serialize_property() -> TestResult {
+    verify_node_parity("json_serialize_property")
+}
+
 /// bigint arithmetic, its tag behind `unknown`, 64-bit views and its catchable errors.
 #[test]
 fn bigint_boundaries() -> TestResult {

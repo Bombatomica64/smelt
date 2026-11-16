@@ -683,9 +683,10 @@ impl FunctionEmitter<'_> {
             } => self.string_split_expr(haystack, separator, limit.as_ref(), dest_ty),
             Rvalue::StringChars { haystack } => self.string_chars_expr(haystack, dest_ty),
             Rvalue::StringJoin { items, separator } => self.string_join_expr(items, separator),
-            Rvalue::JsonStringify { value: json_value } => {
-                self.json_stringify_expr(json_value, dest_ty)
-            }
+            Rvalue::JsonStringify {
+                value: json_value,
+                replacer,
+            } => self.json_stringify_expr(json_value, replacer.as_ref(), dest_ty),
             Rvalue::HttpGetText { url } => self.http_get_expr(url),
             Rvalue::GlobalGet { global } => self.global_get_expr(*global),
             Rvalue::GlobalSet { global, value: stored } => {

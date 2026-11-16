@@ -3147,7 +3147,25 @@ fn smelt_erased_to_js_string(value: &SmeltUnknown) -> JsString {
     match value {
         SmeltUnknown::String(text) => text.clone(),
         SmeltUnknown::Array(values) => JsString::join(values.iter().map(|item| match item { SmeltUnknown::Null | SmeltUnknown::Undefined => JsString::new(), other => smelt_erased_to_js_string(&other) }), &JsString::from(",")),
+        SmeltUnknown::Object(object) if !object.contains_key("__smelt_error") => JsString::from(smelt_erased_object_to_string(object)),
         other => JsString::from(smelt_builtin_receiver_text(other)),
+    }
+}
+
+/// JavaScript `ToString` of an erased plain object: `ToPrimitive` calls its
+/// `toString` (own, inherited through `Object.create`, or its class's method)
+/// with the object as `this`, and the answer is that call's string; an
+/// object with no `toString` of its own is `[object Object]`.
+#[allow(dead_code)]
+fn smelt_erased_object_to_string(object: &SmeltObject) -> String {
+    let method = object.get("toString").or_else(|| object.get("__smelt_proto:toString")).or_else(|| object.get("__smelt_method:toString"));
+    let Some(SmeltUnknown::Function(to_string)) = method else {
+        return "[object Object]".to_owned();
+    };
+    match to_string(Vec::new()).unwrap_or_else(|error| smelt_panic_throw(error)) {
+        SmeltUnknown::String(text) => text.to_string(),
+        SmeltUnknown::Object(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) => "[object Object]".to_owned(),
+        other => smelt_erased_to_js_string(&other).to_string(),
     }
 }
 
@@ -4419,11 +4437,12 @@ impl<T, U, V> PartialEq for Slot<T, U, V> where T: PartialEq, U: PartialEq, V: P
 }
 impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, U: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, V: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> IntoSmeltUnknown for Slot<T, U, V> {
     fn into_smelt_unknown(self) -> SmeltUnknown {
+        let smelt_proto_entries = self.__smelt_proto_entries();
         SmeltUnknown::Object(SmeltObject::new(Vec::<(String, _)>::from([
         ("first".to_owned(), (self.first).into_smelt_unknown()),
         ("second".to_owned(), (self.second).into_smelt_unknown()),
         ("third".to_owned(), (self.third).into_smelt_unknown()),
-        ])))
+        ]).into_iter().chain(smelt_proto_entries).collect::<Vec<_>>()))
     }
 }
 impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, U: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, V: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> SmeltFromUnknown for Slot<T, U, V> {
@@ -4454,9 +4473,10 @@ struct Holder {
 }
 impl IntoSmeltUnknown for Holder {
     fn into_smelt_unknown(self) -> SmeltUnknown {
+        let smelt_proto_entries = self.__smelt_proto_entries();
         SmeltUnknown::Object(SmeltObject::new(Vec::<(String, _)>::from([
         ("slot".to_owned(), (self.slot).into_smelt_unknown()),
-        ])))
+        ]).into_iter().chain(smelt_proto_entries).collect::<Vec<_>>()))
     }
 }
 impl SmeltFromUnknown for Holder {
@@ -4514,10 +4534,11 @@ impl<A, B> PartialEq for Config<A, B> where A: PartialEq, B: PartialEq {
 }
 impl<A: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, B: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> IntoSmeltUnknown for Config<A, B> {
     fn into_smelt_unknown(self) -> SmeltUnknown {
+        let smelt_proto_entries = self.__smelt_proto_entries();
         SmeltUnknown::Object(SmeltObject::new(Vec::<(String, _)>::from([
         ("key".to_owned(), (self.key).into_smelt_unknown()),
         ("value".to_owned(), (self.value).into_smelt_unknown()),
-        ])))
+        ]).into_iter().chain(smelt_proto_entries).collect::<Vec<_>>()))
     }
 }
 impl<A: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, B: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> SmeltFromUnknown for Config<A, B> {
@@ -4575,10 +4596,11 @@ impl<A, B> PartialEq for Pair<A, B> where A: PartialEq, B: PartialEq {
 }
 impl<A: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, B: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> IntoSmeltUnknown for Pair<A, B> {
     fn into_smelt_unknown(self) -> SmeltUnknown {
+        let smelt_proto_entries = self.__smelt_proto_entries();
         SmeltUnknown::Object(SmeltObject::new(Vec::<(String, _)>::from([
         ("head".to_owned(), (self.head).into_smelt_unknown()),
         ("rest".to_owned(), (self.rest).into_smelt_unknown()),
-        ])))
+        ]).into_iter().chain(smelt_proto_entries).collect::<Vec<_>>()))
     }
 }
 impl<A: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static, B: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> SmeltFromUnknown for Pair<A, B> {

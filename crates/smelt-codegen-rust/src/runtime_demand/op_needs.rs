@@ -31,6 +31,10 @@ impl RuntimeDemand {
                     self.add(Need::MathRound);
                 }
             }
+            // `Math.max`/`Math.min` on numbers (`smelt_math_max`).
+            Rvalue::NumericExtrema { .. } => {
+                self.add(Need::MathExtrema);
+            }
             Rvalue::NumericRandom => {
                 self.add(Need::DepRand);
             }
@@ -497,7 +501,6 @@ impl RuntimeDemand {
             | Rvalue::OptionalIndex { .. }
             | Rvalue::Len { .. }
             | Rvalue::NumericAbs { .. }
-            | Rvalue::NumericExtrema { .. }
             | Rvalue::NumericHypot { .. }
             | Rvalue::NumericPredicate { .. }
             | Rvalue::NumericUnaryFunc { .. }

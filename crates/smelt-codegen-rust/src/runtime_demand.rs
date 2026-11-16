@@ -91,6 +91,8 @@ declare_needs! {
     Date,
     /// JavaScript `Math.round`.
     MathRound,
+    /// JavaScript `Math.max`/`Math.min` of two numbers.
+    MathExtrema,
     /// The `parseInt`/`parseFloat` prefix parsers.
     ParseNumber,
     /// `smelt_string_to_number`, ECMA-262 `StringToNumber` over a Rust `&str`:

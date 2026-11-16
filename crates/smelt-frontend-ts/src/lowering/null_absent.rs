@@ -18,6 +18,7 @@
 //! only `undefined`, or no checker) keeps the `undefined` reading the storage
 //! has always had. The storage type itself does not change.
 
+use crate::lowering::body_arena::BodyArena;
 use smelt_hir::{BinOp, Body, Expr, ExprKind, Literal, PrimitiveCastOp, Type};
 use smelt_ts_model::TsTypeKind;
 
@@ -48,12 +49,12 @@ impl ModuleBuilder<'_> {
             let span = binary.right.span();
             (
                 lhs,
-                self.null_absent_string_operand(rhs, span.start, span.end, body),
+                self.string_conversion_operand(rhs, span.start, span.end, body),
             )
         } else if is_string(self, rhs) {
             let span = binary.left.span();
             (
-                self.null_absent_string_operand(lhs, span.start, span.end, body),
+                self.string_conversion_operand(lhs, span.start, span.end, body),
                 rhs,
             )
         } else {
@@ -148,15 +149,24 @@ impl ModuleBuilder<'_> {
         null
     }
 
-    /// Lower the operand of a string conversion so an absent `null` reads as
-    /// `"null"`.
+    /// Lower the operand of a string conversion (a template literal part, a
+    /// `+` operand beside a string, `String(x)`) through the steps of
+    /// JavaScript `ToString` that need source-level facts; codegen spells the
+    /// per-type rest (`string_like_operand_rust_text`), so all three
+    /// conversions agree.
     ///
     /// `operand` is the lowered expression and `start..end` its source span.
-    /// For an `Optional` whose checker type admits only `null`, the result is
-    /// `x ?? "null"` for a string and `x !== undefined ? String(x) : "null"`,
-    /// with `x` bound once, otherwise; any other operand is returned
-    /// unchanged.
-    pub(in crate::lowering) fn null_absent_string_operand(
+    /// - A value only ever absent (`null`, `undefined`) is its word.
+    /// - A class instance whose class has a `toString` method of its own (or
+    ///   inherited) is converted by calling it, as `ToPrimitive` does: the
+    ///   result is `x.toString()`.
+    /// - An `Optional` whose checker type admits only `null` reads its absent
+    ///   case as `"null"`: `x ?? "null"` for a string and
+    ///   `x !== undefined ? String(x) : "null"`, with `x` bound once,
+    ///   otherwise.
+    ///
+    /// Any other operand is returned unchanged.
+    pub(in crate::lowering) fn string_conversion_operand(
         &mut self,
         operand: smelt_hir::ExprId,
         start: u32,
@@ -164,6 +174,46 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> smelt_hir::ExprId {
         let operand_ty = Self::expr_ty(body, operand);
+        // A value that is only ever absent is the word for which absent
+        // value it is: `String(null)` is `"null"`, `String(undefined)` is
+        // `"undefined"`.
+        if matches!(self.ctx.krate.types.get(operand_ty), Some(Type::None)) {
+            let null_literal = matches!(
+                body.expr_at(operand).map(|expr| &expr.kind),
+                Some(ExprKind::Literal(Literal::None))
+            );
+            let word = if null_literal || self.checker_absent_is_null(start, end) {
+                "null"
+            } else {
+                "undefined"
+            };
+            let string_ty = self.ctx.krate.types.intern(Type::String);
+            return body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::String(word.to_owned())),
+                ty: string_ty,
+                span: self.span(start, end),
+            });
+        }
+        if matches!(
+            self.ctx.krate.types.get(operand_ty),
+            Some(Type::Class { .. })
+        ) && self.declares_to_string(operand_ty)
+        {
+            let method = self.intern_source_name("toString");
+            let string_ty = self.ctx.krate.types.intern(Type::String);
+            let return_ty = self
+                .resolve_method(operand_ty, method, oxc::span::Span::new(start, end))
+                .map_or(string_ty, |(return_ty, _)| return_ty);
+            return body.push_expr(Expr {
+                kind: ExprKind::Method {
+                    receiver: operand,
+                    method,
+                    args: Vec::new(),
+                },
+                ty: return_ty,
+                span: self.span(start, end),
+            });
+        }
         if !matches!(
             self.ctx.krate.types.get(operand_ty),
             Some(Type::Optional(_))

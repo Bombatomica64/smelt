@@ -44,28 +44,30 @@ module examples/typescript/end-to-end/58_absent_value_stringify/input.ts (Module
     #32: None = none
     #33: String = ""
     #34: None = %4
-    #35: String = Add #33, #34
-    #36: None = @7(console_log)
-    #37: None = call #36(#35)
-    #38: String = "x"
-    #39: String = ""
-    #40: None = %4
-    #41: String = Add #39, #40
-    #42: String = Add #38, #41
-    #43: None = @8(console_log)
-    #44: None = call #43(#42)
-    #45: String = "p:"
-    #46: String = "v"
-    #47: fn(String, Optional<String>) -> String = @0(label)
-    #48: String = call #47(#45, #46)
-    #49: None = @9(console_log)
-    #50: None = call #49(#48)
-    #51: String = "p:"
-    #52: None = undefined
-    #53: fn(String, Optional<String>) -> String = @0(label)
-    #54: String = call #53(#51, #52)
-    #55: None = @10(console_log)
-    #56: None = call #55(#54)
+    #35: String = "null"
+    #36: String = Add #33, #35
+    #37: None = @7(console_log)
+    #38: None = call #37(#36)
+    #39: String = "x"
+    #40: String = ""
+    #41: None = %4
+    #42: String = "null"
+    #43: String = Add #40, #42
+    #44: String = Add #39, #43
+    #45: None = @8(console_log)
+    #46: None = call #45(#44)
+    #47: String = "p:"
+    #48: String = "v"
+    #49: fn(String, Optional<String>) -> String = @0(label)
+    #50: String = call #49(#47, #48)
+    #51: None = @9(console_log)
+    #52: None = call #51(#50)
+    #53: String = "p:"
+    #54: None = undefined
+    #55: fn(String, Optional<String>) -> String = @0(label)
+    #56: String = call #55(#53, #54)
+    #57: None = @10(console_log)
+    #58: None = call #57(#56)
   stmts
     s0: let %0: Optional<String> = #0
     s1: #4
@@ -78,10 +80,10 @@ module examples/typescript/end-to-end/58_absent_value_stringify/input.ts (Module
     s8: let %3: Optional<Float> = #26
     s9: #31
     s10: let %4: None = #32
-    s11: #37
-    s12: #44
-    s13: #50
-    s14: #56
+    s11: #38
+    s12: #46
+    s13: #52
+    s14: #58
 
 interned types
   t0 = String
