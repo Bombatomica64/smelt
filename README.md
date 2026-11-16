@@ -361,28 +361,29 @@ the library gates run on it.
 
 | Metric | Coverage |
 | --- | ---: |
-| Functions | 79.52% |
-| Lines | 82.30% |
-| Regions | 75.28% |
-| Branches | 70.09% |
+| Functions | 79.83% |
+| Lines | 82.41% |
+| Regions | 75.48% |
+| Branches | 70.24% |
 
 ### Per Crate
 
 | Crate | Functions | Lines | Branches |
 | --- | ---: | ---: | ---: |
-| `smelt-codegen-rust` | 91.08% | 85.71% | 72.99% |
-| `smelt-frontend-py` | 87.05% | 80.24% | 72.19% |
-| `smelt-frontend-ts` | 90.54% | 84.10% | 72.80% |
-| `smelt-hir` | 86.23% | 80.66% | 70.83% |
-| `smelt-mir` | 92.77% | 91.90% | 78.15% |
+| `smelt-codegen-rust` | 91.13% | 85.78% | 73.08% |
+| `smelt-frontend-py` | 87.21% | 80.62% | 72.41% |
+| `smelt-frontend-ts` | 90.54% | 84.11% | 72.81% |
+| `smelt-hir` | 86.09% | 79.96% | 70.83% |
+| `smelt-mir` | 92.83% | 92.02% | 78.31% |
 | `smelt-py-types` | 84.62% | 92.86% | 68.97% |
-| `smelt-runtime` | 31.69% | 36.42% | 33.46% |
+| `smelt-runtime` | 34.47% | 40.07% | 36.66% |
 | `smelt-specialize` | 70.67% | 79.36% | 62.41% |
 | `smelt-stdlib` | 88.11% | 85.55% | 93.90% |
 | `smelt-transpiler` | 82.95% | 82.22% | 71.44% |
 | `smelt-ts-model` | 91.67% | 93.27% | 50.00% |
 | `smelt-ts-types` | 86.05% | 90.62% | 84.72% |
 <!-- COVERAGE:END -->
+
 
 
 
