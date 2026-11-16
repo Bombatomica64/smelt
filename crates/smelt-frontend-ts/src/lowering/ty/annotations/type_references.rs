@@ -10,6 +10,63 @@ use smelt_hir::{ErasureReason, FunctionType, Item, Type};
 use std::collections::HashMap;
 
 impl ModuleBuilder<'_> {
+    /// The return type a function declares with `annotation`.
+    ///
+    /// A generator function's value is always a generator object, so when it
+    /// declares one of the interfaces a generator implements (`Iterator<T>`,
+    /// `IterableIterator<T>`, `Iterable<T>`, `Generator<T>`, and their async
+    /// forms) its return type is the generator yielding `T`, with the
+    /// interface's `TReturn` and `TNext` when it names them. `Iterator<T>` in
+    /// any other position stays the interface it is, since an ordinary
+    /// object can implement it.
+    pub(in crate::lowering) fn function_return_annotation_type(
+        &mut self,
+        function: &oxc::ast::ast::Function<'_>,
+        annotation: &oxc::ast::ast::TSType<'_>,
+    ) -> Result<smelt_hir::TypeId, SmeltError> {
+        if function.generator
+            && let oxc::ast::ast::TSType::TSTypeReference(reference) = annotation
+            && let TSTypeName::IdentifierReference(name) = &reference.type_name
+            && matches!(
+                name.name.as_str(),
+                "Iterator"
+                    | "IterableIterator"
+                    | "Iterable"
+                    | "Generator"
+                    | "AsyncIterator"
+                    | "AsyncIterableIterator"
+                    | "AsyncIterable"
+                    | "AsyncGenerator"
+            )
+            && matches!(self.resolve_type_name(name.name.as_str()), TypeBinding::Lib)
+        {
+            let args: Vec<&oxc::ast::ast::TSType<'_>> = reference
+                .type_arguments
+                .as_ref()
+                .map(|args| args.params.iter().collect())
+                .unwrap_or_default();
+            let yield_ty = match args.first() {
+                Some(yielded) => self.ts_type_to_hir(yielded)?,
+                None => self.erase(ErasureReason::UnfilledGeneric),
+            };
+            let return_ty = match args.get(1) {
+                Some(returned) => self.ts_type_to_hir(returned)?,
+                None => self.ctx.krate.types.intern(Type::None),
+            };
+            let next_ty = match args.get(2) {
+                Some(resumed) => self.ts_type_to_hir(resumed)?,
+                None => self.erase(ErasureReason::UnfilledGeneric),
+            };
+            return Ok(self.ctx.krate.types.intern(Type::Generator {
+                is_async: function.r#async,
+                yield_ty,
+                return_ty,
+                next_ty,
+            }));
+        }
+        self.ts_type_to_hir(annotation)
+    }
+
     /// Whether any class, interface or type alias of the crate is named
     /// `name_text`.
     pub(super) fn declared_type_name_exists(&mut self, name_text: &str) -> bool {

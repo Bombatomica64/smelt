@@ -274,6 +274,61 @@ impl ModuleBuilder<'_> {
         }))
     }
 
+    /// The generator `value[Symbol.iterator]()` returns, when `value` is an
+    /// instance whose class declares a zero-argument synchronous generator
+    /// method under that key (`*[Symbol.iterator](): Iterator<T>`): the
+    /// method call, typed as the generator. `None` for any other value.
+    ///
+    /// This is how JavaScript iterates an object (`for...of`, spread,
+    /// `Array.from`): through its `Symbol.iterator` method. The typed
+    /// generator then drives the iteration, so its items keep their type.
+    pub(in crate::lowering) fn class_iterator_generator(
+        &mut self,
+        value: smelt_hir::ExprId,
+        span: smelt_hir::Span,
+        body: &mut Body,
+    ) -> Option<smelt_hir::ExprId> {
+        let value_ty = Self::expr_ty(body, value);
+        if !matches!(self.ctx.krate.types.get(value_ty), Some(Type::Class { .. })) {
+            return None;
+        }
+        let iterator = self.intern_symbol_key("__smelt_symbol_iterator");
+        // Asking a class without the member may record an erasure for the
+        // miss; the question is a probe, so nothing it recorded stays.
+        let records_before = self.ctx.krate.erasures.len();
+        let generator_ty = match self.class_field_type(value_ty, iterator) {
+            Ok(iterator_ty) => match self.ctx.krate.types.get(iterator_ty).cloned() {
+                Some(Type::Function(function))
+                    if function.params.is_empty()
+                        && matches!(
+                            self.ctx.krate.types.get(function.return_ty),
+                            Some(Type::Generator {
+                                is_async: false,
+                                ..
+                            })
+                        ) =>
+                {
+                    Some(function.return_ty)
+                }
+                _ => None,
+            },
+            Err(_) => None,
+        };
+        let Some(generator_ty) = generator_ty else {
+            self.ctx.krate.erasures.truncate(records_before);
+            return None;
+        };
+        Some(body.push_expr(Expr {
+            kind: ExprKind::Method {
+                receiver: value,
+                method: iterator,
+                args: Vec::new(),
+            },
+            ty: generator_ty,
+            span,
+        }))
+    }
+
     /// Lower a generator `next`, `return`, or `throw` call, resuming the generator.
     pub(in crate::lowering) fn generator_next_call(
         &mut self,

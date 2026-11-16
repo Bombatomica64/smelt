@@ -2645,7 +2645,7 @@ impl<Y, R, N> ::std::fmt::Debug for SmeltGenerator<Y, R, N> { fn fmt(&self, form
 impl<Y, R: Clone + Default, N> SmeltGenerator<Y, R, N> {
     fn new(resume: impl FnMut(SmeltGeneratorCommand<N, R>) -> Result<SmeltGeneratorResult<Y, R>, Box<dyn ::std::error::Error>> + 'static) -> Self { Self { resume: ::std::rc::Rc::new(::std::cell::RefCell::new(Box::new(resume))), completed: ::std::rc::Rc::new(::std::cell::RefCell::new(None)) } }
     fn try_resume(&self, command: SmeltGeneratorCommand<N, R>) -> Result<SmeltGeneratorResult<Y, R>, Box<dyn ::std::error::Error>> {
-        if let Some(value) = self.completed.borrow().clone() { return Ok(SmeltGeneratorResult::Complete(value)); }
+        if self.completed.borrow().is_some() { return Ok(SmeltGeneratorResult::Complete(R::default())); }
         let result = (self.resume.borrow_mut())(command);
         match &result {
             Ok(SmeltGeneratorResult::Complete(value)) => *self.completed.borrow_mut() = Some(value.clone()),

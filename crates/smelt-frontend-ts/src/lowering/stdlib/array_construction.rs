@@ -141,6 +141,18 @@ impl ModuleBuilder<'_> {
         span: Span,
         body: &mut Body,
     ) -> smelt_hir::ExprId {
+        // An object is read through its `[Symbol.iterator]()` generator.
+        if let Some(generator) = self.class_iterator_generator(source, span, body)
+            && let Some(Type::Generator { yield_ty, .. }) = self
+                .ctx
+                .krate
+                .types
+                .get(Self::expr_ty(body, generator))
+                .cloned()
+        {
+            let ty = self.ctx.krate.types.intern(Type::List(yield_ty));
+            return Self::generator_items_expr(generator, ty, span, body);
+        }
         match self.ctx.krate.types.get(source_ty).cloned() {
             Some(Type::List(_)) if mapped => source,
             Some(Type::List(item_ty)) => {
