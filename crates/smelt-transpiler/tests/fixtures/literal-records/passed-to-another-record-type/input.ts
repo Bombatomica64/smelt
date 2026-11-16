@@ -1,23 +1,25 @@
 // An unannotated object literal passed to a parameter of ANOTHER record type
-// is a record struct when the two record types share, and stays a map when
-// they do not.
+// is a record struct the callee shares when it can be, and stays a map when it
+// cannot.
 //
 // A parameter typed by an interface or by an object type with properties is a
-// different struct in the generated Rust. Two record types SHARE when every
-// property the parameter's type declares is a property of the literal's type,
-// at the same type: the parameter then holds a view of the caller's record
-// (`smelt-codegen-rust/src/structural_views.rs`), and the callee's write
-// reaches the caller as it does in JavaScript. `moved` and `first` are such
-// literals and are record structs.
+// different struct in the generated Rust. A literal whose parameter type
+// declares exactly its properties (optional ones after them allowed) takes
+// that type from the literal on: `moved` is a `Point` and `annotated` a
+// `Roomy`, so nothing is converted at the call. Otherwise two record types
+// SHARE when every property the parameter's type declares is a property of
+// the literal's type, at the same type: the parameter then holds a view of the
+// caller's record (`smelt-codegen-rust/src/structural_views.rs`), and the
+// callee's write reaches the caller as it does in JavaScript. `first` is such
+// a literal and is a record struct.
 //
-// A parameter type that does not share (a property at a wider type, an
-// optional property the literal does not have) still converts by building
-// that other record, a copy. A map is not converted that way: the record the
-// callee receives is built from the map and ADOPTS it, so the two stay one
-// object. `widened` and `annotated` keep the map lowering
+// A parameter type that does neither (a property at a wider type) still
+// converts by building that other record, a copy. A map is not converted that
+// way: the record the callee receives is built from the map and ADOPTS it, so
+// the two stay one object. `widened` keeps the map lowering
 // (`literal_record_uses`, `Disqualifier::Call`).
 //
-// Lowered as record structs, the lines marked (*) print `1` and `second`.
+// Copied for the callee, the lines marked (*) print `1` and `second`.
 //
 // Every line below is diffed against Node.
 

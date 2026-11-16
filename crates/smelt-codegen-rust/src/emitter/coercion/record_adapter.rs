@@ -786,6 +786,10 @@ impl FunctionEmitter<'_> {
                     &subclass_origins,
                     self.context.is_live_record(*name),
                 )
+            } else if let Some(adopted) =
+                self.typed_dict_adopting_rebuild(&rebuild, source_key, source_value, *name, scope)?
+            {
+                adopted
             } else {
                 rebuild
             };
@@ -800,6 +804,152 @@ impl FunctionEmitter<'_> {
             field_text.join(", "),
             value_text = value_text.tight()
         ))))
+    }
+
+    /// The conversion of `smelt_record_map`, a dictionary of the concrete
+    /// value type `source_value`, to the live record `target` (built by
+    /// `rebuild`): the record the dictionary already stands for, or a new one
+    /// the dictionary ADOPTS (`SmeltRecord::smelt_adopt_typed`), becoming its
+    /// live typed view. `None` when the target is not a live record or the
+    /// program has no views, which keeps the copy.
+    ///
+    /// An object literal whose values share one type is kept as such a
+    /// dictionary when its uses rule out a struct (`literal_record_uses`). It
+    /// is still one JavaScript object: a callee that writes the record it
+    /// receives (`touch(flags)` with `touch(f: Flags) { f.touched = true }`)
+    /// writes the caller's object, and the caller's later writes reach the
+    /// callee's alias. A copy lost both (`crate::dict_adoption::RecordFlows`
+    /// lifts the record and carries the view runtime for exactly this).
+    fn typed_dict_adopting_rebuild(
+        &self,
+        rebuild: &RustExpr,
+        source_key: TypeId,
+        source_value: TypeId,
+        target: Symbol,
+        scope: &RenderScope,
+    ) -> Result<Option<RustExpr>, EmitError> {
+        if !self.context.is_live_record(target)
+            || crate::runtime_prelude::flag(self.context, "live_views") != Some(true)
+            || !self.dict_uses_smelt_record(source_key)
+            || matches!(self.mir.types.get(source_value), Some(Type::Unknown))
+        {
+            return Ok(None);
+        }
+        let wrap = if let Some(call) = self.hoisted_value_conversion(source_value)? {
+            RustExpr::atom(call)
+        } else if let Ok(inline) =
+            self.extract_rendered(&RustExpr::path("smelt_value"), source_value, scope)
+        {
+            inline
+        } else {
+            return Ok(None);
+        };
+        let unwrap = if let Some(call) = self.hoisted_value_erasure(source_value)? {
+            RustExpr::atom(call)
+        } else if let Ok(inline) =
+            self.erase_rendered(&RustExpr::path("smelt_typed").cloned_value(), source_value)
+        {
+            inline
+        } else {
+            return Ok(None);
+        };
+        let target_name = self.type_rust_name(target)?;
+        Ok(Some(RustExpr::atom(format!(
+            "match smelt_record_map.smelt_origin::<{target_name}>() {{ Some(smelt_origin) => smelt_origin, None => {{ let smelt_rebuilt = {rebuild}; smelt_record_map.smelt_adopt_typed(&smelt_rebuilt, move |smelt_value: SmeltUnknown| {wrap}, |smelt_typed| {unwrap}); smelt_rebuilt }} }}",
+            rebuild = rebuild.delimited(),
+            wrap = wrap.delimited(),
+            unwrap = unwrap.delimited()
+        ))))
+    }
+
+    /// `__smelt_from_unknown_record_<n>(smelt_value)`: the hoisted conversion
+    /// of an erased value to `value`, registered on first use, which every
+    /// adopting conversion of a dictionary of that value type calls
+    /// ([`Self::typed_dict_adopting_rebuild`]); `None` (keep it inline) when
+    /// the type's spelling here is not its module-level one, or the
+    /// conversion does not render.
+    ///
+    /// The table is the one `hoisted_record_conversion` fills, keyed the same
+    /// way by the type's Rust spelling: every entry is "this erased value as
+    /// that type". Spelled inline, the conversion of a dictionary value
+    /// holding callbacks is kilobytes, repeated at every site that hands such
+    /// a dictionary to the record.
+    fn hoisted_value_conversion(&self, value: TypeId) -> Result<Option<String>, EmitError> {
+        let scoped_text = self.rendered_type(value)?.into_string();
+        let hoisted = HoistedModuleItemScope::enter(self);
+        let module_text = self.rendered_type(value)?.into_string();
+        if module_text != scoped_text {
+            return Ok(None);
+        }
+        let existing = self
+            .context
+            .minted
+            .record_conversion_helpers
+            .borrow()
+            .get(&module_text)
+            .map(|(ordinal, _)| *ordinal);
+        let ordinal = if let Some(ordinal) = existing {
+            ordinal
+        } else {
+            let reservation = helper_reservation::reserve(
+                &self.context.minted,
+                &self.context.minted.record_conversion_helpers,
+                module_text,
+            );
+            let module_scope = self.render_scope();
+            let Ok(body) =
+                self.extract_rendered(&RustExpr::path("smelt_value"), value, &module_scope)
+            else {
+                drop(reservation);
+                return Ok(None);
+            };
+            reservation.commit(body.into_string())
+        };
+        drop(hoisted);
+        Ok(Some(format!(
+            "{}{ordinal}(smelt_value)",
+            crate::RECORD_CONVERSION_HELPER_PREFIX
+        )))
+    }
+
+    /// `__smelt_adapt_record_<n>(smelt_typed.clone())`: the hoisted erasure
+    /// of a value of type `value`, registered on first use in the
+    /// `(value, SmeltUnknown)` entry of the adapter table, for the same
+    /// reason as [`Self::hoisted_value_conversion`]; `None` keeps it inline.
+    fn hoisted_value_erasure(&self, value: TypeId) -> Result<Option<String>, EmitError> {
+        let scoped_text = self.rendered_type(value)?.into_string();
+        let hoisted = HoistedModuleItemScope::enter(self);
+        let module_text = self.rendered_type(value)?.into_string();
+        if module_text != scoped_text {
+            return Ok(None);
+        }
+        let key = (module_text, "SmeltUnknown".to_owned());
+        let existing = self
+            .context
+            .minted
+            .record_adapter_helpers
+            .borrow()
+            .get(&key)
+            .map(|(ordinal, _)| *ordinal);
+        let ordinal = if let Some(ordinal) = existing {
+            ordinal
+        } else {
+            let reservation = helper_reservation::reserve(
+                &self.context.minted,
+                &self.context.minted.record_adapter_helpers,
+                key,
+            );
+            let Ok(body) = self.erase_rendered(&RustExpr::path("smelt_value"), value) else {
+                drop(reservation);
+                return Ok(None);
+            };
+            reservation.commit(body.into_string())
+        };
+        drop(hoisted);
+        Ok(Some(format!(
+            "{}{ordinal}(smelt_typed.clone())",
+            crate::RECORD_ADAPTER_HELPER_PREFIX
+        )))
     }
 
     /// Emits a class/interface record as a string-keyed dictionary.

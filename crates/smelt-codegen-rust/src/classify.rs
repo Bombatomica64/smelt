@@ -41,6 +41,8 @@
 //! - its instances are THROWN (see [`collect_thrown_class_triggers`]), or
 //! - it contains itself by value, directly or through other shapes (see
 //!   [`collect_by_value_cycle_triggers`]), or
+//! - it is an object shape a typed dictionary is converted to, which then
+//!   adopts the dictionary as its live view (see [`crate::dict_adoption`]), or
 //! - it INHERITS from a reference class, or a class inheriting from it is one
 //!   (see [`close_over_heritage`]).
 //!
@@ -100,6 +102,10 @@ pub(crate) fn reference_classes(mir: &Mir) -> HashSet<Symbol> {
     // indirection it is; before the heritage closure, so a lifted class's
     // chain follows it.
     collect_by_value_cycle_triggers(mir, &mut references);
+    // A record built from a typed dictionary adopts it: the dictionary
+    // becomes a live view of the record, which only a reference record has
+    // (`crate::dict_adoption`).
+    references.extend(crate::dict_adoption::record_flows(mir).adopters);
     // Before the index-store deviation below, so that deviation still has the
     // final say for a class that carries a dynamic index signature.
     close_over_heritage(mir, &mut references);
@@ -475,6 +481,21 @@ fn collect_body_field_write_triggers(
 ) {
     for block in blocks {
         for statement in &block.statements {
+            // `delete record.optional` writes the record as much as an
+            // assignment does.
+            if let Statement::Assign {
+                value:
+                    Rvalue::DictRemoveKey {
+                        dict: Operand::Copy(Place::Local(base)) | Operand::Move(Place::Local(base)),
+                        ..
+                    },
+                ..
+            } = statement
+                && let Some(name) = class_name_of_decl(mir, locals, *base)
+            {
+                references.insert(name);
+                continue;
+            }
             let Statement::AssignPlace { place, .. } = statement else {
                 continue;
             };
