@@ -208,3 +208,93 @@ console.log(withoutRepeats([1, 2, 1, 3, 1], "numbers").join(","));
         "erased_throwing_callee_keeps_mutable_list_caller_erased",
     )
 }
+
+/// Rule: a place that projects a member off a value whose type is the bare
+/// type parameter (`obj[key]` with `obj: T`) inspects that `T` wherever the
+/// place appears, a `return` operand included
+/// (`generic_lifting::place_projects_into_type_param`), so the parameter does
+/// not lift.
+///
+/// Behaviour: every function compiles and prints Node's output. Before the
+/// rule `pluck` was emitted as `pluck<T: ..>(obj: T, key: SmeltUnknown)` with a
+/// body that indexed `obj` as the erased carrier: 6 x E0308 on a valid
+/// program. Type preservation: `second`, which reads an element out of a
+/// `T[]` (a container read), keeps its `T` beside the erased `K`.
+///
+/// Why this is not an end-to-end example: `T[K]` has no Rust type, so each
+/// member-reading function here is erased by construction, and that corpus
+/// must stay free of erased entries.
+#[test]
+fn member_read_off_a_type_parameter_is_an_inspection() -> TestResult {
+    let source = r#"// A member read off a value whose type is a bare type parameter (`obj[key]`
+// with `obj: T`) is a lookup on the value, so the function cannot keep `T`
+// opaque: every shape below must still compile and print what Node prints.
+interface Point {
+  x: number;
+  y: number;
+  label: string;
+}
+
+// The read is the returned operand itself.
+function pluck<T, K extends keyof T>(obj: T, key: K): T[K] {
+  return obj[key];
+}
+
+// The read lands in a local first.
+function pluckLocal<T, K extends keyof T>(obj: T, key: K): T[K] {
+  const value = obj[key];
+  return value;
+}
+
+// The read goes through an element of a `T[]`.
+function firstField<T, K extends keyof T>(items: T[], key: K): T[K] {
+  return items[0][key];
+}
+
+// The member is written, not read.
+function assign<T, K extends keyof T>(obj: T, key: K, value: T[K]): T {
+  obj[key] = value;
+  return obj;
+}
+
+// The read feeds a comparison.
+function hasKey<T, K extends keyof T>(obj: T, key: K): boolean {
+  return obj[key] !== undefined;
+}
+
+// A read off a CONTAINER of `T` stays a move: `T` is still a Rust generic.
+function second<T, K extends string>(items: T[], _label: K): T {
+  return items[1];
+}
+
+const point: Point = { x: 1, y: 2, label: "origin" };
+console.log(pluck(point, "x"));
+console.log(pluck(point, "label"));
+console.log(pluckLocal(point, "y"));
+console.log(firstField([point], "label"));
+const moved = assign(point, "x", 7);
+console.log(moved.x, point.x);
+console.log(hasKey(point, "y"));
+console.log(second([1, 2, 3], "n"));
+console.log(second(["a", "b"], "s"));
+"#;
+    let expected = "1\norigin\n2\norigin\n7 7\ntrue\n2\nb\n";
+    let (generated, stdout) =
+        build_and_run("member_read_off_a_type_parameter_is_an_inspection", source)?;
+    for signature in [
+        r"pub(crate) fn pluck(obj: SmeltUnknown, key: SmeltUnknown) -> SmeltUnknown {",
+        r"pub(crate) fn second<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(items: SmeltList<T>, _label: SmeltUnknown) -> T {",
+    ] {
+        ensure(
+            generated.contains(signature),
+            format!("missing `{signature}` in:\n{generated}"),
+        )?;
+    }
+    ensure_eq(&stdout, &expected.to_owned(), "unexpected stdout")?;
+    ensure_node_agrees(
+        &[("main.ts", source)],
+        "main.ts",
+        expected,
+        "member_read_off_a_type_parameter_is_an_inspection",
+    )
+}
