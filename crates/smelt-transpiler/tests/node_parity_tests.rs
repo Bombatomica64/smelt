@@ -1933,3 +1933,14 @@ fn self_recursive_async_local() -> TestResult {
 fn promise_forwarding_closures() -> TestResult {
     verify_node_parity("promise_forwarding_closures")
 }
+
+/// `for...of` over a tuple, heterogeneous or not, visits each element in order
+/// as the union of the element types: the loop variable narrows by `typeof`,
+/// each iteration reads the tuple's current element (a write to a later one is
+/// seen), `break`/`continue`/labels hold, a closure captures its iteration's
+/// value, and same-typed pairs destructure. A runtime-indexed tuple read was
+/// rejected by codegen before.
+#[test]
+fn tuple_for_of() -> TestResult {
+    verify_node_parity("tuple_for_of")
+}
