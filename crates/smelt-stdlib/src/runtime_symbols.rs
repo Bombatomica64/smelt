@@ -550,7 +550,8 @@ pub mod markers {
     pub const SMELT_SERVERRESPONSE: &str = "__smelt_serverresponse";
     /// `__smelt_set`.
     pub const SMELT_SET: &str = "__smelt_set";
-    /// `__smelt_setter`.
+    /// `__smelt_setter`: an object literal's setter in an accessor marker
+    /// (`__smelt_set` is the erased Set's tag).
     pub const SMELT_SETTER: &str = "__smelt_setter";
     /// `__smelt_new_proxy`.
     pub const SMELT_NEW_PROXY: &str = "__smelt_new_proxy";
@@ -697,6 +698,7 @@ pub mod markers {
         SMELT_RESPONSE,
         SMELT_SERVERRESPONSE,
         SMELT_SET,
+        SMELT_SETTER,
         SMELT_NEW_PROXY,
         SMELT_PROXY_CALL,
         SMELT_PROXY_HANDLER,

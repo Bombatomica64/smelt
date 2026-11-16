@@ -16,11 +16,11 @@ use std::borrow::Cow;
 /// The key under which an accessor marker (`{ __smelt_get: getter }`, the
 /// erased form of an object literal's `get`) stores its getter; the runtime's
 /// property reads call it (`smelt_resolve_accessor`).
-const ACCESSOR_GET: &str = "__smelt_get";
+const ACCESSOR_GET: &str = smelt_stdlib::runtime_symbols::markers::SMELT_GET;
 
 /// The key under which an accessor marker stores its setter; the runtime's
 /// property writes call it (`smelt_object_put`).
-const ACCESSOR_SET: &str = "__smelt_setter";
+const ACCESSOR_SET: &str = smelt_stdlib::runtime_symbols::markers::SMELT_SETTER;
 
 /// Whether two literal values are the same JavaScript value (`1` and `1.0`
 /// are one number).
