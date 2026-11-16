@@ -121,14 +121,10 @@ pub(crate) fn absent_only_locals(
                 ..
             } = statement
             {
-                match constant {
-                    Constant::None => {
-                        absent.insert(dest, Absent::Null);
-                    }
-                    Constant::Undefined => {
-                        absent.insert(dest, Absent::Undefined);
-                    }
-                    _ => {}
+                if matches!(constant, Constant::None) {
+                    absent.insert(dest, Absent::Null);
+                } else if matches!(constant, Constant::Undefined) {
+                    absent.insert(dest, Absent::Undefined);
                 }
             }
         }
@@ -154,14 +150,16 @@ pub(crate) fn operand_absence(
     operand: &Operand,
     absent_locals: &HashMap<LocalId, Absent>,
 ) -> Option<Absent> {
-    match operand {
-        Operand::Const(Constant::None) => Some(Absent::Null),
-        Operand::Const(Constant::Undefined) => Some(Absent::Undefined),
-        Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) => {
-            absent_locals.get(local).copied()
-        }
-        _ => None,
+    if matches!(operand, Operand::Const(Constant::None)) {
+        return Some(Absent::Null);
     }
+    if matches!(operand, Operand::Const(Constant::Undefined)) {
+        return Some(Absent::Undefined);
+    }
+    if let Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) = operand {
+        return absent_locals.get(local).copied();
+    }
+    None
 }
 
 /// Whether `op` is an equality or inequality test.
@@ -189,23 +187,26 @@ pub(crate) fn is_scalar_inspection(
     absent_locals: &HashMap<LocalId, Absent>,
 ) -> bool {
     let bare = |operand: &Operand| operand_is_bare_type_param(mir, locals, operand, name);
-    match rvalue {
-        Rvalue::Binary { op, lhs, rhs } => {
-            is_equality(*op)
-                && ((bare(lhs) && operand_absence(rhs, absent_locals).is_some())
-                    || (bare(rhs) && operand_absence(lhs, absent_locals).is_some()))
-        }
-        Rvalue::TypeofValue { value } | Rvalue::UnknownIs { value, .. } => bare(value),
-        Rvalue::PrimitiveCast {
-            op: PrimitiveCastOp::ToBool,
-            operand,
-        }
-        | Rvalue::Unary {
-            op: UnaryOp::Not,
-            operand,
-        } => bare(operand),
-        _ => false,
+    if let Rvalue::Binary { op, lhs, rhs } = rvalue {
+        return is_equality(*op)
+            && ((bare(lhs) && operand_absence(rhs, absent_locals).is_some())
+                || (bare(rhs) && operand_absence(lhs, absent_locals).is_some()));
     }
+    if let Rvalue::TypeofValue { value } | Rvalue::UnknownIs { value, .. } = rvalue {
+        return bare(value);
+    }
+    if let Rvalue::PrimitiveCast {
+        op: PrimitiveCastOp::ToBool,
+        operand,
+    }
+    | Rvalue::Unary {
+        op: UnaryOp::Not,
+        operand,
+    } = rvalue
+    {
+        return bare(operand);
+    }
+    false
 }
 
 /// Whether `rvalue` hands a value of the bare type parameter `name` to a
