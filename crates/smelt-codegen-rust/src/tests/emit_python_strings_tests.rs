@@ -24,10 +24,19 @@ const isBlob = file instanceof Blob;
     assert!(source.contains(".is_file()"), "{source}");
     // The user binding holds the static answer directly (no temporary).
     assert!(source.contains("let is_blob: bool = true;"), "{source}");
-    // The erased record still carries both markers, for a blob that crosses a
-    // dynamic boundary.
-    assert!(source.contains("\"__smelt_file\".to_owned()"), "{source}");
-    assert!(source.contains("\"__smelt_blob\".to_owned()"), "{source}");
+    // A blob that crosses a dynamic boundary is erased to a record carrying
+    // both markers. Old requirement: the markers were asserted on the program
+    // above, which never erases the blob; they were there only because every
+    // TypeScript program demanded the erased carrier.
+    let erased = source_for(
+        r#"
+const file = new File(["content"], "file.txt", { type: "text/plain" });
+const value: unknown = file;
+console.log(typeof value);
+"#,
+    );
+    assert!(erased.contains("\"__smelt_file\".to_owned()"), "{erased}");
+    assert!(erased.contains("\"__smelt_blob\".to_owned()"), "{erased}");
 }
 
 #[test]

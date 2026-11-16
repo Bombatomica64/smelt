@@ -21,6 +21,7 @@ use std::collections::{HashMap, HashSet};
 /// Intern every type an inherited method or base-constructor copy is emitted
 /// at, for every class that extends a generic base.
 pub(in crate::lower) fn intern_inherited_member_types(mir: &mut Mir) {
+    let interned_before = mir.types.all().len();
     for class_index in 0..mir.classes.len() {
         for (members, substitutions) in ancestor_substitutions(mir, class_index) {
             for member in members {
@@ -33,8 +34,24 @@ pub(in crate::lower) fn intern_inherited_member_types(mir: &mut Mir) {
                 let mut types = Vec::new();
                 crate::for_each_function_type(function, |ty| types.push(ty));
                 for ty in types {
-                    substitute_and_intern(mir, ty, &substitutions);
+                    let substituted = substitute_and_intern(mir, ty, &substitutions);
+                    if !mir.inherited_member_types.contains(&substituted) {
+                        mir.inherited_member_types.push(substituted);
+                    }
                 }
+            }
+        }
+    }
+    // Substitution also interns the parts of what it substitutes (the field
+    // types of a generic class instantiated at the subclass's arguments, a union
+    // inside a record): the copy spells those too, so every type this pass added
+    // to the table is one of its types.
+    let interned_after = mir.types.all().len();
+    for index in interned_before..interned_after {
+        if let Ok(id) = u32::try_from(index) {
+            let ty = TypeId(id);
+            if !mir.inherited_member_types.contains(&ty) {
+                mir.inherited_member_types.push(ty);
             }
         }
     }
