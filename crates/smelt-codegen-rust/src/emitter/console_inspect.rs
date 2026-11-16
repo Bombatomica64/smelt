@@ -374,7 +374,13 @@ impl FunctionEmitter<'_> {
     pub(super) fn type_has_py_repr(&self, ty: TypeId) -> bool {
         match self.mir.types.get(ty) {
             Some(
-                Type::Int | Type::Float | Type::Bool | Type::String | Type::PyStr | Type::None,
+                Type::Int
+                | Type::PyInt
+                | Type::Float
+                | Type::Bool
+                | Type::String
+                | Type::PyStr
+                | Type::None,
             ) => true,
             Some(Type::Optional(inner) | Type::List(inner)) => self.type_has_py_repr(*inner),
             Some(Type::Tuple(items)) => {
@@ -390,6 +396,11 @@ impl FunctionEmitter<'_> {
             Some(Type::Set(item)) => {
                 self.set_container_name(*item) == "SmeltPrimSet" && self.type_has_py_repr(*item)
             }
+            Some(Type::Class { name, .. })
+                if py_text_protocol::class_has_python_repr(self.mir, *name) =>
+            {
+                true
+            }
             _ => self.is_py_exception_type(ty) || self.is_py_exception_args_type(ty),
         }
     }
@@ -404,7 +415,7 @@ impl FunctionEmitter<'_> {
                 "smelt_py_str_repr({reference})",
                 reference = reference.delimited()
             )),
-            Type::Int => RustExpr::chain(format!(
+            Type::Int | Type::PyInt => RustExpr::chain(format!(
                 "({reference}).to_string()",
                 reference = reference.delimited()
             )),
@@ -589,7 +600,7 @@ impl FunctionEmitter<'_> {
             // its suffix, where `String(10n)` (and a template) is `"10"`.
             Ok(("{}n", self.operand_expr(operand)?.into_string()))
         } else if absent == AbsentSpelling::None
-            && matches!(self.mir.types.get(ty), Some(Type::Int))
+            && matches!(self.mir.types.get(ty), Some(Type::Int | Type::PyInt))
         {
             // Python's `int` is an integer, not a JavaScript number: `print`
             // writes its decimal digits, exactly (no `f64` round trip).
@@ -722,7 +733,18 @@ impl FunctionEmitter<'_> {
         absent: AbsentSpelling,
     ) -> Result<RustExpr, EmitError> {
         if ty == self.none_ty {
-            return Ok(RustExpr::chain("\"null\".to_owned()"));
+            return Ok(RustExpr::chain(format!(
+                "{:?}.to_owned()",
+                absent.null_text()
+            )));
+        }
+        // Python's `print` writes `str(value)`: `1.0`, `True`, `['a']`, which
+        // Rust's `Display`/`Debug` spell `1`, `true`, `["a"]`.
+        if absent == AbsentSpelling::None && self.type_has_py_repr(ty) {
+            return Ok(RustExpr::chain(format!(
+                "SmeltPyRepr::py_str({value_text})",
+                value_text = value_text.delimited()
+            )));
         }
         if matches!(
             self.mir.types.get(ty),

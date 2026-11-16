@@ -445,7 +445,7 @@ fn dataclass_decorator_lowers_for_every_import_spelling() -> TestResult {
                 .collect();
             ensure_eq(
                 &field_types,
-                &vec![Some(&Type::Int), Some(&Type::PyStr)],
+                &vec![Some(&Type::PyInt), Some(&Type::PyStr)],
                 "dataclass field types",
             )?;
         }

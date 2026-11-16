@@ -177,6 +177,7 @@ pub fn normalize_type(types: &mut TypeInterner, ty: TypeId, options: NormalizeOp
         }
         Type::Bool
         | Type::Int
+        | Type::PyInt
         | Type::FixedInt(_)
         | Type::BigInt
         | Type::Float

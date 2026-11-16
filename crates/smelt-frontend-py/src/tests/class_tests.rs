@@ -17,9 +17,9 @@ class Child(Base):
 ");
     let mut ctx = HirCtx::new();
     lower_module(source, &mut ctx)?;
-    ensure_class_shape(&ctx, "Base", "Base { x: Int }")?;
-    ensure_class_shape(&ctx, "Child", "Child: Base { y: Int }")?;
-    ensure_signature(&ctx, "total", "total(self: Child) -> Int")?;
+    ensure_class_shape(&ctx, "Base", "Base { x: PyInt }")?;
+    ensure_class_shape(&ctx, "Child", "Child: Base { y: PyInt }")?;
+    ensure_signature(&ctx, "total", "total(self: Child) -> PyInt")?;
     Ok(())
 }
 
@@ -612,7 +612,7 @@ class codes(IntEnum):
     ensure(
         codes.fields.iter().any(|field| {
             symbol(&ctx, field.name).ok() == Some("_value_")
-                && matches!(ctx.krate.types.get(field.ty), Some(Type::Int))
+                && matches!(ctx.krate.types.get(field.ty), Some(Type::PyInt))
         }),
         "expected _value_ to retain the int parameter type",
     )?;
@@ -860,8 +860,8 @@ class Ops:
 ");
     let mut ctx = HirCtx::new();
     lower_module(source, &mut ctx)?;
-    ensure_signature(&ctx, "start", "start() -> Int")?;
-    ensure_signature(&ctx, "base", "base() -> Int")?;
+    ensure_signature(&ctx, "start", "start() -> PyInt")?;
+    ensure_signature(&ctx, "base", "base() -> PyInt")?;
     ensure_owner_is_static(&ctx, "start")?;
     ensure_owner_is_static(&ctx, "base")?;
     Ok(())
@@ -1471,7 +1471,7 @@ def first(p: Pair[int, str]) -> int:
     };
     ensure_eq(&items.len(), &2, "tuple arity")?;
     ensure(
-        matches!(ctx.krate.types.get(items[0]), Some(Type::Int))
+        matches!(ctx.krate.types.get(items[0]), Some(Type::PyInt))
             && matches!(ctx.krate.types.get(items[1]), Some(Type::PyStr)),
         "alias parameters must be replaced by the supplied arguments",
     )?;

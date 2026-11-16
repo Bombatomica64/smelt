@@ -210,13 +210,13 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let bound = self.expression(expr, body)?;
-        if self.ctx.krate.types.get(Self::expr_ty(body, bound)) != Some(&Type::Int) {
+        if self.ctx.krate.types.get(Self::expr_ty(body, bound)) != Some(&Type::PyInt) {
             return Err(SmeltError::unsupported(
                 self.span(expr.range()),
                 "slice bounds must be integers",
             ));
         }
-        Ok(bound)
+        Ok(self.py_int_as_clamped_bound(bound, body))
     }
 
     /// Normalize Python tuple slice bounds for statically-known tuple lengths.

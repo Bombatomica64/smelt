@@ -185,6 +185,12 @@ impl FunctionEmitter<'_> {
 
     /// Converts a numeric absolute-value operation to Rust text.
     pub(super) fn numeric_abs_expr(&self, operand: &Operand) -> Result<RustExpr, EmitError> {
+        if self.is_py_int_type(self.operand_ty(operand)?) {
+            return Ok(RustExpr::chain(format!(
+                "({}).abs()",
+                self.py_int_ref_expr(operand)?.delimited()
+            )));
+        }
         if !matches!(
             self.mir.types.get(self.operand_ty(operand)?),
             Some(Type::Int | Type::Float)
@@ -260,6 +266,9 @@ impl FunctionEmitter<'_> {
         dest_ty: TypeId,
     ) -> Result<RustExpr, EmitError> {
         let dest_is_int = matches!(self.mir.types.get(dest_ty), Some(Type::Int));
+        if self.is_py_int_type(dest_ty) {
+            return self.py_int_extrema_expr(op, args, spread, dest_ty);
+        }
         for arg in args {
             if self.operand_ty(arg)? != dest_ty
                 || !matches!(self.mir.types.get(dest_ty), Some(Type::Int | Type::Float))

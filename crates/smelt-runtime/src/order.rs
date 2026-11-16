@@ -28,6 +28,7 @@ pub const ORDER: &[Entry] = &[
     Entry::Item("smelt_py_str_repr"),
     Entry::Item("SmeltPyRepr"),
     Entry::Item("SmeltPyException"),
+    Entry::Item("SmeltPyInt"),
     Entry::Item("smelt_string_to_number"),
     Entry::Item("smelt_parse_int"),
     Entry::Item("JsString"),

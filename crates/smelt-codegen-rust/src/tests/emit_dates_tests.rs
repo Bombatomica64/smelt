@@ -54,14 +54,15 @@ return Ok(());
 }
 
 fn read_write(path: String, text: String) -> Result<String, Box<dyn std::error::Error>> {
-let _smelt_tmp_10: String;
+let _smelt_tmp_11: String;
 let replaced: String = smelt_py_regex_replace(&"\\s+".to_owned(), &text.clone(), &"-".to_owned(), true);
 let parts: SmeltList<String> = Into::<SmeltList<_>>::into(fancy_regex::Regex::new(&"\\s+".to_owned()).expect("regex compile failed").split(&text.clone()).filter_map(Result::ok).map(str::to_owned).collect::<Vec<_>>());
-let written: i64 = { let smelt_contents = replaced; std::fs::write(&path.clone(), &smelt_contents).expect("file write failed"); smelt_contents.len() as i64 };
-let _smelt_tmp_8: String = std::fs::read_to_string(&path.clone()).expect("file read failed");
-let _smelt_tmp_9: String = smelt_py_list_read(&parts, 0)?;
-_smelt_tmp_10 = _smelt_tmp_8 + &_smelt_tmp_9;
-return Ok(_smelt_tmp_10);
+let _smelt_tmp_7: i64 = { let smelt_contents = replaced; std::fs::write(&path.clone(), &smelt_contents).expect("file write failed"); smelt_contents.len() as i64 };
+let written: SmeltPyInt = SmeltPyInt::from(_smelt_tmp_7);
+let _smelt_tmp_9: String = std::fs::read_to_string(&path.clone()).expect("file read failed");
+let _smelt_tmp_10: String = smelt_py_list_read(&parts, 0)?;
+_smelt_tmp_11 = _smelt_tmp_9 + &_smelt_tmp_10;
+return Ok(_smelt_tmp_11);
 }"#
     );
 }

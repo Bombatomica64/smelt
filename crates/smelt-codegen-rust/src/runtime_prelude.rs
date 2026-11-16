@@ -312,6 +312,7 @@ fn need_of_flag(name: &str) -> Option<Need> {
         "python_dict_read" => Need::PythonDictRead,
         "python_list_read" => Need::PythonListRead,
         "py_exception" => Need::PyException,
+        "py_int" => Need::PyInt,
         "binding" => Need::Binding,
         "binding_tdz" => Need::BindingTdz,
         "binding_py" => Need::BindingPy,

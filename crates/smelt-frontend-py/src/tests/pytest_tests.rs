@@ -34,7 +34,7 @@ def process(items: list[str], counts: dict[str, int]) -> bool:
     ensure_signature(
         &ctx,
         "process",
-        "process(items: List<PyStr>, counts: Dict<PyStr, Int>) -> Bool",
+        "process(items: List<PyStr>, counts: Dict<PyStr, PyInt>) -> Bool",
     )?;
     Ok(())
 }
@@ -49,7 +49,7 @@ def find(x: int) -> str | None:
 ");
     let mut ctx = HirCtx::new();
     lower_module(source, &mut ctx)?;
-    ensure_signature(&ctx, "find", "find(x: Int) -> Optional<PyStr>")?;
+    ensure_signature(&ctx, "find", "find(x: PyInt) -> Optional<PyStr>")?;
     Ok(())
 }
 

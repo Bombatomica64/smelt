@@ -19,7 +19,7 @@ use crate::{
 
 use super::context::LoweringCtx;
 use super::scope::{ControlScope, FinallyClause, LabelScope, LoopExit, LoopTargets, Protected};
-use super::{LowerError, LoweredFunction, lower_literal};
+use super::{LowerError, LoweredFunction, lower_literal_as};
 
 impl LoweringCtx<'_> {
     /// Lowers the entire function body to MIR.
@@ -813,6 +813,9 @@ impl LoweringCtx<'_> {
         default: Option<smelt_hir::BlockId>,
     ) -> Result<(), LowerError> {
         let lowered_scrutinee = self.lower_expr(scrutinee)?;
+        // An arm's label is carried as the scrutinee is: `case 1:` on a Python
+        // `int` is a Python `int` constant.
+        let scrutinee_ty = self.hir_expr(scrutinee)?.ty;
         let span = self.block()?.span;
         let mut mir_arms = Vec::new();
         let mut arm_blocks = Vec::new();
@@ -823,7 +826,7 @@ impl LoweringCtx<'_> {
                 .entry(arm.body)
                 .or_insert_with(|| self.function.push_block(span));
             mir_arms.push(crate::MatchArm {
-                label: lower_literal(&arm.label),
+                label: lower_literal_as(&arm.label, self.krate.types.get(scrutinee_ty)),
                 target,
             });
             if !arm_blocks

@@ -14,6 +14,17 @@ pub enum Type {
     Bool,
     /// Integer type.
     Int,
+    /// A Python `int`: an arbitrary-precision signed integer.
+    ///
+    /// Separate from [`Type::Int`] for the reason [`Type::PyStr`] is separate
+    /// from [`Type::String`]: `Int` is the bounded machine integer (list
+    /// indices, lengths, timestamps) and lowers to `i64`, while a Python `int`
+    /// never overflows (`2 ** 100` is exact), so it lowers to the runtime's
+    /// `SmeltPyInt` (a machine word with a `BigInt` fallback) and every
+    /// operation on it keeps `CPython`'s semantics: floor `//` and `%`,
+    /// correctly rounded true division into a `float`, infinite
+    /// two's-complement bitwise operators. Its runtime kind is a number.
+    PyInt,
     /// Floating-point type.
     Float,
     /// A JavaScript `number` proven to be an integer of a fixed Rust width.
@@ -25,12 +36,12 @@ pub enum Type {
     /// analysis (`smelt_mir::opt::IntegerRange`), which retypes a local whose
     /// every definition it proved integral and bounded, and the TypeScript
     /// frontend for Bun's `import type { int32 } from "bun"` annotation, whose
-    /// every store the frontend proves. Python's integers stay [`Type::Int`].
+    /// every store the frontend proves. Python's integers are [`Type::PyInt`].
     FixedInt(IntWidth),
     /// A JavaScript `bigint`: an arbitrary-precision signed integer.
     ///
     /// Separate from [`Type::Int`] on purpose. `Int` is the bounded integer
-    /// type (Python's `int`, list indices, timestamps) and lowers to `i64`; a
+    /// type (list indices, lengths, timestamps) and lowers to `i64`; a
     /// `bigint` is unbounded in JavaScript, so it lowers to Rust's
     /// `num_bigint::BigInt` and every operation on it keeps JavaScript's
     /// bigint semantics (truncating division, flooring `>>`, infinite
@@ -182,6 +193,7 @@ impl Type {
         let (list, slots): ChildParts<'_> = match self {
             Self::Bool
             | Self::Int
+            | Self::PyInt
             | Self::Float
             | Self::FixedInt(_)
             | Self::BigInt
@@ -234,6 +246,7 @@ impl Type {
         Some(match self {
             Self::Bool
             | Self::Int
+            | Self::PyInt
             | Self::Float
             | Self::FixedInt(_)
             | Self::BigInt
@@ -303,7 +316,7 @@ impl Type {
     pub const fn runtime_kind(&self) -> Option<UnknownKind> {
         match self {
             Self::Bool => Some(UnknownKind::Bool),
-            Self::Int | Self::Float | Self::FixedInt(_) => Some(UnknownKind::Number),
+            Self::Int | Self::PyInt | Self::Float | Self::FixedInt(_) => Some(UnknownKind::Number),
             Self::BigInt => Some(UnknownKind::BigInt),
             Self::String | Self::PyStr => Some(UnknownKind::String),
             Self::Symbol => Some(UnknownKind::Symbol),

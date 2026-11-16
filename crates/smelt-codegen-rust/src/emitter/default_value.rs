@@ -54,6 +54,7 @@ impl FunctionEmitter<'_> {
         {
             Type::Bool => Ok(RustExpr::path("false")),
             Type::Int | Type::FixedInt(_) => Ok(RustExpr::path("0")),
+            Type::PyInt => Ok(crate::py_int::literal_expr("0")),
             Type::BigInt => Ok(RustExpr::atom(format!(
                 "{}::default()",
                 crate::bigint_prelude::BIGINT_TYPE

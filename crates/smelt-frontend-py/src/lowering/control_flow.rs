@@ -355,6 +355,9 @@ impl ModuleBuilder<'_> {
             body.push_stmt_to_block(block, HirStmt::Expr(update));
             return Ok(());
         }
+        if self.list_in_place_update(aug.op, target, rhs, span, body, block)? {
+            return Ok(());
+        }
         let op = Self::python_arithmetic_op(aug.op).ok_or_else(|| {
             let op = aug.op;
             SmeltError::unsupported(
@@ -365,7 +368,7 @@ impl ModuleBuilder<'_> {
         let target_ty = Self::expr_ty(body, target);
         let compound = self.python_arithmetic(op, target, rhs, span, body)?;
         let compound_ty = Self::expr_ty(body, compound);
-        if matches!(self.ctx.krate.types.get(target_ty), Some(Type::Int))
+        if matches!(self.ctx.krate.types.get(target_ty), Some(Type::PyInt))
             && matches!(self.ctx.krate.types.get(compound_ty), Some(Type::Float))
         {
             // `x /= 2` rebinds `x` to a `float`. On the straight line of a body a

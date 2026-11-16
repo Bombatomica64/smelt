@@ -1,17 +1,17 @@
 module examples/python/end-to-end/08_match/input.py (ModuleId(0))
   body BodyId(0)
   items
-    global mut status: Int
+    global mut status: PyInt
   exprs
-    #0: Int = global_get @0(status)
+    #0: PyInt = global_get @0(status)
     #1: None = @1(console_log)
-    #2: Int = 100
+    #2: PyInt = 100
     #3: None = call #1(#2)
     #4: None = @1(console_log)
-    #5: Int = 200
+    #5: PyInt = 200
     #6: None = call #4(#5)
     #7: None = @1(console_log)
-    #8: Int = 0
+    #8: PyInt = 0
     #9: None = call #7(#8)
   stmts
     s0: #3
@@ -20,5 +20,5 @@ module examples/python/end-to-end/08_match/input.py (ModuleId(0))
     s3: match #0 {1 => BlockId(1), 2 => BlockId(2)} default BlockId(3)
 
 interned types
-  t0 = Int
+  t0 = PyInt
   t1 = None

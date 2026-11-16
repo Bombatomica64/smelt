@@ -1892,6 +1892,9 @@ impl FunctionEmitter<'_> {
         if let Some(text) = self.bigint_binary_expr(op, lhs, rhs, dest_ty)? {
             return Ok(text);
         }
+        if let Some(text) = self.py_int_binary_expr(op, lhs, rhs, dest_ty)? {
+            return Ok(text);
+        }
         if let Some(text) = self.js_loose_equality_expr(op, lhs, rhs)? {
             return Ok(text);
         }
@@ -2114,6 +2117,12 @@ impl FunctionEmitter<'_> {
                 self.truthy_operand_expr(operand)?.delimited()
             ))),
             smelt_hir::UnaryOp::Neg => {
+                if self.is_py_int_type(self.operand_ty(operand)?) {
+                    return Ok(RustExpr::loose(format!(
+                        "-{}",
+                        self.py_int_ref_expr(operand)?.tight()
+                    )));
+                }
                 if let Some(text) = self.bigint_negation_expr(operand)? {
                     if self.mir.types.get(dest_ty) == Some(&Type::Unknown) {
                         return self.erase_rendered(&text, self.type_id(Type::BigInt)?);

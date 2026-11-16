@@ -43,7 +43,7 @@ impl FunctionEmitter<'_> {
             )));
         }
         match self.mir.types.get(element_ty) {
-            Some(Type::Bool | Type::Int | Type::String | Type::PyStr) => {
+            Some(Type::Bool | Type::Int | Type::PyInt | Type::String | Type::PyStr) => {
                 Ok(RustExpr::atom(format!(
                     "{{ let mut smelt_sorted = {list_text}.clone(); smelt_sorted.sort(); smelt_sorted }}",
                     list_text = list_text.tight()
@@ -112,7 +112,7 @@ impl FunctionEmitter<'_> {
                 Some(Type::Float) => format!(
                     "{first}.partial_cmp(&{second}).expect(\"sort key incomparable float\")"
                 ),
-                Some(Type::Bool | Type::Int | Type::String | Type::PyStr) => {
+                Some(Type::Bool | Type::Int | Type::PyInt | Type::String | Type::PyStr) => {
                     format!("{first}.cmp(&{second})")
                 }
                 _ => {
@@ -141,7 +141,7 @@ impl FunctionEmitter<'_> {
             Some(Type::Float) => {
                 format!("{first}.partial_cmp({second}).expect(\"sort incomparable float\")")
             }
-            Some(Type::Bool | Type::Int | Type::String | Type::PyStr) => {
+            Some(Type::Bool | Type::Int | Type::PyInt | Type::String | Type::PyStr) => {
                 format!("{first}.cmp({second})")
             }
             _ => {
@@ -209,11 +209,16 @@ impl FunctionEmitter<'_> {
                 "enumerate() destination must contain (int, item) tuples",
             ));
         };
-        if self.mir.types.get(*index_ty) != Some(&Type::Int) {
-            return Err(EmitError::new(
-                "enumerate() destination must contain (int, item) tuples",
-            ));
-        }
+        // A Python `enumerate` counts in Python `int`s.
+        let index_text = match self.mir.types.get(*index_ty) {
+            Some(Type::Int) => "smelt_idx as i64",
+            Some(Type::PyInt) => "SmeltPyInt::from(smelt_idx)",
+            _ => {
+                return Err(EmitError::new(
+                    "enumerate() destination must contain (int, item) tuples",
+                ));
+            }
+        };
         if matches!(
             self.mir.types.get(list_ty),
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
@@ -224,7 +229,7 @@ impl FunctionEmitter<'_> {
                 &self.render_scope(),
             )?;
             return Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
-                "match {}.clone() {{ SmeltUnknown::Array(smelt_values) => smelt_values.into_iter().enumerate().map(|(smelt_idx, smelt_item)| (smelt_idx as i64, {item_text})).collect::<Vec<_>>(), _ => Vec::new() }}",
+                "match {}.clone() {{ SmeltUnknown::Array(smelt_values) => smelt_values.into_iter().enumerate().map(|(smelt_idx, smelt_item)| ({index_text}, {item_text})).collect::<Vec<_>>(), _ => Vec::new() }}",
                 self.operand_expr(list)?.tight(), item_text = item_text.delimited()
             ))));
         }
@@ -241,7 +246,7 @@ impl FunctionEmitter<'_> {
             RustExpr::atom_on(
                 &receiver,
                 format!(
-                    "{receiver}.iter().cloned().enumerate().map(|(smelt_idx, smelt_item)| (smelt_idx as i64, smelt_item)).collect::<Vec<_>>()",
+                    "{receiver}.iter().cloned().enumerate().map(|(smelt_idx, smelt_item)| ({index_text}, smelt_item)).collect::<Vec<_>>()",
                     receiver = receiver.tight()
                 ),
             )
@@ -304,6 +309,20 @@ impl FunctionEmitter<'_> {
         step: &Operand,
         dest_ty: TypeId,
     ) -> Result<RustExpr, EmitError> {
+        // Python's `range` over `int`s: exact at every magnitude. The frontend
+        // only builds this form for a nonzero constant step.
+        let py_int_ty = self.type_id(Type::PyInt)?;
+        if self.operand_ty(start)? == py_int_ty
+            && self.operand_ty(end)? == py_int_ty
+            && self.operand_ty(step)? == py_int_ty
+        {
+            return Ok(RustExpr::chain(format!(
+                "SmeltPyInt::range_values({}, {}, {})",
+                self.py_int_ref_expr(start)?.delimited(),
+                self.py_int_ref_expr(end)?.delimited(),
+                self.py_int_ref_expr(step)?.delimited()
+            )));
+        }
         let int_ty = self.type_id(Type::Int)?;
         if self.operand_ty(start)? != int_ty
             || self.operand_ty(end)? != int_ty

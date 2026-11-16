@@ -1,22 +1,22 @@
 module examples/python/end-to-end/07_if_else/input.py (ModuleId(0))
   body BodyId(0)
   items
-    global mut x: Int
+    global mut x: PyInt
   exprs
-    #0: Int = global_get @0(x)
-    #1: Int = 10
+    #0: PyInt = global_get @0(x)
+    #1: PyInt = 10
     #2: Bool = Gt #0, #1
     #3: None = @1(console_log)
-    #4: Int = global_get @0(x)
+    #4: PyInt = global_get @0(x)
     #5: None = call #3(#4)
-    #6: Int = global_get @0(x)
-    #7: Int = 3
+    #6: PyInt = global_get @0(x)
+    #7: PyInt = 3
     #8: Bool = Gt #6, #7
     #9: None = @1(console_log)
-    #10: Int = 1
+    #10: PyInt = 1
     #11: None = call #9(#10)
     #12: None = @1(console_log)
-    #13: Int = 0
+    #13: PyInt = 0
     #14: None = call #12(#13)
   stmts
     s0: #5
@@ -26,6 +26,6 @@ module examples/python/end-to-end/07_if_else/input.py (ModuleId(0))
     s4: if #2 then BlockId(1) else BlockId(2)
 
 interned types
-  t0 = Int
+  t0 = PyInt
   t1 = Bool
   t2 = None

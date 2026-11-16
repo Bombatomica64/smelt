@@ -1,24 +1,24 @@
-fn add (FuncId(0)) -> Int
+fn add (FuncId(0)) -> PyInt
   locals
-    %0 param x: Int
-    %1 param y: Int
-    %2 temp: Int
+    %0 param x: PyInt
+    %1 param y: PyInt
+    %2 temp: PyInt
   bb0:
     %2 = copy %0 + copy %1
     return move %2
 
-fn smelt_global_init$result$0 (FuncId(1)) -> Int
+fn smelt_global_init$result$0 (FuncId(1)) -> PyInt
   locals
-    %0 temp: Int
+    %0 temp: PyInt
   bb0:
-    %0 = call fn0(3, 4) -> bb1
+    %0 = call fn0(3py, 4py) -> bb1
   bb1:
     return move %0
 
 fn main (FuncId(2)) -> None
   locals
     %0 temp: None
-    %1 temp: Int
+    %1 temp: PyInt
     %2 temp: None
   bb0:
     %0 = global_get #0

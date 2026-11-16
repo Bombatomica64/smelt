@@ -1085,7 +1085,7 @@ impl ModuleBuilder<'_> {
         match value {
             Expr::Name(name) => param_types.get(name.id.as_str()).copied(),
             Expr::NumberLiteral(number) => match &number.value {
-                Number::Int(_) => Some(self.intern_type(Type::Int)),
+                Number::Int(_) => Some(self.intern_type(Type::PyInt)),
                 Number::Float(_) => Some(self.intern_type(Type::Float)),
                 Number::Complex { .. } => None,
             },
@@ -1360,7 +1360,7 @@ impl ModuleBuilder<'_> {
                             "class-variable integer literal is out of i64 range",
                         )
                     })?;
-                    (Literal::Int(value), self.intern_type(Type::Int))
+                    (Literal::Int(value), self.intern_type(Type::PyInt))
                 }
                 Number::Float(value) => {
                     (Literal::Float(*value), self.intern_type(Type::Float))
@@ -1827,7 +1827,8 @@ impl ModuleBuilder<'_> {
 
     /// Classify the typed Python `__add__` operator protocol for backend trait emission.
     ///
-    /// Only `__add__` and its super alias are classified. Protocol metadata is
+    /// `__add__`, `__str__` and `__repr__` (and their super aliases) are
+    /// classified. Protocol metadata is
     /// explicit HIR rather than a backend name check, so a TypeScript method
     /// that happens to use the same spelling does not acquire Python operator
     /// semantics. An inherited `__add__` is represented by the derived class's
@@ -1845,13 +1846,38 @@ impl ModuleBuilder<'_> {
                 )
             })
         };
+        let mut protocols = Vec::new();
+        // `__str__`/`__repr__` take only `self` and answer a `str`; the text a
+        // class has is its own method's, or the one its base defines.
+        for name in ["__str__", "__repr__"] {
+            let Some(method) = named_method(name).or_else(|| named_method(&format!("__smelt$super${name}"))) else {
+                continue;
+            };
+            let Item::Function(function) = self.item_ref(method) else {
+                continue;
+            };
+            if function.params.len() != 1
+                || function.is_async
+                || !matches!(self.ctx.krate.types.get(function.return_ty), Some(Type::PyStr))
+            {
+                return Err(SmeltError::unsupported(
+                    function.span,
+                    format!("Python {name} must be synchronous, take only self and return str"),
+                ));
+            }
+            protocols.push(if name == "__str__" {
+                ClassProtocol::Str { method }
+            } else {
+                ClassProtocol::Repr { method }
+            });
+        }
         let Some(method) = named_method("__add__")
             .or_else(|| named_method("__smelt$super$__add__"))
         else {
-            return Ok(Vec::new());
+            return Ok(protocols);
         };
         let Item::Function(function) = self.item_ref(method) else {
-            return Ok(Vec::new());
+            return Ok(protocols);
         };
         if function.params.len() != 2 || function.is_async {
             return Err(SmeltError::unsupported(
@@ -1859,7 +1885,8 @@ impl ModuleBuilder<'_> {
                 "Python __add__ must be synchronous and accept exactly one operand",
             ));
         }
-        Ok(vec![ClassProtocol::Add { method }])
+        protocols.push(ClassProtocol::Add { method });
+        Ok(protocols)
     }
 
     /// Return a class's effective instance methods under single inheritance.

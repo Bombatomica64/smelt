@@ -249,6 +249,12 @@ impl FunctionEmitter<'_> {
             | (smelt_hir::PrimitiveCastOp::ToString, Type::String | Type::PyStr, Type::String | Type::PyStr) => {
                 Ok(operand_expr)
             }
+            (smelt_hir::PrimitiveCastOp::ToBool, Type::Bool, Type::PyInt) => {
+                Ok(RustExpr::chain(format!("({operand_expr}).truthy()", operand_expr = operand_expr.delimited())))
+            }
+            (smelt_hir::PrimitiveCastOp::ToString, Type::PyStr, Type::PyInt) => {
+                Ok(RustExpr::chain(format!("({operand_expr}).to_string()", operand_expr = operand_expr.delimited())))
+            }
             (smelt_hir::PrimitiveCastOp::ToBool, Type::Bool, Type::Int) => {
                 Ok(RustExpr::loose(format!("{operand_expr} != 0", operand_expr = operand_expr.as_binary_operand())))
             }

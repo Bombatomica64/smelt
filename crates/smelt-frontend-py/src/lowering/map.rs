@@ -166,7 +166,10 @@ impl ModuleBuilder<'_> {
                         "asyncio.sleep requires exactly one duration argument",
                     ));
                 };
-                let duration = self.expression(duration_expr, body)?;
+                let given = self.expression(duration_expr, body)?;
+                // The runtime's clock counts in `float`s; an `int` duration
+                // converts as `float(n)` does.
+                let duration = self.promote_int_to_float(given, body);
                 let none_ty = self.intern_type(Type::None);
                 let ty = self.intern_type(Type::Future(none_ty));
                 Ok(Some(body.push_expr(HirExpr {
@@ -339,7 +342,7 @@ impl ModuleBuilder<'_> {
         else {
             return Ok(None);
         };
-        let ty = self.intern_type(Type::Int);
+        let ty = self.intern_type(Type::PyInt);
         Ok(Some(body.push_expr(HirExpr {
             kind: ExprKind::Literal(Literal::Int(value)),
             ty,

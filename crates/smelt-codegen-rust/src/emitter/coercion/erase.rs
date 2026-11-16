@@ -542,6 +542,7 @@ impl FunctionEmitter<'_> {
             // runtime's own `IntoSmeltUnknown` adapter.
             Some(Type::Symbol) => Ok(smelt_owned_value.postfix(self.carrier_format(self.carrier()?, format_args!(".into_smelt_unknown()")))),
             Some(Type::PropKey) => Ok(smelt_owned_value.postfix(self.carrier_format(self.carrier()?, format_args!(".to_unknown()")))),
+            Some(Type::PyInt) => Ok(smelt_owned_value.postfix(self.carrier_format(self.carrier()?, format_args!(".into_smelt_unknown()")))),
             Some(Type::Int | Type::FixedInt(_) | Type::Float) => {
                 // Cast operand: a loose top-level operator must be parenthesized
                 // so `as f64` does not reassociate across it.

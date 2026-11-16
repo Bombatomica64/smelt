@@ -174,6 +174,10 @@ impl FunctionEmitter<'_> {
             // JSON has no bigint: `JSON.parse` can never produce one, so a
             // bigint target is not a decodable shape.
             Some(Type::BigInt) => false,
+            // A Python `int` reads through the lenient parse and the carrier's
+            // adapter (`SmeltFromUnknown for SmeltPyInt`); the strict decoder
+            // is the TypeScript `JSON.parse` target's.
+            Some(Type::PyInt) => false,
             // Nor a symbol; a property key only ever reaches here as the key of
             // a record, which the dict arm reads.
             Some(Type::Symbol | Type::PropKey) => false,

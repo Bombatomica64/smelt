@@ -18,7 +18,9 @@ use crate::{
 
 use super::context::LoweringCtx;
 use super::transcribe::transcribed_op_pattern;
-use super::{LowerError, LoweredMutationReceiver, MutationWriteback, lower_literal};
+use super::{
+    LowerError, LoweredMutationReceiver, MutationWriteback, lower_literal, lower_literal_as,
+};
 use crate::AbsentSpelling;
 use crate::NegativeIndex;
 
@@ -31,7 +33,9 @@ impl LoweringCtx<'_> {
 
         let expr = self.hir_expr(expr_id)?.clone();
         let operand = match &expr.kind {
-            ExprKind::Literal(literal) => Operand::Const(lower_literal(literal)),
+            ExprKind::Literal(literal) => {
+                Operand::Const(lower_literal_as(literal, self.krate.types.get(expr.ty)))
+            }
             ExprKind::Local(local) => {
                 if self.volatile_locals.contains(self.body.id, *local) {
                     // Not cached: each evaluation is its own read. The snapshot has

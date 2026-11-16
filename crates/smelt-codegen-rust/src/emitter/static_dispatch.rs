@@ -138,7 +138,7 @@ impl FunctionEmitter<'_> {
                     Some(global) => self.global_get_expr(global)?,
                     None if declared.value.is_some() => crate::classes::materialized_static_value(
                         declared.value.as_ref(),
-                        self.mir.types.get(declared.ty) != Some(&Type::PyStr),
+                        self.mir.types.get(declared.ty),
                     ),
                     None => continue,
                 };

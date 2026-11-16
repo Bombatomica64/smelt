@@ -170,6 +170,8 @@ declare_needs! {
     PythonListRead,
     /// A raised Python exception, `SmeltPyException`.
     PyException,
+    /// Python's arbitrary-precision `int`, `SmeltPyInt`.
+    PyInt,
     /// `SmeltBinding`, the storage of a source binding that can be read
     /// before its first assignment.
     Binding,
@@ -321,6 +323,8 @@ const REQUIRES: &[(Need, &[Need])] = &[
     (Need::PyException, &[Need::PyRepr]),
     (Need::Record, &[Need::ObjectIds]),
     (Need::PythonDivision, &[Need::PyException]),
+    // An `int` raises Python's arithmetic errors and prints through `repr`.
+    (Need::PyInt, &[Need::PyException, Need::PyRepr]),
     (Need::PythonDictRead, &[Need::PyException]),
     // A checked binding read raises through the error its language throws.
     (Need::BindingTdz, &[Need::Binding, Need::Unknown]),
@@ -505,6 +509,25 @@ impl RuntimeDemand {
             );
             if function.language == smelt_hir::Language::Python {
                 demand.add(Need::PyDictOrder);
+            }
+        }
+        // A class's `__str__`/`__repr__` is called through its `SmeltPyRepr`
+        // impl, which cannot answer an error; a raising one re-raises through
+        // the panic route.
+        for class in &mir.classes {
+            for protocol in &class.protocols {
+                if let smelt_mir::MirClassProtocol::Str { method }
+                | smelt_mir::MirClassProtocol::Repr { method } = protocol
+                {
+                    demand.add(Need::PyRepr);
+                    if usize::try_from(method.0)
+                        .ok()
+                        .and_then(|index| mir.functions.get(index))
+                        .is_some_and(|function| function.can_throw)
+                    {
+                        demand.add(Need::PanicRoute);
+                    }
+                }
             }
         }
         for closure in &mir.closures {
@@ -760,6 +783,7 @@ impl RuntimeDemand {
                     }
                 }
                 Type::BigInt => self.add(Need::BigInt),
+                Type::PyInt => self.add(Need::PyInt),
                 Type::Tuple(items) if items.len() >= 3 => self.add(Need::WideTuple),
                 Type::Symbol | Type::PropKey => self.add(Need::Symbol),
                 Type::Dict(key, _) if crate::emitter::dict_key_uses_smelt_record(mir, *key) => {
@@ -1196,10 +1220,18 @@ pub(crate) fn backend_dependencies(demand: &RuntimeDemand) -> Vec<BackendDepende
         (Need::DepHmac, BackendDependency::Hmac),
         (Need::Base64, BackendDependency::Base64),
         (Need::BigInt, BackendDependency::BigInt),
+        (Need::PyInt, BackendDependency::BigInt),
         (Need::DepMd5, BackendDependency::Md5),
         (Need::DepIndexMap, BackendDependency::IndexMap),
     ]
     .into_iter()
     .filter_map(|(need, dependency)| demand.has(need).then_some(dependency))
-    .collect()
+    .fold(Vec::new(), |mut dependencies, dependency| {
+        // Two needs may link one crate (a JavaScript `bigint` and a Python
+        // `int` both link `num-bigint`); the manifest names it once.
+        if !dependencies.contains(&dependency) {
+            dependencies.push(dependency);
+        }
+        dependencies
+    })
 }

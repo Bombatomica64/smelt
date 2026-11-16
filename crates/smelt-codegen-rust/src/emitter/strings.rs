@@ -424,8 +424,10 @@ impl FunctionEmitter<'_> {
         // `""`. A float count already saturates at zero through `as usize`.
         let count_expr = self.operand_expr(count)?;
         let count_text = if matches!(self.mir.types.get(self.operand_ty(count)?), Some(Type::Int)) {
+            // `i64::max` pins the width: a bare negative literal count would
+            // otherwise default to `i32` against the `usize` cast.
             format!(
-                "({count_expr}).max(0) as usize",
+                "i64::max({count_expr}, 0) as usize",
                 count_expr = count_expr.delimited()
             )
         } else {
@@ -1185,6 +1187,8 @@ impl FunctionEmitter<'_> {
                 Operand::Const(_) => self.operand_expr(operand),
             },
             Some(Type::Bool) => Ok(self.operand_expr(operand)?.postfix(".to_string()")),
+            // `str(n)` of a Python `int` is its decimal digits.
+            Some(Type::PyInt) => Ok(self.operand_expr(operand)?.postfix(".to_string()")),
             // `String(10n)` is `"10"`: a bigint's string form has no `n`.
             Some(Type::BigInt) => Ok(RustExpr::atom(format!(
                 "({}).to_string()",

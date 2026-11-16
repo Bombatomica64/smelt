@@ -1349,3 +1349,149 @@ mod live_view_family {
         assert!(plain.smelt_origin::<Point>().is_none());
     }
 }
+
+/// Python's `int`: exact at every magnitude, with `CPython`'s operators,
+/// conversions and errors. Every expected value is what `python3` prints.
+mod py_int_family {
+    use super::*;
+
+    fn int(text: &str) -> SmeltPyInt {
+        SmeltPyInt::from_literal_digits(text)
+    }
+
+    fn raised(error: &(dyn ::std::error::Error + 'static)) -> (String, String) {
+        let exception = SmeltPyException::from_error(error);
+        (exception.classes.first().copied().unwrap_or("").to_owned(), exception.to_string())
+    }
+
+    #[test]
+    fn small_values_stay_small_and_overflow_promotes() {
+        let max = SmeltPyInt::from(i64::MAX);
+        let one = SmeltPyInt::from(1_i64);
+        let sum = &max + &one;
+        assert!(matches!(sum, SmeltPyInt::Big(_)));
+        assert_eq!(sum.to_string(), "9223372036854775808");
+        assert_eq!(&sum - &one, max, "a result back in range is normalised to the small arm");
+        assert!(matches!(&sum - &one, SmeltPyInt::Small(_)));
+        assert_eq!((&SmeltPyInt::from(i64::MIN) * &SmeltPyInt::from(-1_i64)).to_string(), "9223372036854775808");
+        assert_eq!((-&SmeltPyInt::from(i64::MIN)).to_string(), "9223372036854775808");
+        let mut grow = SmeltPyInt::from(1_i64);
+        for _ in 0..70 {
+            grow = &grow * &SmeltPyInt::from(2_i64);
+        }
+        assert_eq!(grow.to_string(), "1180591620717411303424");
+    }
+
+    #[test]
+    fn floor_division_and_modulo_follow_the_divisor() {
+        let cases = [(7, 2, 3, 1), (-7, 2, -4, 1), (7, -2, -4, -1), (-7, -2, 3, -1), (6, -3, -2, 0)];
+        for (lhs, rhs, quotient, remainder) in cases {
+            let (lhs, rhs) = (SmeltPyInt::from(i64::from(lhs)), SmeltPyInt::from(i64::from(rhs)));
+            assert_eq!(lhs.floor_div(&rhs).ok(), Some(SmeltPyInt::from(i64::from(quotient))), "{lhs} // {rhs}");
+            assert_eq!(lhs.modulo(&rhs).ok(), Some(SmeltPyInt::from(i64::from(remainder))), "{lhs} % {rhs}");
+        }
+        assert_eq!(SmeltPyInt::from(i64::MIN).floor_div(&SmeltPyInt::from(-1_i64)).ok().map(|value| value.to_string()), Some("9223372036854775808".to_owned()));
+        assert_eq!(int("100000000000000000000").floor_div(&SmeltPyInt::from(3_i64)).ok().map(|value| value.to_string()), Some("33333333333333333333".to_owned()));
+        assert_eq!(int("100000000000000000000").modulo(&SmeltPyInt::from(7_i64)).ok(), Some(SmeltPyInt::from(2_i64)));
+        let error = SmeltPyInt::from(1_i64).floor_div(&SmeltPyInt::from(0_i64)).err().as_deref().map(raised);
+        assert_eq!(error, Some(("ZeroDivisionError".to_owned(), "division by zero".to_owned())));
+        let error = SmeltPyInt::from(1_i64).modulo(&SmeltPyInt::from(0_i64)).err().as_deref().map(raised);
+        assert_eq!(error, Some(("ZeroDivisionError".to_owned(), "division by zero".to_owned())));
+    }
+
+    #[test]
+    fn true_division_is_correctly_rounded() {
+        assert_eq!(SmeltPyInt::from(7_i64).true_div(&SmeltPyInt::from(2_i64)).ok(), Some(3.5));
+        assert_eq!(int("100000000000000000000").true_div(&SmeltPyInt::from(3_i64)).ok().map(smelt_py_float_repr), Some("3.333333333333333e+19".to_owned()));
+        let big = SmeltPyInt::from(2_i64).pow(&SmeltPyInt::from(1024_i64)).ok().unwrap_or_default();
+        assert_eq!(big.true_div(&SmeltPyInt::from(3_i64)).ok().map(smelt_py_float_repr), Some("5.992310449541053e+307".to_owned()));
+        assert_eq!(big.true_div(&SmeltPyInt::from(1_i64)).err().as_deref().map(raised), Some(("OverflowError".to_owned(), "integer division result too large for a float".to_owned())));
+        //~ 2**53 + 1 is not a double; the quotient by 1 rounds once, to even.
+        let odd = int("9007199254740993");
+        assert_eq!(odd.true_div(&SmeltPyInt::from(1_i64)).ok(), Some(9_007_199_254_740_992.0));
+        assert_eq!(int("-9007199254740995").true_div(&SmeltPyInt::from(1_i64)).ok(), Some(-9_007_199_254_740_996.0));
+        assert_eq!(SmeltPyInt::from(1_i64).true_div(&SmeltPyInt::from(0_i64)).err().as_deref().map(raised), Some(("ZeroDivisionError".to_owned(), "division by zero".to_owned())));
+    }
+
+    #[test]
+    fn power_shift_and_bitwise_are_exact() {
+        assert_eq!(SmeltPyInt::from(2_i64).pow(&SmeltPyInt::from(100_i64)).ok().map(|value| value.to_string()), Some("1267650600228229401496703205376".to_owned()));
+        assert_eq!(SmeltPyInt::from(0_i64).pow(&SmeltPyInt::from(0_i64)).ok(), Some(SmeltPyInt::from(1_i64)));
+        assert_eq!(SmeltPyInt::from(-2_i64).pow(&SmeltPyInt::from(3_i64)).ok(), Some(SmeltPyInt::from(-8_i64)));
+        assert_eq!(SmeltPyInt::from(2_i64).pow_float(&SmeltPyInt::from(-1_i64)).ok(), Some(0.5));
+        assert_eq!(SmeltPyInt::from(3_i64).pow_mod(&SmeltPyInt::from(200_i64), &SmeltPyInt::from(7_i64)).ok(), Some(SmeltPyInt::from(2_i64)));
+        assert_eq!(SmeltPyInt::from(2_i64).pow_mod(&SmeltPyInt::from(-1_i64), &SmeltPyInt::from(7_i64)).ok(), Some(SmeltPyInt::from(4_i64)));
+        assert_eq!(SmeltPyInt::from(1_i64).shl(&SmeltPyInt::from(70_i64)).ok().map(|value| value.to_string()), Some("1180591620717411303424".to_owned()));
+        assert_eq!(SmeltPyInt::from(-7_i64).shr(&SmeltPyInt::from(1_i64)).ok(), Some(SmeltPyInt::from(-4_i64)));
+        assert_eq!(SmeltPyInt::from(-7_i64).shr(&int("100000000000000000000")).ok(), Some(SmeltPyInt::from(-1_i64)));
+        assert_eq!(SmeltPyInt::from(1_i64).shl(&SmeltPyInt::from(-1_i64)).err().as_deref().map(raised), Some(("ValueError".to_owned(), "negative shift count".to_owned())));
+        assert_eq!(&SmeltPyInt::from(-1_i64) & &SmeltPyInt::from(0xff_i64), SmeltPyInt::from(255_i64));
+        assert_eq!(!&SmeltPyInt::from(5_i64), SmeltPyInt::from(-6_i64));
+        assert_eq!((&int("-100000000000000000000") & &int("36893488147419103231")).to_string(), "10680464442257309696");
+    }
+
+    #[test]
+    fn float_conversions_and_mixed_comparison_are_exact() {
+        assert_eq!(SmeltPyInt::from_f64(1e20).ok().map(|value| value.to_string()), Some("100000000000000000000".to_owned()));
+        assert_eq!(SmeltPyInt::from_f64(-2.7).ok(), Some(SmeltPyInt::from(-2_i64)));
+        assert_eq!(SmeltPyInt::from_f64(f64::NAN).err().as_deref().map(raised), Some(("ValueError".to_owned(), "cannot convert float NaN to integer".to_owned())));
+        assert_eq!(SmeltPyInt::from_f64(f64::INFINITY).err().as_deref().map(raised), Some(("OverflowError".to_owned(), "cannot convert float infinity to integer".to_owned())));
+        let big = SmeltPyInt::from(2_i64).pow(&SmeltPyInt::from(1024_i64)).ok().unwrap_or_default();
+        assert_eq!(big.to_f64().err().as_deref().map(raised), Some(("OverflowError".to_owned(), "int too large to convert to float".to_owned())));
+        let odd = int("9007199254740993");
+        assert!(!odd.eq_f64(9_007_199_254_740_992.0));
+        assert_eq!(odd.cmp_f64(9_007_199_254_740_992.0), Some(::std::cmp::Ordering::Greater));
+        assert!(SmeltPyInt::from(1_i64).eq_f64(1.0));
+        assert_eq!(SmeltPyInt::from(1_i64).cmp_f64(1.5), Some(::std::cmp::Ordering::Less));
+        assert_eq!(SmeltPyInt::from(-1_i64).cmp_f64(-1.5), Some(::std::cmp::Ordering::Greater));
+        assert_eq!(SmeltPyInt::from(1_i64).cmp_f64(f64::NAN), None);
+    }
+
+    #[test]
+    fn parse_follows_cpython_grammar() {
+        let ok = |text: &str, base: u32| SmeltPyInt::parse(text, base).ok().map(|value| value.to_string());
+        assert_eq!(ok(" 12 ", 10), Some("12".to_owned()));
+        assert_eq!(ok("1_000", 10), Some("1000".to_owned()));
+        assert_eq!(ok("-0", 10), Some("0".to_owned()));
+        assert_eq!(ok("+5", 10), Some("5".to_owned()));
+        assert_eq!(ok("\u{661}\u{662}", 10), Some("12".to_owned()));
+        assert_eq!(ok("0x_1f", 16), Some("31".to_owned()));
+        assert_eq!(ok("0_0", 0), Some("0".to_owned()));
+        assert_eq!(ok("0b101", 0), Some("5".to_owned()));
+        assert_eq!(ok("zz", 36), Some("1295".to_owned()));
+        assert_eq!(ok("-0X1F", 16), Some("-31".to_owned()));
+        assert_eq!(ok("0b1", 16), Some("177".to_owned()));
+        assert_eq!(ok("99999999999999999999", 10), Some("99999999999999999999".to_owned()));
+        let bad = |text: &str, base: u32| SmeltPyInt::parse(text, base).err().as_deref().map(raised);
+        let invalid = |shown: &str, base: u32| Some(("ValueError".to_owned(), format!("invalid literal for int() with base {base}: {shown}")));
+        assert_eq!(bad("x", 10), invalid("'x'", 10));
+        assert_eq!(bad("1__0", 10), invalid("'1__0'", 10));
+        assert_eq!(bad("_1", 10), invalid("'_1'", 10));
+        assert_eq!(bad("1_", 10), invalid("'1_'", 10));
+        assert_eq!(bad("0x1f", 10), invalid("'0x1f'", 10));
+        assert_eq!(bad("010", 0), invalid("'010'", 0));
+        assert_eq!(bad("", 10), invalid("''", 10));
+        assert_eq!(bad("\x1c7\x1f", 10), invalid("'\\x1c7\\x1f'", 10));
+        //~ No digit cap: `CPython` with `-X int_max_str_digits=0`.
+        let long = "12".repeat(2200);
+        assert_eq!(ok(&long, 10).map(|digits| digits.len()), Some(4400));
+        let shown = bad(&"x".repeat(300), 10).map(|(_, message)| message.len());
+        assert_eq!(shown, Some(240), "the text's repr is cut at 200 characters");
+    }
+
+    #[test]
+    fn indices_and_sizes_refuse_values_past_a_machine_word() {
+        let big = int("1180591620717411303424");
+        assert_eq!(big.to_index().err().as_deref().map(raised), Some(("IndexError".to_owned(), "cannot fit 'int' into an index-sized integer".to_owned())));
+        assert_eq!(big.to_size().err().as_deref().map(raised), Some(("OverflowError".to_owned(), "cannot fit 'int' into an index-sized integer".to_owned())));
+        assert_eq!(SmeltPyInt::from(-3_i64).to_index().ok(), Some(-3));
+        let huge = SmeltPyInt::from(10_i64).pow(&SmeltPyInt::from(5000_i64)).ok().unwrap_or_default();
+        assert_eq!(huge.to_string().len(), 5001);
+        assert!(SmeltPyInt::range(&SmeltPyInt::from(0_i64), &SmeltPyInt::from(3_i64), &SmeltPyInt::from(0_i64)).is_err());
+        assert_eq!(SmeltPyInt::range_values(&SmeltPyInt::from(5_i64), &SmeltPyInt::from(0_i64), &SmeltPyInt::from(-2_i64)), vec![SmeltPyInt::from(5_i64), SmeltPyInt::from(3_i64), SmeltPyInt::from(1_i64)]);
+        let base = int("9223372036854775806");
+        assert_eq!(SmeltPyInt::range_values(&base, &(&base + &SmeltPyInt::from(4_i64)), &SmeltPyInt::from(2_i64)).iter().map(ToString::to_string).collect::<Vec<_>>(), ["9223372036854775806", "9223372036854775808"]);
+        assert_eq!(SmeltPyInt::from(255_i64).bit_length(), SmeltPyInt::from(8_i64));
+        assert_eq!(SmeltPyInt::from(-2_i64).abs(), SmeltPyInt::from(2_i64));
+    }
+}

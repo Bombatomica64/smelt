@@ -1,22 +1,22 @@
 module examples/python/end-to-end/05_while_sum/input.py (ModuleId(0))
   body BodyId(0)
   items
-    global mut i: Int
-    global mut total: Int
+    global mut i: PyInt
+    global mut total: PyInt
   exprs
-    #0: Int = global_get @0(i)
-    #1: Int = 4
+    #0: PyInt = global_get @0(i)
+    #1: PyInt = 4
     #2: Bool = Lt #0, #1
-    #3: Int = global_get @1(total)
-    #4: Int = global_get @0(i)
-    #5: Int = Add #3, #4
-    #6: Int = global_set @1(total) = #5
-    #7: Int = global_get @0(i)
-    #8: Int = 1
-    #9: Int = Add #7, #8
-    #10: Int = global_set @0(i) = #9
+    #3: PyInt = global_get @1(total)
+    #4: PyInt = global_get @0(i)
+    #5: PyInt = Add #3, #4
+    #6: PyInt = global_set @1(total) = #5
+    #7: PyInt = global_get @0(i)
+    #8: PyInt = 1
+    #9: PyInt = Add #7, #8
+    #10: PyInt = global_set @0(i) = #9
     #11: None = @2(console_log)
-    #12: Int = global_get @1(total)
+    #12: PyInt = global_get @1(total)
     #13: None = call #11(#12)
   stmts
     s0: #6
@@ -25,6 +25,6 @@ module examples/python/end-to-end/05_while_sum/input.py (ModuleId(0))
     s3: #13
 
 interned types
-  t0 = Int
+  t0 = PyInt
   t1 = Bool
   t2 = None

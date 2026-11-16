@@ -411,6 +411,13 @@ impl FunctionEmitter<'_> {
                     Type::BigInt
                 })?,
             ),
+            Rvalue::PyNumericCall { op: numeric_op, .. } => (
+                self.py_int_call(*numeric_op, &args)?,
+                self.type_id(crate::py_int::py_numeric_op_result(
+                    *numeric_op,
+                    self.type_id(Type::PyInt)?,
+                ))?,
+            ),
             Rvalue::HostModuleCall { op, .. } => (
                 self.host_module_call(*op, &args)?,
                 self.host_module_call_source_ty(*op)?,

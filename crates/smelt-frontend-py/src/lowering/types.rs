@@ -552,7 +552,7 @@ impl ModuleBuilder<'_> {
             return Ok(self.py_exception_type());
         }
         match name {
-            "int" => Ok(self.intern_type(Type::Int)),
+            "int" => Ok(self.intern_type(Type::PyInt)),
             "float" => Ok(self.intern_type(Type::Float)),
             "str" => Ok(self.intern_type(Type::PyStr)),
             "bool" => Ok(self.intern_type(Type::Bool)),
@@ -755,7 +755,7 @@ impl ModuleBuilder<'_> {
 /// Whether `ty` is the `int` primitive, for the numeric-tower widening rule in
 /// [`ModuleBuilder::type_assignable_to`].
 fn is_int_like(ty: &Type) -> bool {
-    matches!(ty, Type::Int)
+    matches!(ty, Type::PyInt)
 }
 
 /// Whether `ty` is the `float` primitive, for the numeric-tower widening rule in

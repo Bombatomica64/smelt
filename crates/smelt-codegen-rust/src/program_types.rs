@@ -584,7 +584,7 @@ fn emit_class_type(
                             || {
                                 materialized_static_value(
                                     field.value.as_ref(),
-                                    mir.types.get(field.ty) != Some(&smelt_hir::Type::PyStr),
+                                    mir.types.get(field.ty),
                                 )
                             },
                             |global| {

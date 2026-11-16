@@ -10,8 +10,20 @@ impl ModuleBuilder<'_> {
         self.statement_in_block(stmt, body, body.root)
     }
 
-    /// Lower one statement into a specific target block.
+    /// Lower one statement into a specific target block. A diagnostic that
+    /// carries no position of its own is placed on the statement.
     fn statement_in_block(
+        &mut self,
+        stmt: &Stmt,
+        body: &mut Body,
+        block: smelt_hir::BlockId,
+    ) -> Result<(), SmeltError> {
+        self.statement_shape_in_block(stmt, body, block)
+            .map_err(|error| error.at_if_unplaced(self.span(stmt.range())))
+    }
+
+    /// Lower one statement; see [`Self::statement_in_block`].
+    fn statement_shape_in_block(
         &mut self,
         stmt: &Stmt,
         body: &mut Body,

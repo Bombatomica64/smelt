@@ -111,17 +111,8 @@ impl ModuleBuilder<'_> {
                 "str.find()/rfind() require str receiver and argument",
             ));
         }
-        let ty = self.intern_type(Type::Int);
-        Ok(Some(body.push_expr(HirExpr {
-            kind: ExprKind::StringSearch {
-                op,
-                haystack,
-                needle,
-                from_index: None,
-            },
-            ty,
-            span,
-        })))
+        let search = ExprKind::StringSearch { op, haystack, needle, from_index: None };
+        Ok(Some(self.machine_int_as_py_int(search, span, body)))
     }
 
     /// Lower direct Python literal string replacement.

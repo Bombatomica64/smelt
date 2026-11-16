@@ -21,7 +21,9 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
         type_hint: Option<TypeId>,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        let lowered = self.expression_shape_with_hint(expr, body, type_hint)?;
+        let lowered = self
+            .expression_shape_with_hint(expr, body, type_hint)
+            .map_err(|error| error.at_if_unplaced(self.span(expr.range())))?;
         Ok(self.in_own_language_view(lowered, body))
     }
 
@@ -57,17 +59,19 @@ impl ModuleBuilder<'_> {
             // --- Literals ---
             Expr::NumberLiteral(n) => {
                 let (kind, ty) = match &n.value {
+                    // A Python integer literal is unbounded: one that fits a
+                    // machine word is an `Int` literal, a wider one keeps its
+                    // exact decimal digits; both are a Python `int`.
                     Number::Int(i) => {
-                        let v = i.as_i64().ok_or_else(|| {
-                            SmeltError::unsupported(
-                                self.span(n.range),
-                                "integer literal out of i64 range",
-                            )
-                        })?;
-                        (
-                            ExprKind::Literal(Literal::Int(v)),
-                            self.intern_type(Type::Int),
-                        )
+                        let literal = match i.as_i64() {
+                            Some(value) => Literal::Int(value),
+                            None => Literal::BigInt(
+                                crate::helpers::python_int_literal_digits(&i.to_string()).ok_or_else(|| {
+                                    SmeltError::unsupported(self.span(n.range), "malformed integer literal")
+                                })?,
+                            ),
+                        };
+                        (ExprKind::Literal(literal), self.intern_type(Type::PyInt))
                     }
                     Number::Float(f) => (
                         ExprKind::Literal(Literal::Float(*f)),
@@ -167,6 +171,11 @@ impl ModuleBuilder<'_> {
                 if let Some(url_expr) = self.urlparse_attribute_expression(attr, body)? {
                     return Ok(url_expr);
                 }
+                // A read through an imported module no rule above maps
+                // (`sys.argv`) names the API rather than the module name.
+                if let Some(error) = self.unmapped_import_use(expr, self.span(attr.range)) {
+                    return Err(error);
+                }
                 let receiver = self.expression(&attr.value, body)?;
                 let receiver_ty = Self::expr_ty(body, receiver);
                 if receiver_ty == self.py_exception_type() {
@@ -203,14 +212,23 @@ impl ModuleBuilder<'_> {
                 let index_ty = self.index_type(receiver_ty)?;
                 let index = self.expression(&sub.slice, body)?;
                 let index_is_int =
-                    matches!(self.ctx.krate.types.get(Self::expr_ty(body, index)), Some(Type::Int));
+                    matches!(self.ctx.krate.types.get(Self::expr_ty(body, index)), Some(Type::PyInt));
+                // A sequence position is a machine index: an `int` past one is
+                // the `IndexError` `CPython` raises before it reads.
+                let position = if index_is_int
+                    && matches!(self.ctx.krate.types.get(receiver_ty), Some(Type::List(_) | Type::PyStr))
+                {
+                    self.py_int_as_index(index, body)
+                } else {
+                    index
+                };
                 let kind = match self.ctx.krate.types.get(receiver_ty) {
-                    Some(Type::Dict(..)) => ExprKind::PythonDictRead { dict: receiver, key: index },
-                    Some(Type::List(_)) if index_is_int => ExprKind::PythonListRead { list: receiver, index },
+                    Some(Type::Dict(..)) => ExprKind::PythonDictRead { dict: receiver, key: position },
+                    Some(Type::List(_)) if index_is_int => ExprKind::PythonListRead { list: receiver, index: position },
                     Some(Type::PyStr) if index_is_int => {
-                        ExprKind::PythonSequenceRead { sequence: receiver, index }
+                        ExprKind::PythonSequenceRead { sequence: receiver, index: position }
                     }
-                    _ => ExprKind::Index { receiver, index },
+                    _ => ExprKind::Index { receiver, index: position },
                 };
                 Ok(body.push_expr(HirExpr {
                     kind,
@@ -452,8 +470,9 @@ impl ModuleBuilder<'_> {
                                     self.python_text_expr(interpolated, true, self.span(interp.range), body)?
                                 } else if !matches!(
                                     self.ctx.krate.types.get(expr_ty),
-                                    Some(Type::Bool | Type::Int | Type::Float | Type::PyStr)
-                                ) && self.has_python_text(expr_ty)
+                                    Some(Type::Bool | Type::PyInt | Type::Float | Type::PyStr)
+                                ) && (self.has_python_text(expr_ty)
+                                    || self.class_text_method(expr_ty, false).is_some())
                                 {
                                     self.python_text_expr(interpolated, false, self.span(interp.range), body)?
                                 } else {
@@ -467,7 +486,7 @@ impl ModuleBuilder<'_> {
                                 // would coerce it the JavaScript way).
                                 let expr = if matches!(
                                     self.ctx.krate.types.get(Self::expr_ty(body, expr)),
-                                    Some(Type::Bool | Type::Int | Type::Float)
+                                    Some(Type::Bool | Type::PyInt | Type::Float)
                                 ) {
                                     body.push_expr(HirExpr {
                                         kind: ExprKind::PrimitiveCast {
@@ -558,7 +577,9 @@ impl ModuleBuilder<'_> {
     /// count of zero or less yields the empty string, as `CPython` does; the
     /// emitter clamps an integer count at zero for that. `None` for any other
     /// operand pair, which stays a numeric multiplication.
+    #[expect(clippy::too_many_arguments, reason = "one operation, its operands and its lowering position")]
     fn sequence_repeat(
+        &mut self,
         operand_kinds: &(Option<Type>, Option<Type>),
         lhs: smelt_hir::ExprId,
         rhs: smelt_hir::ExprId,
@@ -566,13 +587,15 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Option<smelt_hir::ExprId> {
         let (operand, count) = match operand_kinds {
-            (Some(Type::String | Type::PyStr), Some(Type::Int)) => (lhs, rhs),
-            (Some(Type::Int), Some(Type::String | Type::PyStr)) => (rhs, lhs),
+            (Some(Type::String | Type::PyStr), Some(Type::PyInt)) => (lhs, rhs),
+            (Some(Type::PyInt), Some(Type::String | Type::PyStr)) => (rhs, lhs),
             _ => return None,
         };
+        // A count past a machine word is `CPython`'s `OverflowError`.
+        let size = self.py_int_as_size(count, body);
         let ty = Self::expr_ty(body, operand);
         Some(body.push_expr(HirExpr {
-            kind: ExprKind::StringRepeat { operand, count },
+            kind: ExprKind::StringRepeat { operand, count: size },
             ty,
             span,
         }))
@@ -658,6 +681,61 @@ impl ModuleBuilder<'_> {
         })))
     }
 
+    /// Python's in-place list operators: `xs += ys` and `xs *= n` MUTATE `xs`
+    /// (`list.__iadd__` extends it, `list.__imul__` repeats it in place), so
+    /// every alias of the list sees the change; rebinding `xs` to `xs + ys`
+    /// would leave the aliases behind. Pushes the update and answers `true`
+    /// when `target` is a list.
+    #[expect(clippy::too_many_arguments, reason = "one operation, its operands and its lowering position")]
+    pub(super) fn list_in_place_update(
+        &mut self,
+        op: Operator,
+        target: smelt_hir::ExprId,
+        other: smelt_hir::ExprId,
+        span: Span,
+        body: &mut Body,
+        block: smelt_hir::BlockId,
+    ) -> Result<bool, SmeltError> {
+        let target_ty = Self::expr_ty(body, target);
+        if !matches!(self.ctx.krate.types.get(target_ty), Some(Type::List(_))) {
+            return Ok(false);
+        }
+        let none_ty = self.intern_type(Type::None);
+        match op {
+            Operator::Add => {
+                if Self::expr_ty(body, other) != target_ty {
+                    return Err(SmeltError::unsupported(span, "list += needs a list of the same element type"));
+                }
+                let extend = body.push_expr(HirExpr { kind: ExprKind::ListExtend { list: target, other }, ty: none_ty, span });
+                body.push_stmt_to_block(block, HirStmt::Expr(extend));
+                Ok(true)
+            }
+            Operator::Mult => {
+                if !matches!(self.ctx.krate.types.get(Self::expr_ty(body, other)), Some(Type::PyInt)) {
+                    return Err(SmeltError::unsupported(span, "list *= needs an int count"));
+                }
+                // The repeated elements are read before the list is emptied.
+                let size = self.py_int_as_size(other, body);
+                let repeated = body.push_expr(HirExpr { kind: ExprKind::ListRepeat { list: target, count: size }, ty: target_ty, span });
+                let repeated_local = body.push_local(LocalDecl {
+                    name: None,
+                    ty: target_ty,
+                    mutable: false,
+                    span,
+                });
+                let pattern = body.push_pattern(smelt_hir::Pattern::Binding(repeated_local));
+                body.push_stmt_to_block(block, HirStmt::Let { pat: pattern, ty: target_ty, value: Some(repeated) });
+                let read = body.push_expr(HirExpr { kind: ExprKind::Local(repeated_local), ty: target_ty, span });
+                let clear = body.push_expr(HirExpr { kind: ExprKind::ListClear { list: target }, ty: none_ty, span });
+                body.push_stmt_to_block(block, HirStmt::Expr(clear));
+                let extend = body.push_expr(HirExpr { kind: ExprKind::ListExtend { list: target, other: read }, ty: none_ty, span });
+                body.push_stmt_to_block(block, HirStmt::Expr(extend));
+                Ok(true)
+            }
+            _ => Ok(false),
+        }
+    }
+
     /// Python's set operators on two sets: `|` union, `&` intersection, `-`
     /// difference and `^` symmetric difference, each a NEW set (the operands
     /// are not mutated). `None` when either operand is not a set.
@@ -703,23 +781,27 @@ impl ModuleBuilder<'_> {
             Operator::Div => Some(PythonArithmetic::Division(PythonDivisionOp::TrueDiv)),
             Operator::FloorDiv => Some(PythonArithmetic::Division(PythonDivisionOp::FloorDiv)),
             Operator::Mod => Some(PythonArithmetic::Division(PythonDivisionOp::Mod)),
-            Operator::MatMult
-            | Operator::Pow
-            | Operator::LShift
-            | Operator::RShift
-            | Operator::BitOr
-            | Operator::BitXor
-            | Operator::BitAnd => None,
+            Operator::Pow => Some(PythonArithmetic::Power),
+            Operator::LShift => Some(PythonArithmetic::Shift(PyNumericOp::Shl)),
+            Operator::RShift => Some(PythonArithmetic::Shift(PyNumericOp::Shr)),
+            Operator::BitOr => Some(PythonArithmetic::Bitwise(BinOp::BitOr)),
+            Operator::BitXor => Some(PythonArithmetic::Bitwise(BinOp::BitXor)),
+            Operator::BitAnd => Some(PythonArithmetic::Bitwise(BinOp::BitAnd)),
+            Operator::MatMult => None,
         }
     }
 
     /// Apply Python's numeric tower to two lowered operands.
     ///
     /// Arithmetic mixing `int` and `float` promotes the `int` (`1 + 2.5 == 3.5`)
-    /// through the same `ToFloat` cast `float(x)` lowers to, so codegen never sees
-    /// an `i64` meet an `f64`. `/` is true division, a `float` even for two `int`s
-    /// (`7 / 2 == 3.5`). `//` and `%` floor toward negative infinity and stay `int`
-    /// for two `int`s; all three raise `ZeroDivisionError` on a zero divisor.
+    /// through the same raising conversion `float(x)` lowers to, so codegen
+    /// never sees a `SmeltPyInt` meet an `f64`. Two `int`s stay exact: `+ - *`
+    /// and the bitwise operators are `int` operators at every magnitude, `/`
+    /// is correctly rounded true division into a `float` (`7 / 2 == 3.5`), `//`
+    /// and `%` floor toward negative infinity, `**` is an exact `int` unless
+    /// its exponent is a negative constant (then a `float`, `2 ** -1 == 0.5`),
+    /// and every operator that can raise (`ZeroDivisionError`, a negative
+    /// shift count) lowers to a [`PyNumericOp`] call a `try` can catch.
     #[expect(clippy::too_many_arguments, reason = "one operation, its operands and its lowering position")]
     fn python_arithmetic(
         &mut self,
@@ -735,48 +817,60 @@ impl ModuleBuilder<'_> {
         );
         let both_numeric = matches!(
             operand_kinds,
-            (Some(Type::Int | Type::Float), Some(Type::Int | Type::Float))
+            (Some(Type::PyInt | Type::Float), Some(Type::PyInt | Type::Float))
         );
+        let both_int = matches!(operand_kinds, (Some(Type::PyInt), Some(Type::PyInt)));
         let any_float = matches!(operand_kinds, (Some(Type::Float), _) | (_, Some(Type::Float)));
-        let promotes = both_numeric
-            && (any_float || matches!(op, PythonArithmetic::Division(PythonDivisionOp::TrueDiv)));
-        let (lhs, rhs) = if promotes {
+        if op == PythonArithmetic::Plain(BinOp::Mul)
+            && let Some(repeat) = self.sequence_repeat(&operand_kinds, lhs, rhs, span, body)
+        {
+            return Ok(repeat);
+        }
+        if let PythonArithmetic::Plain(sequence_op @ (BinOp::Add | BinOp::Mul)) = op
+            && let Some(sequence) = self.sequence_arithmetic(sequence_op, &operand_kinds, lhs, rhs, span, body)?
+        {
+            return Ok(sequence);
+        }
+        let (left, right) = if both_numeric && any_float {
             (self.promote_int_to_float(lhs, body), self.promote_int_to_float(rhs, body))
         } else {
             (lhs, rhs)
         };
-        if op == PythonArithmetic::Plain(BinOp::Mul)
-            && let Some(repeat) = Self::sequence_repeat(&operand_kinds, lhs, rhs, span, body)
-        {
-            return Ok(repeat);
-        }
-        let lhs_ty = Self::expr_ty(body, lhs);
+        let lhs_ty = Self::expr_ty(body, left);
         match op {
-            PythonArithmetic::Plain(op) => {
-                let ty = if op == BinOp::Add {
+            PythonArithmetic::Plain(plain_op) => {
+                let ty = if plain_op == BinOp::Add {
                     self.python_add_return_ty(lhs_ty).unwrap_or(lhs_ty)
                 } else {
                     lhs_ty
                 };
                 Ok(body.push_expr(HirExpr {
-                    kind: ExprKind::BinOp { op, lhs, rhs },
+                    kind: ExprKind::BinOp { op: plain_op, lhs: left, rhs: right },
                     ty,
                     span,
                 }))
             }
-            PythonArithmetic::Division(op) if both_numeric => {
-                let divisor_checked = !Self::is_nonzero_constant(rhs, body);
-                let kind = if op == PythonDivisionOp::TrueDiv && !divisor_checked {
+            PythonArithmetic::Division(division_op) if both_int => {
+                let int_op = match division_op {
+                    PythonDivisionOp::TrueDiv => PyNumericOp::TrueDiv,
+                    PythonDivisionOp::FloorDiv => PyNumericOp::FloorDiv,
+                    PythonDivisionOp::Mod => PyNumericOp::Mod,
+                };
+                Ok(self.py_numeric_call(int_op, vec![left, right], span, body))
+            }
+            PythonArithmetic::Division(division_op) if both_numeric => {
+                let divisor_checked = !Self::is_nonzero_constant(right, body);
+                let kind = if division_op == PythonDivisionOp::TrueDiv && !divisor_checked {
                     ExprKind::BinOp {
                         op: BinOp::Div,
-                        lhs,
-                        rhs,
+                        lhs: left,
+                        rhs: right,
                     }
                 } else {
                     ExprKind::PythonDivision {
-                        op,
-                        lhs,
-                        rhs,
+                        op: division_op,
+                        lhs: left,
+                        rhs: right,
                         divisor_checked,
                     }
                 };
@@ -790,17 +884,285 @@ impl ModuleBuilder<'_> {
                 Ok(body.push_expr(HirExpr {
                     kind: ExprKind::BinOp {
                         op: BinOp::Div,
-                        lhs,
-                        rhs,
+                        lhs: left,
+                        rhs: right,
                     },
                     ty: lhs_ty,
                     span,
                 }))
             }
-            PythonArithmetic::Division(op) => Err(SmeltError::unsupported(
+            PythonArithmetic::Division(division_op) => Err(SmeltError::unsupported(
                 span,
-                format!("operator '{}' needs int or float operands", op.source_text()),
+                format!("operator '{}' needs int or float operands", division_op.source_text()),
             )),
+            PythonArithmetic::Power if both_int => {
+                let pow = if Self::is_negative_int_constant(right, body) {
+                    PyNumericOp::PowFloat
+                } else {
+                    PyNumericOp::Pow
+                };
+                Ok(self.py_numeric_call(pow, vec![left, right], span, body))
+            }
+            PythonArithmetic::Power if both_numeric => {
+                Ok(self.py_numeric_call(PyNumericOp::FloatPow, vec![left, right], span, body))
+            }
+            PythonArithmetic::Shift(shift) if both_int => {
+                Ok(self.py_numeric_call(shift, vec![left, right], span, body))
+            }
+            PythonArithmetic::Bitwise(bitwise_op) if both_int => Ok(body.push_expr(HirExpr {
+                kind: ExprKind::BinOp { op: bitwise_op, lhs: left, rhs: right },
+                ty: lhs_ty,
+                span,
+            })),
+            PythonArithmetic::Power => Err(SmeltError::unsupported(
+                span,
+                "operator '**' needs int or float operands",
+            )),
+            PythonArithmetic::Shift(_) | PythonArithmetic::Bitwise(_) => Err(
+                SmeltError::unsupported(span, "shift and bitwise operators need two int operands"),
+            ),
+        }
+    }
+
+    /// Python's sequence `+` and `*` on lists and tuples: `xs + ys` is a new
+    /// list (or tuple) of both operands' elements, `xs * n` and `n * xs` the
+    /// elements `n` times over, sharing the elements themselves as `CPython`
+    /// does. `None` for any other operand pair.
+    ///
+    /// A tuple's length is part of its type, so tuple repetition needs a
+    /// constant count; two lists (or tuples) of different element types would
+    /// need a union element type the source did not spell, and are refused.
+    #[expect(clippy::too_many_arguments, reason = "one operation, its operands and its lowering position")]
+    fn sequence_arithmetic(
+        &mut self,
+        op: BinOp,
+        operand_kinds: &(Option<Type>, Option<Type>),
+        lhs: smelt_hir::ExprId,
+        rhs: smelt_hir::ExprId,
+        span: Span,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        match (op, operand_kinds) {
+            (BinOp::Add, (Some(Type::List(left)), Some(Type::List(right)))) => {
+                if left != right {
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "list + list needs two lists of the same element type",
+                    ));
+                }
+                let ty = Self::expr_ty(body, lhs);
+                Ok(Some(body.push_expr(HirExpr { kind: ExprKind::ListConcat { left: lhs, right: rhs }, ty, span })))
+            }
+            (BinOp::Mul, (Some(Type::List(_)), Some(Type::PyInt)) | (Some(Type::PyInt), Some(Type::List(_)))) => {
+                let (list, count) = if matches!(operand_kinds.0, Some(Type::List(_))) { (lhs, rhs) } else { (rhs, lhs) };
+                // A count past a machine word is `CPython`'s `OverflowError`.
+                let size = self.py_int_as_size(count, body);
+                let ty = Self::expr_ty(body, list);
+                Ok(Some(body.push_expr(HirExpr { kind: ExprKind::ListRepeat { list, count: size }, ty, span })))
+            }
+            (BinOp::Add, (Some(Type::Tuple(left)), Some(Type::Tuple(right)))) => {
+                let parts = [(lhs, left.clone()), (rhs, right.clone())];
+                Ok(Some(self.tuple_from_parts(&parts, span, body)))
+            }
+            (BinOp::Mul, (Some(Type::Tuple(items)), Some(Type::PyInt)) | (Some(Type::PyInt), Some(Type::Tuple(items)))) => {
+                let (tuple, count) = if matches!(operand_kinds.0, Some(Type::Tuple(_))) { (lhs, rhs) } else { (rhs, lhs) };
+                let Some(constant) = Self::small_int_constant(count, body) else {
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "tuple * n needs a constant n: a tuple's length is part of its type",
+                    ));
+                };
+                let times = usize::try_from(constant.max(0)).unwrap_or(0);
+                let parts = vec![(tuple, items.clone()); times];
+                Ok(Some(self.tuple_from_parts(&parts, span, body)))
+            }
+            _ => Ok(None),
+        }
+    }
+
+    /// The tuple of every element of each `(tuple, element types)` part, in
+    /// order: each part is evaluated once and read element by element.
+    fn tuple_from_parts(
+        &mut self,
+        parts: &[(smelt_hir::ExprId, Vec<TypeId>)],
+        span: Span,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let mut elements = Vec::new();
+        let mut element_tys = Vec::new();
+        for (tuple, items) in parts {
+            for (index, item_ty) in items.iter().enumerate() {
+                elements.push(body.push_expr(HirExpr {
+                    kind: ExprKind::TupleIndex { tuple: *tuple, index },
+                    ty: *item_ty,
+                    span,
+                }));
+                element_tys.push(*item_ty);
+            }
+        }
+        let ty = self.intern_type(Type::Tuple(element_tys));
+        body.push_expr(HirExpr { kind: ExprKind::TupleLit(elements), ty, span })
+    }
+
+    /// A raising Python numeric operation over `args`, typed as the operation
+    /// answers.
+    pub(super) fn py_numeric_call(
+        &mut self,
+        op: PyNumericOp,
+        args: Vec<smelt_hir::ExprId>,
+        span: Span,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let py_int = self.intern_type(Type::PyInt);
+        let ty = self.intern_type(match op {
+            PyNumericOp::Parse
+            | PyNumericOp::ParseBase
+            | PyNumericOp::FromFloat
+            | PyNumericOp::FloorDiv
+            | PyNumericOp::Mod
+            | PyNumericOp::Pow
+            | PyNumericOp::PowMod
+            | PyNumericOp::Shl
+            | PyNumericOp::Shr => Type::PyInt,
+            PyNumericOp::ToFloat
+            | PyNumericOp::TrueDiv
+            | PyNumericOp::PowFloat
+            | PyNumericOp::FloatPow
+            | PyNumericOp::ParseFloat => Type::Float,
+            PyNumericOp::ToIndex | PyNumericOp::ToSize => Type::Int,
+            PyNumericOp::Range => Type::List(py_int),
+        });
+        body.push_expr(HirExpr {
+            kind: ExprKind::PyNumericCall { op, args },
+            ty,
+            span,
+        })
+    }
+
+    /// A machine integer (`len(xs)`, a `str.find` position, a `list.count`)
+    /// as the Python `int` it is: `kind` is pushed at `i64` and converted, so
+    /// the operations shared with TypeScript keep their machine type.
+    pub(super) fn machine_int_as_py_int(
+        &mut self,
+        kind: ExprKind,
+        span: Span,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let machine_ty = self.intern_type(Type::Int);
+        let value = body.push_expr(HirExpr { kind, ty: machine_ty, span });
+        let ty = self.intern_type(Type::PyInt);
+        body.push_expr(HirExpr { kind: ExprKind::TypeAssert { value }, ty, span })
+    }
+
+    /// A Python `int` operand at a position that takes a machine index (a
+    /// subscript): converted with `IndexError` past `i64`. Any other operand
+    /// is returned unchanged.
+    pub(super) fn py_int_as_index(
+        &mut self,
+        operand: smelt_hir::ExprId,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        self.py_int_as_machine(operand, PyNumericOp::ToIndex, body)
+    }
+
+    /// A Python `int` operand at a position that takes a machine size (a
+    /// repeat count, a bound): converted with `OverflowError` past `i64`.
+    pub(super) fn py_int_as_size(
+        &mut self,
+        operand: smelt_hir::ExprId,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        self.py_int_as_machine(operand, PyNumericOp::ToSize, body)
+    }
+
+    /// A Python `int` slice bound as a machine one: `CPython` clamps a bound
+    /// past a machine word to the word's range (`xs[:2**70]` is all of `xs`),
+    /// which the saturating conversion is.
+    pub(super) fn py_int_as_clamped_bound(
+        &mut self,
+        operand: smelt_hir::ExprId,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        if !matches!(self.ctx.krate.types.get(Self::expr_ty(body, operand)), Some(Type::PyInt)) {
+            return operand;
+        }
+        let span = Self::expr_span(body, operand);
+        let ty = self.intern_type(Type::Int);
+        if let Some(value) = Self::small_int_constant(operand, body) {
+            return body.push_expr(HirExpr { kind: ExprKind::Literal(Literal::Int(value)), ty, span });
+        }
+        body.push_expr(HirExpr { kind: ExprKind::TypeAssert { value: operand }, ty, span })
+    }
+
+    /// See [`Self::py_int_as_index`]. A small constant converts statically.
+    fn py_int_as_machine(
+        &mut self,
+        operand: smelt_hir::ExprId,
+        op: PyNumericOp,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        if !matches!(self.ctx.krate.types.get(Self::expr_ty(body, operand)), Some(Type::PyInt)) {
+            return operand;
+        }
+        let span = Self::expr_span(body, operand);
+        if let Some(value) = Self::small_int_constant(operand, body) {
+            let ty = self.intern_type(Type::Int);
+            return body.push_expr(HirExpr { kind: ExprKind::Literal(Literal::Int(value)), ty, span });
+        }
+        self.py_numeric_call(op, vec![operand], span, body)
+    }
+
+    /// The literal `-value` of an `int` literal operand, in the narrowest
+    /// spelling that holds it.
+    fn negated_int_literal(operand: smelt_hir::ExprId, body: &Body) -> Option<Literal> {
+        let index = usize::try_from(operand.0).ok()?;
+        match &body.exprs.get(index)?.kind {
+            ExprKind::Literal(Literal::Int(value)) => Some(
+                value.checked_neg().map_or_else(
+                    || Literal::BigInt(i128::from(*value).checked_neg().unwrap_or_default().to_string()),
+                    Literal::Int,
+                ),
+            ),
+            ExprKind::Literal(Literal::BigInt(digits)) => {
+                let negated = digits.strip_prefix('-').map_or_else(|| format!("-{digits}"), str::to_owned);
+                Some(negated.parse::<i64>().map_or(Literal::BigInt(negated), Literal::Int))
+            }
+            _ => None,
+        }
+    }
+
+    /// The value of an `int` constant that fits `i64` (`3`, `-1`).
+    fn small_int_constant(expr: smelt_hir::ExprId, body: &Body) -> Option<i64> {
+        let index = usize::try_from(expr.0).ok()?;
+        match &body.exprs.get(index)?.kind {
+            ExprKind::Literal(Literal::Int(value)) => Some(*value),
+            ExprKind::UnaryOp { op: UnaryOp::Neg, operand } => {
+                Self::small_int_constant(*operand, body)?.checked_neg()
+            }
+            _ => None,
+        }
+    }
+
+    /// Whether an operand is an `int` constant below zero (`-1`), which makes
+    /// `**` answer a `float`.
+    fn is_negative_int_constant(expr: smelt_hir::ExprId, body: &Body) -> bool {
+        let index = usize::try_from(expr.0).unwrap_or(usize::MAX);
+        match body.exprs.get(index).map(|found| &found.kind) {
+            Some(ExprKind::UnaryOp { op: UnaryOp::Neg, operand }) => {
+                Self::is_positive_int_constant(*operand, body)
+            }
+            Some(ExprKind::Literal(Literal::Int(value))) => *value < 0,
+            _ => false,
+        }
+    }
+
+    /// Whether an operand is an `int` constant above zero.
+    fn is_positive_int_constant(expr: smelt_hir::ExprId, body: &Body) -> bool {
+        let index = usize::try_from(expr.0).unwrap_or(usize::MAX);
+        match body.exprs.get(index).map(|found| &found.kind) {
+            Some(ExprKind::Literal(Literal::Int(value))) => *value > 0,
+            Some(ExprKind::Literal(Literal::BigInt(digits))) => !digits.starts_with('-'),
+            _ => false,
         }
     }
 
@@ -856,20 +1218,22 @@ impl ModuleBuilder<'_> {
     ) -> smelt_hir::ExprId {
         if !matches!(
             self.ctx.krate.types.get(Self::expr_ty(body, operand)),
-            Some(Type::Int)
+            Some(Type::PyInt)
         ) {
             return operand;
         }
-        let float_ty = self.intern_type(Type::Float);
         let span = Self::expr_span(body, operand);
-        body.push_expr(HirExpr {
-            kind: ExprKind::PrimitiveCast {
-                op: PrimitiveCastOp::ToFloat,
-                operand,
-            },
-            ty: float_ty,
-            span,
-        })
+        // A constant converts exactly at compile time; anything else may be
+        // past `f64`'s range, which `float(n)` raises on.
+        if let Some(value) = Self::small_int_constant(operand, body)
+            && value.unsigned_abs() <= 1_u64 << 53_u32
+        {
+            let float_ty = self.intern_type(Type::Float);
+            #[expect(clippy::cast_precision_loss, clippy::as_conversions, reason = "the value is within 2^53, exact in f64")]
+            let exact = value as f64;
+            return body.push_expr(HirExpr { kind: ExprKind::Literal(Literal::Float(exact)), ty: float_ty, span });
+        }
+        self.py_numeric_call(PyNumericOp::ToFloat, vec![operand], span, body)
     }
 
     /// Return the concrete output type declared by a class's Python `__add__`.
@@ -886,6 +1250,7 @@ impl ModuleBuilder<'_> {
                 Item::Function(function) => Some(function.return_ty),
                 _ => None,
             },
+            ClassProtocol::Str { .. } | ClassProtocol::Repr { .. } => None,
         })
     }
 
@@ -1005,7 +1370,7 @@ impl ModuleBuilder<'_> {
         }
         if !matches!(
             self.ctx.krate.types.get(operand_ty),
-            Some(Type::Int | Type::Float | Type::PyStr)
+            Some(Type::PyInt | Type::Float | Type::PyStr)
         ) {
             return Err(SmeltError::unsupported(
                 span,
@@ -1205,13 +1570,42 @@ impl ModuleBuilder<'_> {
             RuffUnaryOp::Not => (UnaryOp::Not, true),
             RuffUnaryOp::USub => (UnaryOp::Neg, false),
             RuffUnaryOp::Invert | RuffUnaryOp::UAdd => {
-                return Err(SmeltError::unsupported(
-                    span,
-                    format!("unary operator '{}' is not supported", u.op),
-                ));
+                let operand = self.expression(&u.operand, body)?;
+                let operand_ty = Self::expr_ty(body, operand);
+                return match (u.op, self.ctx.krate.types.get(operand_ty)) {
+                    // `+x` of a number is the number itself.
+                    (RuffUnaryOp::UAdd, Some(Type::PyInt | Type::Float)) => Ok(operand),
+                    // `~x` is `-x - 1`, which is `x ^ -1` in infinite two's
+                    // complement, the `int` operator `^` already is.
+                    (RuffUnaryOp::Invert, Some(Type::PyInt)) => {
+                        let minus_one = body.push_expr(HirExpr {
+                            kind: ExprKind::Literal(Literal::Int(-1)),
+                            ty: operand_ty,
+                            span,
+                        });
+                        Ok(body.push_expr(HirExpr {
+                            kind: ExprKind::BinOp { op: BinOp::BitXor, lhs: operand, rhs: minus_one },
+                            ty: operand_ty,
+                            span,
+                        }))
+                    }
+                    _ => Err(SmeltError::unsupported(
+                        span,
+                        format!("unary operator '{}' needs an int operand", u.op),
+                    )),
+                };
             }
         };
         let operand = self.expression(&u.operand, body)?;
+        // `-5` is the constant `-5`, not a negation evaluated at run time; a
+        // `-9223372036854775808` reads its magnitude as wide digits first.
+        if op == UnaryOp::Neg
+            && matches!(self.ctx.krate.types.get(Self::expr_ty(body, operand)), Some(Type::PyInt))
+            && let Some(negated) = Self::negated_int_literal(operand, body)
+        {
+            let ty = Self::expr_ty(body, operand);
+            return Ok(body.push_expr(HirExpr { kind: ExprKind::Literal(negated), ty, span }));
+        }
         let ty = if result_is_bool {
             self.intern_type(Type::Bool)
         } else {
