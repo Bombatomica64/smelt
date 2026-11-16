@@ -1,4 +1,4 @@
-module examples/typescript/end-to-end/201_record_viewed_as_another_record_type/input.ts (ModuleId(0))
+module examples/typescript/end-to-end/203_record_viewed_as_another_record_type/input.ts (ModuleId(0))
   body BodyId(14)
   items
     global mut kept_named: Named

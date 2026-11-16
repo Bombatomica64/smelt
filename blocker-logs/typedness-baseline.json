@@ -2,17 +2,17 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 8694,
+      "concrete": 8822,
       "generic": 193,
       "erased": 56
     },
     "reads": {
-      "concrete": 939,
+      "concrete": 977,
       "generic": 50,
       "erased": 20
     },
     "calls": {
-      "concrete": 2444,
+      "concrete": 2477,
       "generic": 16,
       "erased": 2
     }
@@ -1748,6 +1748,23 @@
       },
       "calls": {
         "concrete": 53,
+        "generic": 0,
+        "erased": 0
+      }
+    },
+    "examples/typescript/end-to-end/203_record_viewed_as_another_record_type/input.ts": {
+      "values": {
+        "concrete": 128,
+        "generic": 0,
+        "erased": 0
+      },
+      "reads": {
+        "concrete": 38,
+        "generic": 0,
+        "erased": 0
+      },
+      "calls": {
+        "concrete": 33,
         "generic": 0,
         "erased": 0
       }
