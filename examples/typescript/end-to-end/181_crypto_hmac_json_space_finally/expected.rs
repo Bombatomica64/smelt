@@ -4377,7 +4377,7 @@ impl SmeltJsonReplacer {
             SmeltUnknown::Function(function) => Self::Function(function.clone()),
             SmeltUnknown::Array(keys) => {
                 let mut list: Vec<String> = Vec::new();
-                for key in keys.iter() {
+                for key in keys {
                     let key = match key { SmeltUnknown::String(text) => text.to_string(), SmeltUnknown::Number(number) => smelt_number_to_string(number), _ => continue };
                     if !list.contains(&key) { list.push(key); }
                 }
@@ -4457,10 +4457,9 @@ fn smelt_json_write(value: &SmeltUnknown, replacer: &SmeltJsonReplacer, out: &mu
                 return Ok(());
             }
             let shape = smelt_for_in_object_shape(values);
-            let entries: Vec<(JsString, SmeltUnknown)> = match replacer {
-                SmeltJsonReplacer::Keys(keys) => keys.iter().filter_map(|key| values.get(key.as_str()).map(|entry| (JsString::from(key.as_str()), entry))).collect(),
-                _ => { let store = values.store.borrow(); store.entries().iter().filter(|entry| smelt_is_for_in_shape_key(shape, &entry.key)).map(|entry| (entry.key.clone(), entry.value.clone())).collect() }
-            };
+            let entries: Vec<(JsString, SmeltUnknown)> = if let SmeltJsonReplacer::Keys(keys) = replacer {
+                keys.iter().filter_map(|key| values.get(key.as_str()).map(|entry| (JsString::from(key.as_str()), entry))).collect()
+            } else { let store = values.store.borrow(); store.entries().iter().filter(|entry| smelt_is_for_in_shape_key(shape, &entry.key)).map(|entry| (entry.key.clone(), entry.value.clone())).collect() };
             let mut first = true;
             for (key, entry) in entries {
                 let entry = smelt_resolve_accessor(entry, || value.clone());

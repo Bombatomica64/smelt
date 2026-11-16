@@ -873,11 +873,11 @@ fn smelt_panic_message(panic: &(dyn ::std::any::Any + Send)) -> String { if let 
 fn smelt_panic_class(panic: &(dyn ::std::any::Any + Send)) -> String { panic.downcast_ref::<SmeltPanic>().map_or_else(|| "Error".to_owned(), |payload| payload.class.clone()) }
 /// JavaScript `Math.max` of two numbers.
 #[allow(dead_code)]
-fn smelt_math_max(left: f64, right: f64) -> f64 { if left.is_nan() || right.is_nan() { f64::NAN } else if left == right { if left == 0.0 && left.is_sign_negative() { right } else { left } } else if left > right { left } else { right } }
+fn smelt_math_max(left: f64, right: f64) -> f64 { if left.is_nan() || right.is_nan() { return f64::NAN; } match left.partial_cmp(&right) { Some(::std::cmp::Ordering::Greater) => left, Some(::std::cmp::Ordering::Less) => right, _ => if left.is_sign_negative() { right } else { left } } }
 
 /// JavaScript `Math.min` of two numbers.
 #[allow(dead_code)]
-fn smelt_math_min(left: f64, right: f64) -> f64 { if left.is_nan() || right.is_nan() { f64::NAN } else if left == right { if left == 0.0 && left.is_sign_positive() { right } else { left } } else if left < right { left } else { right } }
+fn smelt_math_min(left: f64, right: f64) -> f64 { if left.is_nan() || right.is_nan() { return f64::NAN; } match left.partial_cmp(&right) { Some(::std::cmp::Ordering::Less) => left, Some(::std::cmp::Ordering::Greater) => right, _ => if left.is_sign_positive() { right } else { left } } }
 thread_local! {
     static SMELT_NEXT_CAPTURE_SCOPE: ::std::cell::Cell<usize> = const { ::std::cell::Cell::new(1) };
     static SMELT_SHARED_CAPTURES: ::std::cell::RefCell<::std::collections::HashMap<(usize, usize), ::std::rc::Weak<dyn ::std::any::Any>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());

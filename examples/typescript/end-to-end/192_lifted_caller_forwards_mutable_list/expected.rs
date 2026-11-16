@@ -875,7 +875,7 @@ fn smelt_panic_class(panic: &(dyn ::std::any::Any + Send)) -> String { panic.dow
 /// `options` arguments, i.e. the host's default collation.
 fn smelt_locale_compare(left: &(impl SmeltHostText + ?Sized), right: &(impl SmeltHostText + ?Sized)) -> f64 { let left = left.host_text(); let left: &str = &left; let right = right.host_text(); let right: &str = &right;
     thread_local! {
-        static SMELT_COLLATOR: Option<icu_collator::CollatorBorrowed<'static>> = icu_collator::Collator::try_new(Default::default(), icu_collator::options::CollatorOptions::default()).ok();
+        static SMELT_COLLATOR: Option<icu_collator::CollatorBorrowed<'static>> = icu_collator::Collator::try_new(icu_collator::CollatorPreferences::default(), icu_collator::options::CollatorOptions::default()).ok();
     }
     let ordering = SMELT_COLLATOR.with(|collator| collator.as_ref().map_or_else(|| left.cmp(right), |collator| collator.compare(left, right)));
     match ordering {
