@@ -752,18 +752,23 @@ const second = counter.value;
     );
 
     // The getter-aware read is the erased runtime's (`property_access.rs`):
-    // it reads `__smelt_get` without removing it. Old requirement: this
-    // program's own text carried that runtime. It did only because every
-    // TypeScript program demanded the erased carrier; this one spells no erased
-    // type, so the rule is checked on the runtime the carrier brings.
+    // a read runs the getter with the object as `this` and leaves the
+    // accessor in the object. Old requirement: this program's own text carried
+    // that runtime. It did only because every TypeScript program demanded the
+    // erased carrier; this one spells no erased type, so the rule is checked on
+    // the runtime the carrier brings.
     assert!(source.contains("fn make_counter"), "{source}");
     let runtime = runtime_prelude::rendered_text(&|_| true);
     assert!(
-        runtime.contains("match getter.get(\"__smelt_get\")"),
+        runtime.contains("match accessor.get(\"__smelt_get\")"),
         "{runtime}"
     );
     assert!(
-        !runtime.contains("getter.remove(\"__smelt_get\")"),
+        runtime.contains("fn smelt_resolve_accessor(value: SmeltUnknown, receiver: impl FnOnce() -> SmeltUnknown)"),
+        "{runtime}"
+    );
+    assert!(
+        !runtime.contains("accessor.remove(\"__smelt_get\")"),
         "{runtime}"
     );
 }
