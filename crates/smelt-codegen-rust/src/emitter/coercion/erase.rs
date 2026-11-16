@@ -391,6 +391,10 @@ impl FunctionEmitter<'_> {
     /// One helper for all three container shapes on purpose: the list arm grew
     /// this recovery first, the dict arm reproduced the bug because it did not,
     /// and a tuple arm would have been the third.
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "single-shape recogniser: only a list, tuple or dict literal defines the held values; any other definition is not a literal"
+    )]
     pub(super) fn container_local_all_undefined_constants(
         &self,
         operand: &Operand,

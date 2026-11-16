@@ -116,16 +116,13 @@ impl FunctionEmitter<'_> {
         let Some(kind) = self.mir.types.get(ty) else {
             return Err(EmitError::new("union member references an unknown type"));
         };
-        match kind {
-            Type::TypeParam { name } => {
-                if !params.contains(name) {
-                    params.push(*name);
-                }
+        if let Type::TypeParam { name } = kind {
+            if !params.contains(name) {
+                params.push(*name);
             }
-            other => {
-                for child in other.children() {
-                    self.collect_union_type_params(child, params)?;
-                }
+        } else {
+            for child in kind.children() {
+                self.collect_union_type_params(child, params)?;
             }
         }
         Ok(())
@@ -1360,6 +1357,10 @@ impl FunctionEmitter<'_> {
 
     /// `value.key` is one of `literals`, as a runtime test on an erased object;
     /// `None` when a literal has no erased spelling to compare against.
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "single-shape recogniser: only boolean, string and finite numeric literals have an erased spelling to compare against"
+    )]
     fn literal_field_test(
         key: &str,
         literals: &[smelt_hir::Literal],
@@ -1587,6 +1588,10 @@ impl FunctionEmitter<'_> {
     /// made `Optional` when an arm reads `undefined`. `None` keeps the erased
     /// path: another arm shape, a non-constant tuple index, a negative tuple
     /// index, or a joined type that is not interned or not itself concrete.
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "single-shape recogniser: only a whole, in-range numeric constant is a static tuple index"
+    )]
     pub(super) fn concrete_union_index_reads(
         &self,
         union_ty: TypeId,

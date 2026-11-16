@@ -196,6 +196,10 @@ impl WeakReceiverPlan {
 /// `Some("")` for a value the check reads directly (a function, an optional
 /// function, an erased value), `Some(".__smelt_call")` for a callable
 /// interface's call slot, `None` for a type the check cannot see into.
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "single-shape recogniser: only a function, an optional function or a callable record holds a closure slot"
+)]
 pub(crate) fn closure_slot(mir: &Mir, ty: smelt_hir::TypeId) -> Option<&'static str> {
     match mir.types.get(ty)? {
         Type::Function(_) | Type::Unknown => Some(""),
@@ -647,7 +651,10 @@ impl super::FunctionEmitter<'_> {
         let class = match self.function.origin {
             smelt_mir::HirOrigin::ClassMethod { class, .. }
             | smelt_mir::HirOrigin::ClassConstructor { class, .. } => class,
-            _ => return false,
+            // A static method or a free body has no instance fields.
+            smelt_mir::HirOrigin::ClassStaticMethod { .. } | smelt_mir::HirOrigin::Body(_) => {
+                return false;
+            }
         };
         self.context.weak_receivers().is_weak_field(class, field)
     }

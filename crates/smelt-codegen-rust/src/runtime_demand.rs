@@ -813,7 +813,19 @@ impl RuntimeDemand {
                         self.add(Need::ErasedFunction);
                     }
                 }
-                _ => {}
+                // Nothing beyond the always-emitted core: a scalar, a type
+                // parameter, the unit, a dict that is no record, a tuple
+                // narrower than three.
+                Type::Bool
+                | Type::Int
+                | Type::Float
+                | Type::FixedInt(_)
+                | Type::String
+                | Type::PyStr
+                | Type::TypeParam { .. }
+                | Type::None
+                | Type::Dict(..)
+                | Type::Tuple(_) => {}
             }
         }
     }
@@ -850,6 +862,18 @@ impl RuntimeDemand {
             }
             StdlibClass::NodeHash => self.add(Need::NodeHash),
             StdlibClass::RegExp => self.add(Need::DepRegress),
+            // No block of their own: what they need comes with the types
+            // that hold them (the carrier, the containers).
+            StdlibClass::Map
+            | StdlibClass::Match
+            | StdlibClass::MatchGroups
+            | StdlibClass::MatchFnResult
+            | StdlibClass::Set
+            | StdlibClass::ReadableStream
+            | StdlibClass::Blob
+            | StdlibClass::File => {}
+            // `StdlibClass` is `#[non_exhaustive]`: a class added to
+            // `smelt-stdlib` lands here until it is listed above.
             _ => {}
         }
     }

@@ -40,23 +40,21 @@ impl FunctionEmitter<'_> {
     /// anything else as a borrowed temporary, which lives to the end of the
     /// enclosing statement.
     pub(super) fn py_int_ref_expr(&self, operand: &Operand) -> Result<RustExpr, EmitError> {
-        match operand {
-            Operand::Copy(place) | Operand::Move(place)
-                if self.is_py_int_type(self.place_ty(place)?)
-                    && !self.place_reads_through_shared_capture(place)
-                    && !self.place_is_reference_class_field(place)
-                    && !self.index_place_read_is_owned(place) =>
-            {
-                Ok(RustExpr::loose(format!(
-                    "&{}",
-                    self.place_expr(place)?.tight()
-                )))
-            }
-            _ => Ok(RustExpr::loose(format!(
+        if let Some(place) = operand.place()
+            && self.is_py_int_type(self.place_ty(place)?)
+            && !self.place_reads_through_shared_capture(place)
+            && !self.place_is_reference_class_field(place)
+            && !self.index_place_read_is_owned(place)
+        {
+            return Ok(RustExpr::loose(format!(
                 "&{}",
-                self.operand_expr(operand)?.tight()
-            ))),
+                self.place_expr(place)?.tight()
+            )));
         }
+        Ok(RustExpr::loose(format!(
+            "&{}",
+            self.operand_expr(operand)?.tight()
+        )))
     }
 
     /// The conversion of a rendered value between a Python `int` and the
@@ -223,6 +221,10 @@ impl FunctionEmitter<'_> {
     /// value (`cmp_f64`), never through a lossy cast. `None` for any other
     /// operand pair. Python's `/`, `//`, `%`, `**` and shifts never reach a
     /// `BinOp`: the frontend lowers them to `PyNumericCall`s, which can raise.
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "single-shape recogniser: only the arithmetic, bitwise and comparison operators have an `int` rendering; any other operator answers `None`"
+    )]
     pub(super) fn py_int_binary_expr(
         &self,
         op: smelt_hir::BinOp,

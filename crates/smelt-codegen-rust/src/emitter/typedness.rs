@@ -428,20 +428,13 @@ fn closure_owners(mir: &Mir) -> HashMap<ClosureId, usize> {
     /// The closures a body constructs.
     fn created(blocks: &[BasicBlock]) -> impl Iterator<Item = ClosureId> + '_ {
         blocks.iter().flat_map(|block| {
-            block
-                .statements
-                .iter()
-                .filter_map(|statement| match statement {
-                    Statement::Assign {
-                        value: Rvalue::Closure { id, .. },
-                        ..
-                    }
-                    | Statement::AssignPlace {
-                        value: Rvalue::Closure { id, .. },
-                        ..
-                    } => Some(*id),
-                    _ => None,
-                })
+            block.statements.iter().filter_map(|statement| {
+                if let Rvalue::Closure { id, .. } = statement.value() {
+                    Some(*id)
+                } else {
+                    None
+                }
+            })
         })
     }
     let mut owners = HashMap::new();

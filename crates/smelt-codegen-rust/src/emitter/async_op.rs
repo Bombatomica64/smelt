@@ -696,7 +696,8 @@ impl FunctionEmitter<'_> {
         for (index, arg) in args.iter().enumerate() {
             let rendered = match arg {
                 Operand::Copy(_) => self.await_operand_expr(arg)?.cloned_value(),
-                _ => self.await_operand_expr(arg)?,
+                // A move is the last use, and a constant owns no handle.
+                Operand::Move(_) | Operand::Const(_) => self.await_operand_expr(arg)?,
             };
             prelude.push_str(&format!(
                 "let smelt_awaited_{index} = {rendered}; ",

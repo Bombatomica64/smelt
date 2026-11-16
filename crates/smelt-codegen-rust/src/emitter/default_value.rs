@@ -303,6 +303,10 @@ impl FunctionEmitter<'_> {
     }
 
     /// Gets a default value while preserving explicitly scoped type parameters.
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "only the types that can spell a scoped type parameter need their own default; every other type defaults as `default_value` does"
+    )]
     pub(super) fn default_value_with_scoped_type_params(
         &self,
         ty: TypeId,

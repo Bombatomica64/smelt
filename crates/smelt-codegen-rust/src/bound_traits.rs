@@ -219,6 +219,10 @@ struct BoundUses {
 }
 
 /// Record every bound member read in one body.
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "single-shape recogniser: only `Rvalue::BoundMethod`/`BoundField` read through a bound, and lowering only ever assigns them to a temporary"
+)]
 fn collect_uses(blocks: &[BasicBlock], uses: &mut IndexMap<Symbol, BoundUses>) {
     for block in blocks {
         for statement in &block.statements {

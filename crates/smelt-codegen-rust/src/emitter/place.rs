@@ -654,9 +654,10 @@ impl FunctionEmitter<'_> {
 
     /// Resolves a statically known tuple index for Rust field access.
     pub(super) fn tuple_index(&self, index: &Operand, len: usize) -> Result<usize, EmitError> {
-        let value = match index {
-            Operand::Const(Constant::Int(value)) => usize::try_from(*value).ok(),
-            _ => None,
+        let value = if let Operand::Const(Constant::Int(value)) = index {
+            usize::try_from(*value).ok()
+        } else {
+            None
         }
         .ok_or_else(|| EmitError::new("tuple index must be a non-negative constant integer"))?;
         if value >= len {

@@ -1417,13 +1417,15 @@ impl FunctionEmitter<'_> {
         stop: Option<smelt_mir::BlockId>,
         in_loop: bool,
     ) -> Result<(), EmitError> {
-        let switch_join = match terminator {
-            Terminator::Switch {
-                then_block,
-                else_block,
-                ..
-            } => self.closure_branch_join(block.id, *then_block, *else_block, active, stop),
-            _ => None,
+        let switch_join = if let Terminator::Switch {
+            then_block,
+            else_block,
+            ..
+        } = terminator
+        {
+            self.closure_branch_join(block.id, *then_block, *else_block, active, stop)
+        } else {
+            None
         };
         match terminator {
             Terminator::Return(operand) if in_loop => {
@@ -1753,13 +1755,10 @@ impl FunctionEmitter<'_> {
 
     /// Resolve a callback operand to the Rust closure expression that constructed it.
     pub(super) fn closure_operand_expr(&self, operand: &Operand) -> Result<RustExpr, EmitError> {
-        let local = match operand {
-            Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) => *local,
-            _ => {
-                return Err(EmitError::new(
-                    "list callback must be a non-escaping closure local",
-                ));
-            }
+        let Some(local) = operand.local() else {
+            return Err(EmitError::new(
+                "list callback must be a non-escaping closure local",
+            ));
         };
         for block in &self.function.blocks {
             for statement in &block.statements {
@@ -1826,7 +1825,10 @@ impl FunctionEmitter<'_> {
                     place: Place::Local(written),
                     ..
                 } => *written == local,
-                _ => false,
+                Statement::DictEntryUpdate { current, .. } => *current == local,
+                // A projected write changes what the base holds, not which
+                // value the base local is.
+                Statement::AssignPlace { .. } => false,
             })
             .count()
     }
@@ -1842,13 +1844,10 @@ impl FunctionEmitter<'_> {
         &self,
         operand: &Operand,
     ) -> Result<RustExpr, EmitError> {
-        let local = match operand {
-            Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) => *local,
-            _ => {
-                return Err(EmitError::new(
-                    "list callback must be a non-escaping closure local",
-                ));
-            }
+        let Some(local) = operand.local() else {
+            return Err(EmitError::new(
+                "list callback must be a non-escaping closure local",
+            ));
         };
         let dest_ty = self.operand_ty(operand)?;
         let source_local = self.closure_source_local(local);

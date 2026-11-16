@@ -192,10 +192,10 @@ impl FunctionEmitter<'_> {
     /// Used to recognize a static discriminant key in `"field" in value` so the
     /// concrete-union field check can be emitted from a literal property name.
     fn operand_string_literal(&self, operand: &Operand) -> Option<String> {
-        match operand {
-            Operand::Const(Constant::String(value)) => Some(value.clone()),
-            _ => None,
-        }
+        let Operand::Const(Constant::String(value)) = operand else {
+            return None;
+        };
+        Some(value.clone())
     }
 
     /// Return whether a dictionary containment check must inspect an erased
@@ -838,10 +838,7 @@ impl FunctionEmitter<'_> {
         // then evaluate to the mutated dict. When `target` is not a place
         // (e.g. `Object.assign({}, a, b)`), fall back to merging into a fresh
         // clone since there is nothing to write back.
-        let target_place = match target {
-            Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) => Some(*local),
-            _ => None,
-        };
+        let target_place = target.local();
         let (accumulator, mut steps, final_value) = if let Some(local) = target_place {
             let target_text = self.local_mut_value(local)?;
             let final_value = format!("{target_text}.clone()", target_text = target_text.tight());
@@ -1277,7 +1274,11 @@ impl FunctionEmitter<'_> {
                 }
                 smelt_hir::DictProjectionOp::Values => Some("values"),
                 smelt_hir::DictProjectionOp::Entries => Some("iter"),
-                _ => None,
+                // No single own-entry iterator answers these; they take the
+                // general path below.
+                smelt_hir::DictProjectionOp::FromEntries
+                | smelt_hir::DictProjectionOp::OwnKeys
+                | smelt_hir::DictProjectionOp::Symbols => None,
             };
             if let Some(method) = projection {
                 return Ok(RustExpr::atom_on(

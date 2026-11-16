@@ -198,11 +198,10 @@ fn every_read_is_supported(
 /// module) rendering and is refused.
 fn is_comparable_side(operand: &Operand, candidates: &HashSet<LocalId>) -> bool {
     match operand {
-        Operand::Const(Constant::String(_)) => true,
-        Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) => {
-            candidates.contains(local)
+        Operand::Const(constant) => matches!(constant, Constant::String(_)),
+        Operand::Copy(place) | Operand::Move(place) => {
+            matches!(place, Place::Local(local) if candidates.contains(local))
         }
-        _ => false,
     }
 }
 

@@ -652,6 +652,10 @@ impl FunctionEmitter<'_> {
     ///
     /// These reads never build a `SmeltUnknown` property bag; the match value
     /// stays statically typed all the way to the primitive result.
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "single-shape recogniser: only `StdlibClass::MatchGroups` reads named groups; the match value answers the rest"
+    )]
     pub(super) fn match_field_expr(
         &self,
         receiver_text: &RustExpr,

@@ -113,9 +113,8 @@ impl<'mir> FunctionEmitter<'mir> {
             return Ok(None);
         };
         let owner = receiver.owner;
-        let local = match operand {
-            Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) => *local,
-            _ => return Ok(None),
+        let Some(local) = operand.local() else {
+            return Ok(None);
         };
         if !receiver.receivers.contains(&local) {
             return Ok(None);

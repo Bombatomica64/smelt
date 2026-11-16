@@ -247,6 +247,10 @@ impl FunctionEmitter<'_> {
     /// `symbol`) or a collection, which is always `"object"`. `None` for an
     /// erased, generic, optional or union type, and for a class or function
     /// type, whose spelling is left to the value.
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "the types not listed have no single static `typeof` spelling: the value decides it"
+    )]
     fn static_typeof_text(&self, ty: TypeId) -> Option<&'static str> {
         match self.mir.types.get(ty)? {
             Type::Float | Type::Int => Some("number"),

@@ -496,13 +496,19 @@ impl<'a> CrateBuilder<'a, FreeFunctionsWritten> {
                     .find_map(wanted)
                     .and_then(|method| mir.functions.get(usize::try_from(method.0).ok()?))
             };
-            let str_method = text_method(|protocol| match protocol {
-                MirClassProtocol::Str { method } => Some(*method),
-                _ => None,
+            let str_method = text_method(|protocol| {
+                if let MirClassProtocol::Str { method } = protocol {
+                    Some(*method)
+                } else {
+                    None
+                }
             });
-            let repr_method = text_method(|protocol| match protocol {
-                MirClassProtocol::Repr { method } => Some(*method),
-                _ => None,
+            let repr_method = text_method(|protocol| {
+                if let MirClassProtocol::Repr { method } = protocol {
+                    Some(*method)
+                } else {
+                    None
+                }
             });
             if str_method.is_some() || repr_method.is_some() {
                 out.push_str(&emitter::py_text_protocol::python_text_impl_text(

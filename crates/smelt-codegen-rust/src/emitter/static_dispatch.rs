@@ -522,9 +522,11 @@ impl FunctionEmitter<'_> {
                         constructor.return_ty,
                     ))
                 }
-                _ => Err(EmitError::new(
-                    "a static field or class value reached the fallible dispatch path",
-                )),
+                StaticMember::Get(_) | StaticMember::Set(_) | StaticMember::ClassValue => {
+                    Err(EmitError::new(
+                        "a static field or class value reached the fallible dispatch path",
+                    ))
+                }
             };
         }
         let signature = self.member_signature(class, member)?;
@@ -542,7 +544,10 @@ impl FunctionEmitter<'_> {
                     .map_or(signature.ret_ty, |pinned| pinned.return_ty),
                 None => signature.ret_ty,
             },
-            _ => signature.ret_ty,
+            StaticMember::Get(_)
+            | StaticMember::Set(_)
+            | StaticMember::Construct
+            | StaticMember::ClassValue => signature.ret_ty,
         };
         Ok((RenderedCall::propagating(call), source_ty))
     }

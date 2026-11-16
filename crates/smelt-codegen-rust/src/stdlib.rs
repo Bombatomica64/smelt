@@ -77,13 +77,13 @@ pub(crate) fn stdlib_class_of_class_symbol(
 pub(crate) fn host_override_slot_names(mir: &Mir) -> Vec<(String, String)> {
     let mut names = std::collections::BTreeMap::new();
     for rvalue in rvalues(mir) {
-        let class = match rvalue {
-            Rvalue::HostGlobalRead { class }
-            | Rvalue::HostGlobalWrite { class, .. }
-            | Rvalue::HostGlobalPresent { class } => *class,
-            _ => continue,
+        let (Rvalue::HostGlobalRead { class }
+        | Rvalue::HostGlobalWrite { class, .. }
+        | Rvalue::HostGlobalPresent { class }) = rvalue
+        else {
+            continue;
         };
-        if let Some(name) = mir.symbols.get(class) {
+        if let Some(name) = mir.symbols.get(*class) {
             names.insert(host_override_slot_suffix(name), name.to_owned());
         }
     }

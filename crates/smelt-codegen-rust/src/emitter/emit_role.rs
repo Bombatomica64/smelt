@@ -173,7 +173,7 @@ impl EmitRole {
     pub(crate) const fn inherited_impl_owner(&self) -> Option<Symbol> {
         match self {
             Self::InheritedCopy { owner, .. } => Some(*owner),
-            _ => None,
+            Self::Own { .. } | Self::BaseInitializerCopy { .. } | Self::Closure(_) => None,
         }
     }
 
@@ -210,7 +210,7 @@ impl EmitRole {
                 base_initializer: Some(receiver),
                 ..
             }) => Some(receiver),
-            _ => None,
+            Self::Own { .. } | Self::InheritedCopy { .. } | Self::Closure(_) => None,
         }
     }
 }

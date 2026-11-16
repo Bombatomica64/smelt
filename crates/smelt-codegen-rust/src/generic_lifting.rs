@@ -167,18 +167,15 @@ fn body_only_moves(
     let operand_is_erased = |operand: &Operand| -> bool {
         // A projection reads out of its base local, whose type says whether
         // the element is erased (an element of `unknown[]`).
-        let local = match operand {
-            Operand::Copy(
-                Place::Local(local)
-                | Place::Field { base: local, .. }
-                | Place::Index { base: local, .. },
-            )
-            | Operand::Move(
+        let local = match operand.place() {
+            Some(
                 Place::Local(local)
                 | Place::Field { base: local, .. }
                 | Place::Index { base: local, .. },
             ) => local,
-            _ => return false,
+            // A global's cell is not a lifting candidate (see above), and a
+            // constant is no erased element.
+            Some(Place::Global { .. }) | None => return false,
         };
         id_index(local.0, "local index does not fit usize")
             .ok()
@@ -326,11 +323,12 @@ fn body_only_moves(
             // A member read or method call through the parameter's bound
             // dispatches through its generated trait, which is an operation a
             // lifted bounded `T` supports; only its arguments can inspect.
-            let through_bound = match value {
-                Rvalue::BoundMethod { receiver, .. } | Rvalue::BoundField { receiver, .. } => {
-                    Some(receiver)
-                }
-                _ => None,
+            let through_bound = if let Rvalue::BoundMethod { receiver, .. }
+            | Rvalue::BoundField { receiver, .. } = value
+            {
+                Some(receiver)
+            } else {
+                None
             };
             let mut reads_t = false;
             value.reads(|operand| {
@@ -1155,26 +1153,22 @@ fn body_uses_bound_only_through_trait(
             {
                 return false;
             }
-            let through_bound = match value {
-                Rvalue::BoundMethod {
-                    receiver,
-                    bound,
-                    method: member,
-                    ..
-                }
-                | Rvalue::BoundField {
-                    receiver,
-                    bound,
-                    field: member,
-                } => Some((receiver, *bound, *member)),
-                _ => None,
-            };
-            if let Some((receiver, bound, member)) = through_bound
+            if let Rvalue::BoundMethod {
+                receiver,
+                bound,
+                method: member,
+                ..
+            }
+            | Rvalue::BoundField {
+                receiver,
+                bound,
+                field: member,
+            } = value
                 && operand_is_param(receiver)
-                && (bound != bound_use.bound
+                && (*bound != bound_use.bound
                     || bound_use
                         .planned
-                        .is_none_or(|planned| planned.member(member).is_none()))
+                        .is_none_or(|planned| planned.member(*member).is_none()))
             {
                 return false;
             }
@@ -1189,20 +1183,11 @@ fn body_uses_bound_only_through_trait(
             }
         }
         if let Some(terminator) = &block.terminator {
-            let projected = match terminator {
-                Terminator::Call { callee, args, .. } => {
-                    let mut projects = args.iter().any(operand_projects);
-                    if let smelt_mir::Callee::Op(op, _) = callee {
-                        op.reads(|operand| projects |= operand_projects(operand));
-                    }
-                    projects
-                }
-                Terminator::Switch { cond: probe, .. }
-                | Terminator::Match {
-                    scrutinee: probe, ..
-                } => operand_projects(probe),
-                _ => false,
-            };
+            // Every operand a terminator reads (call arguments, an op's or an
+            // indirect callee's operands, a branch probe, an awaited, returned
+            // or thrown value) is a read the trait cannot stand in for.
+            let mut projected = false;
+            terminator.reads(|operand| projected |= operand_projects(operand));
             if projected {
                 return false;
             }

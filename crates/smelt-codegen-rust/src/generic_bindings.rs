@@ -480,6 +480,10 @@ enum Unrewritable {
 ///
 /// The interner is frozen during codegen, so a rewritten layer is a lookup,
 /// never an insert.
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "the catch-all rewrites through `Type::try_map_children`, which visits every child of every other type"
+)]
 fn substitute_type(
     mir: &Mir,
     declared: TypeId,
