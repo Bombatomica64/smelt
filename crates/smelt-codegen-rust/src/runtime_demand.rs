@@ -1041,7 +1041,9 @@ impl RuntimeDemand {
     /// Records what one statement demands, including facts that need the body's
     /// local declarations to answer.
     fn scan_statement(&mut self, mir: &Mir, locals: &[LocalDecl], statement: &Statement) {
-        let value = statement.value();
+        let Some(value) = statement.value() else {
+            return;
+        };
         self.scan_rvalue(value);
         if let Statement::Assign {
             dest,

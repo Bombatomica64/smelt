@@ -74,19 +74,32 @@ impl ModuleBuilder<'_> {
                 span: self.span(for_stmt.span.start, for_stmt.span.end),
             })
         };
+        let loop_body = body.push_block(self.statement_span(&for_stmt.body));
+        let iteration = self.open_per_iteration_bindings(for_stmt, body, loop_body);
         // The body's flow facts stay inside the loop (see `for_binding_and_body`).
-        let loop_body = self
+        let lowered_body = self
             .with_narrowing(Some(std::collections::HashMap::default()), |this| {
-                this.block_from_statement(&for_stmt.body, body)
-            })?;
-        if let Some(update) = &for_stmt.update {
+                this.statement_into_block(&for_stmt.body, body, loop_body)
+            });
+        self.close_per_iteration_bindings(&iteration);
+        lowered_body?;
+        if for_stmt.update.is_some() || !iteration.is_empty() {
             // Lower the update into its OWN block rather than appending it to the
             // loop body. MIR turns that update block into a latch that becomes
             // the `continue` target, so a `continue` inside the body re-runs the
             // update before re-testing the condition. Appending to the body would
-            // make `continue` skip the update and spin forever.
-            let update_block = body.push_block(self.expression_span(update));
-            self.push_for_update(update, body, update_block)?;
+            // make `continue` skip the update and spin forever. The latch is also
+            // where each per-iteration copy flows back into the head binding, so
+            // a loop without an update still gets one when it has copies.
+            let update_span = for_stmt.update.as_ref().map_or_else(
+                || self.statement_span(&for_stmt.body),
+                |update| self.expression_span(update),
+            );
+            let update_block = body.push_block(update_span);
+            Self::push_per_iteration_copy_back(&iteration, body, update_block);
+            if let Some(update) = &for_stmt.update {
+                self.push_for_update(update, body, update_block)?;
+            }
             body.push_stmt_to_block(
                 block,
                 Stmt::WhileUpdateBlock {
@@ -105,6 +118,129 @@ impl ModuleBuilder<'_> {
             );
         }
         Ok(())
+    }
+
+    /// Open ECMAScript's per-iteration environment
+    /// (`CreatePerIterationEnvironment`) for the head `let` bindings that a
+    /// closure in the loop body captures.
+    ///
+    /// Every iteration of `for (let i = ..; ..; ..)` has its own `i`: a closure
+    /// created in iteration `k` keeps reading iteration `k`'s value after the
+    /// loop has moved on, so `for (let i = 0; i < 3; i++) fns.push(() => i)`
+    /// collects closures answering `0, 1, 2`, not `3, 3, 3`. The head binding
+    /// itself stays the carrier between iterations (the test and the update
+    /// read and write it); the body gets a fresh local, declared by a `let` at
+    /// the top of `loop_body` so each iteration's captures see their own cell,
+    /// and [`Self::push_per_iteration_copy_back`] stores it back into the
+    /// carrier on the latch, before the update runs. A body that does not
+    /// capture a head binding cannot observe the difference and keeps the one
+    /// local. `const` heads are never written, so sharing them is exact.
+    ///
+    /// Returns the copies made, for [`Self::close_per_iteration_bindings`] and
+    /// [`Self::push_per_iteration_copy_back`].
+    fn open_per_iteration_bindings(
+        &mut self,
+        for_stmt: &oxc::ast::ast::ForStatement<'_>,
+        body: &mut Body,
+        loop_body: smelt_hir::BlockId,
+    ) -> Vec<PerIterationCopy> {
+        let Some(ForStatementInit::VariableDeclaration(decl)) = &for_stmt.init else {
+            return Vec::new();
+        };
+        if !matches!(decl.kind, oxc::ast::ast::VariableDeclarationKind::Let) {
+            return Vec::new();
+        }
+        let mut head_names = Vec::new();
+        for declarator in &decl.declarations {
+            Self::binding_pattern_names(&declarator.id, &mut head_names);
+        }
+        let asked: std::collections::HashSet<&str> =
+            head_names.iter().map(String::as_str).collect();
+        let captured =
+            crate::lowering::scoped_references::statement_name_uses(&for_stmt.body, &asked)
+                .captured;
+        let mut copies = Vec::new();
+        for name in head_names {
+            if !captured.contains(&name) {
+                continue;
+            }
+            let Some(carrier) = self.scope.lookup(&name) else {
+                continue;
+            };
+            let Some(declared) = usize::try_from(carrier.0)
+                .ok()
+                .and_then(|index| body.locals.get(index))
+                .cloned()
+            else {
+                continue;
+            };
+            let fresh = body.push_local(LocalDecl {
+                name: declared.name,
+                ty: declared.ty,
+                mutable: true,
+                span: declared.span,
+            });
+            if self.scope.is_date_value(carrier) {
+                self.scope.mark_date_value(fresh);
+            }
+            if self.scope.is_explicit_any(carrier) {
+                self.scope.mark_explicit_any(fresh);
+            }
+            let read = body.push_expr(Expr {
+                kind: ExprKind::Local(carrier),
+                ty: declared.ty,
+                span: declared.span,
+            });
+            let pat = body.push_pattern(Pattern::Binding(fresh));
+            body.push_stmt_to_block(
+                loop_body,
+                Stmt::Let {
+                    pat,
+                    ty: declared.ty,
+                    value: Some(read),
+                },
+            );
+            self.scope.bind(name.clone(), fresh);
+            copies.push(PerIterationCopy {
+                name,
+                carrier,
+                fresh,
+                ty: declared.ty,
+                span: declared.span,
+            });
+        }
+        copies
+    }
+
+    /// Rebind each copied head name to its carrier once the body is lowered,
+    /// so the update clause (and code after the loop) reads the carrier.
+    fn close_per_iteration_bindings(&mut self, copies: &[PerIterationCopy]) {
+        for copy in copies {
+            self.scope.bind(copy.name.clone(), copy.carrier);
+        }
+    }
+
+    /// Store each iteration's copy back into its carrier at the top of the
+    /// latch block, so the update (and the next iteration's copy) starts from
+    /// the value the body left.
+    fn push_per_iteration_copy_back(
+        copies: &[PerIterationCopy],
+        body: &mut Body,
+        latch: smelt_hir::BlockId,
+    ) {
+        for copy in copies {
+            let target = body.push_expr(Expr {
+                kind: ExprKind::Local(copy.carrier),
+                ty: copy.ty,
+                span: copy.span,
+            });
+            let value = body.push_expr(Expr {
+                kind: ExprKind::Local(copy.fresh),
+                ty: copy.ty,
+                span: copy.span,
+            });
+            body.push_stmt_to_block(latch, Stmt::Assign { target, value });
+        }
     }
 
     /// Lower a C-style `for` loop update clause into assignment statements
@@ -214,9 +350,17 @@ impl ModuleBuilder<'_> {
     /// pattern. For destructuring, Smelt binds that item to a compiler-generated
     /// local and inserts ordinary destructuring `let` statements at the start of
     /// the loop body.
+    ///
+    /// A plain `let x` head takes the same path when a closure in the loop body
+    /// captures `x`: each iteration has its own `x` in ECMAScript, and the body's
+    /// `let` is what gives a captured binding fresh storage per iteration (MIR's
+    /// `StorageLive`), so a closure keeps its iteration's value even after the
+    /// body writes `x`. A `const` head is never written, and a `var` head is one
+    /// function-scoped binding, so both keep the single pattern local.
     pub(in crate::lowering) fn for_left_destructuring<'a>(
         &mut self,
         left: &'a ForStatementLeft<'a>,
+        loop_statement: &Statement<'_>,
         iter_ty: smelt_hir::TypeId,
         body: &mut Body,
     ) -> Result<
@@ -238,7 +382,13 @@ impl ModuleBuilder<'_> {
         let Some(declarator) = decl.declarations.first() else {
             return Ok(None);
         };
-        if matches!(declarator.id, BindingPattern::BindingIdentifier(_)) {
+        if let BindingPattern::BindingIdentifier(binding) = &declarator.id
+            && !(decl.kind == oxc::ast::ast::VariableDeclarationKind::Let
+                && crate::lowering::scoped_references::statement_uses_captured(
+                    loop_statement,
+                    binding.name.as_str(),
+                ))
+        {
             return Ok(None);
         }
         let item_ty = declarator
@@ -956,4 +1106,19 @@ impl ModuleBuilder<'_> {
         }
         Ok(lowered)
     }
+}
+
+/// One head `let` binding given a per-iteration copy by
+/// [`ModuleBuilder::open_per_iteration_bindings`].
+struct PerIterationCopy {
+    /// The source name, rebound to `fresh` while the body is lowered.
+    name: String,
+    /// The head binding, which carries the value from one iteration to the next.
+    carrier: smelt_hir::LocalId,
+    /// This iteration's own binding, which the body's closures capture.
+    fresh: smelt_hir::LocalId,
+    /// The binding's type, shared by both locals.
+    ty: smelt_hir::TypeId,
+    /// The head declarator's span.
+    span: smelt_hir::Span,
 }

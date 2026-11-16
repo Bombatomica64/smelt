@@ -411,7 +411,7 @@ fn collect_block_types(
                 Statement::Assign { value, .. } | Statement::AssignPlace { value, .. } => {
                     collect_rvalue_types(value, types, closures);
                 }
-                Statement::DictEntryUpdate { .. } => {}
+                Statement::DictEntryUpdate { .. } | Statement::StorageLive(_) => {}
             }
         }
         // A cast that can throw sits in a call terminator inside a `try`.

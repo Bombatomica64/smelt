@@ -15,6 +15,19 @@ impl ModuleBuilder<'_> {
     ) -> Result<smelt_hir::BlockId, SmeltError> {
         let span = self.statement_span(statement);
         let block = body.push_block(span);
+        self.statement_into_block(statement, body, block)?;
+        Ok(block)
+    }
+
+    /// Lower `statement` into the existing `block`, after whatever the block
+    /// already holds, with a block statement's lexical scope opened and closed
+    /// around it as [`Self::block_from_statement`] does.
+    pub(in crate::lowering) fn statement_into_block(
+        &mut self,
+        statement: &Statement<'_>,
+        body: &mut Body,
+        block: smelt_hir::BlockId,
+    ) -> Result<(), SmeltError> {
         if let Statement::BlockStatement(block_stmt) = statement {
             let saved = self.scope.snapshot_bindings();
             // A nested `function` declaration is bound for its whole BLOCK, not
@@ -28,7 +41,7 @@ impl ModuleBuilder<'_> {
         } else {
             self.statement_in_block(statement, body, block)?;
         }
-        Ok(block)
+        Ok(())
     }
 
     /// The names a statement list declares LEXICALLY at its own level:

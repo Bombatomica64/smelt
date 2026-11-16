@@ -221,9 +221,9 @@ type EdgeSink<'v> = dyn FnMut(BlockId, Assigned) + 'v;
 /// enclosing `finally` region (entry and continuation), each with the local
 /// it assigns.
 pub(crate) fn yield_edges(statement: &Statement) -> Vec<YieldEdge> {
-    let Rvalue::GeneratorYield {
+    let Some(Rvalue::GeneratorYield {
         unwind, cleanup, ..
-    } = statement.value()
+    }) = statement.value()
     else {
         return Vec::new();
     };
@@ -326,7 +326,7 @@ fn step_block<'a>(
 /// Visits every local `statement` reads, except a closure's capture operands,
 /// which share a binding's storage rather than read its value.
 pub fn non_capture_reads(statement: &Statement, mut visit: impl FnMut(LocalId)) {
-    let captures = matches!(statement.value(), Rvalue::Closure { .. });
+    let captures = matches!(statement.value(), Some(Rvalue::Closure { .. }));
     match statement {
         Statement::Assign { value, .. } => {
             if !captures {
@@ -357,6 +357,7 @@ pub fn non_capture_reads(statement: &Statement, mut visit: impl FnMut(LocalId)) 
                 Read::Operand(operand) => operand.read_locals(&mut visit),
             });
         }
+        Statement::StorageLive(_) => {}
     }
 }
 

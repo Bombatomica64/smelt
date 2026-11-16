@@ -118,6 +118,7 @@ fn validate_statement(
             validate_local_exists(body, *current, errors);
             validate_rvalue_exists(mir, body, value, errors);
         }
+        Statement::StorageLive(local) => validate_local_exists(body, *local, errors),
     }
 }
 

@@ -281,16 +281,15 @@ fn writes(statement: &Statement, local: LocalId) -> bool {
         } => *base == local || mutates(value),
         Statement::AssignPlace { value, .. } => mutates(value),
         Statement::DictEntryUpdate { base, value, .. } => *base == local || mutates(value),
+        Statement::StorageLive(_) => false,
     }
 }
 
 /// Whether `statement` can run source code: it calls, constructs or suspends, or
 /// it is handed a function it can call.
 fn may_run_code(statement: &Statement, body: Body<'_>, types: &TypeInterner) -> bool {
-    let value = match statement {
-        Statement::Assign { value, .. }
-        | Statement::AssignPlace { value, .. }
-        | Statement::DictEntryUpdate { value, .. } => value,
+    let Some(value) = statement.value() else {
+        return false;
     };
     if matches!(value, Rvalue::Closure { .. }) {
         return false;
@@ -321,10 +320,8 @@ fn may_run_code(statement: &Statement, body: Body<'_>, types: &TypeInterner) -> 
 /// Whether `statement` reads `temp` as a bare operand it does not mutate, in a
 /// shape that reads the value now rather than holding on to `temp`.
 fn accepts_forwarded_read(statement: &Statement, temp: LocalId) -> bool {
-    let value = match statement {
-        Statement::Assign { value, .. }
-        | Statement::AssignPlace { value, .. }
-        | Statement::DictEntryUpdate { value, .. } => value,
+    let Some(value) = statement.value() else {
+        return false;
     };
     if matches!(value, Rvalue::Closure { .. }) {
         return false;

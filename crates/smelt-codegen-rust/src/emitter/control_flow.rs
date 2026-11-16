@@ -502,6 +502,7 @@ impl FunctionEmitter<'_> {
                 current,
                 value,
             } => self.emit_dict_entry_update_statement(*base, index, default, *current, value, out),
+            Statement::StorageLive(local) => self.emit_storage_live(*local, out),
         }
     }
 

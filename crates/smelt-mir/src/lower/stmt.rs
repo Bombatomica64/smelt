@@ -220,6 +220,20 @@ impl LoweringCtx<'_> {
                     }
                     None => Operand::Const(Constant::Undefined),
                 };
+                // A JavaScript declaration that runs again (inside a loop)
+                // starts a new binding each time; a closure that captured the
+                // previous one keeps it. See `Statement::StorageLive`. Python
+                // has one binding per function scope, which its closures share
+                // however often the assignment runs.
+                let declared_at = self.block()?.span;
+                if self.source_language(declared_at) == smelt_hir::Language::TypeScript
+                    && self.in_loop()
+                    && self.is_captured_by_closure(hir_local)
+                {
+                    self.block_mut()?
+                        .statements
+                        .push(Statement::StorageLive(dest));
+                }
                 self.block_mut()?.statements.push(Statement::Assign {
                     dest,
                     value: Rvalue::Use(lowered_value),

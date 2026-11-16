@@ -507,6 +507,7 @@ fn statement_destination_is_erased(
             Place::Global { .. } => return false,
         },
         Statement::DictEntryUpdate { base, .. } => *base,
+        Statement::StorageLive(_) => return false,
     };
     erased(local)
 }
@@ -529,6 +530,7 @@ fn statement_destination_mentions(
         },
         // The container the entry update writes through is its destination.
         Statement::DictEntryUpdate { base, .. } => *base,
+        Statement::StorageLive(_) => return false,
     };
     local_mentions(local)
 }
@@ -1138,7 +1140,7 @@ fn body_uses_bound_only_through_trait(
                     }
                     value
                 }
-                Statement::DictEntryUpdate { .. } => continue,
+                Statement::DictEntryUpdate { .. } | Statement::StorageLive(_) => continue,
             };
             if let Rvalue::Closure { id, .. } = value
                 && seen.insert(id.0)

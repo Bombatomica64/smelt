@@ -297,6 +297,7 @@ fn analyze_body(
                 Statement::DictEntryUpdate { base, .. } => {
                     mutated.insert(*base);
                 }
+                Statement::StorageLive(_) => {}
             }
         }
         if let Some(Terminator::Call { callee, args, .. }) = &block.terminator

@@ -41,15 +41,15 @@ impl FunctionEmitter<'_> {
     /// a `try`.
     fn blocks_need_enclosing_this(&self, blocks: &[BasicBlock], depth: usize) -> bool {
         blocks.iter().any(|block| {
-            block
-                .statements
-                .iter()
-                .any(|statement| self.rvalue_needs_enclosing_this(statement.value(), depth))
-                || matches!(
-                    &block.terminator,
-                    Some(Terminator::Call { callee: Callee::Op(op, _), .. })
-                        if self.rvalue_needs_enclosing_this(op, depth)
-                )
+            block.statements.iter().any(|statement| {
+                statement
+                    .value()
+                    .is_some_and(|value| self.rvalue_needs_enclosing_this(value, depth))
+            }) || matches!(
+                &block.terminator,
+                Some(Terminator::Call { callee: Callee::Op(op, _), .. })
+                    if self.rvalue_needs_enclosing_this(op, depth)
+            )
         })
     }
 

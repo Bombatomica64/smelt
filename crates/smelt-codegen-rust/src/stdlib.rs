@@ -14,13 +14,13 @@ pub(crate) fn rvalues(mir: &Mir) -> impl Iterator<Item = &Rvalue> {
         function
             .blocks
             .iter()
-            .flat_map(|block| block.statements.iter().map(Statement::value))
+            .flat_map(|block| block.statements.iter().filter_map(Statement::value))
     });
     let closure_rvalues = mir.closures.iter().flat_map(|closure| {
         closure
             .blocks
             .iter()
-            .flat_map(|block| block.statements.iter().map(Statement::value))
+            .flat_map(|block| block.statements.iter().filter_map(Statement::value))
     });
     function_rvalues.chain(closure_rvalues)
 }
