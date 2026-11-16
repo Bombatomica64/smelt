@@ -83,7 +83,13 @@ pub(crate) fn cell_trait_name(type_name: &str) -> String {
 }
 
 /// The companion name suffixes a reference class claims beside its own name.
-pub(crate) const REFERENCE_COMPANIONS: &[&str] = &["Inner", "SmeltCell", "SmeltStatics"];
+pub(crate) const REFERENCE_COMPANIONS: &[&str] = &[
+    "Inner",
+    "SmeltCell",
+    "SmeltStatics",
+    "SmeltView",
+    "SmeltViewOf",
+];
 
 /// Whether `class` is an instance class (a statics frame is the class VALUE of
 /// a per-evaluation class, never an instance a hierarchy holds).
@@ -252,7 +258,7 @@ pub(crate) fn upcast_method_name(ancestor_type_name: &str) -> String {
 
 /// Render `<args>` of `ancestor` (its carried positions) read in `class`'s
 /// scope, with `class`'s parameters `scoped` in scope.
-fn ancestor_args_text(
+pub(crate) fn ancestor_args_text(
     mir: &Mir,
     context: &crate::emitter::EmitContext,
     class: Symbol,
@@ -401,6 +407,8 @@ pub(crate) fn cell_trait_declaration(
             ancestor_args_text(mir, context, class.name, upper_mir, &scoped)?
         ));
     }
+    // A widened class's handle may hold a converting view
+    // (`crate::class_widening`): its fields are reached through accessors.
     Ok(format!(
         "/// Any instance of `{type_name}` or of a class extending it, viewed as a `{type_name}`.\n#[allow(dead_code, non_snake_case)]\ntrait {}{type_params} {{ {} }}",
         cell_trait_name(&type_name),
@@ -414,13 +422,26 @@ pub(crate) fn cell_trait_declaration(
 /// `self` (`Sub(self)`), and `erase_method` the inherent method that erases
 /// that handle as itself (`into_smelt_unknown`, or the own-erasure method of a
 /// polymorphic class whose `IntoSmeltUnknown` dispatches back here).
+///
+/// With `forwards_view` (the own cell of a widened class,
+/// `crate::class_widening`) the probes a placeholder cannot answer from its
+/// record (the concrete cell, the class name, the erasure, the upcasts)
+/// answer through its view slot.
 pub(crate) fn cell_impl_text(
     cell_impl: &CellImpl,
     impl_generics: &str,
     inner: &str,
     class_name_literal: &str,
     erase: Option<&str>,
+    forwards_view: bool,
 ) -> String {
+    let forward = |call: &str| {
+        if forwards_view {
+            crate::class_widening::cell_forward(call)
+        } else {
+            String::new()
+        }
+    };
     let CellImpl {
         trait_ref,
         inner_view,
@@ -436,18 +457,26 @@ pub(crate) fn cell_impl_text(
         format!(
             "fn try_borrow(&self) -> Result<::std::cell::Ref<'_, {inner_view}>, ::std::cell::BorrowError> {{ ::std::cell::RefCell::try_borrow(self).map(|smelt_guard| ::std::cell::Ref::map(smelt_guard, |smelt_inner| {{ let smelt_view: &{inner_view} = smelt_inner; smelt_view }})) }}"
         ),
-        "fn smelt_any(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ::std::any::Any> { self }"
-            .to_owned(),
-        format!("fn smelt_class_name(&self) -> &'static str {{ {class_name_literal} }}"),
+        format!(
+            "fn smelt_any(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<dyn ::std::any::Any> {{ {}self }}",
+            forward("smelt_any()")
+        ),
+        format!(
+            "fn smelt_class_name(&self) -> &'static str {{ {}{class_name_literal} }}",
+            forward("smelt_class_name()")
+                .replace("RefCell::borrow(&self)", "RefCell::borrow(self)")
+        ),
     ];
     if let Some(erase_call) = erase {
         methods.push(format!(
-            "fn into_smelt_unknown_as_concrete(self: ::std::rc::Rc<Self>) -> SmeltUnknown {{ {erase_call} }}"
+            "fn into_smelt_unknown_as_concrete(self: ::std::rc::Rc<Self>) -> SmeltUnknown {{ {}{erase_call} }}",
+            forward("smelt_erase()")
         ));
     }
     for (method, object) in upcasts {
         methods.push(format!(
-            "fn {method}(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<{object}> {{ self }}"
+            "fn {method}(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<{object}> {{ {}self }}",
+            forward(&format!("{method}()"))
         ));
     }
     format!(
@@ -647,11 +676,18 @@ pub(crate) fn inner_literal(
         Ok(context.names().type_name(symbol)?.as_str().to_owned())
     };
     let polymorphic = context.polymorphic_classes();
+    // A widened level's record holds its view slot, empty on every record a
+    // literal builds (`crate::class_widening`).
+    let slot_part = format!("{}: None", crate::class_widening::VIEW_SLOT_FIELD);
     if nested_base(mir, polymorphic, class).is_none() {
+        let mut flat_parts = parts.to_vec();
+        if context.is_widened_class(class) {
+            flat_parts.push(slot_part);
+        }
         return Ok(format!(
             "{}Inner {{ {} }}",
             type_name(class)?,
-            parts.join(", ")
+            flat_parts.join(", ")
         ));
     }
     // Levels from the class itself up to the topmost nested base.
@@ -683,6 +719,11 @@ pub(crate) fn inner_literal(
             && let Some(bucket) = level_parts.get_mut(index)
         {
             bucket.push("_smelt_phantom: ::std::marker::PhantomData".to_owned());
+        }
+        if context.is_widened_class(level_class.name)
+            && let Some(bucket) = level_parts.get_mut(index)
+        {
+            bucket.push(slot_part.clone());
         }
     }
     for part in parts {

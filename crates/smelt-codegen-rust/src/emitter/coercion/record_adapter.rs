@@ -183,6 +183,12 @@ impl FunctionEmitter<'_> {
         }) {
             return Ok(Some(value_text.cloned_value()));
         }
+        // An instance seen at other type arguments of a widened class
+        // (`Parser<number>` as `Parser<unknown>`) stays the same object: the
+        // handle retargets it (`crate::class_widening`).
+        if let Some(retarget) = self.widened_retarget_expr(value_text, source, target)? {
+            return Ok(Some(retarget));
+        }
         // A reference class is a handle newtype over `Rc<RefCell<Inner>>`, not a
         // field-wise struct, so it cannot be rebuilt with a `Name { field: .. }`
         // literal (that fails with E0560). When the source already has the
@@ -745,7 +751,7 @@ impl FunctionEmitter<'_> {
                 *name,
                 &field_text,
             )?;
-            let rebuild = RustExpr::atom(target_name).postfix(format!(
+            let rebuild = RustExpr::atom(target_name.clone()).postfix(format!(
                 "(::std::rc::Rc::new(::std::cell::RefCell::new({inner})))"
             ));
             // Only an erased-valued `SmeltRecord` view can share an erased
@@ -759,13 +765,34 @@ impl FunctionEmitter<'_> {
                             .iter()
                             .map(|arg| Ok(self.rendered_type(*arg)?.as_str().to_owned()))
                             .collect::<Result<Vec<_>, EmitError>>()?;
-                        crate::class_polymorphism::subclass_origins_at(
+                        let mut origins = crate::class_polymorphism::subclass_origins_at(
                             self.mir,
                             self.context,
                             class,
                             &arg_texts,
                             &|index, ty| args.get(index) == Some(&ty),
-                        )?
+                        )?;
+                        // A widened class also takes back an instance at
+                        // other arguments, as the same object
+                        // (`crate::class_widening`).
+                        if self.context.is_widened_class(*name) {
+                            let carried = self
+                                .context
+                                .type_param_elision()
+                                .retain_carried(*name, arg_texts);
+                            let path = if carried.is_empty() {
+                                target_name
+                            } else {
+                                format!("{target_name}::<{}>", carried.join(", "))
+                            };
+                            origins.extend(crate::class_widening::instantiation_origins(
+                                self.mir,
+                                self.context,
+                                class,
+                                &path,
+                            )?);
+                        }
+                        origins
                     }
                     _ => Vec::new(),
                 };

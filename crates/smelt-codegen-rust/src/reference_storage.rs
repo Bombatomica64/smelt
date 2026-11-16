@@ -287,6 +287,14 @@ pub(crate) fn emit_reference_record_storage(
                     &phantom_args,
                     identity.is_some(),
                 );
+                // A widened record's view slot (`crate::class_widening`).
+                if context.is_widened_class(*declared_name) {
+                    block_writer.line(format!(
+                        "{}: {},",
+                        crate::class_widening::VIEW_SLOT_FIELD,
+                        crate::class_widening::view_slot_type(name, type_args)
+                    ));
+                }
             },
         );
         // Per-trait bounds. `Debug` names the struct and stops, so it needs no
@@ -325,6 +333,7 @@ pub(crate) fn emit_reference_record_storage(
             &scoped_type_params,
             identity.as_deref(),
             nested_base_type.is_some(),
+            context.is_widened_class(*declared_name),
         )?;
         emit_debug_impl_for_storage_type(writer, &inner_name, &debug_generics, type_args);
     } else {
@@ -391,8 +400,60 @@ pub(crate) fn emit_reference_record_storage(
                 &inner_type,
                 &class_layout.class_name_literal,
                 erase.as_deref(),
+                context.is_widened_class(*declared_name),
             ));
         }
+    }
+
+    // A widened class's converting view, per-field adapters and
+    // `smelt_retarget` (`crate::class_widening`).
+    if context.is_widened_class(*declared_name) {
+        let Some(class) = classes::find_class(mir, *declared_name) else {
+            return Err(EmitError::new("a widened class is not declared"));
+        };
+        let widened_fields = crate::class_widening::widened_fields(mir, context, class)?;
+        let mut upcasts = Vec::new();
+        let scoped: HashSet<smelt_hir::Symbol> =
+            class.type_params.iter().map(|param| param.name).collect();
+        for upper in crate::class_polymorphism::polymorphic_ancestors(
+            mir,
+            context.polymorphic_classes(),
+            class.name,
+        ) {
+            let Some(upper_mir) = classes::find_class(mir, upper) else {
+                continue;
+            };
+            let upper_type = context.names().type_name(upper)?.as_str().to_owned();
+            upcasts.push((
+                crate::class_polymorphism::upcast_method_name(&upper_type),
+                upper_type,
+                crate::class_polymorphism::ancestor_args_text(
+                    mir, context, class.name, upper_mir, &scoped,
+                )?,
+            ));
+        }
+        let source_name = mir.symbols.get(*declared_name).unwrap_or(name);
+        writer.line(crate::class_widening::widened_items_text(
+            &crate::class_widening::WidenedClass {
+                name,
+                idents: &record_param_idents,
+                impl_generics,
+                type_args,
+                source_name,
+                polymorphic: layout
+                    .as_ref()
+                    .is_some_and(|found| !found.cell_impls.is_empty()),
+                upcasts,
+                needs_unknown,
+                has_proto_entries: *has_proto_entries,
+                viewable: crate::class_widening::viewable_instantiations(
+                    mir,
+                    context,
+                    *declared_name,
+                )?,
+            },
+            &widened_fields,
+        ));
     }
 
     // Hand-written identity `Clone`: share the SAME cell.
@@ -413,7 +474,12 @@ pub(crate) fn emit_reference_record_storage(
         format!("impl{impl_generics} PartialEq for {name}{type_args}"),
         |impl_writer| {
             impl_writer.block("fn eq(&self, other: &Self) -> bool", |fn_writer| {
-                if polymorphic {
+                if context.is_widened_class(*declared_name) {
+                    // A widened handle may be a placeholder over a view: the
+                    // object is the cell the view roots at
+                    // (`crate::class_widening`).
+                    fn_writer.line("::std::ptr::eq(self.smelt_identity(), other.smelt_identity())");
+                } else if polymorphic {
                     // The address alone: a polymorphic handle's `Rc<dyn ..>`
                     // also carries a vtable, which is no part of identity.
                     fn_writer.line("::std::ptr::addr_eq(::std::rc::Rc::as_ptr(&self.0), ::std::rc::Rc::as_ptr(&other.0))");
@@ -514,18 +580,32 @@ pub(crate) fn emit_reference_record_storage(
             format!("impl{impl_generics} IntoSmeltUnknown for {name}{type_args}"),
             |impl_writer| {
                 impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
+                    if !polymorphic && context.is_widened_class(*declared_name) {
+                        fn_writer.line(
+                            "if let Some(smelt_view) = self.smelt_view() { return smelt_view.smelt_erase(); }",
+                        );
+                    }
                     fn_writer.line(
                         "SmeltUnknown::Object(SmeltObject::smelt_live_view(smelt_reference_object_identity(&self.0), self))",
                     );
                 });
             },
         );
-        let subclass_origins = match (layout, classes::find_class(mir, *declared_name)) {
+        let mut subclass_origins = match (layout, classes::find_class(mir, *declared_name)) {
             (Some(class_layout), Some(class)) if class_layout.polymorphic => {
                 crate::class_polymorphism::subclass_origins(mir, context, class)?
             }
             _ => Vec::new(),
         };
+        // A widened class takes back every instantiation the program names,
+        // as the same object (`crate::class_widening`).
+        if context.is_widened_class(*declared_name)
+            && let Some(class) = classes::find_class(mir, *declared_name)
+        {
+            subclass_origins.extend(crate::class_widening::instantiation_origins(
+                mir, context, class, "Self",
+            )?);
+        }
         reference_origin::emit_reference_from_smelt_unknown_impl(
             writer,
             mir,
@@ -560,12 +640,21 @@ pub(crate) fn emit_reference_record_storage(
             polymorphic,
         )?;
         // The inbound half restores the live handle (see `reference_origin`).
-        let subclass_origins = match (layout, classes::find_class(mir, *declared_name)) {
+        let mut subclass_origins = match (layout, classes::find_class(mir, *declared_name)) {
             (Some(class_layout), Some(class)) if class_layout.polymorphic => {
                 crate::class_polymorphism::subclass_origins(mir, context, class)?
             }
             _ => Vec::new(),
         };
+        // A widened class takes back every instantiation the program names,
+        // as the same object (`crate::class_widening`).
+        if context.is_widened_class(*declared_name)
+            && let Some(class) = classes::find_class(mir, *declared_name)
+        {
+            subclass_origins.extend(crate::class_widening::instantiation_origins(
+                mir, context, class, "Self",
+            )?);
+        }
         reference_origin::emit_reference_from_smelt_unknown_impl(
             writer,
             mir,
@@ -701,6 +790,13 @@ fn emit_reference_class_into_smelt_unknown_impl(
         impl_header,
         |impl_writer| {
             impl_writer.block(fn_header, |fn_writer| {
+                // A placeholder erases as the object it views
+                // (`crate::class_widening`).
+                if !polymorphic && context.is_widened_class(class) {
+                    fn_writer.line(
+                        "if let Some(smelt_view) = self.smelt_view() { return smelt_view.smelt_erase(); }",
+                    );
+                }
                 // One shared cell is one JavaScript object, so the erased id is
                 // derived from the cell address rather than minted fresh; see
                 // `smelt_reference_object_identity` in the prelude.

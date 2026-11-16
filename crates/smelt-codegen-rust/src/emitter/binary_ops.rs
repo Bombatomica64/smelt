@@ -1407,6 +1407,15 @@ impl FunctionEmitter<'_> {
             // The address shares no space with the object-id counter above,
             // but `tsc` rejects `===` between a class and an unrelated
             // container, so the two never meet in one comparison.
+            // A widened handle may be a placeholder over a view
+            // (`crate::class_widening`); its identity is the cell the view
+            // roots at, which for a real cell is its own address.
+            Type::Class { name, .. } if self.context.is_widened_class(*name) => {
+                Some(RustExpr::atom(format!(
+                    "(({text}).smelt_identity() as usize)",
+                    text = text.delimited()
+                )))
+            }
             Type::Class { name, .. } if self.context.is_reference_class(*name) => {
                 Some(RustExpr::atom(format!(
                     "(::std::rc::Rc::as_ptr(&({text}).0) as *const () as usize)",

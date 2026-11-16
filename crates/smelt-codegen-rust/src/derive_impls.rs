@@ -106,6 +106,7 @@ pub(crate) fn emit_default_impl_for_storage_type(
     scoped_type_params: &HashSet<smelt_hir::Symbol>,
     identity: Option<&str>,
     nested_base: bool,
+    view_slot: bool,
 ) -> Result<(), EmitError> {
     // Each field's default expression is computed ONCE and used twice: for the
     // body, and to decide the impl's `where` clause.
@@ -198,6 +199,12 @@ pub(crate) fn emit_default_impl_for_storage_type(
                     }
                     if !phantom_args.is_empty() {
                         self_writer.line("_smelt_phantom: ::std::marker::PhantomData,");
+                    }
+                    // A widened record's view slot is empty on every real
+                    // cell (`crate::class_widening`).
+                    if view_slot {
+                        self_writer
+                            .line(format!("{}: None,", crate::class_widening::VIEW_SLOT_FIELD));
                     }
                     // A defaulted instance is one of this class itself
                     // (`crate::class_identity`).

@@ -180,7 +180,7 @@ fn program_class_arms(mir: &Mir, context: &EmitContext) -> Result<Vec<String>, E
 #[derive(Debug, Clone, Copy, Default)]
 #[expect(
     clippy::struct_excessive_bools,
-    reason = "four independent facts about a program, each answered to one runtime flag; no state machine relates them"
+    reason = "five independent facts about a program, each answered to one runtime flag; no state machine relates them"
 )]
 pub(crate) struct ProgramFacts {
     /// Some record type is emitted as a reference class.
@@ -191,6 +191,8 @@ pub(crate) struct ProgramFacts {
     pub(crate) reads_this: bool,
     /// Some record type is a live record (see `emitter::live_view`).
     pub(crate) live_records: bool,
+    /// Some generic class is widened (see `crate::class_widening`).
+    pub(crate) widened_classes: bool,
 }
 
 impl ProgramFacts {
@@ -201,6 +203,7 @@ impl ProgramFacts {
             erased_view_write_through: context.erased_view_write_through(),
             reads_this: context.program_reads_this(),
             live_records: context.has_live_records(),
+            widened_classes: !context.widened_classes().is_empty(),
         }
     }
 }
@@ -246,6 +249,8 @@ pub(crate) fn flag_for(
             Some(facts.live_records && demand.has(Need::Unknown) && demand.has(Need::JsString))
         }
         "reads_this" => Some(facts.reads_this),
+        // A widened class's field guards (`crate::class_widening`).
+        "widened_views" => Some(facts.widened_classes),
         // A Python program's dicts keep insertion order; JavaScript's own-key
         // order moves array-index keys to the front.
         "js_key_order" => Some(!demand.has(Need::PyDictOrder)),

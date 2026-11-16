@@ -208,6 +208,7 @@ pub(crate) mod view_write_through;
 mod virtual_slots;
 mod vitest_mock;
 pub(crate) mod weak_receiver;
+mod widened_view;
 
 pub(crate) use callback_handle::is_erased_unknown_rest_function_in;
 pub(crate) use capture_analysis::parameter_is_mutable_reference;
@@ -332,6 +333,8 @@ pub(crate) struct EmitContext {
     /// handles over shared storage, computed once by
     /// [`crate::class_polymorphism::polymorphic_classes`].
     polymorphic_classes: HashSet<Symbol>,
+    /// The widened generic classes ([`crate::class_widening`]).
+    widened_classes: HashSet<Symbol>,
     /// Which static methods take their receiver class as a generic, and each
     /// class's statics trait ([`crate::static_receiver`]).
     static_receivers: crate::static_receiver::StaticReceiverPlan,
@@ -409,6 +412,11 @@ impl EmitContext {
         let reference_classes = crate::classify::reference_classes(mir);
         let polymorphic_classes =
             crate::class_polymorphism::polymorphic_classes(mir, &reference_classes);
+        // The widened generic classes (`crate::class_widening`), decided over
+        // the handle arguments each class carries.
+        let type_param_elision = crate::generic_elision::compute(mir);
+        let widened_classes =
+            crate::class_widening::widened_classes(mir, &reference_classes, &type_param_elision);
         // Every declared item's Rust name, decided once by identity; see
         // `crate::names`. Declarations and references both read it.
         let mut names = crate::names::RustNames::plan(mir, none_ty, &reference_classes)?;
@@ -475,10 +483,11 @@ impl EmitContext {
                 })
                 .collect(),
             polymorphic_classes,
+            widened_classes,
             live_records: live_view::live_records(mir, &reference_classes, &demand),
             reference_classes,
             static_receivers: crate::static_receiver::StaticReceiverPlan::compute(mir),
-            type_param_elision: crate::generic_elision::compute(mir),
+            type_param_elision,
             erased_view_write_through: view_write_through::program_writes_erased_fields(mir),
             program_reads_this: demand.has(Need::ThisRead),
             needs_bigint: demand.has(Need::BigInt),
@@ -632,6 +641,16 @@ impl EmitContext {
     /// The polymorphic classes ([`crate::class_polymorphism`]).
     pub(crate) fn polymorphic_classes(&self) -> &HashSet<Symbol> {
         &self.polymorphic_classes
+    }
+
+    /// The widened generic classes ([`crate::class_widening`]).
+    pub(crate) fn widened_classes(&self) -> &HashSet<Symbol> {
+        &self.widened_classes
+    }
+
+    /// Whether the class named `symbol` is widened ([`crate::class_widening`]).
+    pub(crate) fn is_widened_class(&self, symbol: Symbol) -> bool {
+        self.widened_classes.contains(&symbol)
     }
 
     /// Return whether instances of the class named `symbol` carry the hidden
