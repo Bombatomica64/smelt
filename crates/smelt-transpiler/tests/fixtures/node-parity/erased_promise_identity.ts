@@ -25,5 +25,9 @@ async function main(): Promise<void> {
   const erased: unknown = pending;
   await (erased as Promise<number>).then((value) => console.log("then on erased", value));
   console.log("typed after erased", await pending);
+  const racing = later(9);
+  const view: unknown = racing;
+  (view as Promise<number>).then((value) => console.log("reaction first", value));
+  console.log("await second", await racing);
 }
 main().then(() => console.log("done"));

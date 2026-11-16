@@ -590,9 +590,9 @@ impl FunctionEmitter<'_> {
             // An already-erased `SmeltUnknown` at a `Type::Future` position is a
             // `SmeltUnknown::Promise` (e.g. `await`ing the result of an erased
             // vitest-mock call, or an `x as Promise<T>` cast). It CAN be recovered:
-            // wrap a fresh promise-value handle whose body awaits the erased
-            // promise through `smelt_await_flatten` and extracts its settled value
-            // to the declared `Output`. Discarding it for `SmeltFuture::resolved`
+            // `SmeltFuture::from_erased` is the same promise seen at `T`, settling
+            // when the erased one does (flattening a nested promise) with its value
+            // extracted to the declared `Output`, so its reactions keep their turn. Discarding it for `SmeltFuture::resolved`
             // of a default would drop the real resolved value and leave the shared
             // settle state unobserved (breaking, e.g., mock result matchers and
             // chained awaits on the recovered promise).
@@ -606,7 +606,7 @@ impl FunctionEmitter<'_> {
                 // also what the source does: the promise value already exists at
                 // this point; only the `await` is deferred.
                 Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
-                    "{{ let smelt_erased_future = ({text}).into_smelt_unknown(); SmeltFuture::from_future(Box::pin(async move {{ let smelt_awaited = smelt_await_flatten(smelt_erased_future).await?; Ok::<_, {ERROR_BOX}>({extracted}) }})) }}", text = text.delimited(), extracted = extracted.delimited()
+                    "{{ let smelt_erased_future = ({text}).into_smelt_unknown(); SmeltFuture::from_erased(smelt_erased_future, move |smelt_awaited| Ok::<_, {ERROR_BOX}>({extracted})) }}", text = text.delimited(), extracted = extracted.delimited()
                 ))))
             }
             other => Err(EmitError::new(format!(

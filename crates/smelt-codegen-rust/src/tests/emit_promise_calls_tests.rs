@@ -42,11 +42,11 @@ async function makeValue(): Promise<number> {
     );
 
     assert!(
-        source.contains("Option<Result<f64, Box<dyn std::error::Error>>>"),
+        source.contains("SmeltFuture::<f64>::with_resolvers()"),
         "{source}"
     );
     assert!(
-        !source.contains("Option<Result<(), Box<dyn std::error::Error>>>"),
+        !source.contains("SmeltFuture::<()>::with_resolvers()"),
         "{source}"
     );
 }
@@ -84,7 +84,7 @@ export function makeQueue(): Promise<number[]> {
     // agree on that spelling, which is what radash's `async_` gate exercises at
     // runtime.
     assert!(
-        source.contains("Option<Result<SmeltList<f64>, Box<dyn std::error::Error>>>")
+        source.contains("SmeltFuture::<SmeltList<f64>>::with_resolvers()")
             && source.contains("Rc<dyn Fn(&SmeltList<f64>) -> ()>"),
         "{source}"
     );

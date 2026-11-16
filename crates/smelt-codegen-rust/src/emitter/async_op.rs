@@ -73,7 +73,7 @@ impl FunctionEmitter<'_> {
                 };
                 let future_text = self.await_operand_expr(future)?;
                 Ok(RustExpr::atom(format!(
-                    "SmeltFuture::from_future(Box::pin(async move {{ tokio::spawn(async move {{ {future_text}.await }}).await.expect(\"async task panicked\") }}))",
+                    "SmeltFuture::from_future_primed(Box::pin(async move {{ {future_text}.await }}))",
                     future_text = future_text.tight()
                 )))
             }
@@ -101,8 +101,10 @@ impl FunctionEmitter<'_> {
                 ) {
                     return Err(EmitError::new("async HTTP GET URL must be a string"));
                 }
+                // The I/O guard keeps an idle event loop waiting for the
+                // response instead of stopping (`SMELT_IO_IN_FLIGHT`).
                 Ok(RustExpr::atom(format!(
-                    "SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, {ERROR_BOX}>({}) }}))",
+                    "SmeltFuture::from_future(Box::pin(async move {{ let _smelt_io = SmeltIoGuard::new(); Ok::<_, {ERROR_BOX}>({}) }}))",
                     self.text_from_string(&format!("reqwest::get({}.to_string()).await.expect(\"HTTP GET failed\").text().await.expect(\"HTTP response body read failed\")", self.operand_expr(url)?.tight()))
                 )))
             }
@@ -442,6 +444,10 @@ impl FunctionEmitter<'_> {
     /// MIR `Type::Future(T)` is emitted as `SmeltFuture<T>`. Materializing the
     /// wrapper at call destinations keeps free async functions compatible with
     /// closure temporaries, adapters, and values that escape before an await.
+    /// The wrapper starts the call as a job and runs it to its first
+    /// suspension now (`SmeltFuture::from_future_primed`): calling an async
+    /// function runs its body synchronously up to the first `await`, as in
+    /// JavaScript, whether or not anything awaits the result.
     ///
     /// Only callees that are themselves emitted as a real Rust `async fn` yield
     /// an `impl Future` needing this wrapper: free functions (`HirOrigin::Body`)
@@ -470,7 +476,7 @@ impl FunctionEmitter<'_> {
             && !matches!(function.origin, HirOrigin::ClassMethod { .. })
         {
             Ok(RustExpr::atom(format!(
-                "SmeltFuture::from_future(Box::pin({call_text}))",
+                "SmeltFuture::from_future_primed(Box::pin({call_text}))",
                 call_text = call_text.delimited()
             )))
         } else {
@@ -713,25 +719,9 @@ impl FunctionEmitter<'_> {
             _ => None,
         };
         let (hoisted, awaited) = self.hoisted_awaited_operands(args)?;
-        // Every racer runs on its own driver job, as a JavaScript promise runs
-        // whether or not a race is watching it: the race only waits for the
-        // racers to settle (`smelt_when_settled`). Awaiting a racer directly
-        // took its future into the race, and the race drops a losing racer
-        // when another wins, which stranded that promise half-run (a later
-        // `await` of it never settled) and let the racer polled first claim the
-        // win.
-        let watched = awaited
-            .into_iter()
-            .map(|racer| {
-                RustExpr::atom(format!(
-                    "SmeltFuture::from_future({racer}.smelt_when_settled())",
-                    racer = racer.tight()
-                ))
-            })
-            .collect::<Vec<_>>();
         let rendered_args = args
             .iter()
-            .zip(watched)
+            .zip(awaited)
             .map(|(arg, future)| {
                 let racer_ty = match self.mir.types.get(self.operand_ty(arg)?) {
                     Some(Type::Future(item)) => Some(*item),
@@ -766,39 +756,24 @@ impl FunctionEmitter<'_> {
                 }
             })
             .collect::<Result<Vec<_>, EmitError>>()?;
-        let body = match rendered_args.as_slice() {
-            [] => {
-                return Err(EmitError::new(
-                    "async race requires at least one future operand",
-                ));
-            }
-            [single] => format!("{single}.await?", single = single.tight()),
-            _ => {
-                // `tokio::select!` polls its branches in a randomized
-                // order and returns the first branch that reports
-                // `Ready` in a poll round. On the virtual clock every
-                // racer can settle within the same round (each poll of a
-                // promise spin-loop advances time by one timer step), so
-                // the winner was a coin flip rather than the racer that
-                // settled first. `smelt_promise_race` polls in source
-                // order instead — see its prelude docs.
-                let pushes = rendered_args
-                    .iter()
-                    .map(|arg| {
-                        format!(
-                            "smelt_racers.push(Box::pin(::std::future::IntoFuture::into_future({arg})));", arg = arg.delimited()
-                        )
-                    })
-                    .collect::<Vec<_>>()
-                    .join(" ");
-                format!(
-                    "{{ let mut smelt_racers: Vec<::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<_, {ERROR_BOX}>>>>> = Vec::new(); {pushes} {promise_race}(smelt_racers).await? }}",
-                    promise_race = smelt_stdlib::runtime_symbols::timers::PROMISE_RACE,
-                )
-            }
-        };
+        if rendered_args.is_empty() {
+            return Err(EmitError::new(
+                "async race requires at least one future operand",
+            ));
+        }
+        // Every racer keeps running on its own, as a JavaScript promise runs
+        // whether or not a race watches it: `smelt_promise_race` registers a
+        // reaction on each, and the first racer to settle settles the race
+        // (its reaction runs first in the job queue). A racer of another item
+        // type is converted as it settles.
+        let racers = rendered_args
+            .iter()
+            .map(RustExpr::delimited)
+            .collect::<Vec<_>>()
+            .join(", ");
         Ok(RustExpr::atom(format!(
-            "{{ {hoisted}SmeltFuture::from_future(Box::pin(async move {{ Ok::<_, {ERROR_BOX}>({body}) }})) }}"
+            "{{ {hoisted}{promise_race}(::std::vec![{racers}]) }}",
+            promise_race = smelt_stdlib::runtime_symbols::timers::PROMISE_RACE,
         )))
     }
 
@@ -822,14 +797,14 @@ impl FunctionEmitter<'_> {
     ) -> Result<RustExpr, EmitError> {
         // `Promise.resolve(v)`: a future settled with the operand now, so a
         // reaction on it is queued at once; an `await` of it yields one
-        // microtask tick first (`SmeltFuture::resolved_after_tick`). The value is rendered at the future's own item type so
+        // job turn, as every `await` does. The value is rendered at the future's own item type so
         // the emitted `Ok(..)` agrees with the declared `SmeltFuture<T>`;
         // with no operand (`Promise.resolve()`) the item type is unit.
         let Some(duration) = args.first() else {
             return Err(EmitError::new("async resolve requires a duration operand"));
         };
         // The zero duration was the microtask tick the old lowering slept;
-        // the settled future's `await` now takes that tick itself.
+        // every `await` now takes that tick itself.
         let _ = duration;
         let value_text = match args.get(1) {
             Some(value) => {
@@ -841,15 +816,16 @@ impl FunctionEmitter<'_> {
             None => RustExpr::unit(),
         };
         Ok(RustExpr::atom(format!(
-            "SmeltFuture::resolved_after_tick({value_text})",
+            "SmeltFuture::resolved({value_text})",
             value_text = value_text.delimited(),
         )))
     }
 
     /// `Promise.reject`.
     fn promise_reject_expr(&self, args: &[Operand]) -> Result<RustExpr, EmitError> {
-        // `Promise.reject(reason)`: defer one microtask, then settle in
-        // the error channel with the reason unchanged. The reason takes
+        // `Promise.reject(reason)`: a promise rejected now, in the error
+        // channel with the reason unchanged (an `await` of it takes its tick
+        // as every `await` does, and an unhandled one is reported). The reason takes
         // the same `throw` path a `throw` statement takes, so a non-Error
         // reason keeps its own properties (JavaScript rejects with any
         // value) and a program with no erased values keeps the plain
@@ -857,16 +833,14 @@ impl FunctionEmitter<'_> {
         let Some(duration) = args.first() else {
             return Err(EmitError::new("async reject requires a duration operand"));
         };
-        let duration_text = self.operand_expr(duration)?;
+        let _ = duration;
         let payload = match args.get(1) {
             Some(reason) => self.thrown_payload_expr(reason)?,
             None => self.undefined_thrown_payload_expr(),
         };
         Ok(RustExpr::atom(format!(
-            "SmeltFuture::from_future(Box::pin(async move {{ {sleep_ms}({duration_text} as f64).await; Err::<_, {ERROR_BOX}>({payload}) }}))",
-            sleep_ms = smelt_stdlib::runtime_symbols::timers::SLEEP_MS,
-            duration_text = duration_text.as_cast_operand(),
-            payload = payload.delimited(),
+            "SmeltFuture::rejected(&*{payload})",
+            payload = payload.tight(),
         )))
     }
 
@@ -1031,8 +1005,7 @@ impl FunctionEmitter<'_> {
         // rejection reason keeps its class, `name`, `message`, `cause` and
         // custom fields.
         Ok(RustExpr::atom(format!(
-            "{{ let smelt_promise_result: ::std::rc::Rc<::std::cell::RefCell<Option<Result<{output_text}, {ERROR_BOX}>>>> = ::std::rc::Rc::new(::std::cell::RefCell::new(None)); let smelt_resolve_result = smelt_promise_result.clone(); let smelt_reject_result = smelt_promise_result.clone(); let smelt_resolve: ::std::rc::Rc<dyn Fn({resolve_input_text}) -> ()> = ::std::rc::Rc::new(move |smelt_value: {resolve_input_text}| {{ *smelt_resolve_result.borrow_mut() = Some(Ok({resolve_value})); }}); let smelt_reject: ::std::rc::Rc<dyn Fn({reject_input_text}) -> ()> = ::std::rc::Rc::new(move |smelt_error: {reject_input_text}| {{ *smelt_reject_result.borrow_mut() = Some(Err({throw_fn}({reject_value}))); }}); {executor_call} SmeltFuture::from_future(Box::pin(async move {{ loop {{ if let Some(smelt_result) = smelt_promise_result.borrow_mut().take() {{ break smelt_result; }} tokio::task::yield_now().await; {sleep_ms}(0.0).await; }} }})) }}",
-            sleep_ms = smelt_stdlib::runtime_symbols::timers::SLEEP_MS,
+            "{{ let (smelt_promise, smelt_settle) = SmeltFuture::<{output_text}>::with_resolvers(); let smelt_resolve_result = smelt_settle.clone(); let smelt_reject_result = smelt_settle; let smelt_resolve: ::std::rc::Rc<dyn Fn({resolve_input_text}) -> ()> = ::std::rc::Rc::new(move |smelt_value: {resolve_input_text}| {{ smelt_resolve_result.smelt_settle(Ok({resolve_value})); }}); let smelt_reject: ::std::rc::Rc<dyn Fn({reject_input_text}) -> ()> = ::std::rc::Rc::new(move |smelt_error: {reject_input_text}| {{ smelt_reject_result.smelt_settle_result(Err({throw_fn}({reject_value}))); }}); {executor_call} smelt_promise }}",
             throw_fn = crate::thrown::THROW_FN,
             resolve_value = resolve_value.delimited(),
         )))
@@ -1086,14 +1059,14 @@ impl FunctionEmitter<'_> {
                 &self.render_scope(),
             )?;
             return Ok(RustExpr::atom(format!(
-                "{{ {prelude}{rejected_prelude}let smelt_reaction_source = {future_text}; let smelt_source = smelt_reaction_source.clone(); smelt_reaction_source.reaction(Box::pin(async move {{ match smelt_source.await {{ Ok(smelt_value) => {{ {settle} Ok::<_, {ERROR_BOX}>({output}) }} Err(smelt_error) => {{ {rejected_settle} Ok::<_, {ERROR_BOX}>({rejected_output}) }} }} }})) }}",
+                "{{ {prelude}{rejected_prelude}let smelt_reaction_source = {future_text}; let smelt_source = smelt_reaction_source.clone(); smelt_reaction_source.reaction(Box::pin(async move {{ match smelt_source.smelt_reaction_read().await {{ Ok(smelt_value) => {{ {settle} Ok::<_, {ERROR_BOX}>({output}) }} Err(smelt_error) => {{ {rejected_settle} Ok::<_, {ERROR_BOX}>({rejected_output}) }} }} }})) }}",
                 future_text = future_text.tight(),
                 output = output.delimited(),
                 rejected_output = rejected_output.delimited(),
             )));
         }
         Ok(RustExpr::atom(format!(
-            "{{ {prelude}let smelt_reaction_source = {future_text}; let smelt_source = smelt_reaction_source.clone(); smelt_reaction_source.reaction(Box::pin(async move {{ let smelt_value = smelt_source.await?; {settle} Ok::<_, {ERROR_BOX}>({output}) }})) }}",
+            "{{ {prelude}let smelt_reaction_source = {future_text}; let smelt_source = smelt_reaction_source.clone(); smelt_reaction_source.reaction(Box::pin(async move {{ let smelt_value = smelt_source.smelt_reaction_read().await?; {settle} Ok::<_, {ERROR_BOX}>({output}) }})) }}",
             future_text = future_text.tight(),
             output = output.delimited()
         )))
@@ -1138,7 +1111,7 @@ impl FunctionEmitter<'_> {
             &self.render_scope(),
         )?;
         Ok(RustExpr::atom(format!(
-            "{{ {prelude}let smelt_reaction_source = {future_text}; let smelt_source = smelt_reaction_source.clone(); smelt_reaction_source.reaction(Box::pin(async move {{ match smelt_source.await {{ Ok(smelt_value) => Ok::<_, {ERROR_BOX}>(smelt_value), Err(smelt_error) => {{ {settle} Ok::<_, {ERROR_BOX}>({recovered}) }} }} }})) }}",
+            "{{ {prelude}let smelt_reaction_source = {future_text}; let smelt_source = smelt_reaction_source.clone(); smelt_reaction_source.reaction(Box::pin(async move {{ match smelt_source.smelt_reaction_read().await {{ Ok(smelt_value) => Ok::<_, {ERROR_BOX}>(smelt_value), Err(smelt_error) => {{ {settle} Ok::<_, {ERROR_BOX}>({recovered}) }} }} }})) }}",
             future_text = future_text.tight(),
             recovered = recovered.delimited()
         )))
@@ -1170,7 +1143,7 @@ impl FunctionEmitter<'_> {
         // result (value or rejection) is the settled one.
         let (settle, _) = self.promise_callback_settle(callback, &invocation)?;
         Ok(RustExpr::atom(format!(
-            "{{ {prelude}let smelt_reaction_source = {future_text}; let smelt_source = smelt_reaction_source.clone(); smelt_reaction_source.reaction(Box::pin(async move {{ let smelt_outcome = smelt_source.await; {settle} let _ = smelt_callback_value; smelt_outcome }})) }}",
+            "{{ {prelude}let smelt_reaction_source = {future_text}; let smelt_source = smelt_reaction_source.clone(); smelt_reaction_source.reaction(Box::pin(async move {{ let smelt_outcome = smelt_source.smelt_reaction_read().await; {settle} let _ = smelt_callback_value; smelt_outcome }})) }}",
             future_text = future_text.tight()
         )))
     }
@@ -1200,7 +1173,7 @@ impl FunctionEmitter<'_> {
         // `text/plain;charset=UTF-8`, and a fetched response's content
         // type belongs to the server, not to how Smelt read it.
         Ok(RustExpr::atom(format!(
-            "SmeltFuture::from_future(Box::pin(async move {{                      let smelt_http = reqwest::get({}.to_string()).await.expect(\"HTTP request failed\");                      let smelt_status = f64::from(smelt_http.status().as_u16());                      let smelt_reason = smelt_http.status().canonical_reason().unwrap_or_default().to_owned();                      let smelt_pairs: Vec<(String, String)> = smelt_http.headers().iter().map(|(smelt_name, smelt_value)| (smelt_name.as_str().to_owned(), smelt_value.to_str().unwrap_or_default().to_owned())).collect();                      let smelt_bytes = smelt_http.bytes().await.expect(\"HTTP response body read failed\").to_vec();                      Ok::<_, {ERROR_BOX}>(SmeltResponse::from_parts(smelt_status, smelt_reason, SmeltHeaders::from_pairs(smelt_pairs), SmeltBody::from_bytes(smelt_bytes))) }}))",
+            "SmeltFuture::from_future(Box::pin(async move {{ let _smelt_io = SmeltIoGuard::new();                      let smelt_http = reqwest::get({}.to_string()).await.expect(\"HTTP request failed\");                      let smelt_status = f64::from(smelt_http.status().as_u16());                      let smelt_reason = smelt_http.status().canonical_reason().unwrap_or_default().to_owned();                      let smelt_pairs: Vec<(String, String)> = smelt_http.headers().iter().map(|(smelt_name, smelt_value)| (smelt_name.as_str().to_owned(), smelt_value.to_str().unwrap_or_default().to_owned())).collect();                      let smelt_bytes = smelt_http.bytes().await.expect(\"HTTP response body read failed\").to_vec();                      Ok::<_, {ERROR_BOX}>(SmeltResponse::from_parts(smelt_status, smelt_reason, SmeltHeaders::from_pairs(smelt_pairs), SmeltBody::from_bytes(smelt_bytes))) }}))",
             self.operand_expr(url)?.tight()
         )))
     }
