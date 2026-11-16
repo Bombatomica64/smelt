@@ -293,6 +293,13 @@ fn polymorphic_generic_upcast() -> TestResult {
     verify_node_parity("polymorphic_generic_upcast")
 }
 
+/// A type parameter bounded by an interface keeps its type inside a container
+/// argument (`T[]`, `Record<string, T>`, `[T, string]`).
+#[test]
+fn bounded_generic_containers() -> TestResult {
+    verify_node_parity("bounded_generic_containers")
+}
+
 /// Programs that end with an uncaught throw or rejection, with the message
 /// Node prints for each (see `uncaught_throw_exits_one_with_its_message`).
 /// One uncaught-throw case: its name, its source, and the message on stderr.
