@@ -2,9 +2,9 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 14224,
+      "concrete": 14228,
       "generic": 351,
-      "erased": 7067
+      "erased": 7063
     },
     "reads": {
       "concrete": 367,
@@ -10781,9 +10781,9 @@
     },
     "src/predicate/isEqualWith.spec.ts": {
       "values": {
-        "concrete": 1025,
+        "concrete": 1027,
         "generic": 0,
-        "erased": 407
+        "erased": 405
       },
       "reads": {
         "concrete": 5,
@@ -10951,9 +10951,9 @@
     },
     "src/predicate/isJSONValue.spec.ts": {
       "values": {
-        "concrete": 104,
+        "concrete": 106,
         "generic": 0,
-        "erased": 20
+        "erased": 18
       },
       "reads": {
         "concrete": 0,

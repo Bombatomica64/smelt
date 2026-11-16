@@ -187,6 +187,9 @@ impl FunctionEmitter<'_> {
                                 .all(|field| self.inspectable_in(field.ty, records, visiting))
                     })
             }
+            // A union with no generated enum renders as the erased carrier
+            // (`FunctionEmitter::rust_type`) and is drawn by its impl.
+            Some(Type::Union(_)) if self.concrete_union_members(ty).is_none() => needs_unknown,
             Some(Type::Union(_)) => self.union_is_inspectable(ty, records, visiting),
             _ => false,
         };
@@ -326,18 +329,32 @@ pub(crate) fn emit_console_inspect_support(
             .fields
             .iter()
             .filter(|field| field.visibility.is_own_property())
-            .map(|field| InspectField {
-                key: mir
-                    .names
-                    .get(field.name)
-                    .or_else(|| mir.symbols.get(field.name))
-                    .unwrap_or("field")
-                    .to_owned(),
-                rust_name: context.names().field(mir, field.name).into_string(),
-                skip_when_absent: record.is_shape
-                    && matches!(mir.types.get(field.ty), Some(Type::Optional(_))),
+            .map(|field| -> Result<InspectField, EmitError> {
+                Ok(InspectField {
+                    key: mir
+                        .names
+                        .get(field.name)
+                        .or_else(|| mir.symbols.get(field.name))
+                        .unwrap_or("field")
+                        .to_owned(),
+                    rust_name: context.names().field(mir, field.name).into_string(),
+                    // A `T | null` field (`TypeInterner::absent_is_null`) holds
+                    // `null` when empty and is never absent, so it is printed.
+                    skip_when_absent: record.is_shape
+                        && matches!(mir.types.get(field.ty), Some(Type::Optional(_)))
+                        && !mir.types.absent_is_null(field.ty),
+                    inspector: match mir.types.get(field.ty) {
+                        // A skipped-when-absent field draws only its present value.
+                        Some(Type::Optional(inner))
+                            if record.is_shape && !mir.types.absent_is_null(field.ty) =>
+                        {
+                            emitter.console_inspector(emitter.flatten_optional_inner(*inner))?
+                        }
+                        _ => emitter.console_inspector(field.ty)?,
+                    },
+                })
             })
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>, EmitError>>()?;
         text.push('\n');
         text.push_str(&console_inspect_prelude::struct_impl_text(
             &record.rust_name,
@@ -354,14 +371,18 @@ pub(crate) fn emit_console_inspect_support(
         let Some(members) = emitter.concrete_union_members(ty) else {
             continue;
         };
-        let member_count = members.len();
+        let member_types = members.to_vec();
         if !emitter.union_is_inspectable(ty, &records, &mut HashSet::new()) {
             continue;
         }
+        let inspectors = member_types
+            .iter()
+            .map(|member| emitter.console_inspector(*member))
+            .collect::<Result<Vec<_>, EmitError>>()?;
         text.push('\n');
         text.push_str(&console_inspect_prelude::union_impl_text(
             &union_name(ty),
-            member_count,
+            &inspectors,
         ));
     }
     Ok(text)
@@ -518,6 +539,14 @@ impl FunctionEmitter<'_> {
                     "SmeltPyRepr::py_repr(&{})",
                     self.operand_expr(operand)?.tight()
                 ),
+            ))
+        } else if self.console_inspects(ty, absent) && self.holds_null_absent(ty) {
+            // A `T | null` inside it draws its absent value as `null`, which
+            // the Rust storage type's impl cannot tell from `undefined`
+            // (`emitter::absent_value`).
+            Ok((
+                "{}",
+                self.console_text_of(ty, &format!("&{}", self.operand_expr(operand)?.tight()))?,
             ))
         } else if self.console_inspects(ty, absent) {
             // A container, record or union prints the way Node's
@@ -702,9 +731,10 @@ impl FunctionEmitter<'_> {
     /// end-to-end fixture `33_console_optional_value` pins this against Node
     /// 22, whose `find()` miss prints `undefined`.
     ///
-    /// Printing the right word for both spellings needs a distinct
-    /// `Type::Undefined` carried down from the annotation — a type-table
-    /// change, not a console change.
+    /// A type the source spells `T | null` and nothing else is a distinct
+    /// type id (`TypeInterner::intern_null_optional`), and prints `null`; a
+    /// `T | null | undefined` cannot tell the two absent values apart and keeps
+    /// `undefined`.
     fn console_optional_expr(
         &self,
         operand: &Operand,
@@ -717,10 +747,16 @@ impl FunctionEmitter<'_> {
             ));
         };
         let present = self.console_value(&RustExpr::path("smelt_value"), inner, absent)?;
+        // A `T | null` (`TypeInterner::intern_null_optional`) has only `null`
+        // as its absent value.
+        let absent_text = if self.mir.types.absent_is_null(ty) {
+            absent.null_text()
+        } else {
+            absent.text()
+        };
         Ok(RustExpr::atom(format!(
-            "match &{} {{ Some(smelt_value) => {present}, None => {:?}.to_owned() }}",
+            "match &{} {{ Some(smelt_value) => {present}, None => {absent_text:?}.to_owned() }}",
             self.operand_expr(operand)?.tight(),
-            absent.text(),
             present = present.delimited()
         )))
     }

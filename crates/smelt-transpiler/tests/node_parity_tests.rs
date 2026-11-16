@@ -369,6 +369,13 @@ fn nullable_unions() -> TestResult {
     verify_node_parity("nullable_unions")
 }
 
+/// A `T | null` keeps its `null` inside lists, records, maps, sets and tuples,
+/// printed and erased alike.
+#[test]
+fn nullable_containers() -> TestResult {
+    verify_node_parity("nullable_containers")
+}
+
 /// Programs that end with an uncaught throw or rejection, with the message
 /// Node prints for each (see `uncaught_throw_exits_one_with_its_message`).
 /// One uncaught-throw case: its name, its source, and the message on stderr.

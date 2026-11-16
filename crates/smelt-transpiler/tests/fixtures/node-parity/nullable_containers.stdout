@@ -1,0 +1,37 @@
+[ 1, null, 3 ]
+[ 1, null, 3 ]
+false
+Point { x: null, tags: [ 'a', null ] }
+{ a: null }
+{ a: null }
+{ a: null, b: 3 }
+Map(2) { 'k' => null, 'j' => 2 }
+Map(2) { 'k' => null, 'j' => 2 }
+true
+Set(2) { 1, null }
+Set(2) { 1, null }
+[ null, 'z' ]
+[ null, 'z' ]
+[ [ null, 1 ] ]
+[ [ null, 1 ] ]
+{ q: null }
+{ q: null }
+{ v: [ null ] }
+{ v: [ null ] }
+[ 'a', 2, null ]
+[ 'a', 2, null ]
+true ["a",2,null]
+null true object
+null
+one false string
+one
+2 false number
+2
+4 true [ 'a', 2, null, null ]
+[ { v: null }, { v: 'x' } ]
+[ { v: null }, { v: 'x' } ]
+[{"v":null},{"v":"x"}]
+Map(2) { 'a' => null, 'b' => 1 }
+[ 1, undefined ]
+[ 1, undefined ]
+false
