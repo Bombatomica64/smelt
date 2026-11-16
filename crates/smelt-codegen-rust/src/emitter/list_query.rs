@@ -1108,6 +1108,17 @@ impl FunctionEmitter<'_> {
                     ),
                 )
             }),
+            // A Python `int` sum is exact at every magnitude.
+            Some(Type::PyInt) => Ok({
+                let receiver = list_read_expr(&self.operand_expr(list)?);
+                RustExpr::atom_on(
+                    &receiver,
+                    format!(
+                        "{receiver}.iter().sum::<SmeltPyInt>()",
+                        receiver = receiver.tight()
+                    ),
+                )
+            }),
             Some(Type::Float) => Ok({
                 let receiver = list_read_expr(&self.operand_expr(list)?);
                 RustExpr::atom_on(

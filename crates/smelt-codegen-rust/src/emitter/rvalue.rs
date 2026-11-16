@@ -197,6 +197,7 @@ impl FunctionEmitter<'_> {
             | Rvalue::RegExpCompile { .. }
             | Rvalue::DataViewAccess { .. }
             | Rvalue::BigIntCall { .. }
+            | Rvalue::PyNumericCall { .. }
             | Rvalue::UrlNew { .. }
             | Rvalue::JsonParse { .. } => Err(EmitError::new(
                 "internal: a fallible operation reached the assignment path",
@@ -502,6 +503,7 @@ impl FunctionEmitter<'_> {
             }
             Rvalue::SetProjection { op, set } => self.set_projection_expr(*op, set, dest_ty),
             Rvalue::ListConcat { left, right } => self.list_concat_at_dest_expr(left, right, dest_ty),
+            Rvalue::ListRepeat { list, count } => self.list_repeat_expr(list, count),
             Rvalue::ConcatSpread { value } => self.concat_spread_expr(value),
             Rvalue::ListSearch {
                 op,

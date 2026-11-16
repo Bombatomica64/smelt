@@ -460,6 +460,9 @@ impl RuntimeDemand {
             Rvalue::UrlNew { .. } => {
                 self.add(Need::UrlThrowing);
             }
+            Rvalue::PyNumericCall { .. } => {
+                self.add(Need::PyInt);
+            }
             Rvalue::JsonParse { .. } => {
                 self.add(Need::JsonParse);
                 self.add(Need::ErasedAnswer);
@@ -520,6 +523,7 @@ impl RuntimeDemand {
             | Rvalue::ProcessEnvRead { .. }
             | Rvalue::ProcessArgv
             | Rvalue::ListConcat { .. }
+            | Rvalue::ListRepeat { .. }
             | Rvalue::ListSearch { .. }
             | Rvalue::ListCallback { .. }
             | Rvalue::ListFromLength { .. }

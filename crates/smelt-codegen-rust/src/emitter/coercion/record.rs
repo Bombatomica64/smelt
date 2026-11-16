@@ -638,6 +638,10 @@ pub(crate) fn record_field_unknown_expr(
             "SmeltUnknown::Number({value_text} as f64)",
             value_text = value_text.as_cast_operand()
         )),
+        Some(Type::PyInt) => RustExpr::atom(format!(
+            "({value_text}).clone().into_smelt_unknown()",
+            value_text = value_text.delimited()
+        )),
         Some(Type::BigInt) => RustExpr::atom(format!(
             "SmeltUnknown::BigInt(({value_text}).clone())",
             value_text = value_text.delimited()

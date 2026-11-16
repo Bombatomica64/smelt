@@ -1,18 +1,18 @@
 fn main (FuncId(0)) -> None
   locals
-    %0 temp: Int
+    %0 temp: PyInt
     %1 temp: None
     %2 temp: None
     %3 temp: None
   bb0:
     %0 = global_get #0
-    match move %0 {1 => bb1, 2 => bb2, _ => bb3}
+    match move %0 {1py => bb1, 2py => bb2, _ => bb3}
   bb1:
-    %1 = call @console_log(100) -> bb5
+    %1 = call @console_log(100py) -> bb5
   bb2:
-    %2 = call @console_log(200) -> bb6
+    %2 = call @console_log(200py) -> bb6
   bb3:
-    %3 = call @console_log(0) -> bb7
+    %3 = call @console_log(0py) -> bb7
   bb4:
     return none
   bb5:

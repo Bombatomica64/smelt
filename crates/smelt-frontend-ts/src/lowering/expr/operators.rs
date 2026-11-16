@@ -972,7 +972,7 @@ impl ModuleBuilder<'_> {
             return;
         }
         match self.ctx.krate.types.get(ty) {
-            Some(Type::Int | Type::Float | Type::FixedInt(_)) => kinds.number = true,
+            Some(Type::Int | Type::PyInt | Type::Float | Type::FixedInt(_)) => kinds.number = true,
             Some(Type::BigInt) => kinds.bigint = true,
             Some(Type::String | Type::PyStr) => kinds.string = true,
             Some(Type::Bool) => kinds.boolean = true,

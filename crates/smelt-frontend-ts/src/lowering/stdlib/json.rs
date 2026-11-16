@@ -400,6 +400,7 @@ impl ModuleBuilder<'_> {
         match ty_kind {
             Type::Bool
             | Type::Int
+            | Type::PyInt
             | Type::FixedInt(_)
             | Type::Float
             | Type::String

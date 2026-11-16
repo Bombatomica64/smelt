@@ -55,7 +55,9 @@ pub struct PythonSpecializationRequest {
 }
 
 /// `CPython` specialization failure.
-#[derive(Debug)]
+///
+/// Its `Debug` is its `Display` (the CLI prints errors with `{:?}`), so a
+/// guest rejection reads as a diagnostic rather than a struct dump.
 pub enum PythonSpecializationError {
     /// Scratch/request filesystem operation failed.
     Io(io::Error),
@@ -82,6 +84,17 @@ impl fmt::Display for PythonSpecializationError {
             Self::Io(error) => write!(formatter, "Python specialization I/O failed: {error}"),
             Self::Sandbox(error) => {
                 write!(formatter, "Python specialization sandbox failed: {error}")
+            }
+            // The guest raises a `RuntimeError` whose message is a Smelt
+            // diagnostic (`smelt::<code>: <message>`) when it meets a value it
+            // cannot materialize; that line is the error, and the Python
+            // traceback through the guest's own code says nothing about the
+            // program.
+            Self::Guest { stderr, .. } if let Some((code, message)) = guest_diagnostic(stderr) => {
+                write!(
+                    formatter,
+                    "error[{code}]: {message}\n  note: raised while running the program's module-level code to specialize its definitions; a value of this kind cannot be materialized at module level"
+                )
             }
             Self::Guest { status, stderr } => write!(
                 formatter,
@@ -111,6 +124,30 @@ impl fmt::Display for PythonSpecializationError {
             }
         }
     }
+}
+
+impl fmt::Debug for PythonSpecializationError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(self, formatter)
+    }
+}
+
+/// The Smelt diagnostic a guest traceback ends in, as `(code, message)`: the
+/// last line `RuntimeError: smelt::<code>: <message>` (the message may wrap
+/// onto the following lines, which are kept).
+fn guest_diagnostic(stderr: &str) -> Option<(&str, String)> {
+    let marker = "RuntimeError: ";
+    let start = stderr
+        .rfind("RuntimeError: smelt::")?
+        .checked_add(marker.len())?;
+    let (code, wrapped) = stderr.get(start..)?.split_once(": ")?;
+    if code.contains(char::is_whitespace) {
+        return None;
+    }
+    Some((
+        code,
+        wrapped.lines().map(str::trim).collect::<Vec<_>>().join(" "),
+    ))
 }
 
 impl std::error::Error for PythonSpecializationError {
@@ -376,6 +413,34 @@ mod tests {
         };
         let manifest = run_fixture_guest(&python)?;
         assert_fixture_manifest(&manifest)
+    }
+
+    /// A guest traceback ending in a Smelt diagnostic displays as that
+    /// diagnostic alone; any other guest failure keeps its full output.
+    #[test]
+    fn guest_diagnostic_is_the_error_text() -> Result<(), String> {
+        let stderr = "Traceback (most recent call last):\n  File \"<string>\", line 297, in dynamic_attribute_override\n    raise RuntimeError(\nRuntimeError: smelt::dynamic-attribute-access: 'collections.deque' inherits deque.__getattribute__ at <unknown>; runtime-dynamic attributes cannot be specialized\n";
+        let error = PythonSpecializationError::Guest {
+            status: Some(2_i32),
+            stderr: stderr.to_owned(),
+        };
+        let shown = format!("{error:?}");
+        if !shown.starts_with("error[smelt::dynamic-attribute-access]: 'collections.deque' inherits deque.__getattribute__")
+            || shown.contains("Traceback")
+            || shown.contains("Guest {")
+        {
+            return Err(format!("guest diagnostic not extracted: {shown}"));
+        }
+        let other = PythonSpecializationError::Guest {
+            status: Some(1_i32),
+            stderr: "Traceback: boom\n".to_owned(),
+        };
+        if !format!("{other:?}").contains("Traceback: boom") {
+            return Err(
+                "a guest failure without a Smelt diagnostic must keep its output".to_owned(),
+            );
+        }
+        Ok(())
     }
 
     #[test]

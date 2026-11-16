@@ -212,3 +212,77 @@ pub(crate) fn is_stub_body(body: &[Stmt]) -> bool {
         _ => false,
     })
 }
+
+/// The canonical decimal digits of a Python integer literal's source text.
+///
+/// The parser keeps a literal too wide for a machine word as the token it read
+/// (`0xFFFF_FFFF_FFFF_FFFF_FF`, `100_000_000_000_000_000_000`), so this strips
+/// the `_` separators, reads the `0x`/`0o`/`0b` prefix, and converts the digits
+/// to base 10 by schoolbook multiply-and-add over base-10^9 limbs. `None` when
+/// the text is not an integer literal.
+pub(crate) fn python_int_literal_digits(token: &str) -> Option<String> {
+    const LIMB: u64 = 1_000_000_000;
+    let text = token.replace('_', "");
+    let lower = text.to_ascii_lowercase();
+    let (radix, digits) = match lower.get(..2) {
+        Some("0x") => (16, &lower[2..]),
+        Some("0o") => (8, &lower[2..]),
+        Some("0b") => (2, &lower[2..]),
+        _ => (10, lower.as_str()),
+    };
+    if digits.is_empty() {
+        return None;
+    }
+    // Little-endian base-10^9 limbs of the value read so far.
+    let mut limbs: Vec<u64> = vec![0];
+    for ch in digits.chars() {
+        let mut carry = u64::from(ch.to_digit(radix)?);
+        for limb in &mut limbs {
+            // `limb < 10^9`, `radix <= 16` and `carry < 16 * 10^9`: no overflow.
+            let next = limb.checked_mul(u64::from(radix))?.checked_add(carry)?;
+            *limb = next.rem_euclid(LIMB);
+            carry = next.div_euclid(LIMB);
+        }
+        while carry > 0 {
+            limbs.push(carry.rem_euclid(LIMB));
+            carry = carry.div_euclid(LIMB);
+        }
+    }
+    let mut ordered = limbs.iter().rev();
+    let head = ordered.next().map_or_else(String::new, ToString::to_string);
+    Some(ordered.fold(head, |mut out, limb| {
+        use std::fmt::Write as _;
+        // Writing to a `String` cannot fail.
+        let _infallible = write!(out, "{limb:09}");
+        out
+    }))
+}
+
+#[cfg(test)]
+mod literal_digit_tests {
+    use super::python_int_literal_digits;
+
+    /// Every spelling of a wide literal reads to the digits `python3` prints.
+    #[test]
+    fn wide_literals_read_in_every_radix() {
+        assert_eq!(
+            python_int_literal_digits("100_000_000_000_000_000_000").as_deref(),
+            Some("100000000000000000000")
+        );
+        assert_eq!(
+            python_int_literal_digits("0xFFFF_FFFF_FFFF_FFFF_FF").as_deref(),
+            Some("4722366482869645213695")
+        );
+        assert_eq!(
+            python_int_literal_digits("0o1777777777777777777777").as_deref(),
+            Some("18446744073709551615")
+        );
+        assert_eq!(python_int_literal_digits("0b1").as_deref(), Some("1"));
+        assert_eq!(
+            python_int_literal_digits("18446744073709551615").as_deref(),
+            Some("18446744073709551615")
+        );
+        assert_eq!(python_int_literal_digits("0x"), None);
+        assert_eq!(python_int_literal_digits("12a"), None);
+    }
+}

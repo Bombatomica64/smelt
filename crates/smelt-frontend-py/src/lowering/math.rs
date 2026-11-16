@@ -41,7 +41,7 @@ impl ModuleBuilder<'_> {
         let operand_ty = Self::expr_ty(body, operand);
         if !matches!(
             self.ctx.krate.types.get(operand_ty),
-            Some(Type::Int | Type::Float)
+            Some(Type::PyInt | Type::Float)
         ) {
             return Err(SmeltError::unsupported(
                 span,
@@ -78,7 +78,7 @@ impl ModuleBuilder<'_> {
                 let operand = self.expression(&call.arguments.args[0], body)?;
                 if !matches!(
                     self.ctx.krate.types.get(Self::expr_ty(body, operand)),
-                    Some(Type::Int | Type::Float)
+                    Some(Type::PyInt | Type::Float)
                 ) {
                     return Err(SmeltError::unsupported(
                         span,
@@ -118,7 +118,7 @@ impl ModuleBuilder<'_> {
                 if [base, exponent].iter().any(|arg| {
                     !matches!(
                         self.ctx.krate.types.get(Self::expr_ty(body, *arg)),
-                        Some(Type::Int | Type::Float)
+                        Some(Type::PyInt | Type::Float)
                     )
                 }) {
                     return Err(SmeltError::unsupported(
@@ -145,7 +145,7 @@ impl ModuleBuilder<'_> {
                 if [y_coord, x_coord].iter().any(|arg| {
                     !matches!(
                         self.ctx.krate.types.get(Self::expr_ty(body, *arg)),
-                        Some(Type::Int | Type::Float)
+                        Some(Type::PyInt | Type::Float)
                     )
                 }) {
                     return Err(SmeltError::unsupported(
@@ -171,11 +171,16 @@ impl ModuleBuilder<'_> {
                     ));
                 }
                 let operand = self.expression(&call.arguments.args[0], body)?;
-                if self.ctx.krate.types.get(Self::expr_ty(body, operand)) != Some(&Type::Float) {
-                    return Err(SmeltError::unsupported(
-                        span,
-                        format!("math.{member}() requires a float argument"),
-                    ));
+                match self.ctx.krate.types.get(Self::expr_ty(body, operand)) {
+                    // An `int` is already whole: `math.floor(n)` is `n`.
+                    Some(Type::PyInt) => return Ok(Some(operand)),
+                    Some(Type::Float) => {}
+                    _ => {
+                        return Err(SmeltError::unsupported(
+                            span,
+                            format!("math.{member}() requires a float or int argument"),
+                        ));
+                    }
                 }
                 let op = match member {
                     "floor" => NumericRoundOp::Floor,
@@ -183,12 +188,16 @@ impl ModuleBuilder<'_> {
                     "trunc" => NumericRoundOp::Trunc,
                     _ => return Ok(None),
                 };
-                let ty = self.intern_type(Type::Int);
-                Ok(Some(body.push_expr(HirExpr {
+                // The whole `float`, then the `int` of it, exact at every
+                // magnitude (`math.floor(1e300)` has 301 digits); `NaN` and the
+                // infinities raise as `CPython`'s do.
+                let float_ty = self.intern_type(Type::Float);
+                let rounded = body.push_expr(HirExpr {
                     kind: ExprKind::NumericRound { op, operand },
-                    ty,
+                    ty: float_ty,
                     span,
-                })))
+                });
+                Ok(Some(self.py_numeric_call(PyNumericOp::FromFloat, vec![rounded], span, body)))
             }
             "isfinite" | "isnan" => {
                 if call.arguments.args.len() != 1 {
@@ -275,20 +284,17 @@ impl ModuleBuilder<'_> {
                 }
                 let start = self.expression(&call.arguments.args[0], body)?;
                 let end = self.expression(&call.arguments.args[1], body)?;
-                if self.ctx.krate.types.get(Self::expr_ty(body, start)) != Some(&Type::Int)
-                    || self.ctx.krate.types.get(Self::expr_ty(body, end)) != Some(&Type::Int)
+                if self.ctx.krate.types.get(Self::expr_ty(body, start)) != Some(&Type::PyInt)
+                    || self.ctx.krate.types.get(Self::expr_ty(body, end)) != Some(&Type::PyInt)
                 {
                     return Err(SmeltError::unsupported(
                         span,
                         "random.randint() requires integer bounds",
                     ));
                 }
-                let ty = self.intern_type(Type::Int);
-                Ok(Some(body.push_expr(HirExpr {
-                    kind: ExprKind::NumericRandomInt { start, end },
-                    ty,
-                    span,
-                })))
+                let low = self.py_int_as_size(start, body);
+                let high = self.py_int_as_size(end, body);
+                Ok(Some(self.machine_int_as_py_int(ExprKind::NumericRandomInt { start: low, end: high }, span, body)))
             }
             RuleId::PyRandomChoice => {
                 if call.arguments.args.len() != 1 {
@@ -357,7 +363,7 @@ impl ModuleBuilder<'_> {
         {
             let list = self.order_free_iterable_as_list(*iterable, span, body);
             if let Some(Type::List(item_ty)) = self.ctx.krate.types.get(Self::expr_ty(body, list)).cloned() {
-                if !matches!(self.ctx.krate.types.get(item_ty), Some(Type::Bool | Type::Int | Type::Float | Type::PyStr)) {
+                if !matches!(self.ctx.krate.types.get(item_ty), Some(Type::Bool | Type::PyInt | Type::Float | Type::PyStr)) {
                     return Err(SmeltError::unsupported(
                         span,
                         "Python min() and max() of an iterable require bool, int, float or str items",
@@ -371,7 +377,7 @@ impl ModuleBuilder<'_> {
             }
         }
         let ty = Self::expr_ty(body, args[0]);
-        if !matches!(self.ctx.krate.types.get(ty), Some(Type::Int | Type::Float))
+        if !matches!(self.ctx.krate.types.get(ty), Some(Type::PyInt | Type::Float))
             || args.iter().any(|arg| Self::expr_ty(body, *arg) != ty)
         {
             return Err(SmeltError::unsupported(

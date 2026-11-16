@@ -87,12 +87,12 @@ pub use expr::{
     HeadersOp, HostModuleOp, HttpServerOp, IncomingMessageOp, ListCallbackOp, ListProjectionOp,
     ListSearchOp, ListSpliceItem, Literal, NumericExtremaOp, NumericFormatMethod,
     NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp, PathOp, PrimitiveCastOp,
-    PropertyLookup, PythonDivisionOp, RegexMatchOp, RegexReplaceArg, RequestInitMember, RequestOp,
-    ResponseOp, ServerResponseOp, SetBinaryOp, SetProjectionOp, SetRelationOp, SetRemoveOp,
-    SqliteOp, StaticMember, StringAffixOp, StringCaseOp, StringNormalizeForm, StringPadOp,
-    StringPredicateOp, StringReplaceOp, StringSearchOp, StringSliceKind, StringTrimSide,
-    TextDecoderOp, TextEncoderOp, UnaryOp, UnboundRead, UnknownKind, UriTranscodeOp, UrlField,
-    UrlOp, UrlSearchParamsOp, bin_op_text,
+    PropertyLookup, PyNumericOp, PythonDivisionOp, RegexMatchOp, RegexReplaceArg,
+    RequestInitMember, RequestOp, ResponseOp, ServerResponseOp, SetBinaryOp, SetProjectionOp,
+    SetRelationOp, SetRemoveOp, SqliteOp, StaticMember, StringAffixOp, StringCaseOp,
+    StringNormalizeForm, StringPadOp, StringPredicateOp, StringReplaceOp, StringSearchOp,
+    StringSliceKind, StringTrimSide, TextDecoderOp, TextEncoderOp, UnaryOp, UnboundRead,
+    UnknownKind, UriTranscodeOp, UrlField, UrlOp, UrlSearchParamsOp, bin_op_text,
 };
 pub use format::{format_compact, function_signature, string_units_text, type_display};
 pub use ids::{

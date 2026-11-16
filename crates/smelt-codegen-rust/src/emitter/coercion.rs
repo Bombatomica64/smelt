@@ -159,6 +159,9 @@ impl FunctionEmitter<'_> {
         if let Some(key) = self.prop_key_conversion(&operand_expr, source_ty, target)? {
             return Ok(key);
         }
+        if let Some(converted) = self.py_int_conversion(&operand_expr, source_ty, target) {
+            return Ok(converted);
+        }
         if let Some(key) =
             self.key_union_at_string(&operand_expr.cloned_value(), source_ty, target)?
         {
@@ -909,6 +912,9 @@ impl FunctionEmitter<'_> {
     ) -> Result<RustExpr, EmitError> {
         if let Some(key) = self.prop_key_conversion(value_text, source, target)? {
             return Ok(key);
+        }
+        if let Some(converted) = self.py_int_conversion(value_text, source, target) {
+            return Ok(converted);
         }
         if let Some(key) = self.key_union_at_string(value_text, source, target)? {
             return Ok(key);

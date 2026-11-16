@@ -271,3 +271,42 @@ fn json_dumps_defaults() -> TestResult {
 fn module_entry_and_definition_output() -> TestResult {
     verify_python_parity("module_entry_and_definition_output")
 }
+
+/// A Python `int` never overflows: products, powers, shifts and literals past
+/// 64 bits are exact; `//` and `%` floor, `/` is correctly rounded, an `int`
+/// meets a `float` by exact value, and every failure (`ZeroDivisionError`,
+/// `OverflowError`, `IndexError`, a negative shift count) is an exception a
+/// `try` catches. Requirements: the printed values are `CPython`'s, and every
+/// `int` in the generated Rust is a `SmeltPyInt`, never an `i64` that wraps.
+#[test]
+fn python_int_precision() -> TestResult {
+    verify_python_parity("python_int_precision")
+}
+
+/// `int(text)`, `int(text, base)`, `int(x)` of a float and `float(text)`
+/// follow `CPython`'s grammars, and a malformed or out-of-range input raises
+/// the `ValueError`/`OverflowError` `CPython` raises, with its message, into
+/// the enclosing `except` (never a panic).
+#[test]
+fn python_numeric_conversions() -> TestResult {
+    verify_python_parity("python_numeric_conversions")
+}
+
+/// `list + list`, `list * n`, `n * list`, `tuple + tuple` and `tuple * n` build
+/// new sequences that share their elements (`[[0]] * 3` holds one inner list
+/// three times), and `+=`/`*=` mutate a list in place so its aliases see the
+/// change. Requirements: `CPython`'s output, and the results keep their list
+/// and tuple element types (`SmeltList<SmeltPyInt>`, typed tuples).
+#[test]
+fn sequence_arithmetic() -> TestResult {
+    verify_python_parity("sequence_arithmetic")
+}
+
+/// A class's `__str__`/`__repr__` is its text everywhere `CPython` uses it:
+/// `print`, `str`, `repr`, f-strings (`{x}` and `{x!r}`), inherited methods,
+/// `str` falling back to `__repr__`, and each element of a printed container;
+/// a raising `__str__` raises into the enclosing `except`.
+#[test]
+fn class_str_repr() -> TestResult {
+    verify_python_parity("class_str_repr")
+}

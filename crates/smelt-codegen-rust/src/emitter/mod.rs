@@ -173,6 +173,8 @@ mod polymorphic_cast;
 mod post_dominance;
 mod primitive_cast;
 mod py_exception;
+mod py_int;
+pub(crate) mod py_text_protocol;
 mod receiver_bound_slot;
 mod record_slot_abi;
 mod redeclared_field;

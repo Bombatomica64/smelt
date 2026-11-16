@@ -602,6 +602,7 @@ fn literal_type(mir: &Mir, language: smelt_hir::Language, constant: &Constant) -
         Constant::Int(_) => Type::Int,
         Constant::Float(_) => Type::Float,
         Constant::BigInt(_) => Type::BigInt,
+        Constant::PyInt(_) => Type::PyInt,
         Constant::String(_) if language == smelt_hir::Language::Python => Type::PyStr,
         Constant::String(_) | Constant::StringUnits(_) => Type::String,
         Constant::None | Constant::Undefined => Type::None,

@@ -246,6 +246,7 @@ pub(super) fn substitute_type_id(
         Some(
             Type::Bool
             | Type::Int
+            | Type::PyInt
             | Type::FixedInt(_)
             | Type::BigInt
             | Type::Float

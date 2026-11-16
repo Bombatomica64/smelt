@@ -208,7 +208,7 @@ impl ModuleBuilder<'_> {
     fn literal_value_type(&mut self, value: &Expr) -> Option<TypeId> {
         let ty = match value {
             Expr::NumberLiteral(number) => match number.value {
-                Number::Int(_) => Type::Int,
+                Number::Int(_) => Type::PyInt,
                 Number::Float(_) => Type::Float,
                 Number::Complex { .. } => return None,
             },
@@ -260,7 +260,7 @@ impl ModuleBuilder<'_> {
     fn literal_has_type(&self, literal: &Literal, ty: TypeId) -> bool {
         matches!(
             (literal, self.ctx.krate.types.get(ty)),
-            (Literal::Int(_), Some(Type::Int))
+            (Literal::Int(_), Some(Type::PyInt))
                 | (Literal::Float(_), Some(Type::Float))
                 | (Literal::String(_), Some(Type::PyStr))
                 | (Literal::Bool(_), Some(Type::Bool))
@@ -287,7 +287,7 @@ impl ModuleBuilder<'_> {
             Stmt::AugAssign(aug) => {
                 let operand = match aug.value.as_ref() {
                     Expr::NumberLiteral(number) => match number.value {
-                        Number::Int(_) => Some(Type::Int),
+                        Number::Int(_) => Some(Type::PyInt),
                         Number::Float(_) => Some(Type::Float),
                         Number::Complex { .. } => None,
                     },
@@ -297,9 +297,9 @@ impl ModuleBuilder<'_> {
                 matches!(
                     (ty_kind, aug.op, operand),
                     (
-                        Some(Type::Int),
+                        Some(Type::PyInt),
                         Operator::Add | Operator::Sub | Operator::Mult | Operator::FloorDiv | Operator::Mod,
-                        Some(Type::Int),
+                        Some(Type::PyInt),
                     ) | (
                         Some(Type::Float),
                         Operator::Add
@@ -308,9 +308,9 @@ impl ModuleBuilder<'_> {
                             | Operator::Div
                             | Operator::FloorDiv
                             | Operator::Mod,
-                        Some(Type::Int | Type::Float),
+                        Some(Type::PyInt | Type::Float),
                     ) | (Some(Type::PyStr), Operator::Add, Some(Type::PyStr))
-                        | (Some(Type::PyStr), Operator::Mult, Some(Type::Int))
+                        | (Some(Type::PyStr), Operator::Mult, Some(Type::PyInt))
                 )
             }
             // An annotated rebinding declares the type; a different one is a
@@ -444,6 +444,9 @@ impl ModuleBuilder<'_> {
             let rhs = self.expression(&aug.value, body)?;
             if let Some(update) = self.set_in_place_update(aug.op, current, rhs, span, body)? {
                 body.push_stmt_to_block(block, HirStmt::Expr(update));
+                return Ok(());
+            }
+            if self.list_in_place_update(aug.op, current, rhs, span, body, block)? {
                 return Ok(());
             }
             let op = Self::python_arithmetic_op(aug.op).ok_or_else(|| {

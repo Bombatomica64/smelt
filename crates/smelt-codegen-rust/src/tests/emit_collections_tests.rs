@@ -632,8 +632,8 @@ def read(values: dict[str, Optional[int]]) -> Optional[int]:
     );
     assert_eq!(
         rust_items(&source, &["fn read"]),
-        r#"fn read(values: SmeltRecord<String, Option<i64>>) -> Option<i64> {
-let _smelt_tmp_1: Option<i64> = values.get(&"x".to_owned()).flatten();
+        r#"fn read(values: SmeltRecord<String, Option<SmeltPyInt>>) -> Option<SmeltPyInt> {
+let _smelt_tmp_1: Option<SmeltPyInt> = values.get(&"x".to_owned()).flatten();
 return _smelt_tmp_1;
 }"#
     );

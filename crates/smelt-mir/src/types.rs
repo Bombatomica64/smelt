@@ -345,6 +345,16 @@ pub enum MirClassProtocol {
         /// MIR function implementing the protocol.
         method: FuncId,
     },
+    /// Python `__str__` implemented by a concrete method.
+    Str {
+        /// MIR function implementing the protocol.
+        method: FuncId,
+    },
+    /// Python `__repr__` implemented by a concrete method.
+    Repr {
+        /// MIR function implementing the protocol.
+        method: FuncId,
+    },
 }
 
 /// MIR representation of a materialized typed descriptor.
@@ -826,6 +836,10 @@ pub enum Constant {
     /// JavaScript bigint constant, as canonical decimal digits (see
     /// `smelt_hir::Literal::BigInt`).
     BigInt(String),
+    /// Python `int` constant (`smelt_hir::Type::PyInt`), as canonical decimal
+    /// digits: a Python integer literal is unbounded (`2**100` folds to one, and
+    /// `100000000000000000000` is a valid literal).
+    PyInt(String),
     /// String constant.
     String(String),
     /// A JavaScript string constant holding a lone surrogate, as its UTF-16

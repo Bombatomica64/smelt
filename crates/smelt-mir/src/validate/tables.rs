@@ -63,7 +63,9 @@ fn validate_member_ids(mir: &Mir, errors: &mut Vec<ValidationError>) {
         }
         for protocol in &class.protocols {
             match protocol {
-                MirClassProtocol::Add { method } => check("protocol method", *method),
+                MirClassProtocol::Add { method }
+                | MirClassProtocol::Str { method }
+                | MirClassProtocol::Repr { method } => check("protocol method", *method),
             }
         }
     }

@@ -1296,6 +1296,18 @@ macro_rules! op_group_transcribed {
             }
                 fresh(true)
                 => (format!("list_concat {left}, {right}"));
+            /// Python's `list * n` (and `n * list`): a NEW list holding the
+            /// list's elements `n` times over, the elements themselves shared
+            /// (a shallow copy, as `CPython` makes). A count of zero or less is
+            /// the empty list.
+            ListRepeat {
+                /// The repeated list.
+                list: one @RECV,
+                /// The repeat count, a machine integer.
+                count: one,
+            }
+                fresh(true)
+                => (format!("list_repeat {list}, {count}"));
             /// Normalize one `Array.prototype.concat` argument whose static type is
             /// erased into the list of items it contributes.
             ///
@@ -2723,6 +2735,18 @@ macro_rules! op_group_transcribed {
                 op: [$crate::BigIntOp],
                 /// The operands in source order (`[value]`, `[bits, value]`, or
                 /// `[lhs, rhs]`).
+                args: many,
+            }
+                fallible(true)
+                call(format!("@{}", op.name()))
+                => (format!("{} {}", op.name(), args.join(" ")));
+            /// A raising Python numeric operation (see [`crate::PyNumericOp`]):
+            /// `int(s)`, `int(x)` of a float, `float(n)`, `/`, `//`, `%`, `**`,
+            /// the shifts, and the conversion to an index or a size.
+            PyNumericCall {
+                /// Which operation this is.
+                op: [$crate::PyNumericOp],
+                /// The operands in source order.
                 args: many,
             }
                 fallible(true)

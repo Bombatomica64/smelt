@@ -29,7 +29,7 @@ fn function_without_return_annotation_lowers() -> Result<(), String> {
     };
     ensure_eq(
         &ctx.krate.types.get(func.return_ty),
-        &Some(&Type::Int),
+        &Some(&Type::PyInt),
         "resolved return type",
     )?;
     Ok(())
@@ -55,7 +55,7 @@ fn multiple_unannotated_functions_lower() -> Result<(), String> {
     let module = crate::tests::module(&ctx, module_id)?;
     ensure_eq(&module.items.len(), &3, "item count")?;
 
-    let expected = [Type::Int, Type::PyStr, Type::Bool];
+    let expected = [Type::PyInt, Type::PyStr, Type::Bool];
     for (index, want) in expected.iter().enumerate() {
         let Item::Function(func) = item(&ctx, module.items[index])? else {
             return Err(format!("item {index} is not a function"));
@@ -80,7 +80,7 @@ fn method_without_return_annotation_lowers() -> Result<(), String> {
     lower_module(source, &mut ctx)?;
     ensure_eq(
         &smelt_hir::function_signature(&ctx.krate, "snapshot"),
-        &Some("snapshot(self: Counter, extra: Int) -> Int".to_owned()),
+        &Some("snapshot(self: Counter, extra: PyInt) -> PyInt".to_owned()),
         "signature resolved through `ty`",
     )?;
     Ok(())
@@ -130,7 +130,7 @@ fn divergent_return_annotation_prefers_inferred() -> Result<(), String> {
     };
     // The actual returned type is `int`; the annotation said `float`.
     ensure(
-        matches!(ctx.krate.types.get(func.return_ty), Some(Type::Int)),
+        matches!(ctx.krate.types.get(func.return_ty), Some(Type::PyInt)),
         "expected inferred int return type to override float annotation",
     )?;
     Ok(())

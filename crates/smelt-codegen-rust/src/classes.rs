@@ -696,13 +696,21 @@ fn method_names_match(mir: &Mir, left: FuncId, right: FuncId) -> bool {
 /// Render a primitive class-level value captured by specialization.
 ///
 /// Static members are emitted as associated getter functions because owned
-/// values such as `String` cannot be Rust `const` items. `js_text` says
-/// whether a string value is a JavaScript string (`JsString`).
+/// values such as `String` cannot be Rust `const` items. `ty` is the member's
+/// type: it says whether a string value is a JavaScript string (`JsString`,
+/// anything but a Python `str`) and whether an integer is a Python `int`.
 pub(crate) fn materialized_static_value(
     literal: Option<&smelt_hir::Literal>,
-    js_text: bool,
+    ty: Option<&Type>,
 ) -> RustExpr {
+    let js_text = ty != Some(&Type::PyStr);
     match literal {
+        Some(smelt_hir::Literal::Int(value)) if ty == Some(&Type::PyInt) => {
+            crate::py_int::literal_expr(&value.to_string())
+        }
+        Some(smelt_hir::Literal::BigInt(digits)) if ty == Some(&Type::PyInt) => {
+            crate::py_int::literal_expr(digits)
+        }
         Some(smelt_hir::Literal::Bool(value)) => RustExpr::chain(value.to_string()),
         Some(smelt_hir::Literal::Int(value)) => RustExpr::chain(value.to_string()),
         Some(smelt_hir::Literal::Float(value)) if value.is_nan() => RustExpr::atom("f64::NAN"),

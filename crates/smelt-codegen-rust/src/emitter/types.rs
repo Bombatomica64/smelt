@@ -368,6 +368,7 @@ impl FunctionEmitter<'_> {
         match resolved_ty {
             Type::Bool => Ok(RustType::raw("bool")),
             Type::Int => Ok(RustType::raw("i64")),
+            Type::PyInt => Ok(RustType::raw(crate::py_int::PY_INT_TYPE)),
             Type::FixedInt(width) => Ok(RustType::raw(width.rust_name())),
             Type::BigInt => Ok(RustType::raw(crate::bigint_prelude::BIGINT_TYPE)),
             Type::Float => Ok(RustType::raw("f64")),

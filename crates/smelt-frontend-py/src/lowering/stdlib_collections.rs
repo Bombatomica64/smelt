@@ -33,12 +33,8 @@ impl ModuleBuilder<'_> {
                 "list.count() item must match the list element type",
             ));
         }
-        let ty = self.intern_type(Type::Int);
-        Ok(Some(body.push_expr(HirExpr {
-            kind: ExprKind::ListCount { list, item },
-            ty,
-            span: self.span(call.range()),
-        })))
+        let span = self.span(call.range());
+        Ok(Some(self.machine_int_as_py_int(ExprKind::ListCount { list, item }, span, body)))
     }
 
     /// Lower Python `list.copy()` calls.

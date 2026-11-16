@@ -184,6 +184,20 @@ impl SmeltError {
         }
     }
 
+    /// This diagnostic at `span` when it carries no position of its own.
+    ///
+    /// A type helper that only sees types (`field_type`, `index_type`) reports
+    /// at the empty span at offset 0, which a reader would see as line 1,
+    /// column 1. The expression that called it knows where it is; this puts the
+    /// diagnostic there, and leaves one that already has a position alone.
+    #[must_use]
+    pub(crate) fn at_if_unplaced(mut self, span: Span) -> Self {
+        if self.span.start == 0 && self.span.end == 0 {
+            self.span = span;
+        }
+        self
+    }
+
     /// Create an "unsupported construct" error (an unimplemented lowering).
     pub(crate) fn unsupported(span: Span, message: impl Into<String>) -> Self {
         Self {
