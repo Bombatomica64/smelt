@@ -67,7 +67,9 @@ impl ModuleBuilder<'_> {
                 value_tys.push(ty);
             }
         }
-        if value_tys.len() < 2 {
+        if value_tys.len() < 2
+            && self.uniform_literal_lowering == super::super::UniformLiteralLowering::Dictionary
+        {
             return None;
         }
         let plain_properties = literal.members.iter().all(|member| {

@@ -103,6 +103,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
             enum_reverse_names: HashMap::new(),
             source_facts: super::super::source_facts::SourceFacts::default(),
             literal_record_uses: super::super::literal_record_uses::LiteralRecordUses::default(),
+            uniform_literal_lowering: super::super::UniformLiteralLowering::Dictionary,
+            literal_adoptions: HashMap::new(),
             asserted_call_return: None,
             erasure_anchor: Span::new(file_id, 0, 0),
         }

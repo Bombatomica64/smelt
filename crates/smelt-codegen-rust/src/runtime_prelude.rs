@@ -199,8 +199,12 @@ pub(crate) struct ProgramFacts {
     pub(crate) reads_this: bool,
     /// Some record type is a live record (see `emitter::live_view`).
     pub(crate) live_records: bool,
-    /// Some generic class is widened (see `crate::class_widening`).
+    /// Some generic class is widened (see `crate::class_widening`), or some
+    /// structural view converts a property: either answers field guards.
     pub(crate) widened_classes: bool,
+    /// Some structural view converts a property
+    /// (`crate::structural_views::StructuralViews::has_converted_fields`).
+    pub(crate) converted_views: bool,
 }
 
 impl ProgramFacts {
@@ -211,7 +215,9 @@ impl ProgramFacts {
             erased_view_write_through: context.erased_view_write_through(),
             reads_this: context.program_reads_this(),
             live_records: context.has_live_records(),
-            widened_classes: !context.widened_classes().is_empty(),
+            widened_classes: !context.widened_classes().is_empty()
+                || context.structural_views().has_converted_fields(),
+            converted_views: context.structural_views().has_converted_fields(),
         }
     }
 }
@@ -259,6 +265,8 @@ pub(crate) fn flag_for(
         "reads_this" => Some(facts.reads_this),
         // A widened class's field guards (`crate::class_widening`).
         "widened_views" => Some(facts.widened_classes),
+        // The checked store of a structural view's converted property.
+        "converted_views" => Some(facts.converted_views),
         // A Python program's dicts keep insertion order; JavaScript's own-key
         // order moves array-index keys to the front.
         "js_key_order" => Some(!demand.has(Need::PyDictOrder)),

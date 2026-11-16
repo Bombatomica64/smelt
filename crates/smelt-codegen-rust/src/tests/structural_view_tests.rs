@@ -90,13 +90,38 @@ fn a_record_implements_every_view_it_reaches() {
     );
 }
 
+/// A slot that declares a property at a WIDER type than the value stores
+/// (`number | string`, `unknown`, `x?: number` over `x: number`) is a view
+/// whose accessor converts (`structural_views::widens`).
+///
+/// Corrected requirement: this pair used to be listed below as "not a view"
+/// (the field-wise copy was kept, so a write through the slot was lost).
+/// TypeScript accepts the conversion and JavaScript has one object, so the
+/// slot now views the value; the behaviour is checked against Node by
+/// `record_view_copies_cli_tests`.
+#[test]
+fn a_wider_property_type_plans_a_converting_view() {
+    for slot in [
+        "type Slot = { x: number | string }",
+        "type Slot = { x: unknown }",
+        "type Slot = { x?: number }",
+    ] {
+        let (pairs, _) = planned_views(&format!(
+            "type Point = {{ x: number; label: string }};\n{slot};\nfunction take(p: Slot): void {{}}\n\
+             function run(): void {{ const a: Point = {{ x: 1, label: 'a' }}; take(a); }}\n"
+        ));
+        assert_eq!(pairs, vec!["Point -> Slot".to_owned()], "{slot}");
+    }
+}
+
 /// Not a view, so the field-wise conversion is kept: the slot declares a
-/// property at another type, an optional property the value lacks, or either
-/// side is a class or a generic shape. None of these lifts the records.
+/// property at a type the stored one does not widen to, an optional property
+/// the value lacks, or either side is a class or a generic shape. None of
+/// these lifts the records.
 #[test]
 fn a_pair_that_does_not_share_plans_no_view() {
     for (slot, call) in [
-        ("type Slot = { x: number | string }", "take(a)"),
+        ("type Slot = { x: string }", "take(a)"),
         ("type Slot = { x: number; note?: string }", "take(a)"),
         ("class Slot { x: number = 0; }", "take(a)"),
         ("type Slot<T = number> = { x: T }", "take(a)"),

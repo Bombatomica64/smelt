@@ -561,6 +561,12 @@ impl RuntimeDemand {
         generics: GenericsCarrier,
     ) -> Self {
         let mut demand = Self::default();
+        // A structural view that converts a property stores a value the
+        // object's field cannot hold through the erased carrier's checked
+        // extraction (`smelt_view_store`).
+        if crate::structural_views::StructuralViews::plan(mir).has_converted_fields() {
+            demand.add(Need::Unknown);
+        }
         let reachable = ReachableTypes::of(mir);
         demand.scan_declarations(mir, generics);
         demand.scan_types(mir, &reachable);

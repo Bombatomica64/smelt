@@ -50,9 +50,12 @@
 //!   to pays for dynamic dispatch on its property accesses, exactly as only a
 //!   class with subclasses does (`crate::class_polymorphism`).
 //! - **An accessor lends the property in place** (`Ref::map` over the
-//!   source's cell), at the property's own type. No value is converted and
-//!   none is erased: a view exists only between records that declare the
-//!   property at the SAME type ([`shares`]).
+//!   source's cell) when the two records declare it at the same type. When
+//!   the target declares it wider ([`widens`]: `unknown`, an optional of
+//!   the stored type, a union with the stored type as an arm), the accessor
+//!   answers converting guards (`SmeltFieldRead`/`SmeltFieldWrite`): a read
+//!   is the stored value at the target's type, a write stores the value
+//!   back at the stored type ([`FieldAccess`]).
 //! - **Whole-object operations ask the object, not the view.** Erasure
 //!   (`into_smelt_unknown_as_concrete`) hands out the concrete record's own
 //!   erased view, so `Object.keys`, `JSON.stringify`, inspection and deep
@@ -94,9 +97,10 @@
 //!
 //! # What still copies
 //!
-//! A pair that does not [`shares`]: `T` declares a property at another type
-//! than `S` does (`{ id: string | number }` over `{ id: string }`), `T`
-//! declares an optional property `S` lacks, a class instance on either side
+//! A pair that does not [`shares`]: `T` declares a property at a type `S`'s
+//! does not widen to (a different type, or a widening other than the three
+//! above), `T` declares an optional property `S` lacks, a class instance on
+//! either side
 //! (its view carries prototype members, `emitter::view_write_through`), a
 //! generic, callable or accessor-backed shape. Those keep the field-wise
 //! conversion of `record_adapter`.
@@ -150,13 +154,15 @@ pub(crate) fn is_viewable_shape(mir: &Mir, name: Symbol) -> Option<&MirInterface
 
 /// Whether a value of shape `source` can be viewed as shape `target` in
 /// place: they are two distinct viewable shapes, and every property `target`
-/// declares is declared by `source` at the same type.
+/// declares is declared by `source` at the same type or at a narrower one
+/// the view converts ([`widens`]).
 ///
-/// The same type, not an assignable one: an accessor lends the source's own
-/// field (`Ref<'_, F>`), which is only a `target` property when the two types
-/// are one. TypeScript also accepts a narrower source property
-/// (`{ id: string }` as `{ id: string | number }`); such a pair keeps the
-/// field-wise conversion.
+/// At the same type an accessor lends the source's own field
+/// (`Ref<'_, F>`). At a wider type (`{ n: number }` as
+/// `{ n: number | string }` or `{ n: unknown }`) the accessor answers the
+/// field converted to the target's type and writes a value back into the
+/// source's field (`SmeltFieldRead`/`SmeltFieldWrite`, the guards
+/// `crate::class_widening` introduced): the object stays one object.
 pub(crate) fn shares(mir: &Mir, source: Symbol, target: Symbol) -> bool {
     if source == target {
         return false;
@@ -171,10 +177,69 @@ pub(crate) fn shares(mir: &Mir, source: Symbol, target: Symbol) -> bool {
     let target_fields = crate::classes::effective_interface_fields(mir, target_shape);
     !target_fields.is_empty()
         && target_fields.iter().all(|wanted| {
-            source_fields
-                .iter()
-                .any(|held| held.name == wanted.name && held.ty == wanted.ty)
+            source_fields.iter().any(|held| {
+                held.name == wanted.name
+                    && (held.ty == wanted.ty || widens(mir, held.ty, wanted.ty))
+            })
         })
+}
+
+/// Whether a property stored at type `held` can be seen at the wider type
+/// `wanted` through a view that converts each access ([`field_access`]).
+///
+/// The widenings the generated Rust converts both ways without a copy of the
+/// object: to `unknown` (the erased carrier, which every stored value
+/// erases into), to an optional of the stored type (`n?: number` over
+/// `n: number`), and to a concrete union that has the stored type as an arm
+/// (`number | string` over `number`). The stored type is a plain value type:
+/// an optional or union `held` keeps the copying conversion.
+pub(crate) fn widens(mir: &Mir, held: TypeId, wanted: TypeId) -> bool {
+    if held == wanted
+        || matches!(
+            mir.types.get(held),
+            Some(Type::Optional(..) | Type::Union(_) | Type::Unknown | Type::TypeParam { .. })
+                | None
+        )
+    {
+        return false;
+    }
+    match mir.types.get(wanted) {
+        Some(Type::Unknown) => true,
+        Some(Type::Optional(inner, _)) => *inner == held || widens(mir, held, *inner),
+        Some(Type::Union(items)) => items.contains(&held),
+        _ => false,
+    }
+}
+
+/// How a view of the target property `wanted` reaches a concrete record's
+/// field stored at `held`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FieldAccess {
+    /// The same type: the field is lent in place (`Ref::map`).
+    Lent,
+    /// A wider type ([`widens`]): each access converts.
+    Converted,
+}
+
+/// The [`FieldAccess`] of a property stored at `held` seen at `wanted`;
+/// `None` when the view cannot reach it.
+pub(crate) fn field_access(mir: &Mir, held: TypeId, wanted: TypeId) -> Option<FieldAccess> {
+    if held == wanted {
+        Some(FieldAccess::Lent)
+    } else if widens(mir, held, wanted) {
+        Some(FieldAccess::Converted)
+    } else {
+        None
+    }
+}
+
+/// The declared type of the property `field` of the shape `shape`.
+fn stored_field_type(mir: &Mir, shape: Symbol, field: Symbol) -> Option<TypeId> {
+    let declared = is_viewable_shape(mir, shape)?;
+    crate::classes::effective_interface_fields(mir, declared)
+        .into_iter()
+        .find(|candidate| candidate.name == field)
+        .map(|candidate| candidate.ty)
 }
 
 /// Call `pair(source, target)` for every record type of `source` that sits at
@@ -237,6 +302,10 @@ pub(crate) struct StructuralViews {
     /// Each shape with every view target it converts to (straight, or
     /// through other views), in declaration order.
     targets: HashMap<Symbol, Vec<Symbol>>,
+    /// The properties of view targets that some implementor stores at a
+    /// narrower type ([`FieldAccess::Converted`]): the target's trait
+    /// answers those through converting guards.
+    converted_fields: HashSet<(Symbol, Symbol)>,
 }
 
 impl StructuralViews {
@@ -294,11 +363,42 @@ impl StructuralViews {
         for found in targets.values_mut() {
             found.sort_by_key(|name| position.get(name).copied());
         }
+        let mut converted_fields = HashSet::new();
+        for (target, sources) in &implementors {
+            let Some(shape) = is_viewable_shape(mir, *target) else {
+                continue;
+            };
+            for wanted in crate::classes::effective_interface_fields(mir, shape) {
+                let converted = sources.iter().any(|source| {
+                    stored_field_type(mir, *source, wanted.name).is_some_and(|held| {
+                        field_access(mir, held, wanted.ty) == Some(FieldAccess::Converted)
+                    })
+                });
+                if converted {
+                    converted_fields.insert((*target, wanted.name));
+                }
+            }
+        }
         Self {
             direct_sources,
             implementors,
             targets,
+            converted_fields,
         }
+    }
+
+    /// Whether the view target `target` answers its property `field`
+    /// through converting guards, because some implementor stores it at a
+    /// narrower type.
+    pub(crate) fn converts_field(&self, target: Symbol, field: Symbol) -> bool {
+        self.converted_fields.contains(&(target, field))
+    }
+
+    /// Whether any view converts a property ([`Self::converts_field`]): the
+    /// field guards and the erased carrier's checked store are then part of
+    /// the runtime.
+    pub(crate) fn has_converted_fields(&self) -> bool {
+        !self.converted_fields.is_empty()
     }
 
     /// Whether `name` is a view target: its handle holds a trait object.
@@ -413,12 +513,13 @@ pub(crate) fn view_trait_declaration(
         let Some(accessors) = names.get(&field.name) else {
             continue;
         };
+        let (read, write) = guard_types(context, target, field.name);
         methods.push(format!(
-            "fn {}(&self) -> ::std::cell::Ref<'_, {field_type}>;",
+            "fn {}(&self) -> {read}<'_, {field_type}>;",
             accessors.get
         ));
         methods.push(format!(
-            "fn {}(&self) -> ::std::cell::RefMut<'_, {field_type}>;",
+            "fn {}(&self) -> {write}<'_, {field_type}>;",
             accessors.get_mut
         ));
     }
@@ -473,12 +574,54 @@ pub(crate) fn view_impl_text(
         // One symbol is one planned field name, so the concrete record
         // stores this property under the same Rust field.
         let stored = context.names().field_text(mir, field.name);
+        let lend_read = format!(
+            "::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| &smelt_inner.{stored})"
+        );
+        let lend_write = format!(
+            "::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| &mut smelt_inner.{stored})"
+        );
+        let (read, write) = guard_types(context, target, field.name);
+        let held = if concrete == target {
+            field.ty
+        } else {
+            stored_field_type(mir, concrete, field.name).ok_or_else(|| {
+                crate::EmitError::new(
+                    "a structural view's implementor lacks a property of its target",
+                )
+            })?
+        };
+        let (read_body, write_body) = match field_access(mir, held, field.ty) {
+            Some(FieldAccess::Lent) if read == LENT_READ => (lend_read, lend_write),
+            Some(FieldAccess::Lent) => (
+                format!("SmeltFieldRead::Cell({lend_read})"),
+                format!("SmeltFieldWrite::Cell({lend_write})"),
+            ),
+            Some(FieldAccess::Converted) => {
+                let current = format!("::std::cell::RefCell::borrow(self).{stored}.clone()");
+                (
+                    format!(
+                        "SmeltFieldRead::Owned({})",
+                        widened_value_text(mir, context, &current, held, field.ty)?
+                    ),
+                    format!(
+                        "SmeltFieldWrite::converted({}, move |smelt_value| {{ let smelt_stored = {}; ::std::cell::RefCell::borrow_mut(self).{stored} = smelt_stored; }})",
+                        widened_value_text(mir, context, &current, held, field.ty)?,
+                        narrowed_value_text(mir, context, "smelt_value", field.ty, held)?
+                    ),
+                )
+            }
+            None => {
+                return Err(crate::EmitError::new(
+                    "a structural view's implementor stores a property its target cannot view",
+                ));
+            }
+        };
         methods.push(format!(
-            "fn {}(&self) -> ::std::cell::Ref<'_, {field_type}> {{ ::std::cell::Ref::map(::std::cell::RefCell::borrow(self), |smelt_inner| &smelt_inner.{stored}) }}",
+            "fn {}(&self) -> {read}<'_, {field_type}> {{ {read_body} }}",
             accessors.get
         ));
         methods.push(format!(
-            "fn {}(&self) -> ::std::cell::RefMut<'_, {field_type}> {{ ::std::cell::RefMut::map(::std::cell::RefCell::borrow_mut(self), |smelt_inner| &mut smelt_inner.{stored}) }}",
+            "fn {}(&self) -> {write}<'_, {field_type}> {{ {write_body} }}",
             accessors.get_mut
         ));
     }
@@ -516,6 +659,117 @@ pub(crate) fn view_impl_text(
         view_trait_name(&target_type),
         methods.join(" ")
     ))
+}
+
+/// The shared-borrow guard type of a property lent in place.
+const LENT_READ: &str = "::std::cell::Ref";
+
+/// The guard types the view trait of `target` answers its property `field`
+/// with: the cell's own `Ref`/`RefMut` when every implementor stores the
+/// property at the target's type, the converting `SmeltFieldRead`/
+/// `SmeltFieldWrite` when one stores it narrower (which on a cell of the
+/// target's type are those same borrows).
+fn guard_types(
+    context: &crate::emitter::EmitContext,
+    target: Symbol,
+    field: Symbol,
+) -> (&'static str, &'static str) {
+    if context.structural_views().converts_field(target, field) {
+        ("SmeltFieldRead", "SmeltFieldWrite")
+    } else {
+        (LENT_READ, "::std::cell::RefMut")
+    }
+}
+
+/// `value`, an owned value of the stored type `held`, at the wider type
+/// `wanted` ([`widens`]): erased, wrapped in `Some`, or injected into the
+/// union arm `held` is.
+fn widened_value_text(
+    mir: &Mir,
+    context: &crate::emitter::EmitContext,
+    value: &str,
+    held: TypeId,
+    wanted: TypeId,
+) -> Result<String, crate::EmitError> {
+    Ok(match mir.types.get(wanted) {
+        _ if held == wanted => value.to_owned(),
+        Some(Type::Optional(inner, _)) => {
+            format!(
+                "Some({})",
+                widened_value_text(mir, context, value, held, *inner)?
+            )
+        }
+        Some(Type::Union(items)) if !renders_erased(mir, context, wanted)? => {
+            let arm = items.iter().position(|item| *item == held).ok_or_else(|| {
+                crate::EmitError::new("a widened property is no arm of its union")
+            })?;
+            format!(
+                "{}::M{arm}({value})",
+                crate::emitter::union::union_name(wanted)
+            )
+        }
+        // `unknown`, or a union the generated crate stores erased.
+        _ => format!("IntoSmeltUnknown::into_smelt_unknown({value})"),
+    })
+}
+
+/// `value`, an owned value of the wider type `wanted`, stored back at the
+/// narrower type `held`.
+///
+/// A value of `held` itself goes in as it is (the `Some` payload, the union
+/// arm, the erased value's checked extraction). Any other value is one the
+/// stored field cannot hold: TypeScript accepted the write through the
+/// wider type, the object's own type cannot represent it. As for a write
+/// through a widened class handle (`crate::class_widening`), the value is
+/// converted to the stored type (`smelt_view_store`, the erased carrier's
+/// checked extraction) and the property keeps its declared type; the
+/// original field is never erased.
+fn narrowed_value_text(
+    mir: &Mir,
+    context: &crate::emitter::EmitContext,
+    value: &str,
+    wanted: TypeId,
+    held: TypeId,
+) -> Result<String, crate::EmitError> {
+    let held_text = crate::emitter::FunctionEmitter::type_text_for_with_scoped_type_params(
+        mir,
+        context,
+        held,
+        &crate::type_substitution::TypeSubstitution::lexical(&HashSet::new()),
+    )?;
+    Ok(match mir.types.get(wanted) {
+        _ if held == wanted => value.to_owned(),
+        Some(Type::Optional(inner, _)) => format!(
+            "match {value} {{ Some(smelt_present) => {}, None => smelt_view_store::<{held_text}>(SmeltUnknown::Undefined) }}",
+            narrowed_value_text(mir, context, "smelt_present", *inner, held)?
+        ),
+        Some(Type::Union(items)) if !renders_erased(mir, context, wanted)? => {
+            let arm = items.iter().position(|item| *item == held).ok_or_else(|| {
+                crate::EmitError::new("a widened property is no arm of its union")
+            })?;
+            format!(
+                "match {value} {{ {}::M{arm}(smelt_present) => smelt_present, smelt_other => smelt_view_store::<{held_text}>(IntoSmeltUnknown::into_smelt_unknown(smelt_other)) }}",
+                crate::emitter::union::union_name(wanted)
+            )
+        }
+        _ => format!("smelt_view_store::<{held_text}>({value})"),
+    })
+}
+
+/// Whether the generated crate stores `ty` as the erased carrier.
+fn renders_erased(
+    mir: &Mir,
+    context: &crate::emitter::EmitContext,
+    ty: TypeId,
+) -> Result<bool, crate::EmitError> {
+    Ok(
+        crate::emitter::FunctionEmitter::type_text_for_with_scoped_type_params(
+            mir,
+            context,
+            ty,
+            &crate::type_substitution::TypeSubstitution::lexical(&HashSet::new()),
+        )? == "SmeltUnknown",
+    )
 }
 
 /// The conversion of the handle `value` of shape `source` into the view

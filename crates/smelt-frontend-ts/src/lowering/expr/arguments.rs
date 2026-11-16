@@ -20,7 +20,8 @@ impl ModuleBuilder<'_> {
         let lowered = self.int32_read_as_number(lowered, body);
         // A value from a Python module (a call result passed straight on) is
         // seen at its TypeScript view, as every other expression is.
-        Ok(self.in_own_language_view(lowered, body))
+        let lowered = self.in_own_language_view(lowered, body);
+        Ok(self.kept_map_literal_at_record(argument.span(), lowered, body))
     }
 
     /// Lower one call argument; see [`Self::argument`].
@@ -213,7 +214,8 @@ impl ModuleBuilder<'_> {
         type_hint: Option<smelt_hir::TypeId>,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let value = self.argument_with_hint_unadjusted(argument, body, type_hint)?;
-        Ok(self.absent_static_at_slot(value, type_hint, body))
+        let value = self.absent_static_at_slot(value, type_hint, body);
+        Ok(self.kept_map_literal_at_record(argument.span(), value, body))
     }
 
     /// [`Self::argument_with_hint`] before an absent static read is converted

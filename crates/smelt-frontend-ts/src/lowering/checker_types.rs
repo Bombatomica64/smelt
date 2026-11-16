@@ -119,6 +119,60 @@ impl ModuleBuilder<'_> {
         self.respell_and_lower(facts, id, start, end)
     }
 
+    /// `read`, a property read spelled at `span` whose declared type is a
+    /// union, asserted to the arms the checker's flow analysis leaves at that
+    /// position.
+    ///
+    /// TypeScript narrows a property access path as it narrows a variable:
+    /// inside `if (typeof l.n === "number")`, `l.n` is a `number`. Smelt's own
+    /// flow narrowing follows locals only, so the read kept the union and
+    /// `l.n + 1` concatenated text. The checker's type at the read is the
+    /// narrowed one; when it lowers to an arm of the declared union (or a
+    /// union of some of its arms), the read is that type through the same
+    /// checked assertion `l.n as number` lowers to. Any other answer (no
+    /// narrowing, a type that does not lower, a type outside the union)
+    /// leaves the read as it was.
+    pub(in crate::lowering) fn checker_narrowed_member_read(
+        &mut self,
+        span: oxc::span::Span,
+        read: smelt_hir::ExprId,
+        body: &mut smelt_hir::Body,
+    ) -> smelt_hir::ExprId {
+        let declared = Self::expr_ty(body, read);
+        let Some(Type::Union(arms)) = self.ctx.krate.types.get(declared).cloned() else {
+            return read;
+        };
+        let Some(facts) = self.ts_facts else {
+            return read;
+        };
+        let Some(id) = facts.type_id_at(&self.path, span.start, span.end) else {
+            return read;
+        };
+        let records_before = self.ctx.krate.erasures.len();
+        let narrowed = self.respell_and_lower(facts, id, span.start, span.end);
+        if self.ctx.krate.erasures.len() != records_before {
+            self.ctx.krate.erasures.truncate(records_before);
+            return read;
+        }
+        let Some(narrowed) = narrowed else {
+            return read;
+        };
+        let within = match self.ctx.krate.types.get(narrowed) {
+            _ if narrowed == declared => false,
+            Some(Type::Union(kept)) => kept.iter().all(|arm| arms.contains(arm)),
+            Some(_) => arms.contains(&narrowed),
+            None => false,
+        };
+        if !within {
+            return read;
+        }
+        body.push_expr(smelt_hir::Expr {
+            kind: smelt_hir::ExprKind::TypeAssert { value: read },
+            ty: narrowed,
+            span: self.span(span.start, span.end),
+        })
+    }
+
     /// The type TypeScript evolved for an unannotated `= []` variable whose
     /// declaration name spans `start..end`, lowered as if the source had
     /// written it as the annotation.
@@ -313,7 +367,22 @@ impl ModuleBuilder<'_> {
                         }
                         return None;
                     };
-                    let chosen = self.common_literal_target(own, &targets, start, end);
+                    let mut chosen = self.common_literal_target(own, &targets, start, end);
+                    // A literal whose values share one type lowers on its
+                    // own to a dictionary, which no record slot can view.
+                    // When its slots are record types it does not match
+                    // exactly, it is built as its own record struct instead:
+                    // every slot it shares with then holds a view of that one
+                    // object (`smelt-codegen-rust/src/structural_views.rs`),
+                    // where the dictionary was adopted by the first record
+                    // and copied for the next.
+                    if chosen == own
+                        && matches!(self.ctx.krate.types.get(own), Some(Type::Dict(..)))
+                        && !targets.is_empty()
+                        && let Some(record) = self.checker_own_record_type(start, end)
+                    {
+                        chosen = record;
+                    }
                     let unshared = targets.iter().find(|(target, _)| {
                         *target != chosen && !self.record_types_share(chosen, *target)
                     });
@@ -338,6 +407,9 @@ impl ModuleBuilder<'_> {
             },
             map @ LiteralDecision::Map(_) => map,
         };
+        if decision == LiteralDecision::Map(Disqualifier::Keys) {
+            self.kept_map_literal_record(start, end);
+        }
         if let LiteralDecision::Map(disqualifier) = decision {
             #[expect(
                 clippy::print_stderr,
@@ -887,6 +959,66 @@ impl ModuleBuilder<'_> {
                     .iter()
                     .any(|held| held.name == wanted.name && held.ty == wanted.ty)
             })
+    }
+
+    /// Route the record-slot uses of a literal binding that keeps its
+    /// dictionary for a key-set use (`for..in`, `in`, `delete`) through the
+    /// binding's own record type (`literal_adoptions`).
+    ///
+    /// The dictionary converted to a record type is adopted by the record it
+    /// builds, and stays that record's live view
+    /// (`SmeltRecord::smelt_adopt_typed`): one object for one record type. A
+    /// second record type was a copy, because the dictionary already belonged
+    /// to the first. Converted first to its OWN record (the checker's type of
+    /// the literal, which declares every property it holds), the dictionary
+    /// is adopted once, by that record, and each record slot it lands in
+    /// shares with that record and holds a view of it
+    /// (`smelt-codegen-rust/src/structural_views.rs`). Done only when every
+    /// record slot shares with the literal's record; otherwise the uses are
+    /// left as they were.
+    fn kept_map_literal_record(&mut self, start: u32, end: u32) {
+        let slots = self.literal_record_uses.kept_map_slots(start).to_vec();
+        if slots.is_empty() {
+            return;
+        }
+        let mut record_slots = Vec::new();
+        for (slot, value) in &slots {
+            match self.literal_slot_targets(std::slice::from_ref(slot), start, end) {
+                Ok(targets) if !targets.is_empty() => record_slots.push((*value, targets)),
+                Ok(_) => {}
+                Err(_) => return,
+            }
+        }
+        if record_slots.is_empty() {
+            return;
+        }
+        let Some(record) = self.checker_own_record_type(start, end) else {
+            return;
+        };
+        let shares = record_slots.iter().all(|(_, targets)| {
+            targets
+                .iter()
+                .all(|(target, _)| *target == record || self.record_types_share(record, *target))
+        });
+        if shares {
+            for (value, _) in record_slots {
+                self.literal_adoptions.insert(value, record);
+            }
+        }
+    }
+
+    /// [`Self::checker_record_type`] with a literal whose values share one
+    /// type lowered as its own record struct, not a dictionary
+    /// (`uniform_literal_lowering`). `None` when it still lowers to something
+    /// else than a record.
+    fn checker_own_record_type(&mut self, start: u32, end: u32) -> Option<TypeId> {
+        let previous = std::mem::replace(
+            &mut self.uniform_literal_lowering,
+            super::UniformLiteralLowering::OwnRecord,
+        );
+        let record = self.checker_record_type(start, end);
+        self.uniform_literal_lowering = previous;
+        record.filter(|ty| matches!(self.ctx.krate.types.get(*ty), Some(Type::Class { .. })))
     }
 
     /// The checker's type for the binding at `start..end`, lowered with

@@ -135,6 +135,7 @@ pub const ORDER: &[Entry] = &[
     Entry::Item("smelt_live_member"),
     Entry::Item("SmeltFieldRead"),
     Entry::Item("SmeltFieldWrite"),
+    Entry::Item("smelt_view_store"),
     Entry::Item("smelt_widened_view_storage"),
     Entry::Item("smelt_widened_cold"),
     Entry::Blank("vitest_mock"),

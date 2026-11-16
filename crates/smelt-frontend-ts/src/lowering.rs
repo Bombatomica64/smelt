@@ -860,6 +860,16 @@ fn is_typescript_declaration_path(path: &str) -> bool {
         })
 }
 
+/// How an object type literal whose properties all share one value type
+/// lowers (see `ModuleBuilder::uniform_literal_lowering`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UniformLiteralLowering {
+    /// A dictionary of the shared value type (`Record<string, V>`).
+    Dictionary,
+    /// The literal's own record struct, as a literal of mixed value types.
+    OwnRecord,
+}
+
 /// Builder for lowering TypeScript module to HIR.
 ///
 /// Accumulates scoping information, items, and local variables during module construction.
@@ -890,6 +900,18 @@ struct ModuleBuilder<'ctx> {
     /// Which unannotated literal bindings of this module may lower to a
     /// record struct, from the uses of each binding.
     literal_record_uses: literal_record_uses::LiteralRecordUses,
+    /// How an object type literal whose properties share one value type
+    /// lowers (`anonymous_record_literal_type`): a dictionary of that type,
+    /// or its own record struct while a literal binding is retyped at its own
+    /// record because it lands in slots of other record types it shares with
+    /// (`checker_literal_binding_type`).
+    uniform_literal_lowering: UniformLiteralLowering,
+    /// Values of literal bindings that keep their dictionary for a key-set
+    /// use, by the source span of the value, each with the binding's own
+    /// record type: such a value is lowered as that record wherever it lands
+    /// in a record slot (`kept_map_literal_record`), so the dictionary is
+    /// adopted by one record and every record slot views that record.
+    literal_adoptions: HashMap<(u32, u32), smelt_hir::TypeId>,
     /// Mutable reference to the HIR context.
     ctx: &'ctx mut HirCtx,
     /// Per-body local state: name bindings, `Date`-identity and explicit-`any`
