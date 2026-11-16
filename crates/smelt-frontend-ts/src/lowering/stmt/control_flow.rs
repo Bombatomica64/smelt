@@ -568,13 +568,72 @@ impl ModuleBuilder<'_> {
         let update_value =
             self.generator_resume_expr(generator_local, generator_ty, iter_span, body);
 
+        // ECMAScript closes the iterator when the loop is left before it is
+        // done (`IteratorClose`): a `break`, a `return` or a throw out of the
+        // body calls the generator's `return()`, which runs its pending
+        // `finally` blocks. The loop is the protected block of a `try` whose
+        // `finally` resumes the generator with `Return` unless the last step
+        // was its completion.
+        let protected = body.push_block(self.statement_span(&for_stmt.body));
         body.push_stmt_to_block(
-            block,
+            protected,
             Stmt::WhileUpdate {
                 cond,
                 body: loop_body,
                 update_target,
                 update_value,
+            },
+        );
+        let close = body.push_block(self.statement_span(&for_stmt.body));
+        let close_step = body.push_expr(Expr {
+            kind: ExprKind::Local(step_local),
+            ty: result_ty,
+            span: iter_span,
+        });
+        let close_done = body.push_expr(Expr {
+            kind: ExprKind::GeneratorDone { result: close_step },
+            ty: bool_ty,
+            span: iter_span,
+        });
+        let close_cond = body.push_expr(Expr {
+            kind: ExprKind::UnaryOp {
+                op: smelt_hir::UnaryOp::Not,
+                operand: close_done,
+            },
+            ty: bool_ty,
+            span: iter_span,
+        });
+        let returning = body.push_block(self.statement_span(&for_stmt.body));
+        let generator_expr = body.push_expr(Expr {
+            kind: ExprKind::Local(generator_local),
+            ty: generator_ty,
+            span: iter_span,
+        });
+        let returned = body.push_expr(Expr {
+            kind: ExprKind::GeneratorNext {
+                generator: generator_expr,
+                value: None,
+                kind: smelt_hir::GeneratorResumeKind::Return,
+            },
+            ty: result_ty,
+            span: iter_span,
+        });
+        body.push_stmt_to_block(returning, Stmt::Expr(returned));
+        body.push_stmt_to_block(
+            close,
+            Stmt::If {
+                cond: close_cond,
+                then_block: returning,
+                else_block: None,
+            },
+        );
+        body.push_stmt_to_block(
+            block,
+            Stmt::TryCatch {
+                body: protected,
+                catch_binding: None,
+                catch_body: None,
+                finally_body: Some(close),
             },
         );
         Ok(())

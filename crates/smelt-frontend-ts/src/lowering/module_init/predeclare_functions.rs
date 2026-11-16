@@ -367,7 +367,8 @@ impl ModuleBuilder<'_> {
         name_text: &str,
     ) -> Result<Option<smelt_hir::TypeId>, SmeltError> {
         if let Some(return_type) = &function.return_type {
-            let declared = self.ts_type_to_hir(&return_type.type_annotation)?;
+            let declared =
+                self.function_return_annotation_type(function, &return_type.type_annotation)?;
             // A function returning an any-written local by name returns its
             // erased elements (see `lowering::any_written_locals`).
             if self.any_written_returns.contains(&function.span.start) {

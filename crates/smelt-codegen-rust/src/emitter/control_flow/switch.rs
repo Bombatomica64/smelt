@@ -462,7 +462,14 @@ impl FunctionEmitter<'_> {
             self.emit_block(then, out)?;
             out.push_str("    }\n");
             branch_declared.close();
-            if else_.id.0 <= current.0 {
+            // A lower block id is only a hint of a back edge (see the `Goto`
+            // arm of `emit_terminator`): the join after a `try`, allocated
+            // before the blocks inside it, is lower too, and is the code that
+            // runs next. Only a target that can come back here is the
+            // enclosing loop's own continuation.
+            if else_.id.0 <= current.0
+                && self.block_can_reach(else_.id, current, &mut BlockIdSet::default())
+            {
                 out.push_str("    loop { break; }\n");
                 return Ok(());
             }
@@ -478,7 +485,9 @@ impl FunctionEmitter<'_> {
             self.emit_block(else_, out)?;
             out.push_str("    }\n");
             branch_declared.close();
-            if then.id.0 <= current.0 {
+            if then.id.0 <= current.0
+                && self.block_can_reach(then.id, current, &mut BlockIdSet::default())
+            {
                 out.push_str("    loop { break; }\n");
                 return Ok(());
             }
