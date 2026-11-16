@@ -380,6 +380,13 @@ impl ModuleBuilder<'_> {
             && item_tys.contains(&none_ty)
             && !Self::array_literal_mixes_nullish_spellings(items, body)
         {
+            // `[2, null]` holds `null` where an element is absent: its optional
+            // erases its `None` to `null` (`TypeInterner::intern_null_optional`),
+            // as the annotation `(number | null)[]` does. `[2, undefined]`
+            // keeps the plain optional.
+            if Self::array_literal_writes_null(items, body) {
+                return self.ctx.krate.types.intern_null_optional(first_non_nullish);
+            }
             return self
                 .ctx
                 .krate
@@ -387,6 +394,14 @@ impl ModuleBuilder<'_> {
                 .intern(Type::Optional(first_non_nullish));
         }
         self.erase_with(ErasureReason::DynamicOperator, "mixed array literal")
+    }
+
+    /// Whether an array literal writes a `null` literal element.
+    fn array_literal_writes_null(items: &[smelt_hir::ExprId], body: &Body) -> bool {
+        items.iter().any(|item| {
+            body.expr_at(*item)
+                .is_some_and(|expr| matches!(expr.kind, ExprKind::Literal(Literal::None)))
+        })
     }
 
     /// Report whether an array literal writes BOTH `null` and `undefined`.

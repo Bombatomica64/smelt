@@ -374,6 +374,15 @@ impl FunctionEmitter<'_> {
                     )
                 }),
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => Ok(base_ty),
+            // A run-time index into a homogeneous tuple reads its one item
+            // type (see `place::homogeneous_tuple_item`).
+            Some(Type::Tuple(items))
+                if !matches!(index, Operand::Const(Constant::Int(_)))
+                    && place::homogeneous_tuple_item(items).is_some() =>
+            {
+                place::homogeneous_tuple_item(items)
+                    .ok_or_else(|| EmitError::new("tuple items share no type"))
+            }
             Some(Type::Tuple(items)) => {
                 let tuple_index = self.tuple_index(index, items.len())?;
                 items

@@ -180,4 +180,81 @@ impl ModuleBuilder<'_> {
         };
         Some(self.ctx.krate.types.intern(Type::List(element_ty)))
     }
+
+    /// Whether a union arm has concrete storage in the generated crate, so a
+    /// union of such arms is a generated enum rather than the erased carrier.
+    ///
+    /// Follows codegen's `union_member_is_concrete`, more strictly: primitives
+    /// are; a list, set, tuple or future is when everything it holds is; a
+    /// class or interface is when it is declared (or a stdlib class with a
+    /// concrete runtime type), since an undeclared one renders erased; a record,
+    /// map or function arm, `unknown`, `never`, a type parameter, and a nullish
+    /// or optional arm are not. A class
+    /// declared later than this annotation reads as undeclared here, which only
+    /// keeps the union in its erased form.
+    pub(in crate::lowering) fn union_arm_has_concrete_storage(
+        &self,
+        ty: smelt_hir::TypeId,
+    ) -> bool {
+        match self.ctx.krate.types.get(ty) {
+            Some(
+                Type::Bool
+                | Type::Int
+                | Type::FixedInt(_)
+                | Type::BigInt
+                | Type::Float
+                | Type::String
+                | Type::PyStr
+                | Type::PyInt
+                | Type::Symbol
+                | Type::PropKey,
+            ) => true,
+            Some(
+                container @ (Type::List(_)
+                | Type::Set(_)
+                | Type::Future(_)
+                | Type::Tuple(_)
+                | Type::Union(_)
+                | Type::GeneratorResult { .. }),
+            ) => container
+                .children()
+                .all(|child| self.union_arm_has_concrete_storage(child)),
+            Some(Type::Generator {
+                yield_ty,
+                return_ty,
+                ..
+            }) => {
+                self.union_arm_has_concrete_storage(*yield_ty)
+                    && self.union_arm_has_concrete_storage(*return_ty)
+            }
+            Some(Type::Class { name, args }) => {
+                let declared = self.find_class(*name).is_some()
+                    || self.find_interface(*name).is_some()
+                    || self.ctx.krate.symbols.get(*name).is_some_and(|text| {
+                        smelt_stdlib::typescript_stdlib_class(text)
+                            .is_some_and(smelt_stdlib::StdlibClass::has_concrete_runtime_type)
+                    });
+                declared
+                    && args
+                        .iter()
+                        .all(|arg| self.union_arm_has_concrete_storage(*arg))
+            }
+            // A record or map arm and a function arm stay erased: a value
+            // reaches such a union through a merged record type or another
+            // callable spelling than the arm's (`Record<string, string> |
+            // Record<string, string[]>` assigned from one record of a merged
+            // value type), which the generated enum does not inject.
+            Some(
+                Type::Dict(_, _)
+                | Type::JsMap(_, _)
+                | Type::Function(_)
+                | Type::Unknown
+                | Type::Never
+                | Type::TypeParam { .. }
+                | Type::None
+                | Type::Optional(_),
+            )
+            | None => false,
+        }
+    }
 }
