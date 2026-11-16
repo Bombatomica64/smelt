@@ -2990,11 +2990,11 @@ fn smelt_record_inherited(record: &SmeltRecord<JsString, SmeltUnknown>, key: &st
 
 /// Whether `object` is an accessor marker: the erased form of an object
 /// literal's `get`/`set`, holding its getter under `__smelt_get`, its setter
-/// under `__smelt_set`, or both, and nothing else.
+/// under `__smelt_setter` (not `__smelt_set`, the erased Set's tag), or both, and nothing else.
 #[allow(dead_code)]
 fn smelt_is_accessor(object: &SmeltObject) -> bool {
     let keys = object.keys();
-    !keys.is_empty() && keys.len() <= 2 && keys.iter().all(|key| key.eq_str("__smelt_get") || key.eq_str("__smelt_set"))
+    !keys.is_empty() && keys.len() <= 2 && keys.iter().all(|key| key.eq_str("__smelt_get") || key.eq_str("__smelt_setter"))
 }
 
 /// What a property read of an object answers for the stored `value`: an
@@ -3025,7 +3025,7 @@ fn smelt_resolve_accessor(value: SmeltUnknown, receiver: impl FnOnce() -> SmeltU
 fn smelt_object_put(object: &SmeltObject, key: impl Into<JsString>, value: SmeltUnknown) {
     let key: JsString = key.into();
     if let Some(SmeltUnknown::Object(accessor)) = object.get(&*key) && smelt_is_accessor(&accessor) && !matches!(&value, SmeltUnknown::Object(new) if smelt_is_accessor(new)) {
-        if let Some(SmeltUnknown::Function(smelt_setter)) = accessor.get("__smelt_set") {
+        if let Some(SmeltUnknown::Function(smelt_setter)) = accessor.get("__smelt_setter") {
             (smelt_setter)(Vec::from([value])).unwrap_or_else(|error| smelt_panic_throw(error));
         }
         return;
@@ -4944,7 +4944,7 @@ impl SmeltInspect for SmeltUnknown {
                 let entries = values.iter().map(|value| value as &dyn SmeltInspect).chain(keyed.iter().map(|entry| entry as &dyn SmeltInspect)).collect::<Vec<_>>();
                 smelt_inspect_array(ctx, depth, &entries)
             }
-            Self::Object(object) if smelt_is_accessor(object) => match (object.contains_key("__smelt_get"), object.contains_key("__smelt_set")) { (true, true) => "[Getter/Setter]", (true, false) => "[Getter]", _ => "[Setter]" }.to_owned(),
+            Self::Object(object) if smelt_is_accessor(object) => match (object.contains_key("__smelt_get"), object.contains_key("__smelt_setter")) { (true, true) => "[Getter/Setter]", (true, false) => "[Getter]", _ => "[Setter]" }.to_owned(),
             Self::Object(object) => {
                 smelt_live_container_refresh(object);
                 if let Some(Self::Array(members)) = object.get("__smelt_set") {
