@@ -551,10 +551,9 @@ impl FunctionEmitter<'_> {
                 if self.is_reference_class_type(base_ty)
                     && self.class_has_named_field(base_ty, *field)
                 {
-                    return Ok(PlaceTarget::Direct(RustExpr::from(format!(
-                        "{base_read_text}.0.borrow_mut().{}",
-                        self.context.names().field_text(self.mir, *field)
-                    ))));
+                    return Ok(PlaceTarget::Direct(RustExpr::from(
+                        self.reference_field_write_place(&base_read_text, base_ty, *field)?,
+                    )));
                 }
                 if self.structural_record_fields(base_ty).is_some() {
                     let text = format!(
@@ -1496,8 +1495,10 @@ impl FunctionEmitter<'_> {
             })
         {
             let base_text = self.local_value(base)?;
-            let field_name = self.context.names().field_text(self.mir, field);
-            let read = format!("_smelt_value.0.borrow().{field_name}.clone()");
+            let read = format!(
+                "{}.clone()",
+                self.reference_field_read_place("_smelt_value", *inner, field)?
+            );
             return if matches!(self.mir.types.get(field_ty), Some(Type::Optional(_))) {
                 Ok(base_text.postfix(format!(".as_ref().and_then(|_smelt_value| {read})")))
             } else {
@@ -1611,11 +1612,7 @@ impl FunctionEmitter<'_> {
             // further down, so the projection has to be repeated here.
             if self.is_reference_class_type(base_ty) && self.class_has_named_field(base_ty, field) {
                 return Ok(self
-                    .local_value(base)?
-                    .postfix(format!(
-                        ".0.borrow().{}",
-                        self.context.names().field_text(self.mir, field)
-                    ))
+                    .reference_field_read_expr(&self.local_value(base)?, base_ty, field)?
                     .cloned_value());
             }
             return Ok(self
@@ -1686,11 +1683,7 @@ impl FunctionEmitter<'_> {
         // with the statement — never held across a re-entrant call.
         if self.is_reference_class_type(base_ty) && self.class_has_named_field(base_ty, field) {
             return Ok(self
-                .local_value(base)?
-                .postfix(format!(
-                    ".0.borrow().{}",
-                    self.context.names().field_text(self.mir, field)
-                ))
+                .reference_field_read_expr(&self.local_value(base)?, base_ty, field)?
                 .cloned_value());
         }
         let field_text = {

@@ -239,9 +239,22 @@ fn smelt_json_write(value: &SmeltUnknown, replacer: &SmeltJsonReplacer, out: &mu
                 return Ok(());
             }
             let shape = smelt_for_in_object_shape(values);
-            let entries: Vec<(JsString, SmeltUnknown)> = if let SmeltJsonReplacer::Keys(keys) = replacer {
-                keys.iter().filter_map(|key| values.get(key.as_str()).map(|entry| (JsString::from(key.as_str()), entry))).collect()
-            } else { /*@if live_views*/values.store.sync(); /*@end*/let store = values.store.borrow(); store.entries().iter().filter(|entry| smelt_is_for_in_shape_key(shape, &entry.key)).map(|entry| (entry.key.clone(), entry.value.clone())).collect() };
+            let entries: Vec<(JsString, SmeltUnknown)> = 'entries: {
+                if let SmeltJsonReplacer::Keys(keys) = replacer {
+                    break 'entries keys.iter().filter_map(|key| values.get(key.as_str()).map(|entry| (JsString::from(key.as_str()), entry))).collect();
+                }
+// @smelt:if live_views
+                //~ A view of a typed record is written from the record's properties
+                //~ as they are now. Serializing only reads them, so the view's
+                //~ cached entries are not refreshed for it (`live_data`).
+                if let Some(entries) = values.store.live_data() {
+                    break 'entries entries.into_iter().filter(|(key, _)| smelt_is_for_in_shape_key(shape, key)).collect();
+                }
+                values.store.sync();
+// @smelt:end
+                let store = values.store.borrow();
+                store.entries().iter().filter(|entry| smelt_is_for_in_shape_key(shape, &entry.key)).map(|entry| (entry.key.clone(), entry.value.clone())).collect()
+            };
             let mut first = true;
             for (key, entry) in entries {
                 let entry = smelt_resolve_accessor(entry, || value.clone());

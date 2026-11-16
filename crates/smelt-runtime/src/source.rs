@@ -143,6 +143,10 @@ const MODULES: &[RuntimeModule] = &[
         source: include_str!("runtime/date.rs"),
     },
     RuntimeModule {
+        name: "deep_eq",
+        source: include_str!("runtime/deep_eq.rs"),
+    },
+    RuntimeModule {
         name: "erased_function",
         source: include_str!("runtime/erased_function.rs"),
     },

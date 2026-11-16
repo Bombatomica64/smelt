@@ -1,6 +1,7 @@
 name counters
 hits 1
 true false
+11 {"hits":11,"name":"scores"}
 3 3
 zeta,alpha,mid
 key zeta

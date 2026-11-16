@@ -960,6 +960,19 @@ impl FunctionEmitter<'_> {
         } else {
             RustExpr::path("smelt_object_value")
         };
+        // The place of one stored field: through the cell borrow, or through
+        // the accessor of a view target (`crate::structural_views`), whose
+        // handle has no cell of its own type to borrow.
+        let field_place = |field: Symbol, field_name: &str| -> Result<RustExpr, EmitError> {
+            if self.is_view_target_type(target) {
+                return Ok(RustExpr::atom(self.reference_field_read_place(
+                    "smelt_object_value",
+                    target,
+                    field,
+                )?));
+            }
+            Ok(field_base.postfix(format!(".{field_name}")))
+        };
         // A statics frame's fields are its class's static fields, read and
         // written live through the class value's hooks
         // (`emitter::statics_frame`), never copied into the object.
@@ -1016,7 +1029,7 @@ impl FunctionEmitter<'_> {
                         && source_name == "name"
                         && matches!(self.mir.types.get(field.ty), Some(Type::String))
                     {
-                        let read = field_base.postfix(format!(".{field_name}")).cloned_value();
+                        let read = field_place(field.name, &field_name)?.cloned_value();
                         let field_value = self.erase_rendered(&read, field.ty)?;
                         return Ok(format!(
                             "if {read} != {base:?} {{ smelt_object_entries.push(({source_name:?}.to_owned(), {field_value})); }}",
@@ -1029,7 +1042,7 @@ impl FunctionEmitter<'_> {
                     let optional_read = if accessor {
                         crate::accessor_prelude::read_expr(&RustExpr::field_on(&field_base, format!("{field_base}.{field_name}", field_base = field_base.tight())))
                     } else {
-                        field_base.postfix(format!(".{field_name}")).cloned_value()
+                        field_place(field.name, &field_name)?.cloned_value()
                     };
                     if let Some(Type::Optional(inner)) = self.mir.types.get(field.ty) {
                         let field_value = self.erase_rendered(&RustExpr::path("smelt_value"), *inner)?;
@@ -1055,7 +1068,7 @@ impl FunctionEmitter<'_> {
                         // Reading through `.0.borrow()` yields a `Ref` guard; the value
                         // must be cloned out rather than moved.
                         self.erase_rendered(
-                            &field_base.postfix(format!(".{field_name}")).cloned_value(),
+                            &field_place(field.name, &field_name)?.cloned_value(),
                             field.ty,
                         )?
                     } else if accessor {
@@ -1111,7 +1124,7 @@ impl FunctionEmitter<'_> {
         };
         // A live record is erased by its own impl: the view it hands out reads
         // and writes the record itself (`emitter::live_view`).
-        if self.is_live_record_type(target) {
+        if self.is_live_record_type(target) || self.is_view_target_type(target) {
             return Ok(RustExpr::chain(format!(
                 "IntoSmeltUnknown::into_smelt_unknown({})",
                 value_text.delimited()

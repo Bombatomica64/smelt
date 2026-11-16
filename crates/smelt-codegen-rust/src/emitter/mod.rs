@@ -144,6 +144,7 @@ mod url;
 pub(crate) use function_item::static_method_rust_name;
 mod abort_signal;
 mod crypto;
+pub(crate) mod deep_equality;
 mod form_data;
 mod generator;
 mod generic_scrutinee;
@@ -196,6 +197,7 @@ mod statics_frame;
 mod string_units;
 mod strings;
 mod strings_io;
+mod structural_view;
 mod text_codec;
 mod this_frame;
 mod throw;
@@ -330,6 +332,8 @@ pub(crate) struct EmitContext {
     /// The reference records whose erased and map views read and write the
     /// record itself (see [`live_view`]), computed once from the set above.
     live_records: HashSet<Symbol>,
+    /// The records with a generated `impl SmeltDeepEq` (`crate::deep_equality`).
+    deep_equality: crate::deep_equality::DeepEquality,
     /// Classes whose instances carry the hidden runtime class tag, computed
     /// once by [`crate::class_identity::identity_classes`].
     identity_classes: HashSet<Symbol>,
@@ -337,6 +341,9 @@ pub(crate) struct EmitContext {
     /// handles over shared storage, computed once by
     /// [`crate::class_polymorphism::polymorphic_classes`].
     polymorphic_classes: HashSet<Symbol>,
+    /// Which object shapes are viewed as which other shapes, sharing the
+    /// object ([`crate::structural_views`]).
+    structural_views: crate::structural_views::StructuralViews,
     /// Which static methods take their receiver class as a generic, and each
     /// class's statics trait ([`crate::static_receiver`]).
     static_receivers: crate::static_receiver::StaticReceiverPlan,
@@ -489,7 +496,9 @@ impl EmitContext {
                 })
                 .collect(),
             polymorphic_classes,
+            structural_views: crate::structural_views::StructuralViews::plan(mir),
             live_records: live_view::live_records(mir, &reference_classes, &demand),
+            deep_equality: crate::deep_equality::DeepEquality::plan(mir, &reference_classes),
             reference_classes,
             static_receivers: crate::static_receiver::StaticReceiverPlan::compute(mir),
             type_param_elision: crate::generic_elision::compute(mir),
@@ -613,6 +622,12 @@ impl EmitContext {
         self.live_records.contains(&symbol)
     }
 
+    /// The records the program's deep comparisons compare field with field
+    /// (see [`crate::deep_equality`]).
+    pub(crate) fn deep_equality(&self) -> &crate::deep_equality::DeepEquality {
+        &self.deep_equality
+    }
+
     /// Whether the crate emits any live record, which is what the live-view
     /// runtime (`smelt-runtime/src/runtime/live_view.rs`) is emitted for.
     pub(crate) fn has_live_records(&self) -> bool {
@@ -636,6 +651,11 @@ impl EmitContext {
     /// shared storage ([`crate::class_polymorphism`]).
     pub(crate) fn is_polymorphic_class(&self, symbol: Symbol) -> bool {
         self.polymorphic_classes.contains(&symbol)
+    }
+
+    /// The structural views of the program ([`crate::structural_views`]).
+    pub(crate) fn structural_views(&self) -> &crate::structural_views::StructuralViews {
+        &self.structural_views
     }
 
     /// The static methods taking a receiver class ([`crate::static_receiver`]).

@@ -325,6 +325,35 @@ pub(crate) fn emit_console_inspect_support(
         if !emitter.inspectable_in(record_ty, &records, &mut HashSet::new()) {
             continue;
         }
+        // A view target is inspected as the record its cell is, when that
+        // record is inspectable (`crate::structural_views`).
+        let view = if context.structural_views().is_target(*symbol) {
+            let mut implementors = Vec::new();
+            for implementor in context.structural_views().implementors(*symbol) {
+                let inspectable = records.contains_key(implementor)
+                    && emitter
+                        .type_id(Type::Class {
+                            name: *implementor,
+                            args: Vec::new(),
+                        })
+                        .is_ok_and(|ty| emitter.inspectable_in(ty, &records, &mut HashSet::new()));
+                if inspectable {
+                    implementors.push(context.names().type_name(*implementor)?.as_str().to_owned());
+                }
+            }
+            let accessors = crate::structural_views::accessor_names(mir, context, &record.fields);
+            Some(console_inspect_prelude::ViewInspect {
+                records: implementors,
+                getters: record
+                    .fields
+                    .iter()
+                    .filter(|field| field.visibility.is_own_property())
+                    .filter_map(|field| accessors.get(&field.name).map(|names| names.get.clone()))
+                    .collect(),
+            })
+        } else {
+            None
+        };
         let fields = record
             .fields
             .iter()
@@ -364,6 +393,7 @@ pub(crate) fn emit_console_inspect_support(
             // A live record's views may have given the object properties and
             // a key order its fields do not describe (`emitter::live_view`).
             context.is_live_record(*symbol),
+            view.as_ref(),
         ));
     }
     for index in 0..mir.types.all().len() {

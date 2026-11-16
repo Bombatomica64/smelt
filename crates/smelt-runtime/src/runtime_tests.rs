@@ -1226,6 +1226,66 @@ mod live_view_family {
         fn into_smelt_unknown(self) -> SmeltUnknown { SmeltUnknown::Object(view(&self)) }
     }
 
+    /// `type Pin = { x: number; label: string }`: no property is optional, so
+    /// the generated impl answers `smelt_fields_always_present`. `reads`
+    /// counts the whole-record erasures (`smelt_field_entries`).
+    #[derive(Clone)]
+    struct Pin(::std::rc::Rc<::std::cell::RefCell<(f64, JsString)>>, ::std::rc::Rc<::std::cell::Cell<usize>>);
+
+    impl SmeltLiveObject for Pin {
+        fn smelt_field_names(&self) -> &'static [&'static str] { &["x", "label"] }
+        fn smelt_field_get(&self, key: &JsStr) -> Option<SmeltUnknown> {
+            let inner = self.0.borrow();
+            if *key == "x" { return Some(SmeltUnknown::Number(inner.0)); }
+            if *key == "label" { return Some(SmeltUnknown::String(inner.1.clone())); }
+            None
+        }
+        fn smelt_field_set(&self, key: &JsStr, value: SmeltUnknown) -> Result<(), SmeltUnknown> {
+            if *key == "x" { if !matches!(value, SmeltUnknown::Number(_)) { return Err(value); } self.0.borrow_mut().0 = SmeltFromUnknown::smelt_from_unknown(value); return Ok(()); }
+            Err(value)
+        }
+        fn smelt_field_entries(&self) -> Vec<(&'static str, SmeltUnknown)> {
+            self.1.set(self.1.get() + 1);
+            ["x", "label"].into_iter().filter_map(|key| self.smelt_field_get(&JsString::from(key)).map(|value| (key, value))).collect()
+        }
+        fn smelt_live_cell(&self) -> ::std::rc::Rc<dyn ::std::any::Any> { self.0.clone() }
+        fn smelt_live_address(&self) -> usize { ::std::rc::Rc::as_ptr(&self.0).cast::<()>() as usize }
+        fn smelt_live_handle(&self) -> &dyn ::std::any::Any { self }
+        fn smelt_fields_always_present(&self) -> bool { true }
+    }
+
+    /// `Object.keys(view)` and its length on a record that cannot lack a
+    /// property list the declared names without erasing a field; once a view
+    /// gives the object an open shape, or for a record with an optional
+    /// property, the keys are the entries' (which omit an absent one).
+    #[test]
+    fn keys_of_a_view_read_no_value_until_the_shape_is_open() {
+        let reads = ::std::rc::Rc::new(::std::cell::Cell::new(0));
+        let pin = Pin(::std::rc::Rc::new(::std::cell::RefCell::new((1.0, "a".into()))), ::std::rc::Rc::clone(&reads));
+        let erased = SmeltObject::smelt_live_view(smelt_reference_object_identity(&pin.0), pin.clone());
+        assert_eq!(keys(&erased), ["x", "label"]);
+        assert_eq!(erased.len(), 2);
+        assert_eq!(erased.smelt_shared_record().keys().count(), 2);
+        assert_eq!(reads.get(), 0, "listing the keys erased no field");
+        // A write through the view is still read back, key list or not.
+        erased.insert("x", SmeltUnknown::Number(7.0));
+        assert_eq!(pin.0.borrow().0, 7.0);
+        assert_eq!(keys(&erased), ["x", "label"]);
+        assert_eq!(reads.get(), 0);
+        // An added property opens the shape: the keys are the object's own.
+        erased.insert("extra", SmeltUnknown::Bool(true));
+        assert_eq!(keys(&erased), ["x", "label", "extra"]);
+        erased.remove("x");
+        assert_eq!(keys(&erased), ["label", "extra"]);
+        assert_eq!(erased.len(), 2);
+        assert!(reads.get() > 0, "an open shape is answered from the entries");
+        // A record with an optional property asks its values: `tags` is absent.
+        let record = point(1.0, "a");
+        assert_eq!(keys(&view(&record)), ["x", "label"]);
+        record.0.borrow_mut().tags = Some(SmeltList::from(Vec::<JsString>::new()));
+        assert_eq!(keys(&view(&record)), ["x", "label", "tags"]);
+    }
+
     /// `expect([p]).toEqual([q])`: two records are deeply equal when their own
     /// properties are, whichever objects they are; one that a view gave a
     /// property the other lacks is not; and a record equals itself.
@@ -1347,6 +1407,62 @@ mod live_view_family {
         let (Some(SmeltUnknown::Array(first)), Some(SmeltUnknown::Array(second))) = (erased.get("tags"), erased.get("tags")) else { panic!("tags is an array") };
         first.push(text("u"));
         assert_eq!(second.len(), 2, "both reads hold the view's one erased array");
+        // The same holds for a view nothing has listed or iterated yet: the
+        // first read is the one that keeps the handle.
+        let untouched = view(&record);
+        let (Some(SmeltUnknown::Array(first)), Some(SmeltUnknown::Array(second))) = (untouched.get("tags"), untouched.get("tags")) else { panic!("tags is an array") };
+        first.push(text("v"));
+        assert_eq!(second.len(), first.len(), "two reads of a fresh view are one array too");
+        // A field replaced in the record is read as the new value, not the kept one.
+        record.0.borrow_mut().tags = Some(SmeltList::new(Vec::new()));
+        let Some(SmeltUnknown::Array(replaced)) = untouched.get("tags") else { panic!("tags is an array") };
+        assert_eq!(replaced.len(), 0, "the record's new array, not the view's kept one");
+    }
+
+    /// `view.tags = other`: an array written through a view is the array a
+    /// later read of that view answers with, so a change to it afterwards is
+    /// seen through the view, while a number written through it is the
+    /// record's alone. es-toolkit's `mergeWith` reads an array property,
+    /// changes another erasure of it and writes that back; the read after
+    /// must not answer with the handle kept from the first read.
+    #[test]
+    fn a_reference_value_written_through_a_view_is_the_one_it_hands_out() {
+        let record = point(1.0, "a");
+        record.0.borrow_mut().tags = Some(SmeltList::new(vec![JsString::from("t")]));
+        let erased = view(&record);
+        let Some(SmeltUnknown::Array(before)) = erased.get("tags") else { panic!("tags is an array") };
+        // Another erased array of the same list (its identity, its own
+        // storage), changed and written back.
+        let written = SmeltArray::with_id(before.id, vec![text("u")]);
+        erased.insert("tags", SmeltUnknown::Array(written.clone()));
+        assert_eq!(record.0.borrow().tags.as_ref().map(SmeltList::len), Some(1));
+        let Some(SmeltUnknown::Array(after)) = erased.get("tags") else { panic!("tags is an array") };
+        assert_eq!(after.get(0), Some(text("u")), "the read answers with the array that was written");
+        written.push(text("v"));
+        assert_eq!(after.len(), 2, "and it is that very array");
+        // A number is the record's: written, read back, nothing kept.
+        erased.insert("x", SmeltUnknown::Number(9.0));
+        assert_eq!(record.0.borrow().x, 9.0);
+        assert_eq!(erased.get("x"), Some(SmeltUnknown::Number(9.0)));
+    }
+
+    /// `JSON.stringify(view)` writes the record's properties as they are now,
+    /// in the object's own-key order, with what a view added and without
+    /// what one deleted. It reads the record directly (`live_data`), so it
+    /// needs no refresh of the view's cache to have run first.
+    #[test]
+    fn serializing_a_view_writes_the_record_as_it_is_now() {
+        let record = point(1.0, "a");
+        let erased = view(&record);
+        let json = |object: &SmeltObject| smelt_json_stringify(&SmeltUnknown::Object(object.clone()));
+        assert_eq!(json(&erased), Ok(r#"{"x":1,"label":"a"}"#.to_owned()));
+        record.0.borrow_mut().x = 2.0;
+        assert_eq!(json(&erased), Ok(r#"{"x":2,"label":"a"}"#.to_owned()), "a later write to the record");
+        erased.insert("extra", SmeltUnknown::Bool(true));
+        erased.remove("x");
+        assert_eq!(json(&erased), Ok(r#"{"label":"a","extra":true}"#.to_owned()), "the open shape");
+        erased.insert("x", SmeltUnknown::Number(5.0));
+        assert_eq!(json(&view(&record)), Ok(r#"{"label":"a","extra":true,"x":5}"#.to_owned()), "through another view");
     }
 
     /// `const typed = plain as Point`: the plain object becomes a view of the
@@ -1441,6 +1557,108 @@ mod live_view_family {
         assert_eq!(keys(&plain), ["a", "c"]);
         assert_eq!(plain.len(), 2);
         assert!(plain.smelt_origin::<Point>().is_none());
+    }
+}
+
+mod deep_eq_family {
+    use super::*;
+
+    /// `interface Ring<T> { value: T; next: Ring<T> | null }` as the code
+    /// generator emits a generic reference record and its `SmeltDeepEq`:
+    /// one object, then the pair of cells entered, then field with field.
+    #[derive(Clone)]
+    struct Ring<T>(::std::rc::Rc<::std::cell::RefCell<RingInner<T>>>);
+
+    struct RingInner<T> {
+        value: T,
+        next: Option<Ring<T>>,
+    }
+
+    impl<T: SmeltDeepEq> SmeltDeepEq for Ring<T> {
+        fn smelt_deep_eq(&self, other: &Self, smelt_seen: &mut SmeltDeepSeen) -> bool {
+            if ::std::rc::Rc::ptr_eq(&self.0, &other.0) { return true; }
+            if let Some(smelt_answer) = smelt_seen.enter(::std::rc::Rc::as_ptr(&self.0).cast::<()>() as usize, ::std::rc::Rc::as_ptr(&other.0).cast::<()>() as usize) { return smelt_answer; }
+            let (smelt_left, smelt_right) = (self.0.borrow(), other.0.borrow());
+            let smelt_equal = SmeltDeepEq::smelt_deep_eq(&smelt_left.value, &smelt_right.value, smelt_seen) && SmeltDeepEq::smelt_deep_eq(&smelt_left.next, &smelt_right.next, smelt_seen);
+            smelt_seen.leave();
+            smelt_equal
+        }
+    }
+
+    fn ring<T>(value: T) -> Ring<T> {
+        Ring(::std::rc::Rc::new(::std::cell::RefCell::new(RingInner { value, next: None })))
+    }
+
+    #[test]
+    fn a_number_leaf_equals_itself_when_it_is_nan() {
+        assert!(smelt_deep_eq(&f64::NAN, &f64::NAN));
+        assert!(smelt_deep_eq(&1.0, &1.0));
+        assert!(!smelt_deep_eq(&1.0, &2.0));
+        assert!(smelt_deep_eq(&Some(f64::NAN), &Some(f64::NAN)));
+        assert!(!smelt_deep_eq(&Some(1.0), &None));
+    }
+
+    #[test]
+    fn a_list_argument_is_compared_item_by_item() {
+        let list = |items: &[f64]| SmeltList::from(items.to_vec());
+        assert!(smelt_deep_eq(&list(&[1.0, f64::NAN]), &list(&[1.0, f64::NAN])));
+        assert!(!smelt_deep_eq(&list(&[1.0, 2.0]), &list(&[1.0, 3.0])));
+        assert!(!smelt_deep_eq(&list(&[1.0]), &list(&[1.0, 1.0])));
+        assert!(smelt_deep_eq(&JsString::from("a"), &JsString::from("a")));
+        assert!(!smelt_deep_eq(&JsString::from("a"), &JsString::from("b")));
+    }
+
+    #[test]
+    fn a_borrowed_value_compares_as_the_value() {
+        let (left, right) = (ring(1.0), ring(1.0));
+        assert!(smelt_deep_eq(&&left, &&right));
+    }
+
+    #[test]
+    fn two_cells_with_equal_fields_are_deeply_equal_and_not_identical() {
+        let (left, right) = (ring(JsString::from("a")), ring(JsString::from("a")));
+        assert!(!::std::rc::Rc::ptr_eq(&left.0, &right.0));
+        assert!(smelt_deep_eq(&left, &right));
+        assert!(!smelt_deep_eq(&left, &ring(JsString::from("b"))));
+        right.0.borrow_mut().next = Some(ring(JsString::from("a")));
+        assert!(!smelt_deep_eq(&left, &right));
+    }
+
+    #[test]
+    fn cycles_are_equal_when_they_close_at_the_same_depth() {
+        let cycle = |value: f64| { let node = ring(value); node.0.borrow_mut().next = Some(node.clone()); node };
+        let (left, right) = (cycle(1.0), cycle(1.0));
+        assert!(smelt_deep_eq(&left, &right));
+        assert!(!smelt_deep_eq(&left, &cycle(2.0)));
+        // A one-cell cycle against a two-cell cycle of the same values:
+        // vitest's `toEqual` answers unequal (fixture case
+        // `F_generic_cycle_of_another_length`).
+        let two = ring(1.0);
+        let second = ring(1.0);
+        second.0.borrow_mut().next = Some(two.clone());
+        two.0.borrow_mut().next = Some(second);
+        assert!(!smelt_deep_eq(&left, &two));
+        assert!(!smelt_deep_eq(&two, &left));
+        // A cycle against a chain that ends.
+        let chain = ring(1.0);
+        chain.0.borrow_mut().next = Some(ring(1.0));
+        assert!(!smelt_deep_eq(&left, &chain));
+        // Break the cycles so the cells are freed.
+        for node in [&left, &right, &two] { node.0.borrow_mut().next = None; }
+    }
+
+    #[test]
+    fn the_in_progress_set_answers_for_a_cell_met_again() {
+        let mut seen = SmeltDeepSeen::default();
+        assert_eq!(seen.enter(1, 2), None);
+        assert_eq!(seen.enter(1, 2), Some(true));
+        assert_eq!(seen.enter(1, 3), Some(false));
+        assert_eq!(seen.enter(4, 2), Some(false));
+        assert_eq!(seen.enter(5, 6), None);
+        seen.leave();
+        seen.leave();
+        // A pair that was left can be compared again from the start.
+        assert_eq!(seen.enter(1, 2), None);
     }
 }
 

@@ -239,6 +239,9 @@ declare_needs! {
     LiveContainers,
     /// Live erased views of typed arrays (`SmeltLiveList`).
     LiveArrays,
+    /// Typed deep equality of generated records (`SmeltDeepEq`,
+    /// `crate::deep_equality`).
+    DeepEq,
     /// The erased `SmeltErasedFunction` adapter.
     ErasedFunction,
     /// The erased generic list aliases.
@@ -617,6 +620,16 @@ impl RuntimeDemand {
         // with the erased runtime has.
         if crate::classify::deep_compares_a_reference_shape(mir, reference_classes) {
             demand.add(Need::Unknown);
+        }
+        // Likewise for one reached through a record's field or a type
+        // argument, and the records compared field with field carry the
+        // trait (`crate::deep_equality`).
+        let deep_equality = crate::deep_equality::DeepEquality::plan(mir, reference_classes);
+        if deep_equality.reaches_view_record() {
+            demand.add(Need::Unknown);
+        }
+        if deep_equality.has_impls() {
+            demand.add(Need::DeepEq);
         }
         demand.close();
         // With the carrier, every concrete union in the type table gets its

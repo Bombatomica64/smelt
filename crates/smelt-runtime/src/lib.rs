@@ -101,6 +101,7 @@ mod runtime {
     include!("runtime/conversions.rs");
     include!("runtime/crypto.rs");
     include!("runtime/date.rs");
+    include!("runtime/deep_eq.rs");
     include!("runtime/erased_function.rs");
     include!("runtime/erased_method.rs");
     include!("runtime/event_emitter.rs");
