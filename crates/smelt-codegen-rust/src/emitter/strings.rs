@@ -662,8 +662,9 @@ impl FunctionEmitter<'_> {
         };
         let string_ty = self.existing_type_id(Type::String);
         let float_ty = self.existing_type_id(Type::Float);
-        let optional_string_ty =
-            string_ty.and_then(|inner| self.existing_type_id(Type::Optional(inner)));
+        let optional_string_ty = string_ty.and_then(|inner| {
+            self.existing_type_id(Type::Optional(inner, smelt_hir::Absence::Undefined))
+        });
         let mut texts = Vec::with_capacity(args.len());
         for (index, arg) in args.iter().enumerate() {
             let (natural_text, natural_ty) = match arg {
@@ -787,7 +788,7 @@ impl FunctionEmitter<'_> {
         // The frontend types `String.prototype.match` `string[] | null` only
         // where the regex is statically GLOBAL; that answer is the list of
         // whole matches, which `match_all_strings` builds directly.
-        if let Some(Type::Optional(inner)) = self.mir.types.get(dest_ty)
+        if let Some(Type::Optional(inner, _)) = self.mir.types.get(dest_ty)
             && let Some(Type::List(item)) = self.mir.types.get(*inner)
             && self.mir.types.get(*item).is_some_and(Type::is_text)
         {
@@ -896,7 +897,7 @@ impl FunctionEmitter<'_> {
     fn optional_inner_is_erased_boundary(&self, dest_ty: TypeId) -> bool {
         matches!(
             self.mir.types.get(dest_ty),
-            Some(Type::Optional(inner))
+            Some(Type::Optional(inner, _))
                 if matches!(
                     self.mir.types.get(*inner),
                     Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
@@ -929,7 +930,7 @@ impl FunctionEmitter<'_> {
             // lookup) is `new RegExp(undefined)` in JavaScript: the empty
             // pattern, which matches at index 0. A present one converts as its
             // own type does.
-            Some(Type::Optional(inner))
+            Some(Type::Optional(inner, _))
                 if matches!(self.mir.types.get(*inner), Some(Type::Class { name, .. }) if self.is_regexp_class_symbol(*name).unwrap_or(false))
                     || matches!(self.mir.types.get(*inner), Some(Type::String | Type::PyStr)) =>
             {
@@ -1161,7 +1162,7 @@ impl FunctionEmitter<'_> {
                 | Type::GeneratorResult { .. },
             )
             | None => true,
-            Some(Type::Optional(inner)) => self.mir.types.get(*inner).is_some_and(Type::is_text),
+            Some(Type::Optional(inner, _)) => self.mir.types.get(*inner).is_some_and(Type::is_text),
             _ => false,
         };
         if self.indexes_utf16() && matches!(self.mir.types.get(operand_ty), Some(Type::None)) {
@@ -1330,32 +1331,53 @@ impl FunctionEmitter<'_> {
                 Ok(RustExpr::chain("\"[object Object]\".to_owned()"))
             }
             Some(Type::JsMap(_, _)) => Ok(RustExpr::chain("\"[object Map]\".to_owned()")),
+            // `T | null | undefined` (`Option<Option<T>>`) stringifies through
+            // its erased value, whose tag says which absent word it is.
+            Some(Type::Optional(..))
+                if matches!(
+                    smelt_hir::type_normalize::peel_optional(&self.mir.types, self.operand_ty(operand)?),
+                    (base, true, true) if base != self.none_ty
+                ) =>
+            {
+                let erased = self.erase(operand)?;
+                self.js_string_coercion_match_expr(&erased, self.absent_spelling(), false)
+            }
             // An ABSENT optional stringifies as the language's absent word, not
             // as the empty string: `unwrap_or_default()` answered `""` for
             // every `${maybeString}` in the corpus.
-            Some(Type::Optional(inner))
+            Some(Type::Optional(inner, _))
                 if self.mir.types.get(*inner).is_some_and(Type::is_text) =>
             {
                 Ok({
                     let receiver = self.operand_expr(operand)?;
                     receiver.postfix(format!(
                         ".unwrap_or_else(|| {})",
-                        self.text_literal(self.absent_spelling().text()).delimited()
+                        self.text_literal(self.absent_text_of(self.operand_ty(operand)?))
+                            .delimited()
                     ))
                 })
             }
-            Some(Type::Optional(inner)) if self.has_dynamic_shape(*inner) => {
+            Some(Type::Optional(inner, _)) if self.has_dynamic_shape(*inner) => {
                 let text = self.operand_expr(operand)?;
                 // A concrete-union `Option` payload stores a tagged enum, so each
                 // present value projects back to `SmeltUnknown` before the erased
                 // string-coercion match.
-                let scrutinee =
-                    self.erase_concrete_union_expr(&RustExpr::path("smelt_value"), *inner)?;
+                // A real Rust generic payload (`Option<V>` inside `impl<V>`)
+                // erases through its `IntoSmeltUnknown` bound.
+                let scrutinee = if self.concrete_union_members(*inner).is_none()
+                    && !self.renders_erased(*inner)?
+                {
+                    RustExpr::path("smelt_value").postfix(
+                        self.carrier_format(self.carrier()?, format_args!(".into_smelt_unknown()")),
+                    )
+                } else {
+                    self.erase_concrete_union_expr(&RustExpr::path("smelt_value"), *inner)?
+                };
                 let error_arm = Self::js_error_to_string_arm_text();
                 // The absent arm carries no runtime tag, so it takes the
                 // language's absent word; the present arms still distinguish
                 // `null` from `undefined`, which the tag does know.
-                let absent_text = self.absent_spelling().text();
+                let absent_text = self.absent_text_of(self.operand_ty(operand)?);
                 let null_text = self.absent_spelling().null_text();
                 Ok(text.postfix(self.carrier_format(self.carrier()?, format_args!(
                     ".map_or_else(|| \"{absent_text}\".to_owned(), |smelt_value| match {scrutinee} {{ SmeltUnknown::Null => \"{null_text}\".to_owned(), SmeltUnknown::Undefined => \"{absent_text}\".to_owned(), SmeltUnknown::Bool(smelt_value) => smelt_value.to_string(), SmeltUnknown::Number(smelt_value) => smelt_number_to_string(smelt_value), {smelt_bigint_arm}SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_symbol_to_string(&smelt_value), {error_arm}SmeltUnknown::Array(smelt_values) => smelt_erased_to_js_string(&SmeltUnknown::Array(smelt_values)).to_string_lossy(), SmeltUnknown::Object(smelt_object) => smelt_erased_object_to_string(&smelt_object), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }})", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => value.to_string(),"), scrutinee = scrutinee.delimited()
@@ -1364,7 +1386,7 @@ impl FunctionEmitter<'_> {
             // An optional PRIMITIVE stringifies its value or the absent word.
             // This is the `${maybeNumber}` / `${maybeFlag}` shape, and it used
             // to fall into the placeholder below and render nothing at all.
-            Some(Type::Optional(inner))
+            Some(Type::Optional(inner, _))
                 if matches!(
                     self.mir.types.get(*inner),
                     Some(Type::Bool | Type::Int | Type::Float)
@@ -1374,7 +1396,7 @@ impl FunctionEmitter<'_> {
                     let receiver = self.operand_expr(operand)?;
                     receiver.postfix(format!(
                         ".map_or_else(|| {:?}.to_owned(), |smelt_value| smelt_value.to_string())",
-                        self.absent_spelling().text()
+                        self.absent_text_of(self.operand_ty(operand)?)
                     ))
                 })
             }
@@ -1382,11 +1404,11 @@ impl FunctionEmitter<'_> {
             // placeholder for the PRESENT arm — JavaScript renders a list as
             // its joined elements and an object as `[object Object]`, neither of
             // which this seam models yet — but the absent arm is the word.
-            Some(Type::Optional(_)) => Ok({
+            Some(Type::Optional(..)) => Ok({
                 let receiver = self.operand_expr(operand)?;
                 receiver.postfix(format!(
                     ".map_or_else(|| {:?}.to_owned(), |_| String::new())",
-                    self.absent_spelling().text()
+                    self.absent_text_of(self.operand_ty(operand)?)
                 ))
             }),
             Some(Type::Future(_)) => Ok(RustExpr::atom(self.text_empty())),
@@ -1775,7 +1797,7 @@ impl FunctionEmitter<'_> {
                     "{{ let mut smelt_parts = {split_items}; let smelt_limit = {limit_text} as f64; if !smelt_limit.is_finite() || smelt_limit == 0.0 {{ smelt_parts.truncate(0); }} else if smelt_limit.is_sign_positive() {{ smelt_parts.truncate(smelt_limit.floor() as usize); }} smelt_parts }}",
                     limit_text = limit_text.as_cast_operand()
                 )),
-                Some(Type::Optional(inner))
+                Some(Type::Optional(inner, _))
                     if matches!(self.mir.types.get(*inner), Some(Type::Int | Type::Float)) =>
                 {
                     Ok(format!(
@@ -1783,7 +1805,7 @@ impl FunctionEmitter<'_> {
                         limit_text = limit_text.delimited()
                     ))
                 }
-                Some(Type::Optional(inner))
+                Some(Type::Optional(inner, _))
                     if matches!(
                         self.mir.types.get(*inner),
                         Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
@@ -1939,7 +1961,7 @@ impl FunctionEmitter<'_> {
                 self.join_erased_item_text(item_ty)?
             }
             // The closure parameter rebinds `smelt_item` to the present value.
-            Some(Type::Optional(inner)) => format!(
+            Some(Type::Optional(inner, _)) => format!(
                 "smelt_item.as_ref().map_or_else(String::new, |smelt_item| {{ {item} }})",
                 item = self.join_item_text(*inner, depth.saturating_add(1))?,
             ),

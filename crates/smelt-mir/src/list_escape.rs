@@ -706,7 +706,7 @@ impl<'a> BodyWalk<'a> {
         self.body.local_ty(local).is_some_and(|declared| {
             let carriers = self.summaries.tracks_carriers();
             let payload = match self.mir.types.get(declared) {
-                Some(Type::Optional(inner)) if carriers => *inner,
+                Some(Type::Optional(inner, _)) if carriers => *inner,
                 _ => declared,
             };
             match self.mir.types.get(payload) {

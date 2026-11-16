@@ -54,7 +54,7 @@ impl FunctionEmitter<'_> {
             ) => true,
             // `i32`, `i64` and `usize` all carry the conversion.
             Some(Type::FixedInt(_)) => true,
-            Some(Type::Optional(inner)) => self.converts_to_prop_key_directly(*inner),
+            Some(Type::Optional(inner, _)) => self.converts_to_prop_key_directly(*inner),
             _ => false,
         }
     }

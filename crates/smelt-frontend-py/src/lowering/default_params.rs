@@ -48,7 +48,7 @@ impl ModuleBuilder<'_> {
                 ),
             ));
         }
-        let optional_ty = self.intern_type(Type::Optional(declared));
+        let optional_ty = self.intern_type(Type::Optional(declared, smelt_hir::Absence::Undefined));
         let shared = if Self::default_is_literal(default) {
             None
         } else {
@@ -60,7 +60,7 @@ impl ModuleBuilder<'_> {
     /// Whether `ty` holds `None` (an optional, `None` itself, a union with it).
     fn type_admits_none(&self, ty: TypeId) -> bool {
         match self.ctx.krate.types.get(ty) {
-            Some(Type::Optional(_) | Type::None | Type::Unknown) => true,
+            Some(Type::Optional(..) | Type::None | Type::Unknown) => true,
             Some(Type::Union(members)) => {
                 members.iter().any(|member| matches!(self.ctx.krate.types.get(*member), Some(Type::None)))
             }

@@ -380,18 +380,19 @@ impl ModuleBuilder<'_> {
             && item_tys.contains(&none_ty)
             && !Self::array_literal_mixes_nullish_spellings(items, body)
         {
-            // `[2, null]` holds `null` where an element is absent: its optional
-            // erases its `None` to `null` (`TypeInterner::intern_null_optional`),
-            // as the annotation `(number | null)[]` does. `[2, undefined]`
-            // keeps the plain optional.
-            if Self::array_literal_writes_null(items, body) {
-                return self.ctx.krate.types.intern_null_optional(first_non_nullish);
-            }
+            // `[2, null]` holds `null` where an element is absent, as the
+            // annotation `(number | null)[]` does; `[2, undefined]` holds
+            // `undefined`.
+            let absence = if Self::array_literal_writes_null(items, body) {
+                smelt_hir::Absence::Null
+            } else {
+                smelt_hir::Absence::Undefined
+            };
             return self
                 .ctx
                 .krate
                 .types
-                .intern(Type::Optional(first_non_nullish));
+                .intern(Type::Optional(first_non_nullish, absence));
         }
         self.erase_with(ErasureReason::DynamicOperator, "mixed array literal")
     }
@@ -546,7 +547,7 @@ impl ModuleBuilder<'_> {
                 Some(
                     Type::TypeParam { .. }
                     | Type::Class { .. }
-                    | Type::Optional(_)
+                    | Type::Optional(..)
                     | Type::Union(_),
                 ) => self.erase_with(ErasureReason::DynamicOperator, "array spread"),
                 _ => {
@@ -788,7 +789,7 @@ impl ModuleBuilder<'_> {
                 Type::Unknown
                 | Type::TypeParam { .. }
                 | Type::Class { .. }
-                | Type::Optional(_)
+                | Type::Optional(..)
                 | Type::Union(_),
             )
             | None => Ok(body.push_expr(Expr {

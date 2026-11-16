@@ -213,7 +213,7 @@ impl ModuleBuilder<'_> {
     fn has_python_text(&self, ty: TypeId) -> bool {
         match self.ctx.krate.types.get(ty) {
             Some(Type::PyInt | Type::Float | Type::Bool | Type::PyStr | Type::None) => true,
-            Some(Type::Optional(item) | Type::List(item)) => self.has_python_text(*item),
+            Some(Type::Optional(item, _) | Type::List(item)) => self.has_python_text(*item),
             // The runtime writes a tuple's `repr` for one to six elements.
             Some(Type::Tuple(items)) => {
                 (1..=6).contains(&items.len()) && items.iter().all(|item| self.has_python_text(*item))

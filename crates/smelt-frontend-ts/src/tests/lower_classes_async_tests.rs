@@ -380,12 +380,12 @@ fn lowers_optional_class_fields() -> Result<(), String> {
     ensure!(!id_field.optional);
     ensure!(!matches!(
         ctx.krate.types.get(id_field.ty),
-        Some(Type::Optional(_))
+        Some(Type::Optional(..))
     ));
     ensure!(name_field.optional);
     ensure!(matches!(
         ctx.krate.types.get(name_field.ty),
-        Some(Type::Optional(_))
+        Some(Type::Optional(..))
     ));
     Ok(())
 }
@@ -411,7 +411,7 @@ fn lowers_optional_constructor_parameters_as_optional_values() -> Result<(), Str
     let constructor = constructor.ok_or_else(|| "missing constructor function".to_owned())?;
     ensure!(matches!(
         ctx.krate.types.get(constructor.params[0].ty),
-        Some(Type::Optional(_))
+        Some(Type::Optional(..))
     ));
     Ok(())
 }
@@ -458,7 +458,10 @@ fn lowers_uninitialized_static_field_as_optional_storage_and_static_members() ->
     )?;
     ensure!(smelt_hir::validate(&field_ctx.krate).is_empty());
     let string = field_ctx.krate.types.intern(Type::String);
-    let optional_string = field_ctx.krate.types.intern(Type::Optional(string));
+    let optional_string = field_ctx
+        .krate
+        .types
+        .intern(Type::Optional(string, smelt_hir::Absence::Undefined));
     let role = field_ctx
         .krate
         .items
@@ -601,7 +604,10 @@ abstract class Parser<Value> {
     let run = smelt_hir::function_signature(&ctx.krate, "run")
         .ok_or("missing function item named `run`")?;
     ensure!(
-        run.starts_with("run(this: Parser<Value>) -> Optional<SmeltRecord")
+        // `{ .. } | null` is `Nullable<..>`, the absent value its source
+        // spells (it printed `Optional<..>` while `null` and `undefined`
+        // shared one optional type).
+        run.starts_with("run(this: Parser<Value>) -> Nullable<SmeltRecord")
             && run.ends_with("<Value>>"),
         "signature of `run`: {run}"
     );

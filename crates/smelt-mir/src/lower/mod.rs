@@ -148,7 +148,12 @@ impl LoweringFacts {
 type FunctionIds = HashMap<smelt_hir::ItemId, FuncId>;
 
 /// Original place and temporary local used for collection mutation writeback.
-type MutationWriteback = Option<(Place, LocalId)>;
+///
+/// The third field is the place's own type when the receiver was asserted at
+/// another one (`(xs as number[]).push(9)` on an `unknown[]`): the temporary
+/// is then a converted copy, and the writeback replaces the place's elements
+/// in place rather than rebinding it (see `write_back_mutation_receiver`).
+type MutationWriteback = Option<(Place, LocalId, Option<TypeId>)>;
 
 /// Lowered collection mutation receiver and its optional writeback.
 type LoweredMutationReceiver = (Operand, MutationWriteback);

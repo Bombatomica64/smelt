@@ -413,7 +413,7 @@ fn field_type_satisfies(
     }
     matches!(
         krate.types.get(required.ty),
-        Some(Type::Optional(inner)) if *inner == actual
+        Some(Type::Optional(inner, _)) if *inner == actual
     )
 }
 

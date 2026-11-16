@@ -28,7 +28,7 @@ fn main (FuncId(1)) -> None
   bb0:
     %2 = closure ClosureId(0) []
     %0 = move %2
-    %3 = closure_call copy %0(1.0, none)
+    %3 = closure_call copy %0(1.0, undefined)
     %4 = call @console_log(move %3) -> bb1
   bb1:
     %5 = closure ClosureId(1) []

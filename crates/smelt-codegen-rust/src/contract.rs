@@ -49,3 +49,35 @@ pub const RECORD_ADAPTER_HELPER_PREFIX: &str = "__smelt_adapt_record_";
 /// the helper's name is what lets the SmeltUnknown report classify the call
 /// site as the boundary it is (same reasoning as `erased_list_alias`).
 pub const OPTIONAL_UNKNOWN_OR_UNDEFINED_FN: &str = "smelt_optional_unknown_or_undefined";
+
+/// The runtime helper that reads an erased `T | null | undefined` at the erased carrier.
+///
+/// The input is `Option<Option<SmeltUnknown>>`: the outer `None` is
+/// `undefined`, the inner `None` is `null`, a present value is itself. The
+/// sibling of [`OPTIONAL_UNKNOWN_OR_UNDEFINED_FN`] for a type that admits both
+/// absences, and a boundary adapter for the same reason: both sides are the
+/// erased carrier.
+pub const NULLISH_UNKNOWN_OR_UNDEFINED_FN: &str = "smelt_nullish_unknown_or_undefined";
+
+/// The spellings of a widened class's instantiation-converting items.
+///
+/// They convert its fields and calls between two of its instantiations
+/// (`crate::class_widening`): the per-field adapters
+/// (`fn smelt_erase_field_<f>`, `fn smelt_extract_field_<f>`), the view trait
+/// and its impl (both declare `fn smelt_root(&self)`), and the per-instantiation
+/// view test (`fn smelt_may_view()`).
+///
+/// They are a genuine dynamic boundary: the same object is read at type
+/// arguments it was not built with (`Parser<number>` as `Parser<unknown>`),
+/// and the only value both instantiations can name for a field typed by the
+/// class's parameters is the erased carrier. A concrete type cannot carry
+/// "this field at whichever arguments the object was built with", and a
+/// scoped generic would need the object's construction arguments, which the
+/// wider handle's type erased. The usage report classifies these lines as
+/// boundaries.
+pub const WIDENED_VIEW_MARKERS: [&str; 4] = [
+    "fn smelt_erase_field_",
+    "fn smelt_extract_field_",
+    "fn smelt_root(&self)",
+    "fn smelt_may_view()",
+];

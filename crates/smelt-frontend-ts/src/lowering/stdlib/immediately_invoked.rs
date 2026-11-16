@@ -145,7 +145,7 @@ impl ModuleBuilder<'_> {
         // real return type, so a callee that really can answer nothing still
         // infers the optional.
         let type_hint = type_hint.map(|hint| match self.ctx.krate.types.get(hint) {
-            Some(Type::Optional(inner)) => *inner,
+            Some(Type::Optional(inner, _)) => *inner,
             _ => hint,
         });
         // An ASYNC callee's return channel is a promise, so only the part of the

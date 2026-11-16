@@ -252,10 +252,10 @@ impl FunctionEmitter<'_> {
             }
         } else if matches!(
             self.mir.types.get(operand_ty),
-            Some(Type::Optional(inner)) if self.mir.types.get(*inner).is_some_and(Type::is_text)
+            Some(Type::Optional(inner, _)) if self.mir.types.get(*inner).is_some_and(Type::is_text)
         ) {
             let receiver = self.operand_expr(operand)?;
-            if matches!(self.mir.types.get(operand_ty), Some(Type::Optional(inner)) if self.mir.types.get(*inner) == Some(&Type::String))
+            if matches!(self.mir.types.get(operand_ty), Some(Type::Optional(inner, _)) if self.mir.types.get(*inner) == Some(&Type::String))
             {
                 return Ok(
                     receiver.postfix(".map(|smelt_text| smelt_text.to_string_lossy()).as_deref()")
@@ -284,7 +284,7 @@ impl FunctionEmitter<'_> {
     ) -> String {
         if matches!(
             self.mir.types.get(scrutinee_ty),
-            Some(Type::Optional(inner)) if self.mir.types.get(*inner).is_some_and(Type::is_text)
+            Some(Type::Optional(inner, _)) if self.mir.types.get(*inner).is_some_and(Type::is_text)
         ) && let Constant::String(value) = constant
         {
             return format!("Some({value:?})");

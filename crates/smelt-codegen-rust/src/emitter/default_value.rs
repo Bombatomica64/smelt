@@ -95,9 +95,9 @@ impl FunctionEmitter<'_> {
             Type::JsMap(_, _) => {
                 Ok(self.carrier_expr(self.carrier()?, &RustExpr::atom("SmeltJsMap::new()")))
             }
-            Type::Optional(inner) => Ok(RustExpr::opaque(format!(
+            Type::Optional(inner, absence) => Ok(RustExpr::opaque(format!(
                 "None::<{}>",
-                self.rendered_type(self.flatten_optional_inner(*inner))?
+                self.rendered_type(self.optional_payload(*inner, *absence))?
             ))),
             Type::Tuple(items) => {
                 let item_values = items
@@ -321,9 +321,9 @@ impl FunctionEmitter<'_> {
             Type::TypeParam { name } if substitution.spells(*name) => {
                 Ok(RustExpr::atom("Default::default()").delegating_default())
             }
-            Type::Optional(inner) => Ok(RustExpr::opaque(format!(
+            Type::Optional(inner, absence) => Ok(RustExpr::opaque(format!(
                 "None::<{}>",
-                self.rust_type(self.flatten_optional_inner(*inner), false, substitution)?
+                self.rust_type(self.optional_payload(*inner, *absence), false, substitution)?
             ))),
             // A list default annotates its element type, and that annotation has
             // to be spelled through THIS substitution. The unscoped

@@ -50,7 +50,7 @@ impl ModuleBuilder<'_> {
         };
         match receiver_type {
             Type::Dict(_, value) => Ok(value),
-            Type::Optional(inner) => {
+            Type::Optional(inner, _) => {
                 let inner_field = self.class_field_type(inner, field)?;
                 Ok(self.optional_chain_result_type(inner_field))
             }
@@ -111,7 +111,10 @@ impl ModuleBuilder<'_> {
                     .and_then(|fields| fields.iter().find(|item| item.name == field))
                 {
                     return Ok(if field.optional {
-                        self.ctx.krate.types.intern(Type::Optional(field.ty))
+                        self.ctx
+                            .krate
+                            .types
+                            .intern(Type::Optional(field.ty, smelt_hir::Absence::Undefined))
                     } else {
                         field.ty
                     });
@@ -527,8 +530,8 @@ impl ModuleBuilder<'_> {
         ty: smelt_hir::TypeId,
         optional: bool,
     ) -> smelt_hir::TypeId {
-        if optional && !matches!(self.ctx.krate.types.get(ty), Some(Type::Optional(_))) {
-            self.ctx.krate.types.intern(Type::Optional(ty))
+        if optional {
+            smelt_hir::type_normalize::admit_undefined(&mut self.ctx.krate.types, ty)
         } else {
             ty
         }
@@ -550,7 +553,10 @@ impl ModuleBuilder<'_> {
                 let mut value_tys = Vec::new();
                 for field in fields {
                     let ty = if field.optional {
-                        self.ctx.krate.types.intern(Type::Optional(field.ty))
+                        self.ctx
+                            .krate
+                            .types
+                            .intern(Type::Optional(field.ty, smelt_hir::Absence::Undefined))
                     } else {
                         field.ty
                     };
@@ -589,11 +595,9 @@ impl ModuleBuilder<'_> {
         &self,
         ty: smelt_hir::TypeId,
     ) -> smelt_hir::TypeId {
-        if let Some(Type::Optional(inner)) = self.ctx.krate.types.get(ty) {
-            *inner
-        } else {
-            ty
-        }
+        // Every optional layer: a member of a `T | null | undefined` is a
+        // member of `T`.
+        smelt_hir::type_normalize::peel_optional(&self.ctx.krate.types, ty).0
     }
 
     /// Wrap a result type in `Optional`, avoiding nested optionals from optional fields.

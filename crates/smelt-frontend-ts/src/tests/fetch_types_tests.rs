@@ -75,7 +75,7 @@ const cookies = headers.getSetCookie();
     };
     let get_ty = op_ty(smelt_hir::HeadersOp::Get)?;
     ensure!(
-        matches!(ctx.krate.types.get(get_ty), Some(Type::Optional(inner))
+        matches!(ctx.krate.types.get(get_ty), Some(Type::Optional(inner, _))
             if matches!(ctx.krate.types.get(*inner), Some(Type::String))),
         "`Headers.get` is `string | null`, got {}",
         type_text(&ctx, get_ty),
@@ -296,7 +296,7 @@ const count = params.size;
     };
     let get_ty = op_ty(smelt_hir::UrlSearchParamsOp::Get)?;
     ensure!(
-        matches!(ctx.krate.types.get(get_ty), Some(Type::Optional(inner))
+        matches!(ctx.krate.types.get(get_ty), Some(Type::Optional(inner, _))
             if matches!(ctx.krate.types.get(*inner), Some(Type::String))),
         "`URLSearchParams.get` is `string | null`, got {}",
         type_text(&ctx, get_ty),
@@ -1503,7 +1503,7 @@ const port = server.address();
             }
         )
     })?;
-    let Some(Type::Optional(info)) = ctx.krate.types.get(address) else {
+    let Some(Type::Optional(info, _)) = ctx.krate.types.get(address) else {
         return Err(format!(
             "`address` answers an optional record, got {}",
             type_text(&ctx, address)

@@ -161,9 +161,18 @@ impl ModuleBuilder<'_> {
             }
             // An optional list the checker proved present (`Array.from(null)`
             // does not type-check): copied out of the optional, keeping `T`.
-            Some(Type::Optional(inner))
-                if matches!(self.ctx.krate.types.get(inner), Some(Type::List(_))) =>
+            // Every optional layer: a `T[] | null | undefined` holds a `T[]`.
+            Some(Type::Optional(..))
+                if matches!(
+                    self.ctx.krate.types.get(
+                        smelt_hir::type_normalize::peel_optional(&self.ctx.krate.types, source_ty)
+                            .0
+                    ),
+                    Some(Type::List(_))
+                ) =>
             {
+                let inner =
+                    smelt_hir::type_normalize::peel_optional(&self.ctx.krate.types, source_ty).0;
                 Self::fresh_list_copy(source, inner, span, body)
             }
             Some(Type::Generator {

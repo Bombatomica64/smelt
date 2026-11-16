@@ -122,11 +122,19 @@ impl FunctionEmitter<'_> {
         if let Some(check) = self.concrete_union_tag_check(&text, value_ty, kind) {
             return Ok(check);
         }
-        if let Some(&Type::Optional(inner)) = self.mir.types.get(value_ty) {
-            if kind == smelt_hir::UnknownKind::Null {
-                return Ok(format!("{text}.is_none()", text = text.tight()));
-            }
-            if kind == smelt_hir::UnknownKind::Undefined {
+        if let Some(&Type::Optional(inner, _)) = self.mir.types.get(value_ty) {
+            // A nullish test: absent at any layer (`T | null | undefined` has
+            // two).
+            if matches!(
+                kind,
+                smelt_hir::UnknownKind::Null | smelt_hir::UnknownKind::Undefined
+            ) {
+                if matches!(self.mir.types.get(inner), Some(Type::Optional(..))) {
+                    return Ok(format!(
+                        "{text}.as_ref().map_or(true, Option::is_none)",
+                        text = text.tight()
+                    ));
+                }
                 return Ok(format!("{text}.is_none()", text = text.tight()));
             }
             // The payload's own type may already decide the test, in which case
@@ -136,10 +144,15 @@ impl FunctionEmitter<'_> {
             // there. See `static_tag_check` for why a concrete payload cannot
             // take the erased path below.
             if let Some(decided) = self.static_tag_check(inner, kind) {
-                return Ok(if decided {
-                    format!("{text}.is_some()", text = text.tight())
-                } else {
-                    "false".to_owned()
+                // `null` is an object to `typeof`: a `T | null` that is
+                // absent passes an object test.
+                let absent_passes = self.optional_absence(value_ty) == smelt_hir::Absence::Null
+                    && smelt_hir::UnknownKind::Null.satisfies(kind);
+                return Ok(match (decided, absent_passes) {
+                    (true, true) => "true".to_owned(),
+                    (true, false) => format!("{text}.is_some()", text = text.tight()),
+                    (false, true) => format!("{text}.is_none()", text = text.tight()),
+                    (false, false) => "false".to_owned(),
                 });
             }
             // A concrete-union `Option` payload is a tagged enum, so the present
@@ -234,15 +247,17 @@ impl FunctionEmitter<'_> {
         // otherwise. Only an inner type whose spelling depends on the value
         // (erased, generic, a union, a function-or-object class) goes through
         // the erased helper.
-        if let Some(Type::Optional(inner)) = self.mir.types.get(value_ty)
-            && let Some(kind) = self.static_typeof_text(*inner)
+        if let Some(&Type::Optional(inner, absence)) = self.mir.types.get(value_ty)
+            && let Some(kind) = self.static_typeof_text(inner)
         {
+            // `typeof null` is `"object"`.
+            let absent = absence.unknown_kind().typeof_name();
             return Ok(RustExpr::atom(format!(
-                "if ({reference}).is_some() {{ {kind:?} }} else {{ \"undefined\" }}",
+                "if ({reference}).is_some() {{ {kind:?} }} else {{ {absent:?} }}",
                 reference = reference.delimited()
             )));
         }
-        if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {
+        if matches!(self.mir.types.get(value_ty), Some(Type::Optional(..))) {
             let erased = self.erase(value)?;
             return Ok(RustExpr::chain(format!(
                 "smelt_typeof(&{erased})",
@@ -287,7 +302,7 @@ impl FunctionEmitter<'_> {
     /// or generator arm is `"object"` here as it is under `static_tag_check`.
     fn typeof_static_type_text(&self, ty: TypeId) -> &'static str {
         match self.mir.types.get(ty) {
-            Some(Type::None | Type::Optional(_)) | None => "undefined",
+            Some(Type::None | Type::Optional(..)) | None => "undefined",
             Some(member) => member
                 .runtime_kind()
                 .map_or("undefined", smelt_hir::UnknownKind::typeof_name),

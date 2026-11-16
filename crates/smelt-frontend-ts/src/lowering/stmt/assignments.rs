@@ -231,7 +231,7 @@ impl ModuleBuilder<'_> {
         // `number`: `ToNumber(undefined)` is `NaN`, and the update evaluates
         // to a number either way.
         let ty = match self.ctx.krate.types.get(cell_ty) {
-            Some(Type::Optional(inner))
+            Some(Type::Optional(inner, _))
                 if matches!(self.ctx.krate.types.get(*inner), Some(Type::Float)) =>
             {
                 *inner
@@ -938,13 +938,15 @@ impl ModuleBuilder<'_> {
         base_ty: smelt_hir::TypeId,
         observed_ty: smelt_hir::TypeId,
     ) -> Option<smelt_hir::TypeId> {
-        let Some(Type::Optional(inner)) = self.ctx.krate.types.get(base_ty) else {
+        if !matches!(self.ctx.krate.types.get(base_ty), Some(Type::Optional(..))) {
             return None;
-        };
-        let inner_ty = *inner;
+        }
+        // Every optional layer: a `T | null | undefined` assigned a `T` holds
+        // the `T`.
+        let inner_ty = smelt_hir::type_normalize::peel_optional(&self.ctx.krate.types, base_ty).0;
         if matches!(
             self.ctx.krate.types.get(observed_ty),
-            Some(Type::Optional(_) | Type::None | Type::Unknown)
+            Some(Type::Optional(..) | Type::None | Type::Unknown)
         ) {
             return None;
         }
@@ -1168,7 +1170,10 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> smelt_hir::ExprId {
         let target_ty = Self::expr_ty(body, target);
-        if matches!(self.ctx.krate.types.get(target_ty), Some(Type::Optional(_))) {
+        if matches!(
+            self.ctx.krate.types.get(target_ty),
+            Some(Type::Optional(..))
+        ) {
             return target;
         }
         let Some(target_expr) = body.expr_at(target) else {
@@ -1190,7 +1195,11 @@ impl ModuleBuilder<'_> {
         else {
             return target;
         };
-        let optional_ty = self.ctx.krate.types.intern(Type::Optional(value_ty));
+        let optional_ty = self
+            .ctx
+            .krate
+            .types
+            .intern(Type::Optional(value_ty, smelt_hir::Absence::Undefined));
         body.push_expr(Expr {
             kind: ExprKind::Index { receiver, index },
             ty: optional_ty,

@@ -128,7 +128,7 @@ fn erased_value_fits(mir: &Mir, ty: TypeId) -> Option<String> {
             });
             (!callable).then(|| "matches!(value, SmeltUnknown::Object(_))".to_owned())
         }
-        Type::Optional(inner) => erased_value_fits(mir, *inner).map(|fits| {
+        Type::Optional(inner, _) => erased_value_fits(mir, *inner).map(|fits| {
             format!("(matches!(value, SmeltUnknown::Null | SmeltUnknown::Undefined) || {fits})")
         }),
         _ => None,

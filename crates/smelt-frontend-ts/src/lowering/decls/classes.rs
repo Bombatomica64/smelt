@@ -680,10 +680,11 @@ impl ModuleBuilder<'_> {
                         // undefined`: the same `Optional` the parameter has. A
                         // defaulted property (`public n = 1`) stores the applied
                         // default and keeps the declared type.
-                        let ty = if param.optional
-                            && !matches!(this.ctx.krate.types.get(ty), Some(Type::Optional(_)))
-                        {
-                            this.ctx.krate.types.intern(Type::Optional(ty))
+                        let ty = if param.optional {
+                            smelt_hir::type_normalize::admit_undefined(
+                                &mut this.ctx.krate.types,
+                                ty,
+                            )
                         } else {
                             ty
                         };

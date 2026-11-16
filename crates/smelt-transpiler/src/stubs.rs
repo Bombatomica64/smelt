@@ -729,7 +729,7 @@ fn ts_type(krate: &Crate, ty: smelt_hir::TypeId) -> String {
                 .join(", ");
             format!("[{tuple_items}]")
         }
-        Some(Type::Optional(item)) => format!("{} | null", ts_union_member_type(krate, *item)),
+        Some(Type::Optional(item, _)) => format!("{} | null", ts_union_member_type(krate, *item)),
         Some(Type::Union(items)) => items
             .iter()
             .map(|item| ts_union_member_type(krate, *item))
@@ -805,7 +805,7 @@ fn py_type(krate: &Crate, ty: smelt_hir::TypeId) -> String {
                 .join(", ");
             format!("tuple[{tuple_items}]")
         }
-        Some(Type::Optional(item)) => format!("{} | None", py_type(krate, *item)),
+        Some(Type::Optional(item, _)) => format!("{} | None", py_type(krate, *item)),
         Some(Type::Union(items)) => items
             .iter()
             .map(|item| py_type(krate, *item))

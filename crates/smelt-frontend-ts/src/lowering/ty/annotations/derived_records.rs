@@ -375,11 +375,15 @@ impl ModuleBuilder<'_> {
         facts: &[FieldDecodeFacts],
     ) -> Field {
         let inner = match self.ctx.krate.types.get(field.ty) {
-            Some(Type::Optional(inner)) => Some(*inner),
+            Some(Type::Optional(inner, _)) => Some(*inner),
             _ => None,
         };
         let ty = match (optional, inner) {
-            (true, None) => self.ctx.krate.types.intern(Type::Optional(field.ty)),
+            (true, None) => self
+                .ctx
+                .krate
+                .types
+                .intern(Type::Optional(field.ty, smelt_hir::Absence::Undefined)),
             (false, Some(inner))
                 if field.optional
                     && !facts

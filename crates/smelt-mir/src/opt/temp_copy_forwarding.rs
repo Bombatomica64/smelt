@@ -244,7 +244,7 @@ fn erased_unwrap(
     from_ty: smelt_hir::TypeId,
 ) -> bool {
     matches!(types.get(temp_ty), Some(Type::Unknown))
-        && matches!(types.get(from_ty), Some(Type::Optional(inner)) if *inner == temp_ty)
+        && matches!(types.get(from_ty), Some(Type::Optional(inner, _)) if *inner == temp_ty)
 }
 
 /// Where in `block`, at or after `from`, `temp` is read.

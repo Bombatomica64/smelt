@@ -128,7 +128,11 @@ impl ModuleBuilder<'_> {
 
         let string_ty = self.ctx.krate.types.intern(Type::String);
         let float_ty = self.ctx.krate.types.intern(Type::Float);
-        let optional_string_ty = self.ctx.krate.types.intern(Type::Optional(string_ty));
+        let optional_string_ty = self
+            .ctx
+            .krate
+            .types
+            .intern(Type::Optional(string_ty, smelt_hir::Absence::Undefined));
         let params = args
             .iter()
             .map(|arg| match arg {
@@ -617,7 +621,11 @@ impl ModuleBuilder<'_> {
         // accessors on the generated `SmeltMatch` type instead of the erased
         // `SmeltUnknown` boundary.
         let match_ty = self.match_result_type();
-        let ty = self.ctx.krate.types.intern(Type::Optional(match_ty));
+        let ty = self
+            .ctx
+            .krate
+            .types
+            .intern(Type::Optional(match_ty, smelt_hir::Absence::Null));
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::RegexExec { regex, haystack },
             ty,
@@ -777,10 +785,16 @@ impl ModuleBuilder<'_> {
         if static_flags.is_some_and(|flags| flags.contains('g')) {
             let string_ty = self.ctx.krate.types.intern(Type::String);
             let list_ty = self.ctx.krate.types.intern(Type::List(string_ty));
-            self.ctx.krate.types.intern(Type::Optional(list_ty))
+            self.ctx
+                .krate
+                .types
+                .intern(Type::Optional(list_ty, smelt_hir::Absence::Null))
         } else {
             let match_ty = self.match_result_type();
-            self.ctx.krate.types.intern(Type::Optional(match_ty))
+            self.ctx
+                .krate
+                .types
+                .intern(Type::Optional(match_ty, smelt_hir::Absence::Null))
         }
     }
 
@@ -823,7 +837,11 @@ impl ModuleBuilder<'_> {
     /// is `undefined`, exactly as JavaScript stores it in the match array.
     pub(in crate::lowering) fn match_array_view_type(&mut self) -> smelt_hir::TypeId {
         let string_ty = self.ctx.krate.types.intern(Type::String);
-        let group_ty = self.ctx.krate.types.intern(Type::Optional(string_ty));
+        let group_ty = self
+            .ctx
+            .krate
+            .types
+            .intern(Type::Optional(string_ty, smelt_hir::Absence::Undefined));
         self.ctx.krate.types.intern(Type::List(group_ty))
     }
 
@@ -1089,7 +1107,7 @@ impl ModuleBuilder<'_> {
                 .symbols
                 .get(*name)
                 .is_some_and(|name| name == "RegExp"),
-            Some(Type::Optional(item)) => self.type_accepts_regexp_literal(*item),
+            Some(Type::Optional(item, _)) => self.type_accepts_regexp_literal(*item),
             Some(Type::Union(items)) => items
                 .iter()
                 .copied()

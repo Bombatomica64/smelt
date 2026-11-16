@@ -44,7 +44,7 @@ impl ModuleBuilder<'_> {
         let resolved_ty = self.type_param_constraint_or_self(ty);
         match self.ctx.krate.types.get(resolved_ty).cloned() {
             Some(Type::Function(_)) => Some(resolved_ty),
-            Some(Type::Optional(item)) => {
+            Some(Type::Optional(item, _)) => {
                 self.function_member_type_for_args(item, arg_count, arg_tys)
             }
             Some(Type::Union(items)) => {

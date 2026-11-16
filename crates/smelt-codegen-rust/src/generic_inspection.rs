@@ -80,7 +80,7 @@ pub(crate) fn operand_is_bare_type_param(
         return false;
     };
     let payload = match mir.types.get(decl.ty) {
-        Some(Type::Optional(inner)) => *inner,
+        Some(Type::Optional(inner, _)) => *inner,
         _ => decl.ty,
     };
     matches!(mir.types.get(payload), Some(Type::TypeParam { name: found }) if *found == name)
@@ -238,7 +238,7 @@ pub(crate) fn reinterprets_type_param(
         return false;
     };
     let signature = match mir.types.get(decl.ty) {
-        Some(Type::Optional(inner)) => mir.types.get(*inner),
+        Some(Type::Optional(inner, _)) => mir.types.get(*inner),
         other => other,
     };
     let Some(Type::Function(function)) = signature else {
@@ -246,7 +246,7 @@ pub(crate) fn reinterprets_type_param(
     };
     let is_bare = |ty: smelt_hir::TypeId| {
         let payload = match mir.types.get(ty) {
-            Some(Type::Optional(inner)) => *inner,
+            Some(Type::Optional(inner, _)) => *inner,
             _ => ty,
         };
         matches!(mir.types.get(payload), Some(Type::TypeParam { name: found }) if *found == name)

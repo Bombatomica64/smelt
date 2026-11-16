@@ -100,10 +100,8 @@ impl ModuleBuilder<'_> {
                 .and_then(|function| function.params.get(index))
                 .is_none()
                 && self.closure_param_default(param).is_some();
-            let ty = if (param.optional || omittable_default)
-                && !matches!(self.ctx.krate.types.get(ty), Some(Type::Optional(_)))
-            {
-                self.ctx.krate.types.intern(Type::Optional(ty))
+            let ty = if param.optional || omittable_default {
+                smelt_hir::type_normalize::admit_undefined(&mut self.ctx.krate.types, ty)
             } else {
                 ty
             };
@@ -680,7 +678,7 @@ impl ModuleBuilder<'_> {
                         binding.name.as_str().to_owned(),
                         self.scope.bind(binding.name.as_str().to_owned(), local),
                     ));
-                    if matches!(self.ctx.krate.types.get(ty), Some(Type::Optional(_)))
+                    if matches!(self.ctx.krate.types.get(ty), Some(Type::Optional(..)))
                         && let Some(initializer) = self.closure_param_default(param)
                     {
                         defaulted_params.push((
@@ -1052,11 +1050,11 @@ impl ModuleBuilder<'_> {
                                                     == Some(&Type::None)
                                             {
                                                 let none = this.ctx.krate.types.intern(Type::None);
-                                                actual_return_ty = this
-                                                    .ctx
-                                                    .krate
-                                                    .types
-                                                    .intern(Type::Optional(none));
+                                                actual_return_ty =
+                                                    this.ctx.krate.types.intern(Type::Optional(
+                                                        none,
+                                                        smelt_hir::Absence::Undefined,
+                                                    ));
                                             }
                                         }
                                         closure_body.push_stmt(Stmt::Return(Some(value)));

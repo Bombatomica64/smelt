@@ -114,8 +114,19 @@ pub enum Type {
     JsMap(TypeId, TypeId),
     /// Tuple type.
     Tuple(Vec<TypeId>),
-    /// Optional type.
-    Optional(TypeId),
+    /// A value of the inner type, or absent.
+    ///
+    /// The [`Absence`] says which absent value the source type admits: a
+    /// TypeScript `T | undefined` (an optional property or parameter, `find`,
+    /// `Map.get`) and every Python `Optional[T]` are [`Absence::Undefined`],
+    /// a TypeScript `T | null` is [`Absence::Null`]. Both lower to one Rust
+    /// `Option<T>`; the tag is what printing, `===`, `typeof`, JSON and
+    /// erasure read to answer `null` or `undefined` for its `None`.
+    ///
+    /// A type that admits both (`T | null | undefined`, `x?: T | null`) nests
+    /// the two, undefined outside: `Optional(Optional(T, Null), Undefined)`,
+    /// a Rust `Option<Option<T>>` (see [`crate::type_normalize::optional_of`]).
+    Optional(TypeId, Absence),
     /// Union type.
     Union(Vec<TypeId>),
     /// User-defined class type.
@@ -232,7 +243,7 @@ impl Type {
             | Self::Never
             | Self::TypeParam { .. }
             | Self::None => (&[], [None; 3]),
-            Self::List(item) | Self::Set(item) | Self::Optional(item) | Self::Future(item) => {
+            Self::List(item) | Self::Set(item) | Self::Optional(item, _) | Self::Future(item) => {
                 (&[], [Some(*item), None, None])
             }
             Self::Dict(key, value) | Self::JsMap(key, value) => {
@@ -288,7 +299,7 @@ impl Type {
             | Self::None => self.clone(),
             Self::List(item) => Self::List(rewrite(*item)?),
             Self::Set(item) => Self::Set(rewrite(*item)?),
-            Self::Optional(item) => Self::Optional(rewrite(*item)?),
+            Self::Optional(item, absence) => Self::Optional(rewrite(*item)?, *absence),
             Self::Future(item) => Self::Future(rewrite(*item)?),
             Self::Dict(key, value) => Self::Dict(rewrite(*key)?, rewrite(*value)?),
             Self::JsMap(key, value) => Self::JsMap(rewrite(*key)?, rewrite(*value)?),
@@ -369,8 +380,46 @@ impl Type {
             | Self::Never
             | Self::TypeParam { .. }
             | Self::None
-            | Self::Optional(_)
+            | Self::Optional(..)
             | Self::Union(_) => None,
+        }
+    }
+}
+
+/// Which absent value a [`Type::Optional`] admits.
+///
+/// JavaScript has two (`null` and `undefined`) and a program observes which
+/// one it holds: `String(x)`, `console.log(x)`, `x === undefined`, `typeof x`
+/// and `JSON.stringify` all answer differently. The source type decides it,
+/// so it is part of the type rather than of the value: both absences lower to
+/// the same Rust `Option<T>`, whose `None` then means exactly one of them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum Absence {
+    /// The language's own "no value": JavaScript `undefined` (an optional
+    /// slot, a missing element, `find`/`pop`/`Map.get`, `?.`) and Python's
+    /// `None`, its only absent value.
+    Undefined,
+    /// JavaScript `null`. Only a source type that spells `null` (`T | null`)
+    /// carries it; Python never produces it.
+    Null,
+}
+
+impl Absence {
+    /// The JavaScript spelling of this absent value.
+    #[must_use]
+    pub const fn js_text(self) -> &'static str {
+        match self {
+            Self::Undefined => "undefined",
+            Self::Null => "null",
+        }
+    }
+
+    /// The runtime kind of this absent value.
+    #[must_use]
+    pub const fn unknown_kind(self) -> UnknownKind {
+        match self {
+            Self::Undefined => UnknownKind::Undefined,
+            Self::Null => UnknownKind::Null,
         }
     }
 }
@@ -453,22 +502,6 @@ pub struct TypeInterner {
     /// decisions about it must not depend on the order it renders in.
     #[serde(skip)]
     late: LateTypes,
-    /// `T | null` optionals, keyed by their present type `T`.
-    ///
-    /// `Option<T>` holds `null` and `undefined` as one `None`, which erases
-    /// to `undefined`. A type the source writes `T | null` (and not
-    /// `undefined`) has only `null` as its absent value, so at a dynamic
-    /// boundary its `None` must erase to `null`: ts-pattern's
-    /// `.otherwise(() => null)` result compared with `toEqual(null)`. Such a
-    /// type is a SECOND id whose structure is the same `Type::Optional(T)`:
-    /// every consumer matching `Type::Optional` treats it as the optional it
-    /// is, and only the erase sites ask [`Self::absent_is_null`]. The entry
-    /// sits in `types` but not in `index`, so structural interning keeps
-    /// answering the plain `T | undefined` id. A pass that re-interns an
-    /// optional by structure (a generic substitution) answers the plain id,
-    /// the conservative `undefined`.
-    #[serde(default)]
-    null_absent: std::collections::HashMap<TypeId, TypeId>,
 }
 
 /// The append-only tail of a [`TypeInterner`].
@@ -505,17 +538,14 @@ impl TypeInterner {
         // deduplicating equivalent types, canonical member order gives Rust
         // codegen one stable tagged-enum definition for `A | B` and `B | A`.
         ty = canonical(ty);
-        if !self.index_in_sync() {
+        if self.index.len() != self.types.len() {
             // First occurrence wins, as the scan did, should a deserialized
-            // table ever carry a duplicate. A `T | null` id is never the
-            // structural answer (see `null_absent`).
+            // table ever carry a duplicate.
             let mut index = std::collections::HashMap::with_capacity(self.types.len());
             for (idx, existing) in self.types.iter().enumerate() {
-                let id = TypeId(id_index(idx));
-                if self.absent_is_null(id) {
-                    continue;
-                }
-                index.entry(existing.clone()).or_insert(id);
+                index
+                    .entry(existing.clone())
+                    .or_insert_with(|| TypeId(id_index(idx)));
             }
             self.index = index;
         }
@@ -528,94 +558,42 @@ impl TypeInterner {
         id
     }
 
-    /// Whether `index` names every structurally interned entry of `types`
-    /// (every entry but the `T | null` ids, which it never holds).
-    fn index_in_sync(&self) -> bool {
-        self.index.len() + self.null_absent.len() == self.types.len()
-    }
-
-    /// The id of `T | null`: `Type::Optional(present)` whose absent value is
-    /// `null` (see the `null_absent` field).
+    /// The id of `T | null`: the optional of `present` whose absent value is
+    /// `null`, in canonical form (`crate::type_normalize::optional_with`).
     ///
-    /// `present` is the present type; an optional `present` is unwrapped
-    /// first, as `T | null | null` is `T | null`.
+    /// A `present` that admits `null` already is its own answer
+    /// (`T | null | null` is `T | null`); one that admits `undefined` gains
+    /// the inner `null` layer (`Optional(Optional(T, Null), Undefined)`).
     pub fn intern_null_optional(&mut self, present: TypeId) -> TypeId {
-        let present = match self.get(present) {
-            Some(Type::Optional(inner)) => *inner,
-            _ => present,
-        };
-        if let Some(id) = self.null_absent.get(&present) {
-            return *id;
-        }
-        // Only a concrete present type takes the tag. A generic one
-        // (`{ value: T } | null`) is rewritten per instantiation by passes
-        // that match ids exactly (codegen's generic bindings), where a tagged
-        // declaration and a plain argument would disagree; it stays the plain
-        // optional, absent as `undefined`.
-        if self.mentions_type_param(present, 0) {
-            return self.intern(Type::Optional(present));
-        }
-        // The plain optional is interned first, so it stays the first
-        // occurrence a rebuilt index finds.
-        self.intern(Type::Optional(present));
-        let id = TypeId(id_index(self.types.len()));
-        self.types.push(Type::Optional(present));
-        self.null_absent.insert(present, id);
-        id
-    }
-
-    /// Whether `id` mentions a type parameter anywhere (bounded, so a cyclic
-    /// table terminates).
-    fn mentions_type_param(&self, id: TypeId, depth: usize) -> bool {
-        if depth > 16 {
-            return true;
-        }
-        match self.get(id) {
-            Some(Type::TypeParam { .. }) => true,
-            Some(other) => other
-                .children()
-                .any(|child| self.mentions_type_param(child, depth + 1)),
-            None => false,
-        }
+        crate::type_normalize::optional_with(self, present, Absence::Null)
     }
 
     #[must_use]
-    /// Whether `id` is a `T | null` optional, whose absent value is `null`.
+    /// Whether `id` is an optional whose outer absent value is `null`
+    /// (`Optional(T, Null)`), so its `None` erases as `null`.
     pub fn absent_is_null(&self, id: TypeId) -> bool {
-        match self.get(id) {
-            Some(Type::Optional(present)) => self.null_absent.get(present) == Some(&id),
-            _ => false,
-        }
+        matches!(self.get(id), Some(Type::Optional(_, Absence::Null)))
     }
 
     #[must_use]
-    /// The id `rewritten` is interned under, as [`Self::lookup`], keeping the
-    /// absent value of `like`: when `like` is `T | null` and `rewritten` the
-    /// optional of another present type, its `T | null` id if interned.
-    ///
-    /// For read-only consumers that rewrite a type layer by layer (codegen's
-    /// generic substitution), so `ParseResult<A>` (`{ .. } | null`) substitutes
-    /// to the very id a `ParseResult<number>` argument has.
-    pub fn lookup_like(&self, like: TypeId, rewritten: &Type) -> Option<TypeId> {
-        if self.absent_is_null(like)
-            && let Type::Optional(present) = rewritten
-            && let Some(id) = self.null_absent.get(present)
-        {
-            return Some(*id);
-        }
+    /// The id `rewritten` is interned under. The absent value is part of the
+    /// optional's structure (`Type::Optional(T, Absence)`), so a rewrite
+    /// layer by layer keeps it and this is [`Self::lookup`]; `like` is kept
+    /// for callers that rebuild a layer around another present type.
+    pub fn lookup_like(&self, _like: TypeId, rewritten: &Type) -> Option<TypeId> {
         self.lookup(rewritten)
     }
 
-    /// The optional of `present` with the absent value of `like`: `T | null`
-    /// when `like` is one, otherwise the plain `Option`.
+    /// The optional of `present` with the outer absent value of `like`
+    /// (`undefined` when `like` is no optional).
     ///
     /// For passes that rebuild an optional around a rewritten present type.
     pub fn intern_optional_like(&mut self, like: TypeId, present: TypeId) -> TypeId {
-        if self.absent_is_null(like) {
-            self.intern_null_optional(present)
-        } else {
-            self.intern(Type::Optional(present))
-        }
+        let absence = match self.get(like) {
+            Some(Type::Optional(_, absence)) => *absence,
+            _ => Absence::Undefined,
+        };
+        crate::type_normalize::wrap_optional(self, present, absence)
     }
 
     /// Move the late tail into `types`, keeping every late id's meaning.
@@ -626,7 +604,7 @@ impl TypeInterner {
         let late = std::mem::take(&mut self.late).0.into_vec();
         for ty in late {
             let id = TypeId(id_index(self.types.len()));
-            if self.index_in_sync() {
+            if self.index.len() == self.types.len() {
                 self.index.entry((*ty).clone()).or_insert(id);
             }
             self.types.push(*ty);
@@ -650,15 +628,12 @@ impl TypeInterner {
         } else {
             ty
         };
-        if self.index_in_sync() {
+        if self.index.len() == self.types.len() {
             return self.index.get(ty).copied();
         }
         self.types
             .iter()
-            .enumerate()
-            .position(|(idx, existing)| {
-                existing == ty && !self.absent_is_null(TypeId(id_index(idx)))
-            })
+            .position(|existing| existing == ty)
             .map(|idx| TypeId(id_index(idx)))
     }
 
@@ -777,7 +752,10 @@ mod tests {
         assert_eq!(Type::Int.runtime_kind(), Some(UnknownKind::Number));
         assert_eq!(Type::BigInt.runtime_kind(), Some(UnknownKind::BigInt));
         assert_eq!(Type::Union(vec![string, float]).runtime_kind(), None);
-        assert_eq!(Type::Optional(float).runtime_kind(), None);
+        assert_eq!(
+            Type::Optional(float, Absence::Undefined).runtime_kind(),
+            None
+        );
         assert_eq!(Type::None.runtime_kind(), None);
         assert_eq!(Type::Unknown.runtime_kind(), None);
     }

@@ -23,10 +23,10 @@ interned types
   t4 = Dict<String, String>
   t5 = Request
   t6 = Headers
-  t7 = Optional<String>
+  t7 = Nullable<String>
   t8 = Bool
   t9 = Future<String>
   t10 = ReadableStream
-  t11 = Optional<ReadableStream>
+  t11 = Nullable<ReadableStream>
   t12 = URL
   t13 = async fn() -> Future<None>

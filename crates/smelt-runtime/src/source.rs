@@ -383,6 +383,10 @@ const MODULES: &[RuntimeModule] = &[
         source: include_str!("runtime/view_write_through.rs"),
     },
     RuntimeModule {
+        name: "widened_view",
+        source: include_str!("runtime/widened_view.rs"),
+    },
+    RuntimeModule {
         name: "vitest_mock",
         source: include_str!("runtime/vitest_mock.rs"),
     },

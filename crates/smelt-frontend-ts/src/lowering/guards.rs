@@ -133,7 +133,7 @@ impl ModuleBuilder<'_> {
         // An optional value can be absent, and `undefined instanceof Date` is `false`,
         // so only a value that is always present folds.
         if Self::is_ts_stdlib_class_name(class_text, smelt_stdlib::StdlibClass::Date)
-            && !matches!(self.ctx.krate.types.get(value_ty), Some(Type::Optional(_)))
+            && !matches!(self.ctx.krate.types.get(value_ty), Some(Type::Optional(..)))
             && self.expression_is_known_date_value(value, body)
         {
             let ty = self.ctx.krate.types.intern(Type::Bool);
@@ -164,7 +164,7 @@ impl ModuleBuilder<'_> {
         let operand_keeps_marker_identity = (date_target
             && matches!(
                 self.ctx.krate.types.get(value_ty),
-                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Optional(_))
+                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Optional(..))
             ))
             || (regexp_target
                 && matches!(
@@ -392,7 +392,7 @@ impl ModuleBuilder<'_> {
                 .iter()
                 .copied()
                 .any(|item| self.instanceof_supported_left_operand(item)),
-            Some(Type::Optional(item)) => self.instanceof_supported_left_operand(*item),
+            Some(Type::Optional(item, _)) => self.instanceof_supported_left_operand(*item),
             _ => false,
         }
     }
@@ -496,7 +496,7 @@ impl ModuleBuilder<'_> {
             if absent_is_null
                 && matches!(
                     self.ctx.krate.types.get(value_ty),
-                    Some(Type::Optional(_) | Type::None)
+                    Some(Type::Optional(..) | Type::None)
                 )
             {
                 let check = body.push_expr(Expr {
@@ -511,7 +511,7 @@ impl ModuleBuilder<'_> {
                     body,
                 )));
             }
-            if matches!(self.ctx.krate.types.get(value_ty), Some(Type::Optional(_))) {
+            if matches!(self.ctx.krate.types.get(value_ty), Some(Type::Optional(..))) {
                 let check = body.push_expr(Expr {
                     kind: ExprKind::UnknownIs {
                         value,
@@ -588,7 +588,7 @@ impl ModuleBuilder<'_> {
                     ty: bool_ty,
                     span,
                 })),
-                Some(Type::Optional(inner)) => {
+                Some(Type::Optional(inner, _)) => {
                     let absent = body.push_expr(Expr {
                         kind: ExprKind::UnknownIs {
                             value,
@@ -633,7 +633,7 @@ impl ModuleBuilder<'_> {
                 )));
             }
         }
-        if let Some(Type::Optional(inner)) = self.ctx.krate.types.get(value_ty).cloned()
+        if let Some(Type::Optional(inner, _)) = self.ctx.krate.types.get(value_ty).cloned()
             && self.static_typeof_match(inner, &expected) == Some(true)
         {
             let absent = body.push_expr(Expr {
@@ -922,7 +922,7 @@ impl ModuleBuilder<'_> {
                 let first = matches.next()?;
                 matches.all(|item| item == first).then_some(first)
             }
-            Some(Type::Optional(inner)) => match self.static_array_match(inner) {
+            Some(Type::Optional(inner, _)) => match self.static_array_match(inner) {
                 Some(false) => Some(false),
                 _ => None,
             },
@@ -949,7 +949,7 @@ impl ModuleBuilder<'_> {
                 let first = matches.next()?;
                 matches.all(|item| item == first).then_some(first)
             }
-            Some(Type::Optional(inner)) => {
+            Some(Type::Optional(inner, _)) => {
                 let present = self.static_typeof_match(inner, expected)?;
                 let absent = expected == "undefined";
                 (present == absent).then_some(present)
@@ -986,7 +986,7 @@ impl ModuleBuilder<'_> {
         }
         match self.ctx.krate.types.get(ty) {
             Some(Type::None) => Some("undefined"),
-            Some(Type::Optional(_) | Type::Future(_)) | None => None,
+            Some(Type::Optional(..) | Type::Future(_)) | None => None,
             Some(concrete) => concrete.runtime_kind().map(UnknownKind::typeof_name),
         }
     }
@@ -1039,7 +1039,7 @@ impl ModuleBuilder<'_> {
             && is_undefined_comparison
             && matches!(
                 self.ctx.krate.types.get(Self::expr_ty(body, value)),
-                Some(Type::Optional(_))
+                Some(Type::Optional(..))
             )
             && self.checker_absent_is_null(value_expr.span().start, value_expr.span().end)
         {
@@ -1238,7 +1238,10 @@ impl ModuleBuilder<'_> {
                 self.ctx.krate.types.get(asserted),
                 Some(Type::Class { .. } | Type::Dict(..))
             ) {
-            self.ctx.krate.types.intern(Type::Optional(asserted))
+            self.ctx
+                .krate
+                .types
+                .intern(Type::Optional(asserted, smelt_hir::Absence::Undefined))
         } else {
             asserted
         };
@@ -1321,13 +1324,23 @@ impl ModuleBuilder<'_> {
         // payload that is not itself erased: `key as string` on an
         // `unknown | undefined` is the checked extraction of the erased value,
         // not a presence-preserving assertion.
+        // The optionality kept is the operand's own: the absences its
+        // optional layers admit (`T | null | undefined` stays both).
+        let value_ty = Self::expr_ty(body, value);
         let target = if matches!(
-            self.ctx.krate.types.get(Self::expr_ty(body, value)),
-            Some(Type::Optional(inner)) if !self.type_contains_unknown(*inner)
+            self.ctx.krate.types.get(value_ty),
+            Some(Type::Optional(inner, _)) if !self.type_contains_unknown(*inner)
         ) && !self.is_nullishable_type(target)
             && self.type_is_always_truthy_object_surface(target)
         {
-            self.ctx.krate.types.intern(Type::Optional(target))
+            let (_, undefined, null) =
+                smelt_hir::type_normalize::peel_optional(&self.ctx.krate.types, value_ty);
+            smelt_hir::type_normalize::rebuild_optional(
+                &mut self.ctx.krate.types,
+                target,
+                undefined,
+                null,
+            )
         } else {
             target
         };

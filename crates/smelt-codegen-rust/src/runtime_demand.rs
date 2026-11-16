@@ -252,6 +252,12 @@ declare_needs! {
     ErasedListAlias,
     /// `Option<SmeltUnknown>` property reads.
     OptionalUnknownRead,
+    /// A `T | null` type somewhere in the program: the two-absence erasure
+    /// helper (`smelt_nullish_unknown_or_undefined`).
+    NullCodec,
+    /// A list mutated through an assertion of an erased array, committed back
+    /// in place (`smelt_erased_list_write_back`).
+    ErasedListWriteBack,
     /// A record field stored as an accessor.
     Accessors,
     /// Python's number formatting.
@@ -967,8 +973,18 @@ impl RuntimeDemand {
                     self.add(Need::Record);
                 }
                 Type::Generator { .. } => self.add(Need::Generator),
-                Type::Optional(inner) => {
-                    if matches!(mir.types.get(*inner), Some(Type::Unknown)) {
+                Type::Optional(inner, absence) => {
+                    if *absence == smelt_hir::Absence::Null {
+                        self.add(Need::NullCodec);
+                    }
+                    if matches!(mir.types.get(*inner), Some(Type::Unknown))
+                        || matches!(
+                            mir.types.get(
+                                smelt_hir::type_normalize::peel_optional(&mir.types, *inner).0
+                            ),
+                            Some(Type::Unknown)
+                        )
+                    {
                         self.add(Need::OptionalUnknownRead);
                     }
                 }
@@ -1137,7 +1153,7 @@ impl RuntimeDemand {
             && usize::try_from(dest.0)
                 .ok()
                 .and_then(|index| locals.get(index))
-                .is_some_and(|decl| matches!(mir.types.get(decl.ty), Some(Type::Optional(_))))
+                .is_some_and(|decl| matches!(mir.types.get(decl.ty), Some(Type::Optional(..))))
         {
             self.add(Need::JsonStringifyValue);
         }
@@ -1242,6 +1258,12 @@ impl RuntimeDemand {
         }
         if let Callee::Op(op, _) = callee {
             self.scan_rvalue(op);
+        }
+        if matches!(
+            callee,
+            Callee::Builtin(smelt_mir::BuiltinFn::ErasedListWriteBack)
+        ) {
+            self.add(Need::ErasedListWriteBack);
         }
     }
 }
@@ -1406,7 +1428,8 @@ fn reads_optional_at_type_param(
         return false;
     };
     matches!(mir.types.get(dest_ty), Some(Type::TypeParam { .. }))
-        && matches!(mir.types.get(source_ty), Some(Type::Optional(inner)) if *inner == dest_ty)
+        && matches!(mir.types.get(source_ty), Some(Type::Optional(..)))
+        && smelt_hir::type_normalize::peel_optional(&mir.types, source_ty).0 == dest_ty
 }
 
 /// Whether the local `base` is declared as a `Request` or `Response`.

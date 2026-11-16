@@ -189,7 +189,7 @@ impl Reached {
         }
         let deeper = depth.saturating_add(1);
         match mir.types.get(ty) {
-            Some(Type::List(item) | Type::Optional(item)) => {
+            Some(Type::List(item) | Type::Optional(item, _)) => {
                 self.reach(mir, references, *item, below_record, as_argument, deeper);
             }
             Some(Type::Tuple(items)) => {
@@ -344,7 +344,7 @@ impl DeepEquality {
         let deeper = depth.saturating_add(1);
         match mir.types.get(ty) {
             Some(Type::Class { .. }) => self.compares_through_trait(mir, ty, Scope::Body),
-            Some(Type::List(item) | Type::Optional(item)) => {
+            Some(Type::List(item) | Type::Optional(item, _)) => {
                 self.holds_trait_record(mir, *item, deeper)
             }
             Some(Type::Tuple(items)) => items
@@ -368,7 +368,7 @@ impl DeepEquality {
         match mir.types.get(ty) {
             Some(Type::Float | Type::Bool | Type::String) => true,
             Some(Type::TypeParam { .. }) => scope == Scope::Impl,
-            Some(Type::List(item) | Type::Optional(item)) => {
+            Some(Type::List(item) | Type::Optional(item, _)) => {
                 self.argument_compares(mir, *item, scope, depth.saturating_add(1))
             }
             Some(Type::Class { .. }) => self.compares_through_trait(mir, ty, scope),
@@ -393,7 +393,7 @@ impl DeepEquality {
         match mir.types.get(ty) {
             // The record's own parameter, compared through its bound.
             Some(Type::TypeParam { .. }) => true,
-            Some(Type::List(item) | Type::Optional(item)) => {
+            Some(Type::List(item) | Type::Optional(item, _)) => {
                 self.field_compares(mir, references, *item, deeper)
             }
             Some(Type::Tuple(items)) => items

@@ -44,7 +44,7 @@ impl ModuleBuilder<'_> {
                     self.type_is_dynamic_call_surface(Self::local_ty(body, local))
                 });
         let optional_function_ty = match self.ctx.krate.types.get(callee_ty) {
-            Some(Type::Optional(inner))
+            Some(Type::Optional(inner, _))
                 if call.optional
                     && matches!(self.ctx.krate.types.get(*inner), Some(Type::Function(_))) =>
             {
@@ -239,7 +239,7 @@ impl ModuleBuilder<'_> {
         let omittable = |this: &Self, index: usize| {
             index >= declared_required
                 || function.params.get(index).is_some_and(|param| {
-                    matches!(this.ctx.krate.types.get(*param), Some(Type::Optional(_)))
+                    matches!(this.ctx.krate.types.get(*param), Some(Type::Optional(..)))
                 })
         };
         let required_arg_count = (0..fixed_param_count)
@@ -304,7 +304,7 @@ impl ModuleBuilder<'_> {
                 ));
             };
             args.push(body.push_expr(Expr {
-                kind: ExprKind::Literal(Literal::None),
+                kind: ExprKind::Literal(Literal::Undefined),
                 ty: param_ty,
                 span: self.span(call.span.start, call.span.end),
             }));
@@ -350,7 +350,7 @@ impl ModuleBuilder<'_> {
     /// `Optional<unknown>` is not.
     pub(in crate::lowering) fn hint_preserves_argument_shape(&self, ty: smelt_hir::TypeId) -> bool {
         let peeled = match self.ctx.krate.types.get(ty) {
-            Some(Type::Optional(inner)) => *inner,
+            Some(Type::Optional(inner, _)) => *inner,
             _ => ty,
         };
         match self.ctx.krate.types.get(peeled) {
@@ -424,7 +424,7 @@ impl ModuleBuilder<'_> {
         ty: smelt_hir::TypeId,
     ) -> bool {
         let inner = match self.ctx.krate.types.get(ty) {
-            Some(Type::Optional(inner)) => *inner,
+            Some(Type::Optional(inner, _)) => *inner,
             _ => ty,
         };
         matches!(
@@ -492,15 +492,17 @@ impl ModuleBuilder<'_> {
             if let Some(argument) = supplied.get(index).copied() {
                 args.push(argument);
             } else {
-                // Missing optional parameter: synthesize a typed `None` carrying
-                // the parameter's declared type so the closure call stays typed.
+                // Missing optional parameter: synthesize a typed `undefined`
+                // carrying the parameter's declared type so the closure call
+                // stays typed (`undefined`, not `null`: an omitted argument is
+                // the one a default parameter replaces).
                 let param_ty = function
                     .params
                     .get(index)
                     .copied()
                     .unwrap_or_else(|| self.erase(ErasureReason::Unclassified));
                 args.push(body.push_expr(Expr {
-                    kind: ExprKind::Literal(Literal::None),
+                    kind: ExprKind::Literal(Literal::Undefined),
                     ty: param_ty,
                     span,
                 }));

@@ -76,7 +76,7 @@ interned types
   t4 = fn(String) -> None
   t5 = fn(String, RegExp) -> String
   t6 = __SmeltMatch
-  t7 = Optional<__SmeltMatch>
+  t7 = Nullable<__SmeltMatch>
   t8 = Bool
   t9 = Optional<String>
   t10 = List<Optional<String>>
@@ -86,7 +86,7 @@ interned types
   t14 = fn(Optional<String>, Int, List<Optional<String>>) -> String
   t15 = List<String>
   t16 = Optional<Optional<String>>
-  t17 = Optional<List<String>>
+  t17 = Nullable<List<String>>
   t18 = fn(String, Int, List<String>) -> String
   t19 = Optional<Float>
   t20 = Optional<List<Optional<String>>>

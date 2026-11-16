@@ -40,7 +40,11 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         };
         let element_ty = *list_element_ty;
-        let ty = self.ctx.krate.types.intern(Type::Optional(element_ty));
+        let ty = self
+            .ctx
+            .krate
+            .types
+            .intern(Type::Optional(element_ty, smelt_hir::Absence::Undefined));
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::ListShift { list },
             ty,
@@ -71,7 +75,11 @@ impl ModuleBuilder<'_> {
         let Some(Type::List(element_ty)) = self.ctx.krate.types.get(list_ty) else {
             return Ok(None);
         };
-        let ty = self.ctx.krate.types.intern(Type::Optional(*element_ty));
+        let ty = self
+            .ctx
+            .krate
+            .types
+            .intern(Type::Optional(*element_ty, smelt_hir::Absence::Undefined));
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::ListPop {
                 list,
@@ -280,7 +288,7 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         };
         let local_ty = Self::local_ty(body, local);
-        let Some(Type::Optional(inner)) = self.ctx.krate.types.get(local_ty).cloned() else {
+        let Some(Type::Optional(inner, _)) = self.ctx.krate.types.get(local_ty).cloned() else {
             return Ok(None);
         };
         let Some(Type::Function(function)) = self.ctx.krate.types.get(inner).cloned() else {
@@ -326,13 +334,13 @@ impl ModuleBuilder<'_> {
             ExprKind::Field { receiver, .. } | ExprKind::OptionalField { receiver, .. } => {
                 matches!(
                     self.ctx.krate.types.get(Self::expr_ty(body, *receiver)),
-                    Some(Type::Optional(_))
+                    Some(Type::Optional(..))
                 )
             }
             _ => false,
         });
         if !optional_from_base
-            && let Some(Type::Optional(inner)) = self.ctx.krate.types.get(list_ty).cloned()
+            && let Some(Type::Optional(inner, _)) = self.ctx.krate.types.get(list_ty).cloned()
             && matches!(self.ctx.krate.types.get(inner), Some(Type::List(_)))
         {
             return Ok(body.push_expr(Expr {
@@ -810,7 +818,10 @@ impl ModuleBuilder<'_> {
                     ListCallbackOp::FindLastIndex
                 };
                 let ty = if method == "findLast" {
-                    self.ctx.krate.types.intern(Type::Optional(element_ty))
+                    self.ctx
+                        .krate
+                        .types
+                        .intern(Type::Optional(element_ty, smelt_hir::Absence::Undefined))
                 } else {
                     index_ty
                 };
@@ -1074,7 +1085,7 @@ impl ModuleBuilder<'_> {
             ) || self.type_contains_unknown(effective_operand_ty)
                 || matches!(
                     self.ctx.krate.types.get(effective_operand_ty),
-                    Some(Type::Optional(inner)) if self.is_string_compatible_type(*inner)
+                    Some(Type::Optional(inner, _)) if self.is_string_compatible_type(*inner)
                 )
                 || matches!(
                     self.ctx.krate.types.get(effective_operand_ty),
@@ -1178,7 +1189,7 @@ impl ModuleBuilder<'_> {
             .get(self.type_param_constraint_or_self(ty))
         {
             Some(Type::Int | Type::Float | Type::Unknown | Type::TypeParam { .. }) => true,
-            Some(Type::Optional(item)) => self.slice_index_type_is_number(*item),
+            Some(Type::Optional(item, _)) => self.slice_index_type_is_number(*item),
             Some(Type::Union(items)) => items
                 .iter()
                 .copied()
@@ -1228,7 +1239,7 @@ impl ModuleBuilder<'_> {
                 .into_iter()
                 .flat_map(|item| self.non_nullish_member_types(item))
                 .collect(),
-            Some(Type::Optional(item)) => vec![item],
+            Some(Type::Optional(item, _)) => vec![item],
             Some(Type::None) => Vec::new(),
             _ => vec![ty],
         }
@@ -1291,7 +1302,7 @@ impl ModuleBuilder<'_> {
             .get(self.type_param_constraint_or_self(ty))
         {
             Some(Type::List(item_ty)) => Some((ty, *item_ty)),
-            Some(Type::Optional(inner)) => match self.ctx.krate.types.get(*inner) {
+            Some(Type::Optional(inner, _)) => match self.ctx.krate.types.get(*inner) {
                 Some(Type::List(item_ty)) => Some((*inner, *item_ty)),
                 _ => None,
             },

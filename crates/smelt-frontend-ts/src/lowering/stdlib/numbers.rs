@@ -102,7 +102,7 @@ impl ModuleBuilder<'_> {
                         Type::Unknown
                             | Type::TypeParam { .. }
                             | Type::Class { .. }
-                            | Type::Optional(_)
+                            | Type::Optional(..)
                             | Type::Union(_)
                     )
                 )
@@ -262,7 +262,7 @@ impl ModuleBuilder<'_> {
         let operand = self.argument(argument, body)?;
         let operand = match self.ctx.krate.types.get(Self::expr_ty(body, operand)) {
             Some(Type::String) => operand,
-            Some(Type::Optional(inner))
+            Some(Type::Optional(inner, _))
                 if matches!(self.ctx.krate.types.get(*inner), Some(Type::String)) =>
             {
                 operand

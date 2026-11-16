@@ -37,7 +37,7 @@ impl FunctionEmitter<'_> {
                     "match {operand_expr}.clone() {{ None => false, Some(SmeltUnknown::Null) | Some(SmeltUnknown::Undefined) => false, Some(SmeltUnknown::Bool(smelt_value)) => smelt_value, Some(SmeltUnknown::Number(smelt_value)) => smelt_value != 0.0 && !smelt_value.is_nan(), Some(SmeltUnknown::String(smelt_value)) => !smelt_value.is_empty(), {smelt_bigint_arm}Some(SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_)) => true }}", smelt_bigint_arm = self.bigint_unknown_arm("Some(SmeltUnknown::BigInt(value)) => !::num_traits::Zero::is_zero(&value),"), operand_expr = operand_expr.tight()
                 ))))
             }
-            Some(Type::Optional(inner)) => {
+            Some(Type::Optional(inner, _)) => {
                 let nested = self.optional_truthy_expr(&RustExpr::path("smelt_value"), *inner)?;
                 Ok(RustExpr::atom(format!(
                     "match {operand_expr}.clone() {{ Some(smelt_value) => {nested}, None => false }}", operand_expr = operand_expr.tight(), nested = nested.delimited()
@@ -134,7 +134,7 @@ impl FunctionEmitter<'_> {
                     "match ({value_text}) {{ SmeltUnknown::Null | SmeltUnknown::Undefined => false, SmeltUnknown::Bool(smelt_value) => smelt_value, SmeltUnknown::Number(smelt_value) => smelt_value != 0.0 && !smelt_value.is_nan(), SmeltUnknown::String(smelt_value) => !smelt_value.is_empty(), {smelt_bigint_arm}SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => true }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => !::num_traits::Zero::is_zero(&value),"), value_text = value_text.delimited()
                 ))))
             }
-            Some(Type::Optional(inner)) => self.optional_truthy_expr(value_text, *inner),
+            Some(Type::Optional(inner, _)) => self.optional_truthy_expr(value_text, *inner),
             Some(Type::None) => Ok(RustExpr::atom(format!("{{ let _ = ({value_text}); false }}", value_text = value_text.delimited()))),
             Some(
                 Type::Class { .. }

@@ -507,7 +507,12 @@ impl ModuleBuilder<'_> {
             )
         };
         if calls.has_empty_call && !self.is_nullishable_type(resolved) {
-            return Some(self.ctx.krate.types.intern(Type::Optional(resolved)));
+            return Some(
+                self.ctx
+                    .krate
+                    .types
+                    .intern(Type::Optional(resolved, smelt_hir::Absence::Undefined)),
+            );
         }
         Some(resolved)
     }

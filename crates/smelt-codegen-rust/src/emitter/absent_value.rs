@@ -2,9 +2,8 @@
 //! `null` where the container's own runtime impl would answer `undefined`.
 //!
 //! A source `T | null` and `T | undefined` both store as a Rust `Option<T>`;
-//! the type table tells them apart (`TypeInterner::intern_null_optional`, the
-//! `null`-absent tag) and the emitter's own conversions read the tag: a
-//! top-level erasure answers `null` (`optional_absent_value`), and so does a
+//! the type tells them apart (`Type::Optional(T, Absence)`) and the
+//! emitter's own conversions read the tag: a top-level erasure answers `null` (`optional_absent_value`), and so does a
 //! list copied element by element, because each element goes through
 //! [`FunctionEmitter::erase_rendered`] with its own type. What cannot read the
 //! tag is a runtime impl chosen by the RUST type: the live erased view of a
@@ -50,7 +49,7 @@ impl FunctionEmitter<'_> {
             return true;
         }
         match self.mir.types.get(ty) {
-            Some(Type::Optional(item) | Type::List(item) | Type::Set(item)) => {
+            Some(Type::Optional(item, _) | Type::List(item) | Type::Set(item)) => {
                 self.holds_null_absent_in(*item, depth.saturating_add(1))
             }
             Some(Type::JsMap(key, value) | Type::Dict(key, value)) => {
@@ -156,13 +155,9 @@ impl FunctionEmitter<'_> {
         }
         let own = || "SmeltInspect::smelt_inspect".to_owned();
         let body = match self.mir.types.get(ty) {
-            Some(Type::Optional(wrapped)) => {
-                let inner = self.flatten_optional_inner(*wrapped);
-                let absent = if self.mir.types.absent_is_null(ty) {
-                    "null"
-                } else {
-                    "undefined"
-                };
+            Some(&Type::Optional(inner, absence)) => {
+                // Each layer draws its own absent value.
+                let absent = absence.js_text();
                 let present = self
                     .console_inspector(inner)?
                     .map_or_else(own, |inspector| format!("({inspector})"));
@@ -249,16 +244,13 @@ impl FunctionEmitter<'_> {
     /// anything else is drawn by its inspector from a fresh context at depth 0,
     /// as `smelt_console_text` starts one.
     pub(super) fn console_text_of(&self, ty: TypeId, value: &str) -> Result<String, EmitError> {
-        if let Some(Type::Optional(wrapped)) = self.mir.types.get(ty) {
-            let inner = self.flatten_optional_inner(*wrapped);
-            let absent = if self.mir.types.absent_is_null(ty) {
-                "null"
-            } else {
-                "undefined"
-            };
+        // Each optional layer draws its own absent value; a two-layer
+        // `T | null | undefined` draws `undefined` outside and `null` inside.
+        if let Some(&Type::Optional(inner, absence)) = self.mir.types.get(ty) {
             return Ok(format!(
-                "match {value} {{ Some(smelt_value) => {}, None => {absent:?}.to_owned() }}",
-                self.console_text_of(inner, "smelt_value")?
+                "match {value} {{ Some(smelt_value) => {}, None => {:?}.to_owned() }}",
+                self.console_text_of(inner, "smelt_value")?,
+                absence.js_text()
             ));
         }
         Ok(match self.console_inspector(ty)? {

@@ -701,7 +701,7 @@ fn match_types_in(
     match (declared_ty, actual_ty) {
         (Type::List(left), Type::List(right))
         | (Type::Set(left), Type::Set(right))
-        | (Type::Optional(left), Type::Optional(right))
+        | (Type::Optional(left, _), Type::Optional(right, _))
         | (Type::Future(left), Type::Future(right)) => {
             match_types_in(mir, *left, *right, scope, bindings);
         }
@@ -1435,8 +1435,8 @@ mod tests {
         let nested_float = types.intern(Type::List(list_float));
         let set_param = types.intern(Type::Set(param));
         let set_float = types.intern(Type::Set(float));
-        let optional_param = types.intern(Type::Optional(param));
-        let optional_float = types.intern(Type::Optional(float));
+        let optional_param = types.intern(Type::Optional(param, smelt_hir::Absence::Undefined));
+        let optional_float = types.intern(Type::Optional(float, smelt_hir::Absence::Undefined));
         let future_param = types.intern(Type::Future(param));
         let future_float = types.intern(Type::Future(float));
         let dict_param = types.intern(Type::Dict(string, param));

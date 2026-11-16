@@ -33,7 +33,7 @@ module examples/typescript/end-to-end/119_arrow_param_default/input.ts (ModuleId
     #24: None = call #23(#22)
     #25: fn(String, Optional<String>) -> String = %0
     #26: String = "ada"
-    #27: Optional<String> = none
+    #27: Optional<String> = undefined
     #28: String = closure_call #25(#26, #27)
     #29: None = @3(console_log)
     #30: None = call #29(#28)
@@ -45,7 +45,7 @@ module examples/typescript/end-to-end/119_arrow_param_default/input.ts (ModuleId
     #36: None = call #35(#34)
     #37: fn(Float, Optional<Float>) -> Float = %1
     #38: Float = 3.0
-    #39: Optional<Float> = none
+    #39: Optional<Float> = undefined
     #40: Float = closure_call #37(#38, #39)
     #41: None = @5(console_log)
     #42: None = call #41(#40)

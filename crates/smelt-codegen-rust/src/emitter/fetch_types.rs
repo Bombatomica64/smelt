@@ -70,7 +70,7 @@ impl FunctionEmitter<'_> {
             // `#cachedBody` rebuild).
             Some(&Type::Dict(key, value))
                 if matches!(self.mir.types.get(key), Some(Type::String | Type::PyStr))
-                    && matches!(self.mir.types.get(value), Some(&Type::Optional(inner))
+                    && matches!(self.mir.types.get(value), Some(&Type::Optional(inner, _))
                         if matches!(self.mir.types.get(inner), Some(Type::String | Type::PyStr))) =>
             {
                 Ok(RustExpr::atom(format!(
@@ -142,7 +142,7 @@ impl FunctionEmitter<'_> {
             // absent arm is a modeled case rather than a blocker. This is the
             // shape a `headers?:` init key arrives in when the source narrowed
             // it by truthiness without Smelt proving the narrowing.
-            Some(&Type::Optional(inner)) => {
+            Some(&Type::Optional(inner, _)) => {
                 let converted =
                     self.headers_conversion_expr(&RustExpr::path("smelt_headers_init"), inner)?;
                 Ok(RustExpr::atom(format!(
@@ -233,7 +233,8 @@ impl FunctionEmitter<'_> {
             | smelt_hir::HeadersOp::Append
             | smelt_hir::HeadersOp::Delete => Ok(text),
             smelt_hir::HeadersOp::Get => {
-                let string_option = self.type_id(Type::Optional(string_ty))?;
+                let string_option =
+                    self.type_id(Type::Optional(string_ty, smelt_hir::Absence::Null))?;
                 self.rendered_at_type(&text, string_option, dest_ty, &self.render_scope())
             }
             smelt_hir::HeadersOp::Has => {
@@ -362,7 +363,8 @@ impl FunctionEmitter<'_> {
             | smelt_hir::UrlSearchParamsOp::Delete
             | smelt_hir::UrlSearchParamsOp::Sort => Ok(text),
             smelt_hir::UrlSearchParamsOp::Get => {
-                let string_option = self.type_id(Type::Optional(string_ty))?;
+                let string_option =
+                    self.type_id(Type::Optional(string_ty, smelt_hir::Absence::Null))?;
                 self.rendered_at_type(&text, string_option, dest_ty, &self.render_scope())
             }
             smelt_hir::UrlSearchParamsOp::Has => {
@@ -653,7 +655,7 @@ impl FunctionEmitter<'_> {
             // key was not supplied", which must leave the slot holding whatever
             // the input already put there — the source request's value, or the
             // default — rather than overwriting it with an empty string.
-            if let Some(&Type::Optional(inner)) = self.mir.types.get(operand_ty) {
+            if let Some(&Type::Optional(inner, _)) = self.mir.types.get(operand_ty) {
                 let value = self.rendered_at_type(
                     &RustExpr::path("smelt_init_value"),
                     inner,
@@ -895,7 +897,7 @@ impl FunctionEmitter<'_> {
             // absent body IS the empty body — the same answer the no-argument
             // spelling gives — so this is a modeled case rather than a blocker.
             // It is the shape `body?: BodyInit | null` arrives in.
-            Some(&Type::Optional(inner)) => {
+            Some(&Type::Optional(inner, _)) => {
                 let present =
                     self.body_conversion_expr(&RustExpr::path("smelt_body_init"), inner)?;
                 Ok(RustExpr::atom(format!(
@@ -1207,7 +1209,7 @@ impl FunctionEmitter<'_> {
         let text = self.operand_expr(operand)?;
         if matches!(
             self.mir.types.get(self.operand_ty(operand)?),
-            Some(Type::Optional(_))
+            Some(Type::Optional(..))
         ) {
             return Ok(text.postfix(format!(
                 ".unwrap_or_else(|| {default_text})",
@@ -1237,7 +1239,7 @@ impl FunctionEmitter<'_> {
             return Ok(default_text.to_owned());
         };
         let ty = self.operand_ty(operand)?;
-        if let Some(&Type::Optional(inner)) = self.mir.types.get(ty) {
+        if let Some(&Type::Optional(inner, _)) = self.mir.types.get(ty) {
             let present =
                 self.headers_conversion_expr(&RustExpr::path("smelt_init_headers"), inner)?;
             return Ok(RustExpr::atom(format!(
@@ -1283,7 +1285,7 @@ impl FunctionEmitter<'_> {
             self.body_conversion_expr(body_text, body_ty)
         };
         let ty = self.operand_ty(operand)?;
-        if let Some(&Type::Optional(inner)) = self.mir.types.get(ty) {
+        if let Some(&Type::Optional(inner, _)) = self.mir.types.get(ty) {
             let present = convert(&RustExpr::path("smelt_init_body"), inner)?;
             return Ok(RustExpr::atom(format!(
                 "match {} {{ Some(smelt_init_body) => {present}, None => {default_text} }}",

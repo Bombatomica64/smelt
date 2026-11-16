@@ -633,10 +633,11 @@ impl FunctionEmitter<'_> {
             )))
         };
         match self.mir.types.get(dest_ty) {
-            Some(Type::Optional(inner)) if *inner == item_ty => Ok(list_mut.postfix(".pop()")),
+            Some(Type::Optional(inner, _)) if *inner == item_ty => Ok(list_mut.postfix(".pop()")),
             _ if dest_ty == item_ty => or_missing(),
-            Some(Type::Optional(_)) => {
-                let pop_ty = self.type_id(Type::Optional(item_ty))?;
+            Some(Type::Optional(..)) => {
+                let pop_ty =
+                    self.type_id(Type::Optional(item_ty, smelt_hir::Absence::Undefined))?;
                 self.rendered_at_type(
                     &list_mut.postfix(".pop()"),
                     pop_ty,
@@ -662,7 +663,7 @@ impl FunctionEmitter<'_> {
         // An item type that already holds `undefined` is its own `item | undefined`.
         let item_absorbs_missing = dest_ty == item_ty;
         if !item_absorbs_missing
-            && !matches!(self.mir.types.get(dest_ty), Some(Type::Optional(inner)) if *inner == item_ty)
+            && !matches!(self.mir.types.get(dest_ty), Some(Type::Optional(inner, _)) if *inner == item_ty)
         {
             return Err(EmitError::new(
                 "list shift destination must be an optional item",
@@ -1035,7 +1036,7 @@ impl FunctionEmitter<'_> {
         // The optional stays a real `Option<Rc<dyn Fn..>>` all the way down and
         // is matched here, exactly as hand-written Rust would; it is not erased
         // to `SmeltUnknown`.
-        if let Some(Type::Optional(inner)) = self.mir.types.get(comparator_ty).cloned() {
+        if let Some(Type::Optional(inner, _)) = self.mir.types.get(comparator_ty).cloned() {
             let Some(default_sort) = self.js_default_sort_call_expr(element_ty, list_text)? else {
                 return Err(EmitError::new(
                     "array sort with an optional comparator needs a default ordering for its element type",

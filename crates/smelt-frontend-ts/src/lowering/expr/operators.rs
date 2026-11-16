@@ -146,7 +146,7 @@ impl ModuleBuilder<'_> {
                 matches!(self.ctx.krate.types.get(ty), Some(Type::Float))
                     || matches!(
                         self.ctx.krate.types.get(ty),
-                        Some(Type::Optional(inner)) if matches!(self.ctx.krate.types.get(*inner), Some(Type::Float))
+                        Some(Type::Optional(inner, _)) if matches!(self.ctx.krate.types.get(*inner), Some(Type::Float))
                     )
             }),
             _ => false,
@@ -180,7 +180,7 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> smelt_hir::ExprId {
         let ty = Self::expr_ty(body, operand);
-        let Some(&Type::Optional(inner)) = types.get(ty) else {
+        let Some(&Type::Optional(inner, _)) = types.get(ty) else {
             return operand;
         };
         if !matches!(types.get(inner), Some(Type::Float)) {
@@ -1003,7 +1003,7 @@ impl ModuleBuilder<'_> {
                 kinds.symbol = true;
             }
             Some(Type::None | Type::Never) => {}
-            Some(Type::Optional(inner)) => self.collect_value_kinds(*inner, kinds, depth + 1),
+            Some(Type::Optional(inner, _)) => self.collect_value_kinds(*inner, kinds, depth + 1),
             Some(Type::Union(members)) => {
                 for member in members {
                     self.collect_value_kinds(*member, kinds, depth + 1);

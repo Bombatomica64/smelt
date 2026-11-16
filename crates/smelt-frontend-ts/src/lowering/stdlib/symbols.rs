@@ -144,7 +144,11 @@ impl ModuleBuilder<'_> {
             return None;
         }
         let string = self.ctx.krate.types.intern(Type::String);
-        let ty = self.ctx.krate.types.intern(Type::Optional(string));
+        let ty = self
+            .ctx
+            .krate
+            .types
+            .intern(Type::Optional(string, smelt_hir::Absence::Undefined));
         Some(body.push_expr(Expr {
             kind: ExprKind::SymbolDescription { operand: receiver },
             ty,

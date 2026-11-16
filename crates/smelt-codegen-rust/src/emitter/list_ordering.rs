@@ -458,7 +458,7 @@ impl FunctionEmitter<'_> {
             Some(
                 Type::Int | Type::Float | Type::Unknown | Type::Union(_) | Type::TypeParam { .. },
             ) => true,
-            Some(Type::Optional(item)) => {
+            Some(Type::Optional(item, _)) => {
                 matches!(
                     self.mir.types.get(*item),
                     Some(
@@ -544,7 +544,7 @@ impl FunctionEmitter<'_> {
         let bound_text = self.operand_expr(bound)?;
         let bound_ty = self.operand_ty(bound)?;
         let index_text = match self.mir.types.get(bound_ty) {
-            Some(&Type::Optional(item)) => match self.mir.types.get(item) {
+            Some(&Type::Optional(item, _)) => match self.mir.types.get(item) {
                 Some(Type::Int | Type::Float) => format!(
                     "{bound_text}.unwrap_or({default_text})",
                     bound_text = bound_text.tight(),

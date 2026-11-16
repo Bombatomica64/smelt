@@ -3524,6 +3524,8 @@ fn smelt_has_property(value: &SmeltUnknown, key: &(impl SmeltHostText + ?Sized))
 
 fn smelt_unknown_is_nullish(value: &SmeltUnknown) -> bool { matches!(value, SmeltUnknown::Null | SmeltUnknown::Undefined) }
 fn smelt_unknown_is_undefined(value: &SmeltUnknown) -> bool { matches!(value, SmeltUnknown::Undefined) }
+#[allow(dead_code)]
+const fn smelt_unknown_is_null(value: &SmeltUnknown) -> bool { matches!(value, SmeltUnknown::Null) }
 fn smelt_missing_property_value() -> SmeltUnknown { SmeltUnknown::Undefined }
 fn smelt_missing_index_value() -> SmeltUnknown { SmeltUnknown::Undefined }
 
@@ -4471,7 +4473,7 @@ impl IntoSmeltUnknown for Session {
         let __smelt_inner = self.0.borrow();
         let mut __smelt_entries: Vec<(String, SmeltUnknown)> = Vec::from([
         ("name".to_owned(), SmeltUnknown::String((__smelt_inner.name.clone()).into())),
-        ("renew".to_owned(), __smelt_inner.renew.clone().map_or(SmeltUnknown::Undefined, |smelt_value| SmeltUnknown::Null)),
+        ("renew".to_owned(), __smelt_inner.renew.clone().map_or(SmeltUnknown::Null, |smelt_value| SmeltUnknown::Null)),
         ]);
         __smelt_entries.extend(__smelt_proto);
         smelt_finish_reference_view(__smelt_id, __smelt_view, __smelt_entries)

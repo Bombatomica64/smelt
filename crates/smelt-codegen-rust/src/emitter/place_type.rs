@@ -89,7 +89,9 @@ impl FunctionEmitter<'_> {
     ) -> Result<TypeId, EmitError> {
         let string_ty = self.type_id(Type::String)?;
         match kind {
-            smelt_stdlib::StdlibClass::MatchGroups => self.type_id(Type::Optional(string_ty)),
+            smelt_stdlib::StdlibClass::MatchGroups => {
+                self.type_id(Type::Optional(string_ty, smelt_hir::Absence::Undefined))
+            }
             _ => match self.symbol_source_name(field)? {
                 "index" | "length" => self.type_id(Type::Float),
                 "input" => Ok(string_ty),
@@ -99,9 +101,10 @@ impl FunctionEmitter<'_> {
                 "indices" => {
                     let float_ty = self.type_id(Type::Float)?;
                     let span_ty = self.type_id(Type::Tuple(vec![float_ty, float_ty]))?;
-                    let group_ty = self.type_id(Type::Optional(span_ty))?;
+                    let group_ty =
+                        self.type_id(Type::Optional(span_ty, smelt_hir::Absence::Undefined))?;
                     let list_ty = self.type_id(Type::List(group_ty))?;
-                    self.type_id(Type::Optional(list_ty))
+                    self.type_id(Type::Optional(list_ty, smelt_hir::Absence::Undefined))
                 }
                 other => self.erased_fallback_ty(|| {
                     format!("the read of `{other}` on a regular-expression match result")
@@ -201,9 +204,9 @@ impl FunctionEmitter<'_> {
         }
         match self.mir.types.get(base_ty) {
             Some(Type::Dict(_, value)) => Ok(*value),
-            Some(Type::Optional(inner)) => {
+            Some(Type::Optional(inner, _)) => {
                 if let Some(Type::Dict(_, value)) = self.mir.types.get(*inner) {
-                    return self.type_id(Type::Optional(*value));
+                    return self.type_id(Type::Optional(*value, smelt_hir::Absence::Undefined));
                 }
                 let Some(fields) = self.structural_record_fields(*inner) else {
                     return self.erased_fallback_ty(|| {
@@ -218,11 +221,17 @@ impl FunctionEmitter<'_> {
                     .into_iter()
                     .find(|record_field| record_field.name == field)
                     .map(|record_field| {
-                        if matches!(self.mir.types.get(record_field.ty), Some(Type::Optional(_))) {
+                        if matches!(
+                            self.mir.types.get(record_field.ty),
+                            Some(Type::Optional(..))
+                        ) {
                             record_field.ty
                         } else {
-                            self.type_id(Type::Optional(record_field.ty))
-                                .unwrap_or(record_field.ty)
+                            self.type_id(Type::Optional(
+                                record_field.ty,
+                                smelt_hir::Absence::Undefined,
+                            ))
+                            .unwrap_or(record_field.ty)
                         }
                     })
                     .ok_or_else(|| {
@@ -341,16 +350,16 @@ impl FunctionEmitter<'_> {
         {
             // A numbered group read is an optional string.
             let string_ty = self.type_id(Type::String)?;
-            return self.type_id(Type::Optional(string_ty));
+            return self.type_id(Type::Optional(string_ty, smelt_hir::Absence::Undefined));
         }
         match self.mir.types.get(base_ty) {
             Some(Type::List(item)) => Ok(*item),
-            Some(Type::Optional(inner)) => {
+            Some(Type::Optional(inner, _)) => {
                 if let Some(Type::List(item)) = self.mir.types.get(*inner) {
-                    return if matches!(self.mir.types.get(*item), Some(Type::Optional(_))) {
+                    return if matches!(self.mir.types.get(*item), Some(Type::Optional(..))) {
                         Ok(*item)
                     } else {
-                        self.type_id(Type::Optional(*item))
+                        self.type_id(Type::Optional(*item, smelt_hir::Absence::Undefined))
                     };
                 }
                 self.erased_fallback_ty(|| {

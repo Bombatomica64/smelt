@@ -11,7 +11,7 @@ module examples/typescript/end-to-end/28_regex_match_result/input.ts (ModuleId(0
     %7 const first: Optional<Optional<String>>
     %8 const second: Optional<Optional<String>>
     %9 const single: RegExp
-    %10 const found: Optional<__SmeltMatch>
+    %10 const found: Nullable<__SmeltMatch>
   exprs
     #0: String = "(?<letter>[a-z])(\d)?"
     #1: String = "g"
@@ -67,8 +67,8 @@ module examples/typescript/end-to-end/28_regex_match_result/input.ts (ModuleId(0
     #51: RegExp = new RegExp(#49, #50)
     #52: RegExp = %9
     #53: String = "2024-07"
-    #54: Optional<__SmeltMatch> = regex_exec #52, #53
-    #55: Optional<__SmeltMatch> = %10
+    #54: Nullable<__SmeltMatch> = regex_exec #52, #53
+    #55: Nullable<__SmeltMatch> = %10
     #56: None = none
     #57: Bool = JsStrictNotEq #55, #56
     #58: __SmeltMatch = %10
@@ -114,7 +114,7 @@ module examples/typescript/end-to-end/28_regex_match_result/input.ts (ModuleId(0
     s15: #48
     s16: for %2 in #6 BlockId(1)
     s17: let %9: RegExp = #51
-    s18: let %10: Optional<__SmeltMatch> = #54
+    s18: let %10: Nullable<__SmeltMatch> = #54
     s19: #62
     s20: #67
     s21: #72
@@ -127,7 +127,7 @@ interned types
   t1 = String
   t2 = __SmeltMatch
   t3 = List<__SmeltMatch>
-  t4 = Optional<__SmeltMatch>
+  t4 = Nullable<__SmeltMatch>
   t5 = Float
   t6 = Optional<String>
   t7 = __SmeltMatchGroups

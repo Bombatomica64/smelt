@@ -520,7 +520,7 @@ impl FunctionEmitter<'_> {
                 self.value_at_type(callable, field.ty)?
             } else if let Some(entry_value) = prop_values.get(&field_name) {
                 self.value_at_type(entry_value, field.ty)?
-            } else if matches!(self.mir.types.get(field.ty), Some(Type::Optional(_))) {
+            } else if matches!(self.mir.types.get(field.ty), Some(Type::Optional(..))) {
                 self.default_value(field.ty)?
             } else {
                 return Err(EmitError::new(format!(
@@ -721,7 +721,7 @@ impl FunctionEmitter<'_> {
                 let receiver = Operand::Copy(place.clone());
                 let erased = self.operand_ty(&receiver).is_ok_and(|ty| {
                     self.has_dynamic_shape(ty)
-                        || matches!(self.mir.types.get(ty), Some(Type::Optional(inner)) if self.has_dynamic_shape(*inner))
+                        || matches!(self.mir.types.get(ty), Some(Type::Optional(inner, _)) if self.has_dynamic_shape(*inner))
                 });
                 erased.then_some(receiver)
             }

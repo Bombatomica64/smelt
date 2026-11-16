@@ -276,7 +276,7 @@ impl ModuleBuilder<'_> {
             }
             (Type::List(left_item), Type::List(right_item))
             | (Type::Set(left_item), Type::Set(right_item))
-            | (Type::Optional(left_item), Type::Optional(right_item))
+            | (Type::Optional(left_item, _), Type::Optional(right_item, _))
             | (Type::Future(left_item), Type::Future(right_item)) => {
                 self.alpha_equivalent_under(*left_item, *right_item, renaming)
             }
@@ -526,7 +526,10 @@ impl ModuleBuilder<'_> {
                     let annotation = param.type_annotation.as_ref()?;
                     let ty = self.ts_type_to_hir(&annotation.type_annotation).ok()?;
                     Some(if param.optional {
-                        self.ctx.krate.types.intern(Type::Optional(ty))
+                        self.ctx
+                            .krate
+                            .types
+                            .intern(Type::Optional(ty, smelt_hir::Absence::Undefined))
                     } else {
                         ty
                     })
@@ -808,7 +811,7 @@ impl ModuleBuilder<'_> {
             }
             (Type::List(declared), Type::List(given))
             | (Type::Set(declared), Type::Set(given))
-            | (Type::Optional(declared), Type::Optional(given))
+            | (Type::Optional(declared, _), Type::Optional(given, _))
             | (Type::Future(declared), Type::Future(given)) => {
                 walk(vec![(declared, given)], substitutions);
             }
@@ -910,10 +913,9 @@ impl ModuleBuilder<'_> {
                     .collect();
                 self.ctx.krate.types.intern(Type::Tuple(items))
             }
-            Type::Optional(item) => {
+            Type::Optional(item, absence) => {
                 let item = self.substitute_type_params(item, substitutions);
-                // `T | null` substitutes to `U | null` (its absent value).
-                self.ctx.krate.types.intern_optional_like(ty, item)
+                smelt_hir::type_normalize::wrap_optional(&mut self.ctx.krate.types, item, absence)
             }
             Type::Union(items) => {
                 let items = items

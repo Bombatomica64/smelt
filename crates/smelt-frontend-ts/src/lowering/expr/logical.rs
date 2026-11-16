@@ -331,7 +331,7 @@ impl ModuleBuilder<'_> {
         // absent member. Other operands keep the backend's coercion at `bool`.
         let rhs = if matches!(
             self.ctx.krate.types.get(Self::expr_ty(body, rhs)),
-            Some(Type::Optional(_))
+            Some(Type::Optional(..))
         ) {
             self.lowered_condition_expression(rhs, self.expression_span(&logical.right), body)?
         } else {
@@ -535,7 +535,7 @@ impl ModuleBuilder<'_> {
             ty
         } else if matches!(
             self.ctx.krate.types.get(fallback_ty),
-            Some(Type::Optional(inner)) if *inner == ty
+            Some(Type::Optional(inner, _)) if *inner == ty
         ) && !self.type_contains_unknown(ty)
             && self.type_is_always_truthy_object_surface(ty)
         {
@@ -627,7 +627,11 @@ impl ModuleBuilder<'_> {
                 span: self.span(logical.right.span().start, logical.right.span().end),
             })
         };
-        let optional_view_ty = self.ctx.krate.types.intern(Type::Optional(view_ty));
+        let optional_view_ty = self
+            .ctx
+            .krate
+            .types
+            .intern(Type::Optional(view_ty, smelt_hir::Absence::Undefined));
         let optional = body.push_expr(Expr {
             kind: ExprKind::TypeAssert { value: optional },
             ty: optional_view_ty,
@@ -782,8 +786,8 @@ impl ModuleBuilder<'_> {
             self.ctx.krate.types.get(value_ty),
             self.ctx.krate.types.get(fallback_ty),
         ) {
-            (Some(Type::Optional(value)), _) if *value == fallback_ty => Some(fallback_ty),
-            (_, Some(Type::Optional(fallback))) if value_ty == *fallback => Some(value_ty),
+            (Some(Type::Optional(value, _)), _) if *value == fallback_ty => Some(fallback_ty),
+            (_, Some(Type::Optional(fallback, _))) if value_ty == *fallback => Some(value_ty),
             _ => None,
         }
     }
@@ -932,7 +936,7 @@ impl ModuleBuilder<'_> {
     ) -> Option<smelt_hir::TypeId> {
         match self.ctx.krate.types.get(value_ty).cloned() {
             Some(Type::List(item_ty)) => Some(item_ty),
-            Some(Type::Optional(inner_ty)) => self.list_fallback_item_ty(inner_ty),
+            Some(Type::Optional(inner_ty, _)) => self.list_fallback_item_ty(inner_ty),
             Some(Type::Union(items)) => items
                 .into_iter()
                 .find_map(|item| self.list_fallback_item_ty(item)),
@@ -993,7 +997,7 @@ impl ModuleBuilder<'_> {
             && fallback_inner == ty
         {
             smelt_hir::type_normalize::optional_of(&mut self.ctx.krate.types, ty)
-        } else if matches!(self.ctx.krate.types.get(optional_ty), Some(Type::Optional(inner)) if *inner == ty)
+        } else if matches!(self.ctx.krate.types.get(optional_ty), Some(Type::Optional(inner, _)) if *inner == ty)
             && self.erased_or_union_surface(fallback_ty)
         {
             smelt_hir::type_normalize::optional_of(&mut self.ctx.krate.types, ty)
@@ -1136,7 +1140,7 @@ impl ModuleBuilder<'_> {
     /// (which can hold anything).
     fn is_nullable_value_type(&self, ty: smelt_hir::TypeId) -> bool {
         match self.ctx.krate.types.get(ty) {
-            Some(Type::Optional(_) | Type::None | Type::Unknown) => true,
+            Some(Type::Optional(..) | Type::None | Type::Unknown) => true,
             Some(Type::Union(items)) => items.iter().any(|item| self.is_nullable_value_type(*item)),
             _ => false,
         }
@@ -1178,7 +1182,7 @@ impl ModuleBuilder<'_> {
             Some(
                 Type::Class { .. } | Type::Dict(_, _) | Type::TypeParam { .. } | Type::Unknown,
             ) => true,
-            Some(Type::Optional(item)) => self.is_structural_object_surface(*item),
+            Some(Type::Optional(item, _)) => self.is_structural_object_surface(*item),
             Some(Type::Union(items)) => items
                 .iter()
                 .copied()
@@ -1205,7 +1209,7 @@ impl ModuleBuilder<'_> {
     /// normalizes and so can report a difference for wholly non-nullish types.
     pub(in crate::lowering) fn type_admits_nullish(&self, ty: smelt_hir::TypeId) -> bool {
         match self.ctx.krate.types.get(ty) {
-            Some(Type::Optional(_) | Type::None) => true,
+            Some(Type::Optional(..) | Type::None) => true,
             Some(Type::Union(items)) => items
                 .iter()
                 .copied()

@@ -172,7 +172,10 @@ impl ModuleBuilder<'_> {
                         .transpose()?
                         .unwrap_or_else(|| self.erase(ErasureReason::MissingAnnotation));
                     params.push(if param.optional {
-                        self.ctx.krate.types.intern(Type::Optional(ty))
+                        self.ctx
+                            .krate
+                            .types
+                            .intern(Type::Optional(ty, smelt_hir::Absence::Undefined))
                     } else {
                         ty
                     });
@@ -279,7 +282,10 @@ impl ModuleBuilder<'_> {
             {
                 let value_ty = self.ts_type_to_hir(&annotation.type_annotation)?;
                 member_tys.push(if property.optional {
-                    self.ctx.krate.types.intern(Type::Optional(value_ty))
+                    self.ctx
+                        .krate
+                        .types
+                        .intern(Type::Optional(value_ty, smelt_hir::Absence::Undefined))
                 } else {
                     value_ty
                 });
@@ -289,7 +295,10 @@ impl ModuleBuilder<'_> {
         let fields = self.type_literal_fields(literal)?;
         for field in &fields {
             member_tys.push(if field.optional {
-                self.ctx.krate.types.intern(Type::Optional(field.ty))
+                self.ctx
+                    .krate
+                    .types
+                    .intern(Type::Optional(field.ty, smelt_hir::Absence::Undefined))
             } else {
                 field.ty
             });
@@ -305,17 +314,21 @@ impl ModuleBuilder<'_> {
         // has no concrete representation and erased every record of the alias.
         let mut value_tys = Vec::new();
         let mut nullable = false;
-        // Whether every member that can be absent is a `T | null`
-        // (`TypeInterner::intern_null_optional`): the record's value type is
-        // then one too, its `None` the `null` the members hold.
-        let mut absent_only_null = true;
+        // The absent values the members admit (`Type::Optional`'s tag): the
+        // record's value type admits them too, so a member's `null` stays
+        // `null`. A bare nullish arm outside an optional is `undefined`.
+        let (mut admits_undefined, mut admits_null) = (false, false);
         for member_ty in member_tys {
-            let member_absent_is_null = self.ctx.krate.types.absent_is_null(member_ty);
+            let (_, member_undefined, member_null) =
+                smelt_hir::type_normalize::peel_optional(&self.ctx.krate.types, member_ty);
+            admits_undefined |= member_undefined;
+            admits_null |= member_null;
             for arm in self.flatten_union_member_types(member_ty) {
                 if matches!(self.ctx.krate.types.get(arm), Some(Type::None))
-                    && !member_absent_is_null
+                    && !member_undefined
+                    && !member_null
                 {
-                    absent_only_null = false;
+                    admits_undefined = true;
                 }
                 if matches!(self.ctx.krate.types.get(arm), Some(Type::None)) {
                     nullable = true;
@@ -336,11 +349,12 @@ impl ModuleBuilder<'_> {
         };
         let value_ty =
             if nullable && !matches!(self.ctx.krate.types.get(value_ty), Some(Type::None)) {
-                if absent_only_null {
-                    self.ctx.krate.types.intern_null_optional(value_ty)
-                } else {
-                    self.ctx.krate.types.intern(Type::Optional(value_ty))
-                }
+                smelt_hir::type_normalize::rebuild_optional(
+                    &mut self.ctx.krate.types,
+                    value_ty,
+                    admits_undefined || !admits_null,
+                    admits_null,
+                )
             } else {
                 value_ty
             };

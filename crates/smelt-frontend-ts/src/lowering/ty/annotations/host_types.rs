@@ -44,9 +44,18 @@ impl ModuleBuilder<'_> {
                             .krate
                             .types
                             .intern(Type::Tuple(vec![float_ty, float_ty]));
-                        let group_ty = self.ctx.krate.types.intern(Type::Optional(span_ty));
+                        let group_ty = self
+                            .ctx
+                            .krate
+                            .types
+                            .intern(Type::Optional(span_ty, smelt_hir::Absence::Undefined));
                         let list_ty = self.ctx.krate.types.intern(Type::List(group_ty));
-                        Some(self.ctx.krate.types.intern(Type::Optional(list_ty)))
+                        Some(
+                            self.ctx
+                                .krate
+                                .types
+                                .intern(Type::Optional(list_ty, smelt_hir::Absence::Undefined)),
+                        )
                     }
                     _ => None,
                 };
@@ -56,7 +65,12 @@ impl ModuleBuilder<'_> {
                 // group, which is a string when the group participated in the
                 // match and `undefined` otherwise.
                 let string_ty = self.ctx.krate.types.intern(Type::String);
-                return Some(self.ctx.krate.types.intern(Type::Optional(string_ty)));
+                return Some(
+                    self.ctx
+                        .krate
+                        .types
+                        .intern(Type::Optional(string_ty, smelt_hir::Absence::Undefined)),
+                );
             }
             _ => {}
         }
@@ -69,7 +83,12 @@ impl ModuleBuilder<'_> {
             "name" | "message" => Some(self.ctx.krate.types.intern(Type::String)),
             "stack" => {
                 let string_ty = self.ctx.krate.types.intern(Type::String);
-                Some(self.ctx.krate.types.intern(Type::Optional(string_ty)))
+                Some(
+                    self.ctx
+                        .krate
+                        .types
+                        .intern(Type::Optional(string_ty, smelt_hir::Absence::Undefined)),
+                )
             }
             _ => None,
         }

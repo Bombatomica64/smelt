@@ -36,10 +36,9 @@ impl ModuleBuilder<'_> {
             let mut params =
                 self.arrow_callback_param_types_with_hint(arrow, contextual_function.as_ref())?;
             for (param, ty) in arrow.params.items.iter().zip(params.iter_mut()) {
-                if param.optional
-                    && !matches!(self.ctx.krate.types.get(*ty), Some(Type::Optional(_)))
-                {
-                    *ty = self.ctx.krate.types.intern(Type::Optional(*ty));
+                if param.optional {
+                    *ty =
+                        smelt_hir::type_normalize::admit_undefined(&mut self.ctx.krate.types, *ty);
                 }
             }
             let rest = arrow.params.rest.as_ref().and_then(|_rest| {
@@ -704,8 +703,8 @@ impl ModuleBuilder<'_> {
         let mut params =
             self.arrow_callback_param_types_with_hint(arrow, contextual_function.as_ref())?;
         for (param, ty) in arrow.params.items.iter().zip(params.iter_mut()) {
-            if param.optional && !matches!(self.ctx.krate.types.get(*ty), Some(Type::Optional(_))) {
-                *ty = self.ctx.krate.types.intern(Type::Optional(*ty));
+            if param.optional {
+                *ty = smelt_hir::type_normalize::admit_undefined(&mut self.ctx.krate.types, *ty);
             }
         }
         let return_ty = arrow

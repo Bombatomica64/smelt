@@ -133,7 +133,7 @@ impl FunctionEmitter<'_> {
             Some(
                 Type::Float | Type::Int | Type::String | Type::PyStr | Type::Bool | Type::Unknown,
             ) => true,
-            Some(Type::Optional(inner)) => {
+            Some(Type::Optional(inner, _)) => {
                 matches!(
                     self.mir.types.get(*inner),
                     Some(Type::Float | Type::Int | Type::String | Type::PyStr | Type::Bool)

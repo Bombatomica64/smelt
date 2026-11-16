@@ -852,10 +852,13 @@ impl ModuleBuilder<'_> {
                 .intern_synthesized_name(&level_name(&format!("__smelt_shadow_{spelling}"), depth));
             let own_flag = self
                 .intern_synthesized_name(&level_name(&format!("__smelt_own_{spelling}"), depth));
-            let shadow_ty = if matches!(self.ctx.krate.types.get(ty), Some(Type::Optional(_))) {
+            let shadow_ty = if matches!(self.ctx.krate.types.get(ty), Some(Type::Optional(..))) {
                 ty
             } else {
-                self.ctx.krate.types.intern(Type::Optional(ty))
+                self.ctx
+                    .krate
+                    .types
+                    .intern(Type::Optional(ty, smelt_hir::Absence::Undefined))
             };
             fields.push(Field {
                 name: shadow,
@@ -1348,10 +1351,13 @@ impl ModuleBuilder<'_> {
                     })
                 } else {
                     let absent =
-                        if matches!(self.ctx.krate.types.get(*own_ty), Some(Type::Optional(_))) {
+                        if matches!(self.ctx.krate.types.get(*own_ty), Some(Type::Optional(..))) {
                             *own_ty
                         } else {
-                            self.ctx.krate.types.intern(Type::Optional(*own_ty))
+                            self.ctx
+                                .krate
+                                .types
+                                .intern(Type::Optional(*own_ty, smelt_hir::Absence::Undefined))
                         };
                     body.push_expr(Expr {
                         kind: ExprKind::Literal(smelt_hir::Literal::Undefined),

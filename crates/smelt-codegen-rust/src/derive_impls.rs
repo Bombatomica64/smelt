@@ -107,6 +107,7 @@ pub(crate) fn emit_default_impl_for_storage_type(
     scoped_type_params: &HashSet<smelt_hir::Symbol>,
     identity: Option<&str>,
     nested_base: bool,
+    view_slot: bool,
 ) -> Result<(), EmitError> {
     // Each field's default expression is computed ONCE and used twice: for the
     // body, and to decide the impl's `where` clause.
@@ -199,6 +200,12 @@ pub(crate) fn emit_default_impl_for_storage_type(
                     }
                     if !phantom_args.is_empty() {
                         self_writer.line("_smelt_phantom: ::std::marker::PhantomData,");
+                    }
+                    // A widened record's view slot is empty on every real
+                    // cell (`crate::class_widening`).
+                    if view_slot {
+                        self_writer
+                            .line(format!("{}: None,", crate::class_widening::VIEW_SLOT_FIELD));
                     }
                     // A defaulted instance is one of this class itself
                     // (`crate::class_identity`).
@@ -400,7 +407,7 @@ pub(crate) fn type_supports_partial_eq_where(
             | Type::Generator { .. }
             | Type::GeneratorResult { .. },
         ) => false,
-        Some(Type::List(item) | Type::Set(item) | Type::Optional(item)) => {
+        Some(Type::List(item) | Type::Set(item) | Type::Optional(item, _)) => {
             type_supports_partial_eq_where(mir, is_reference, *item, seen)
         }
         // A map keyed by a TYPE PARAMETER is a `SmeltJsMap<P, _>`, whose
@@ -531,7 +538,7 @@ fn type_is_json_serializable(
         Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::PyStr | Type::Unknown) => {
             true
         }
-        Some(Type::List(item) | Type::Set(item) | Type::Optional(item)) => {
+        Some(Type::List(item) | Type::Set(item) | Type::Optional(item, _)) => {
             type_is_json_serializable(mir, is_reference, *item, seen)
         }
         Some(Type::Tuple(items)) => items

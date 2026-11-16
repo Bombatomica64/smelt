@@ -291,7 +291,7 @@ impl FunctionEmitter<'_> {
             // Nullish unions remain `Option`/erased-boundary work. Keeping them
             // out of tagged unions preserves missing-property/default semantics;
             // the concrete-union feature targets distinct value-bearing arms.
-            Some(Type::None | Type::Optional(_)) => false,
+            Some(Type::None | Type::Optional(..)) => false,
         }
     }
 
@@ -548,7 +548,7 @@ impl FunctionEmitter<'_> {
             {
                 let value_ty = *value;
                 fields.iter().all(|field| {
-                    matches!(self.mir.types.get(field.ty), Some(Type::Optional(_)))
+                    matches!(self.mir.types.get(field.ty), Some(Type::Optional(..)))
                         || self.dict_value_fits_field(value_ty, field.ty)
                 })
             }
@@ -805,7 +805,7 @@ impl FunctionEmitter<'_> {
         optional_ty: TypeId,
         class: Symbol,
     ) -> Option<String> {
-        let Some(&Type::Optional(inner)) = self.mir.types.get(optional_ty) else {
+        let Some(&Type::Optional(inner, _)) = self.mir.types.get(optional_ty) else {
             return None;
         };
         let patterns = self.concrete_union_class_patterns(inner, class)?;
@@ -1294,7 +1294,7 @@ impl FunctionEmitter<'_> {
             let Ok(key) = self.symbol_source_name(field.name) else {
                 continue;
             };
-            if matches!(self.mir.types.get(field.ty), Some(Type::Optional(_))) {
+            if matches!(self.mir.types.get(field.ty), Some(Type::Optional(..))) {
                 continue;
             }
             let literals = interface
@@ -1696,10 +1696,12 @@ impl FunctionEmitter<'_> {
             .iter()
             .any(|read| matches!(read, UnionArmIndexRead::Absent))
         {
-            if matches!(self.mir.types.get(joined), Some(Type::Optional(_))) {
+            if matches!(self.mir.types.get(joined), Some(Type::Optional(..))) {
                 joined
             } else {
-                let Some(optional) = self.find_type_id(&Type::Optional(joined)) else {
+                let Some(optional) =
+                    self.find_type_id(&Type::Optional(joined, smelt_hir::Absence::Undefined))
+                else {
                     return Ok(None);
                 };
                 optional
@@ -1724,7 +1726,7 @@ impl FunctionEmitter<'_> {
             return Ok(None);
         };
         let (optional, joined) = match self.mir.types.get(read_ty) {
-            Some(Type::Optional(inner))
+            Some(Type::Optional(inner, _))
                 if reads
                     .iter()
                     .any(|read| matches!(read, UnionArmIndexRead::Absent)) =>
@@ -1791,7 +1793,8 @@ impl FunctionEmitter<'_> {
                 UnionArmIndexRead::Absent => "None".to_owned(),
                 UnionArmIndexRead::Element(ty, text) if *ty == inner => format!("Some({text})"),
                 UnionArmIndexRead::Element(ty, text)
-                    if self.mir.types.get(*ty) == Some(&Type::Optional(inner)) =>
+                    if self.mir.types.get(*ty)
+                        == Some(&Type::Optional(inner, smelt_hir::Absence::Undefined)) =>
                 {
                     text.clone()
                 }
@@ -1865,7 +1868,7 @@ impl FunctionEmitter<'_> {
             };
             if let UnionArmRead::Field(ty) | UnionArmRead::Host(ty, _) = read {
                 let arm_base = match self.mir.types.get(ty) {
-                    Some(Type::Optional(inner)) => {
+                    Some(Type::Optional(inner, _)) => {
                         optional = true;
                         *inner
                     }
@@ -1884,7 +1887,7 @@ impl FunctionEmitter<'_> {
             return Ok(None);
         };
         let read_ty = if optional {
-            match self.find_type_id(&Type::Optional(base)) {
+            match self.find_type_id(&Type::Optional(base, smelt_hir::Absence::Undefined)) {
                 Some(ty) => ty,
                 None => return Ok(None),
             }
@@ -1906,7 +1909,7 @@ impl FunctionEmitter<'_> {
         let Some((read_ty, reads)) = self.concrete_union_member_reads(union_ty, field)? else {
             return Ok(None);
         };
-        let read_is_optional = matches!(self.mir.types.get(read_ty), Some(Type::Optional(_)));
+        let read_is_optional = matches!(self.mir.types.get(read_ty), Some(Type::Optional(..)));
         let union_enum_name = union_name(union_ty);
         let field_name = self.context.names().field_text(self.mir, field);
         let arms = reads
@@ -1930,7 +1933,7 @@ impl FunctionEmitter<'_> {
                     ),
                 };
                 let value = if read_is_optional
-                    && !matches!(self.mir.types.get(ty), Some(Type::Optional(_)))
+                    && !matches!(self.mir.types.get(ty), Some(Type::Optional(..)))
                 {
                     format!("Some({value})")
                 } else {
@@ -2120,7 +2123,7 @@ impl FunctionEmitter<'_> {
 
         match self.mir.types.get(ty) {
             Some(Type::None) => matches!(kind, Kind::Null | Kind::Undefined),
-            Some(Type::Optional(_)) => kind == Kind::Undefined,
+            Some(Type::Optional(..)) => kind == Kind::Undefined,
             Some(member) => member
                 .runtime_kind()
                 .is_some_and(|actual| actual.satisfies(kind)),

@@ -87,7 +87,7 @@ impl FunctionEmitter<'_> {
                 )))
             };
         }
-        if let Some(Type::Optional(inner)) = self.mir.types.get(dest_ty) {
+        if let Some(Type::Optional(inner, _)) = self.mir.types.get(dest_ty) {
             // `Type::Tuple` belongs here for the same reason as the
             // others: the arm above renders a literal into a Rust tuple
             // when the destination IS one, and an optional destination
@@ -107,6 +107,8 @@ impl FunctionEmitter<'_> {
                         | Type::Unknown
                         | Type::TypeParam { .. }
                         | Type::Union(_)
+                        // `T | null | undefined`: present in both layers.
+                        | Type::Optional(..)
                 )
             ) || self.is_erased_class_type(*inner)
             {
@@ -638,7 +640,7 @@ impl FunctionEmitter<'_> {
                         &field,
                     )?
                 }
-            } else if matches!(self.mir.types.get(field.ty), Some(Type::Optional(_))) {
+            } else if matches!(self.mir.types.get(field.ty), Some(Type::Optional(..))) {
                 let default = self.default_value(field.ty)?;
                 if accessor {
                     crate::accessor_prelude::constant_expr(&default)

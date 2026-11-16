@@ -503,6 +503,10 @@ impl FunctionEmitter<'_> {
                 self.null_or_undefined_equality_expr(&lhs_text, inner, rhs, strict_nullish)
             {
                 text
+            } else if let Some(text) =
+                self.absence_equality_expr(&lhs_text, self.operand_ty(lhs)?, rhs, strict_nullish)
+            {
+                text
             } else if self.optional_inner_preserves_erased_singletons(inner) {
                 self.optional_erased_singleton_equality_expr(&lhs_text, rhs, strict_nullish, inner)?
             } else {
@@ -514,6 +518,10 @@ impl FunctionEmitter<'_> {
             let rhs_text = self.operand_expr(rhs)?;
             if let Some(text) =
                 self.null_or_undefined_equality_expr(&rhs_text, inner, lhs, strict_nullish)
+            {
+                text
+            } else if let Some(text) =
+                self.absence_equality_expr(&rhs_text, self.operand_ty(rhs)?, lhs, strict_nullish)
             {
                 text
             } else if self.optional_inner_preserves_erased_singletons(inner) {
@@ -576,6 +584,110 @@ impl FunctionEmitter<'_> {
             (false, _) => RustExpr::path("true"),
             (true, true) => option_text.postfix(".is_some()"),
             (true, false) => option_text.postfix(".is_none()"),
+        })
+    }
+
+    /// Equality between a typed optional and a `null` or `undefined` literal,
+    /// answered by which absences the optional's type admits.
+    ///
+    /// An optional of one absence holds only that one: `x === null` on a
+    /// `T | null` is `x.is_none()`, and `x === undefined` on it is `false`
+    /// (`==` holds for either). The `undefined` tag does not rule `null`
+    /// out (see the match below). One that admits both is
+    /// `Option<Option<T>>`, `undefined` outside: `=== undefined` is
+    /// `x.is_none()`, `=== null` is `Some(None)`, and `==` is either.
+    ///
+    /// `None` (the caller's presence rule applies) when the other side is
+    /// not a nullish literal, when the payload is the `null | undefined`
+    /// unit, or when the payload is erased and may hold a nullish tag itself.
+    fn absence_equality_expr(
+        &self,
+        option_text: &RustExpr,
+        optional_ty: TypeId,
+        singleton: &Operand,
+        strict_nullish: bool,
+    ) -> Option<RustExpr> {
+        let literal = match singleton {
+            Operand::Const(Constant::None) => smelt_hir::Absence::Null,
+            Operand::Const(Constant::Undefined) => smelt_hir::Absence::Undefined,
+            Operand::Const(_) | Operand::Copy(_) | Operand::Move(_) => return None,
+        };
+        let (base, undefined, null) =
+            smelt_hir::type_normalize::peel_optional(&self.mir.types, optional_ty);
+        if base == self.none_ty {
+            return None;
+        }
+        // A payload on the erased carrier can hold a nullish tag of its own.
+        // A real Rust generic (`Option<V>` in `impl<V> Slot<V>`) cannot be
+        // matched against tags, and its `None` is the absent value.
+        if self.optional_inner_preserves_erased_singletons(base)
+            && self.renders_erased(base).unwrap_or(true)
+        {
+            self.context.note_carrier_use();
+            // `T | null | undefined` over an erased payload: each layer's
+            // `None` is its own absence, and a present payload may carry
+            // either tag.
+            if undefined && null {
+                let pattern = match (strict_nullish, literal) {
+                    (false, _) => {
+                        "None | Some(None) | Some(Some(SmeltUnknown::Null | SmeltUnknown::Undefined))"
+                    }
+                    (true, smelt_hir::Absence::Null) => {
+                        "Some(None) | Some(Some(SmeltUnknown::Null))"
+                    }
+                    (true, smelt_hir::Absence::Undefined) => {
+                        "None | Some(Some(SmeltUnknown::Undefined))"
+                    }
+                };
+                return Some(RustExpr::atom(format!(
+                    "matches!({}.as_ref().map(Option::as_ref), {pattern})",
+                    option_text.delimited()
+                )));
+            }
+            // `T | undefined` keeps the long-standing erased rule.
+            if undefined || !null {
+                return None;
+            }
+            // `T | null` over an erased payload: `None` is `null`, and a
+            // present payload may be either tag.
+            self.context.note_carrier_use();
+            let pattern = match (strict_nullish, literal) {
+                (false, _) => "SmeltUnknown::Null | SmeltUnknown::Undefined",
+                (true, smelt_hir::Absence::Null) => "SmeltUnknown::Null",
+                (true, smelt_hir::Absence::Undefined) => "SmeltUnknown::Undefined",
+            };
+            let combinator = if !strict_nullish || literal == smelt_hir::Absence::Null {
+                "map_or(true, "
+            } else {
+                "is_some_and("
+            };
+            return Some(option_text.postfix(format!(
+                ".as_ref().{combinator}|smelt_value| matches!(smelt_value, {pattern}))"
+            )));
+        }
+        Some(match (undefined, null) {
+            (true, true) if !strict_nullish => {
+                option_text.postfix(".as_ref().map_or(true, Option::is_none)")
+            }
+            (true, true) if literal == smelt_hir::Absence::Undefined => {
+                option_text.postfix(".is_none()")
+            }
+            (true, true) => {
+                RustExpr::atom(format!("matches!({}, Some(None))", option_text.delimited()))
+            }
+            // `=== undefined` on a `T | null` is `false`: a `null` tag comes
+            // only from a source type that spells `null`. The reverse is not
+            // decided: `undefined` is also the tag of every optional the
+            // source did not spell (a parameter widened for a presence test,
+            // a value converted in from `unknown`), which may hold `null`, so
+            // `=== null` on it keeps the presence test.
+            _ if strict_nullish
+                && self.optional_absence(optional_ty) == smelt_hir::Absence::Null
+                && literal == smelt_hir::Absence::Undefined =>
+            {
+                RustExpr::path("false")
+            }
+            _ => option_text.postfix(".is_none()"),
         })
     }
 
@@ -1029,7 +1141,7 @@ impl FunctionEmitter<'_> {
     /// is IEEE comparison in JavaScript too.
     fn type_nests_float(&self, ty: TypeId) -> bool {
         match self.mir.types.get(ty) {
-            Some(Type::List(item) | Type::Optional(item)) => self.type_holds_float(*item),
+            Some(Type::List(item) | Type::Optional(item, _)) => self.type_holds_float(*item),
             Some(Type::Tuple(items)) => items
                 .clone()
                 .iter()
@@ -1051,7 +1163,7 @@ impl FunctionEmitter<'_> {
         let deeper = depth.saturating_add(1);
         match self.mir.types.get(ty) {
             Some(Type::Class { .. }) => self.is_live_record_type(ty),
-            Some(Type::List(item) | Type::Optional(item)) => {
+            Some(Type::List(item) | Type::Optional(item, _)) => {
                 self.type_holds_live_record(*item, deeper)
             }
             Some(Type::Tuple(items)) => items
@@ -1190,7 +1302,7 @@ impl FunctionEmitter<'_> {
                     value_equal = value_equal.delimited()
                 ))
             }
-            Some(Type::Optional(inner)) => {
+            Some(Type::Optional(inner, _)) => {
                 let item_equal = self.structural_leaf_equality_in(
                     &RustExpr::path("smelt_left_value"),
                     &RustExpr::path("smelt_right_value"),
@@ -1357,6 +1469,15 @@ impl FunctionEmitter<'_> {
             // The address shares no space with the object-id counter above,
             // but `tsc` rejects `===` between a class and an unrelated
             // container, so the two never meet in one comparison.
+            // A widened handle may be a placeholder over a view
+            // (`crate::class_widening`); its identity is the cell the view
+            // roots at, which for a real cell is its own address.
+            Type::Class { name, .. } if self.context.is_widened_class(*name) => {
+                Some(RustExpr::atom(format!(
+                    "(({text}).smelt_identity() as usize)",
+                    text = text.delimited()
+                )))
+            }
             Type::Class { name, .. } if self.context.is_reference_class(*name) => {
                 Some(RustExpr::atom(format!(
                     "(::std::rc::Rc::as_ptr(&({text}).0) as *const () as usize)",
@@ -1561,13 +1682,13 @@ impl FunctionEmitter<'_> {
     fn equality_shapes_are_definitely_incompatible(&self, left: TypeId, right: TypeId) -> bool {
         match (self.mir.types.get(left), self.mir.types.get(right)) {
             (Some(Type::Int | Type::Float), Some(Type::Int | Type::Float)) => false,
-            (Some(Type::Optional(left_inner)), Some(Type::Optional(right_inner))) => {
+            (Some(Type::Optional(left_inner, _)), Some(Type::Optional(right_inner, _))) => {
                 self.equality_shapes_are_definitely_incompatible(*left_inner, *right_inner)
             }
-            (Some(Type::Optional(inner)), _) => {
+            (Some(Type::Optional(inner, _)), _) => {
                 self.equality_shapes_are_definitely_incompatible(*inner, right)
             }
-            (_, Some(Type::Optional(inner))) => {
+            (_, Some(Type::Optional(inner, _))) => {
                 self.equality_shapes_are_definitely_incompatible(left, *inner)
             }
             (Some(Type::List(_)), Some(Type::List(_)))
@@ -1640,7 +1761,7 @@ impl FunctionEmitter<'_> {
     /// Returns the inner type for `Option<T>`.
     fn optional_inner_ty(&self, ty: TypeId) -> Option<TypeId> {
         match self.mir.types.get(ty) {
-            Some(Type::Optional(inner)) => Some(*inner),
+            Some(Type::Optional(inner, _)) => Some(*inner),
             _ => None,
         }
     }
@@ -1671,7 +1792,7 @@ impl FunctionEmitter<'_> {
     pub(super) fn add_operand_is_string_like(&self, ty: TypeId) -> bool {
         match self.mir.types.get(ty) {
             Some(Type::String | Type::PyStr) => true,
-            Some(Type::Optional(inner)) => self.add_operand_is_string_like(*inner),
+            Some(Type::Optional(inner, _)) => self.add_operand_is_string_like(*inner),
             Some(Type::Union(items)) => items
                 .iter()
                 .copied()
@@ -2125,7 +2246,7 @@ impl FunctionEmitter<'_> {
                 Some(Type::String | Type::PyStr) => {
                     format!("&{rhs_text}", rhs_text = rhs_text.tight())
                 }
-                Some(Type::Optional(inner))
+                Some(Type::Optional(inner, _))
                     if matches!(
                         self.mir.types.get(*inner),
                         Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::PyStr)

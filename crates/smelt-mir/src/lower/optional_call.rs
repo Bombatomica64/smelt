@@ -69,7 +69,7 @@ impl LoweringCtx<'_> {
             return Ok(None);
         };
         let receiver_ty = self.hir_expr(receiver)?.ty;
-        let Some(Type::Optional(inner_ty)) = self.krate.types.get(receiver_ty).cloned() else {
+        let Some(Type::Optional(inner_ty, _)) = self.krate.types.get(receiver_ty).cloned() else {
             return Ok(None);
         };
         let Some(Type::Class { name, .. }) = self.krate.types.get(inner_ty).cloned() else {
@@ -162,7 +162,7 @@ impl LoweringCtx<'_> {
         method: Symbol,
         result_ty: TypeId,
     ) -> Option<TypeId> {
-        let Some(Type::Optional(payload)) = self.krate.types.get(result_ty).cloned() else {
+        let Some(Type::Optional(payload, _)) = self.krate.types.get(result_ty).cloned() else {
             return None;
         };
         let declared = self.krate.items.iter().find_map(|item| {
@@ -183,7 +183,7 @@ impl LoweringCtx<'_> {
             })
         })?;
         match self.krate.types.get(declared) {
-            Some(Type::Optional(_)) => Some(result_ty),
+            Some(Type::Optional(..)) => Some(result_ty),
             Some(Type::TypeParam { .. } | Type::Unknown | Type::Union(_)) => None,
             _ => Some(payload),
         }

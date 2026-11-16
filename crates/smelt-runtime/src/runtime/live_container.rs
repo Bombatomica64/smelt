@@ -281,6 +281,7 @@ impl<T: SmeltFromUnknown + Clone + 'static> SmeltList<T> {
     fn into_live_smelt_unknown_with(self, erase: impl Fn(T) -> SmeltUnknown + 'static) -> SmeltUnknown { SmeltUnknown::Array(SmeltArray { id: self.id(), values: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new())), detached: false, live: Some(::std::rc::Rc::new(::std::cell::RefCell::new(Some(::std::rc::Rc::new(SmeltLiveListWith { list: self, erase }))))) }) }
 }
 
+
 impl SmeltArray {
     //~ The typed list this array is a live view of, when it is a `SmeltList<T>`: the same handle, not a copy.
     fn live_typed<T: 'static>(&self) -> Option<SmeltList<T>> { self.live_view()?.typed_list().downcast_ref::<SmeltList<T>>().cloned() }

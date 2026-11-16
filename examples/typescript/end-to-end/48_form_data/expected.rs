@@ -1940,6 +1940,7 @@ impl<T: SmeltFromUnknown + Clone + 'static> SmeltList<T> {
     fn into_live_smelt_unknown_with(self, erase: impl Fn(T) -> SmeltUnknown + 'static) -> SmeltUnknown { SmeltUnknown::Array(SmeltArray { id: self.id(), values: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new())), detached: false, live: Some(::std::rc::Rc::new(::std::cell::RefCell::new(Some(::std::rc::Rc::new(SmeltLiveListWith { list: self, erase }))))) }) }
 }
 
+
 impl SmeltArray {
     fn live_typed<T: 'static>(&self) -> Option<SmeltList<T>> { self.live_view()?.typed_list().downcast_ref::<SmeltList<T>>().cloned() }
     fn live_view(&self) -> Option<::std::rc::Rc<dyn SmeltLiveList>> { self.live.as_ref()?.borrow().clone() }
@@ -3634,6 +3635,8 @@ fn smelt_has_property(value: &SmeltUnknown, key: &(impl SmeltHostText + ?Sized))
 
 fn smelt_unknown_is_nullish(value: &SmeltUnknown) -> bool { matches!(value, SmeltUnknown::Null | SmeltUnknown::Undefined) }
 fn smelt_unknown_is_undefined(value: &SmeltUnknown) -> bool { matches!(value, SmeltUnknown::Undefined) }
+#[allow(dead_code)]
+const fn smelt_unknown_is_null(value: &SmeltUnknown) -> bool { matches!(value, SmeltUnknown::Null) }
 fn smelt_missing_property_value() -> SmeltUnknown { SmeltUnknown::Undefined }
 fn smelt_missing_index_value() -> SmeltUnknown { SmeltUnknown::Undefined }
 
@@ -5739,7 +5742,7 @@ smelt_local.block_on(&smelt_runtime, async move {
     let _smelt_tmp_20: () = form.clone().append(&JsString::from("a"), SmeltFormDataValue::Text((JsString::from("2")).to_string()));
     let _smelt_tmp_21: () = form.clone().append(&JsString::from("b"), SmeltFormDataValue::Text((JsString::from("x")).to_string()));
     let _smelt_tmp_22: Option<SmeltUnion12> = form.clone().get(&JsString::from("a")).map(|smelt_entry| match smelt_entry { SmeltFormDataValue::Text(smelt_text) => SmeltUnion12::M0(JsString::from(smelt_text)), SmeltFormDataValue::File(smelt_file) => SmeltUnion12::M1(smelt_file) });
-    let _ = { println!("{}", match &_smelt_tmp_22 { Some(smelt_value) => format!("{}", smelt_value.clone().into_smelt_unknown()), None => "undefined".to_owned() }); };
+    let _ = { println!("{}", match &_smelt_tmp_22 { Some(smelt_value) => format!("{}", smelt_value.clone().into_smelt_unknown()), None => "null".to_owned() }); };
     _smelt_tmp_24 = Into::<SmeltList<_>>::into(SmeltList::new(form.clone().get_all(&JsString::from("a")).into_iter().map(|smelt_entry| match smelt_entry { SmeltFormDataValue::Text(smelt_text) => SmeltUnion12::M0(JsString::from(smelt_text)), SmeltFormDataValue::File(smelt_file) => SmeltUnion12::M1(smelt_file) }).collect::<Vec<_>>()));
     _smelt_tmp_25 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltUnion12> = vec![]; smelt_list_items }));
     _smelt_tmp_26 = Into::<SmeltList<_>>::into(_smelt_tmp_24.borrow().iter().cloned().chain(_smelt_tmp_25.borrow().iter().cloned()).collect::<Vec<_>>());

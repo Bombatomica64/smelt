@@ -335,7 +335,7 @@ impl ByValueGraph<'_> {
         active: &mut HashSet<Symbol>,
     ) {
         match self.mir.types.get(ty) {
-            Some(Type::Optional(inner)) => self.collect(*inner, shapes, params, active),
+            Some(Type::Optional(inner, _)) => self.collect(*inner, shapes, params, active),
             Some(Type::Tuple(items) | Type::Union(items)) => {
                 for item in items {
                     self.collect(*item, shapes, params, active);
@@ -564,7 +564,7 @@ fn collect_identity_comparison_triggers(mir: &Mir, references: &mut HashSet<Symb
             return None;
         };
         let mut ty = locals.get(usize::try_from(local.0).ok()?)?.ty;
-        if let Some(Type::Optional(inner)) = mir.types.get(ty) {
+        if let Some(Type::Optional(inner, _)) = mir.types.get(ty) {
             ty = *inner;
         }
         match mir.types.get(ty) {
@@ -694,7 +694,7 @@ fn holds_erased_slot(mir: &Mir, ty: smelt_hir::TypeId, depth: usize) -> bool {
 /// write it erased, and is not a flow.
 fn for_each_record_beside_an_erased_container(mir: &Mir, mut beside: impl FnMut(Symbol)) {
     let strip = |mut ty: smelt_hir::TypeId| {
-        while let Some(Type::Optional(inner)) = mir.types.get(ty) {
+        while let Some(Type::Optional(inner, _)) = mir.types.get(ty) {
             ty = *inner;
         }
         ty
@@ -772,7 +772,7 @@ fn for_each_record_beside_an_erased_container(mir: &Mir, mut beside: impl FnMut(
 /// each treat a flow this misses as they did before either existed.
 pub(crate) fn for_each_record_flow(mir: &Mir, mut flow: impl FnMut(Symbol, smelt_hir::TypeId)) {
     let strip = |mut ty: smelt_hir::TypeId| {
-        while let Some(Type::Optional(inner)) = mir.types.get(ty) {
+        while let Some(Type::Optional(inner, _)) = mir.types.get(ty) {
             ty = *inner;
         }
         ty
@@ -864,7 +864,7 @@ fn scan_value_flows(
     mut flow: impl FnMut(smelt_hir::TypeId, smelt_hir::TypeId),
 ) {
     let strip = |mut ty: smelt_hir::TypeId| {
-        while let Some(Type::Optional(inner)) = mir.types.get(ty) {
+        while let Some(Type::Optional(inner, _)) = mir.types.get(ty) {
             ty = *inner;
         }
         ty
@@ -1071,7 +1071,7 @@ pub(crate) fn deep_compares_a_reference_shape(mir: &Mir, references: &HashSet<Sy
             Some(Type::Class { name, args }) => {
                 args.is_empty() && references.contains(name) && !mir.has_class(*name)
             }
-            Some(Type::List(item) | Type::Optional(item) | Type::Dict(_, item)) => {
+            Some(Type::List(item) | Type::Optional(item, _) | Type::Dict(_, item)) => {
                 holds(mir, references, *item, deeper)
             }
             Some(Type::Tuple(items)) => items

@@ -18,7 +18,7 @@ fn show (FuncId(1)) -> String
     %2 temp: String
     %3 temp: String
     %4 temp: Headers
-    %5 temp: Optional<String>
+    %5 temp: Nullable<String>
     %6 temp: String
     %7 temp: String
   bb0:

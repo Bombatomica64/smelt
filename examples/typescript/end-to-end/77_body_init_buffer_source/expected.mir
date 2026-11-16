@@ -40,7 +40,7 @@ async fn run (FuncId(0)) -> None
     %37 temp: None
     %38 temp: Response
     %39 temp: Headers
-    %40 temp: Optional<String>
+    %40 temp: Nullable<String>
     %41 temp: Bool
     %42 temp: None
     %43 temp: URLSearchParams
@@ -52,7 +52,7 @@ async fn run (FuncId(0)) -> None
     %49 temp: None
     %50 temp: Response
     %51 temp: Headers
-    %52 temp: Optional<String>
+    %52 temp: Nullable<String>
     %53 temp: String
     %54 temp: None
     %55 temp: FormData
@@ -61,12 +61,12 @@ async fn run (FuncId(0)) -> None
     %58 temp: Request
     %59 temp: Future<FormData>
     %60 temp: FormData
-    %61 temp: Optional<String | File>
-    %62 temp: Optional<String | File>
+    %61 temp: Nullable<String | File>
+    %62 temp: Nullable<String | File>
     %63 temp: None
     %64 temp: Request
     %65 temp: Headers
-    %66 temp: Optional<String>
+    %66 temp: Nullable<String>
     %67 temp: String
     %68 temp: String
     %69 temp: String
@@ -76,7 +76,7 @@ async fn run (FuncId(0)) -> None
     %73 temp: Blob
     %74 temp: Response
     %75 temp: Headers
-    %76 temp: Optional<String>
+    %76 temp: Nullable<String>
     %77 temp: String
     %78 temp: None
     %79 temp: Response

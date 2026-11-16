@@ -415,7 +415,10 @@ impl ModuleBuilder<'_> {
         match self.ctx.krate.types.get(ty) {
             Some(Type::TypeParam { .. }) => true,
             Some(
-                Type::List(inner) | Type::Set(inner) | Type::Optional(inner) | Type::Future(inner),
+                Type::List(inner)
+                | Type::Set(inner)
+                | Type::Optional(inner, _)
+                | Type::Future(inner),
             ) => self.type_mentions_type_param(*inner),
             Some(Type::Dict(key, value) | Type::JsMap(key, value)) => {
                 self.type_mentions_type_param(*key) || self.type_mentions_type_param(*value)

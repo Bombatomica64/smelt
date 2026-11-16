@@ -26,7 +26,7 @@ impl FunctionEmitter<'_> {
             Some(
                 container @ (Type::List(_)
                 | Type::Set(_)
-                | Type::Optional(_)
+                | Type::Optional(..)
                 | Type::Dict(_, _)
                 | Type::Tuple(_)),
             ) => container
@@ -76,7 +76,7 @@ impl FunctionEmitter<'_> {
     pub(super) fn type_is_hash_set_key_safe(&self, ty: TypeId) -> bool {
         match self.mir.types.get(ty) {
             Some(Type::Bool | Type::Int | Type::PyInt | Type::String | Type::PyStr) => true,
-            Some(Type::Optional(inner) | Type::Future(inner)) => {
+            Some(Type::Optional(inner, _) | Type::Future(inner)) => {
                 self.type_is_hash_set_key_safe(*inner)
             }
             Some(Type::Union(items)) => items
@@ -360,7 +360,7 @@ impl FunctionEmitter<'_> {
         }
         match self.mir.types.get(base_ty) {
             Some(Type::List(_) | Type::Dict(_, _) | Type::String | Type::PyStr) => true,
-            Some(Type::Optional(inner)) => {
+            Some(Type::Optional(inner, _)) => {
                 matches!(self.mir.types.get(*inner), Some(Type::List(_)))
             }
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => true,
@@ -506,7 +506,7 @@ impl FunctionEmitter<'_> {
             Some(Type::Function(_) | Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => {
                 true
             }
-            Some(Type::Optional(inner)) => self.type_accepts_erased_function(*inner),
+            Some(Type::Optional(inner, _)) => self.type_accepts_erased_function(*inner),
             _ => self.is_erased_class_type(ty),
         }
     }
@@ -531,7 +531,7 @@ impl FunctionEmitter<'_> {
                     | Type::List(_)
                     | Type::Set(_)
                     | Type::Dict(_, _)
-                    | Type::Optional(_)
+                    | Type::Optional(..)
             )
         )
     }
@@ -563,7 +563,9 @@ pub(crate) fn dict_key_uses_js_key_map(mir: &Mir, key_ty: TypeId) -> bool {
         // `is_prop_key_record_key`). A symbol key compares by identity like
         // any `SmeltJsKeyEq` key.
         Some(Type::PropKey | Type::Symbol) => true,
-        Some(Type::Optional(inner) | Type::Future(inner)) => dict_key_uses_js_key_map(mir, *inner),
+        Some(Type::Optional(inner, _) | Type::Future(inner)) => {
+            dict_key_uses_js_key_map(mir, *inner)
+        }
         Some(Type::Union(items)) => items
             .iter()
             .any(|item| dict_key_uses_js_key_map(mir, *item)),

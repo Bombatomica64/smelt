@@ -167,27 +167,22 @@ impl ModuleBuilder<'_> {
             return None;
         }
         let none = self.ctx.krate.types.intern(Type::None);
-        Some(self.ctx.krate.types.intern(Type::Optional(none)))
+        Some(
+            self.ctx
+                .krate
+                .types
+                .intern(Type::Optional(none, smelt_hir::Absence::Undefined)),
+        )
     }
 
-    /// `Some(true)` for a `null` literal arm, `Some(false)` for `undefined`.
-    /// The optional a conditional joins when one arm is absent: `present`
-    /// around the `absent_arm`'s absence.
-    ///
-    /// An absent arm that is the `null` literal makes the join `T | null`,
-    /// whose absent value erases as `null` (`flag ? items : null`, the
-    /// ts-pattern `.otherwise(() => null)` shape); any other absent arm keeps
-    /// the plain `Option`, absent as `undefined`.
-    fn optional_join_around(
-        &mut self,
-        body: &Body,
-        absent_arm: smelt_hir::ExprId,
-        present: smelt_hir::TypeId,
-    ) -> smelt_hir::TypeId {
-        if Self::nullish_literal_of(body, absent_arm) == Some(true) {
-            self.ctx.krate.types.intern_null_optional(present)
+    /// The absent value a `None`-typed ternary arm holds: `null` for the `null`
+    /// literal, `undefined` for anything else (the `undefined` literal, a
+    /// `void` call).
+    fn nullish_arm_absence(body: &Body, expr: smelt_hir::ExprId) -> smelt_hir::Absence {
+        if Self::nullish_literal_of(body, expr) == Some(true) {
+            smelt_hir::Absence::Null
         } else {
-            self.ctx.krate.types.intern(Type::Optional(present))
+            smelt_hir::Absence::Undefined
         }
     }
 
@@ -317,9 +312,11 @@ impl ModuleBuilder<'_> {
         } else if Self::is_empty_list_expr(body, else_expr) && !self.is_dict_type(then_ty) {
             then_ty
         } else if self.ctx.krate.types.get(then_ty) == Some(&Type::None) {
-            self.optional_join_around(body, then_expr, else_ty)
+            let absence = Self::nullish_arm_absence(body, then_expr);
+            smelt_hir::type_normalize::optional_with(&mut self.ctx.krate.types, else_ty, absence)
         } else if self.ctx.krate.types.get(else_ty) == Some(&Type::None) {
-            self.optional_join_around(body, else_expr, then_ty)
+            let absence = Self::nullish_arm_absence(body, else_expr);
+            smelt_hir::type_normalize::optional_with(&mut self.ctx.krate.types, then_ty, absence)
         } else if let Some(unified) = self.unify_optional_conditional_branches(then_ty, else_ty) {
             // One arm is `Optional<inner>` and the other unifies with
             // `inner`, so the TypeScript union `inner | undefined` IS
@@ -504,9 +501,17 @@ impl ModuleBuilder<'_> {
         } else if self.date_runtime_float_matches_type_param(else_ty, then_ty) {
             Ok(then_ty)
         } else if self.ctx.krate.types.get(then_ty) == Some(&Type::None) {
-            Ok(self.ctx.krate.types.intern(Type::Optional(else_ty)))
+            Ok(self
+                .ctx
+                .krate
+                .types
+                .intern(Type::Optional(else_ty, smelt_hir::Absence::Undefined)))
         } else if self.ctx.krate.types.get(else_ty) == Some(&Type::None) {
-            Ok(self.ctx.krate.types.intern(Type::Optional(then_ty)))
+            Ok(self
+                .ctx
+                .krate
+                .types
+                .intern(Type::Optional(then_ty, smelt_hir::Absence::Undefined)))
         } else if let Some(unified) = self.unify_optional_conditional_branches(then_ty, else_ty) {
             // One branch is `Optional<inner>` and the other is compatible with
             // `inner` (equal or numerically widenable), e.g. a `number | undefined`
@@ -610,14 +615,17 @@ impl ModuleBuilder<'_> {
         then_ty: smelt_hir::TypeId,
         else_ty: smelt_hir::TypeId,
     ) -> Option<smelt_hir::TypeId> {
-        let then_opt = match self.ctx.krate.types.get(then_ty) {
-            Some(Type::Optional(inner)) => Some(*inner),
-            _ => None,
+        let mut absences = (false, false);
+        let mut optional_inner = |types: &smelt_hir::TypeInterner, ty| {
+            matches!(types.get(ty), Some(Type::Optional(..))).then(|| {
+                let (base, undefined, null) = smelt_hir::type_normalize::peel_optional(types, ty);
+                absences.0 |= undefined;
+                absences.1 |= null;
+                base
+            })
         };
-        let else_opt = match self.ctx.krate.types.get(else_ty) {
-            Some(Type::Optional(inner)) => Some(*inner),
-            _ => None,
-        };
+        let then_opt = optional_inner(&self.ctx.krate.types, then_ty);
+        let else_opt = optional_inner(&self.ctx.krate.types, else_ty);
         let inner = match (then_opt, else_opt) {
             (Some(then_inner), Some(else_inner)) => {
                 self.unify_compatible_branch_inner(then_inner, else_inner)?
@@ -626,7 +634,12 @@ impl ModuleBuilder<'_> {
             (None, Some(else_inner)) => self.unify_compatible_branch_inner(then_ty, else_inner)?,
             (None, None) => return None,
         };
-        Some(self.ctx.krate.types.intern(Type::Optional(inner)))
+        Some(smelt_hir::type_normalize::rebuild_optional(
+            &mut self.ctx.krate.types,
+            inner,
+            absences.0,
+            absences.1,
+        ))
     }
 
     /// Return the unified inner type for two conditional-branch inners that are
@@ -662,9 +675,15 @@ impl ModuleBuilder<'_> {
         } else if self.numeric_type_compatible(then_item, else_item) {
             self.ctx.krate.types.intern(Type::Float)
         } else if self.ctx.krate.types.get(then_item) == Some(&Type::None) {
-            self.ctx.krate.types.intern(Type::Optional(else_item))
+            self.ctx
+                .krate
+                .types
+                .intern(Type::Optional(else_item, smelt_hir::Absence::Undefined))
         } else if self.ctx.krate.types.get(else_item) == Some(&Type::None) {
-            self.ctx.krate.types.intern(Type::Optional(then_item))
+            self.ctx
+                .krate
+                .types
+                .intern(Type::Optional(then_item, smelt_hir::Absence::Undefined))
         } else if let (Some(Type::List(then_inner)), Some(Type::List(else_inner))) = (
             self.ctx.krate.types.get(then_item).cloned(),
             self.ctx.krate.types.get(else_item).cloned(),

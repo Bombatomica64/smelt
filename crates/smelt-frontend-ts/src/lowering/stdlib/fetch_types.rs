@@ -336,7 +336,11 @@ impl ModuleBuilder<'_> {
         use smelt_hir::UrlSearchParamsOp as Op;
         let string_ty = self.ctx.krate.types.intern(Type::String);
         match op {
-            Op::Get => self.ctx.krate.types.intern(Type::Optional(string_ty)),
+            Op::Get => self
+                .ctx
+                .krate
+                .types
+                .intern(Type::Optional(string_ty, smelt_hir::Absence::Null)),
             Op::Has => self.ctx.krate.types.intern(Type::Bool),
             Op::ToText => string_ty,
             Op::Set | Op::Append | Op::Delete | Op::Sort => self.ctx.krate.types.intern(Type::None),
@@ -535,7 +539,11 @@ impl ModuleBuilder<'_> {
     ) -> smelt_hir::TypeId {
         let string_ty = self.ctx.krate.types.intern(Type::String);
         match op {
-            HeadersOp::Get => self.ctx.krate.types.intern(Type::Optional(string_ty)),
+            HeadersOp::Get => self
+                .ctx
+                .krate
+                .types
+                .intern(Type::Optional(string_ty, smelt_hir::Absence::Null)),
             HeadersOp::Has => self.ctx.krate.types.intern(Type::Bool),
             HeadersOp::Set | HeadersOp::Append | HeadersOp::Delete => {
                 self.ctx.krate.types.intern(Type::None)
@@ -688,7 +696,7 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> (smelt_hir::ExprId, smelt_hir::TypeId) {
         let receiver_ty = Self::expr_ty(body, receiver);
-        if let Some(Type::Optional(inner)) = self.ctx.krate.types.get(receiver_ty).cloned() {
+        if let Some(Type::Optional(inner, _)) = self.ctx.krate.types.get(receiver_ty).cloned() {
             let asserted = body.push_expr(Expr {
                 kind: ExprKind::TypeAssert { value: receiver },
                 ty: inner,
@@ -788,7 +796,10 @@ impl ModuleBuilder<'_> {
     /// The payload distinguishes those, so `if (res.body)` is presence.
     fn body_handle_type(&mut self) -> smelt_hir::TypeId {
         let stream_ty = self.readable_stream_type();
-        self.ctx.krate.types.intern(Type::Optional(stream_ty))
+        self.ctx
+            .krate
+            .types
+            .intern(Type::Optional(stream_ty, smelt_hir::Absence::Null))
     }
 
     /// The HIR type a `Response` operation answers.
@@ -1249,7 +1260,7 @@ impl ModuleBuilder<'_> {
             // init that does not declare the key means.
             let erased = match self.ctx.krate.types.get(field_ty) {
                 Some(Type::Unknown) => true,
-                Some(&Type::Optional(inner)) => {
+                Some(&Type::Optional(inner, _)) => {
                     matches!(self.ctx.krate.types.get(inner), Some(Type::Unknown))
                 }
                 _ => false,
@@ -1419,7 +1430,7 @@ impl ModuleBuilder<'_> {
     fn resolve_init_key_constraint(&mut self, ty: smelt_hir::TypeId) -> smelt_hir::TypeId {
         match self.ctx.krate.types.get(ty) {
             Some(Type::TypeParam { .. }) => self.type_param_constraint_or_self(ty),
-            Some(&Type::Optional(inner))
+            Some(&Type::Optional(inner, absence))
                 if matches!(
                     self.ctx.krate.types.get(inner),
                     Some(Type::TypeParam { .. })
@@ -1429,7 +1440,10 @@ impl ModuleBuilder<'_> {
                 if resolved == inner {
                     return ty;
                 }
-                self.ctx.krate.types.intern(Type::Optional(resolved))
+                self.ctx
+                    .krate
+                    .types
+                    .intern(Type::Optional(resolved, absence))
             }
             _ => ty,
         }

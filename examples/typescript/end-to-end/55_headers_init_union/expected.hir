@@ -84,14 +84,14 @@ module examples/typescript/end-to-end/55_headers_init_union/input.ts (ModuleId(0
     #69: None = headers_set #66, #67, #68
     #70: Headers = %1
     #71: String = "x-shared"
-    #72: Optional<String> = headers_get #70, #71
+    #72: Nullable<String> = headers_get #70, #71
     #73: String = "null"
     #74: String = #72 ?? #73
     #75: None = @20(console_log)
     #76: None = call #75(#74)
     #77: Headers = %2
     #78: String = "x-shared"
-    #79: Optional<String> = headers_get #77, #78
+    #79: Nullable<String> = headers_get #77, #78
     #80: String = "null"
     #81: String = #79 ?? #80
     #82: None = @21(console_log)
@@ -138,7 +138,7 @@ interned types
   t9 = fn(List<(String, String)> | Dict<String, String> | Headers) -> String
   t10 = InitLike
   t11 = fn(InitLike) -> String
-  t12 = Optional<String>
+  t12 = Nullable<String>
   t13 = Optional<List<(String, String)> | Dict<String, String> | Headers>
   t14 = String | Unknown
   t15 = fn(List<(String, String)> | Dict<String, String> | Headers) -> String

@@ -60,7 +60,7 @@ impl ModuleBuilder<'_> {
         let mut value_tys = Vec::new();
         for field in fields {
             let mut ty = field.ty;
-            while let Some(Type::Optional(inner)) = self.ctx.krate.types.get(ty) {
+            while let Some(Type::Optional(inner, _)) = self.ctx.krate.types.get(ty) {
                 ty = *inner;
             }
             if !value_tys.contains(&ty) {
@@ -82,10 +82,8 @@ impl ModuleBuilder<'_> {
         let fields = fields
             .iter()
             .map(|field| {
-                let ty = if field.optional
-                    && !matches!(self.ctx.krate.types.get(field.ty), Some(Type::Optional(_)))
-                {
-                    self.ctx.krate.types.intern(Type::Optional(field.ty))
+                let ty = if field.optional {
+                    smelt_hir::type_normalize::admit_undefined(&mut self.ctx.krate.types, field.ty)
                 } else {
                     field.ty
                 };

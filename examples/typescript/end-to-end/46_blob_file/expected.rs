@@ -1935,6 +1935,7 @@ impl<T: SmeltFromUnknown + Clone + 'static> SmeltList<T> {
     fn into_live_smelt_unknown_with(self, erase: impl Fn(T) -> SmeltUnknown + 'static) -> SmeltUnknown { SmeltUnknown::Array(SmeltArray { id: self.id(), values: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new())), detached: false, live: Some(::std::rc::Rc::new(::std::cell::RefCell::new(Some(::std::rc::Rc::new(SmeltLiveListWith { list: self, erase }))))) }) }
 }
 
+
 impl SmeltArray {
     fn live_typed<T: 'static>(&self) -> Option<SmeltList<T>> { self.live_view()?.typed_list().downcast_ref::<SmeltList<T>>().cloned() }
     fn live_view(&self) -> Option<::std::rc::Rc<dyn SmeltLiveList>> { self.live.as_ref()?.borrow().clone() }
@@ -3629,6 +3630,8 @@ fn smelt_has_property(value: &SmeltUnknown, key: &(impl SmeltHostText + ?Sized))
 
 fn smelt_unknown_is_nullish(value: &SmeltUnknown) -> bool { matches!(value, SmeltUnknown::Null | SmeltUnknown::Undefined) }
 fn smelt_unknown_is_undefined(value: &SmeltUnknown) -> bool { matches!(value, SmeltUnknown::Undefined) }
+#[allow(dead_code)]
+const fn smelt_unknown_is_null(value: &SmeltUnknown) -> bool { matches!(value, SmeltUnknown::Null) }
 fn smelt_missing_property_value() -> SmeltUnknown { SmeltUnknown::Undefined }
 fn smelt_missing_index_value() -> SmeltUnknown { SmeltUnknown::Undefined }
 

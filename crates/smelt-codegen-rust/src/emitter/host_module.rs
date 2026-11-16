@@ -75,7 +75,7 @@ impl FunctionEmitter<'_> {
                 let suffix = match args.get(1) {
                     None => "None".to_owned(),
                     Some(suffix) => match self.mir.types.get(self.operand_ty(suffix)?) {
-                        Some(Type::Optional(_)) => {
+                        Some(Type::Optional(..)) => {
                             format!(
                                 "({}).map(|smelt_suffix| smelt_suffix.to_string()).as_deref()",
                                 self.operand_expr(suffix)?.delimited()

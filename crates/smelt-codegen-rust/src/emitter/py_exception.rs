@@ -63,7 +63,7 @@ impl FunctionEmitter<'_> {
                 | Type::String
                 | Type::None,
             ) => true,
-            Some(Type::Optional(inner) | Type::List(inner)) => self.type_has_py_json(*inner),
+            Some(Type::Optional(inner, _) | Type::List(inner)) => self.type_has_py_json(*inner),
             Some(Type::Tuple(items)) => {
                 !items.is_empty()
                     && items.len() <= 6

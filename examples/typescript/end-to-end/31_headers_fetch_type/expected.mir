@@ -15,16 +15,16 @@ fn main (FuncId(0)) -> None
     %12 temp: None
     %13 temp: None
     %14 temp: None
-    %15 temp: Optional<String>
+    %15 temp: Nullable<String>
     %16 temp: String
     %17 temp: None
-    %18 temp: Optional<String>
+    %18 temp: Nullable<String>
     %19 temp: String
     %20 temp: None
-    %21 temp: Optional<String>
+    %21 temp: Nullable<String>
     %22 temp: String
     %23 temp: None
-    %24 temp: Optional<String>
+    %24 temp: Nullable<String>
     %25 temp: String
     %26 temp: None
     %27 temp: Bool

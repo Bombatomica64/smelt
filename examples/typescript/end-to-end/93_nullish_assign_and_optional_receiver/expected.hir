@@ -71,13 +71,13 @@ module examples/typescript/end-to-end/93_nullish_assign_and_optional_receiver/in
     #51: None = headers_set #48, #49, #50
     #52: Headers = %4
     #53: String = "y"
-    #54: Optional<String> = headers_get #52, #53
+    #54: Nullable<String> = headers_get #52, #53
     #55: String = "absent"
     #56: String = #54 ?? #55
     #57: Optional<Headers> = %1
     #58: Headers = assert_type #57
     #59: String = "y"
-    #60: Optional<String> = headers_get #58, #59
+    #60: Nullable<String> = headers_get #58, #59
     #61: String = "absent"
     #62: String = #60 ?? #61
     #63: None = @10(console_log)
@@ -93,7 +93,7 @@ module examples/typescript/end-to-end/93_nullish_assign_and_optional_receiver/in
     #73: Headers = %5
     #74: Headers = %7
     #75: String = "y"
-    #76: Optional<String> = headers_get #74, #75
+    #76: Nullable<String> = headers_get #74, #75
     #77: String = "absent"
     #78: String = #76 ?? #77
     #79: None = @11(console_log)
@@ -193,4 +193,4 @@ interned types
   t8 = Bool
   t9 = Dict<String, String>
   t10 = Response
-  t11 = Optional<String>
+  t11 = Nullable<String>

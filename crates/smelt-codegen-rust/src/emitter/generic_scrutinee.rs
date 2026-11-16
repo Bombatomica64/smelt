@@ -52,7 +52,7 @@ impl FunctionEmitter<'_> {
         }
         let ty = self.operand_ty(operand)?;
         let payload = match self.mir.types.get(ty) {
-            Some(Type::Optional(inner)) => *inner,
+            Some(Type::Optional(inner, _)) => *inner,
             _ => ty,
         };
         Ok(self.is_lifted_type_param(payload))

@@ -26,7 +26,7 @@ impl ModuleBuilder<'_> {
                     .flat_map(|item| self.flatten_union_member_types(item))
                     .collect()
             }
-            Some(Type::Optional(inner)) => {
+            Some(Type::Optional(inner, _)) => {
                 let inner_ty = *inner;
                 let none_ty = self.ctx.krate.types.intern(Type::None);
                 let mut out = self.flatten_union_member_types(inner_ty);
@@ -52,32 +52,42 @@ impl ModuleBuilder<'_> {
     /// variadic erased signature.
     ///
     /// The members carry no source spelling here, so a bare absent member
-    /// counts as `undefined`: the absent value is `null` only when every
-    /// member holding one is itself a `T | null`
-    /// (`TypeInterner::absent_is_null`).
+    /// counts as `undefined`; a member that is itself optional contributes
+    /// the absent values of its layers (`Type::Optional`'s `Absence`).
     pub(in crate::lowering) fn union_of_member_types(
         &mut self,
         members: &[smelt_hir::TypeId],
     ) -> smelt_hir::TypeId {
-        let absent_only_null = members.iter().all(|member_ty| {
-            self.ctx.krate.types.absent_is_null(*member_ty)
-                || !self
+        let (mut admits_undefined, mut admits_null) = (false, false);
+        for member_ty in members {
+            let (_, undefined, null) =
+                smelt_hir::type_normalize::peel_optional(&self.ctx.krate.types, *member_ty);
+            admits_undefined |= undefined;
+            admits_null |= null;
+            if !undefined
+                && !null
+                && self
                     .flatten_union_member_types(*member_ty)
                     .iter()
                     .any(|flat| matches!(self.ctx.krate.types.get(*flat), Some(Type::None)))
-        });
-        self.union_of_member_types_with_absence(members, absent_only_null)
+            {
+                admits_undefined = true;
+            }
+        }
+        self.union_of_member_types_with_absence(members, admits_undefined, admits_null)
     }
 
     /// [`Self::union_of_member_types`] with the caller's knowledge of the
-    /// absent arms: `absent_only_null` says every absent arm is `null` (the
-    /// keyword, or a member that is itself `T | null`), so the resulting
-    /// optional's absent value is `null`, not `undefined`
-    /// (`TypeInterner::intern_null_optional`).
+    /// absent values the union admits (`admits_undefined`, `admits_null`):
+    /// the resulting optional has one layer per admitted absence
+    /// (`type_normalize::rebuild_optional`), so its `None` erases and prints
+    /// as `null` or `undefined`. A nullish arm with neither flag is
+    /// `undefined`.
     pub(in crate::lowering) fn union_of_member_types_with_absence(
         &mut self,
         members: &[smelt_hir::TypeId],
-        absent_only_null: bool,
+        admits_undefined: bool,
+        admits_null: bool,
     ) -> smelt_hir::TypeId {
         let mut lowered = Vec::new();
         let mut nullish = Vec::new();
@@ -167,10 +177,12 @@ impl ModuleBuilder<'_> {
         }
         if lowered.len() == 1 && !nullish.is_empty() {
             let single = lowered.remove(0);
-            if absent_only_null {
-                return self.ctx.krate.types.intern_null_optional(single);
-            }
-            self.ctx.krate.types.intern(Type::Optional(single))
+            smelt_hir::type_normalize::rebuild_optional(
+                &mut self.ctx.krate.types,
+                single,
+                admits_undefined || !admits_null,
+                admits_null,
+            )
         } else if lowered.len() == 1 {
             lowered.remove(0)
         } else if lowered.is_empty() && nullish.is_empty() && saw_never {
@@ -191,16 +203,17 @@ impl ModuleBuilder<'_> {
         } else {
             // Two or more present arms and an absent value: the optional
             // of the present union, as a single present arm already is
-            // (and as an optional parameter `x?: A | B` is). When every
-            // absent arm is `null`, the optional is a `T | null`
-            // (`TypeInterner::intern_null_optional`): its `None` erases
-            // and prints as `null`, inside a container too
-            // (`emitter::absent_value` in the Rust backend).
+            // (and as an optional parameter `x?: A | B` is), with the
+            // layers of the absent values the union admits: its `None`
+            // erases and prints as `null` or `undefined`, inside a
+            // container too (`emitter::absent_value` in the Rust backend).
             let present = self.ctx.krate.types.intern(Type::Union(lowered));
-            if absent_only_null {
-                return self.ctx.krate.types.intern_null_optional(present);
-            }
-            self.ctx.krate.types.intern(Type::Optional(present))
+            smelt_hir::type_normalize::rebuild_optional(
+                &mut self.ctx.krate.types,
+                present,
+                admits_undefined || !admits_null,
+                admits_null,
+            )
         }
     }
 
@@ -420,9 +433,38 @@ impl ModuleBuilder<'_> {
                 // parameter it reads: no storage of its own here.
                 | Type::IndexedAccess { .. }
                 | Type::None
-                | Type::Optional(_),
+                | Type::Optional(..),
             )
             | None => false,
+        }
+    }
+}
+
+impl ModuleBuilder<'_> {
+    /// Which absent values the union member `member` (lowered to `member_ty`)
+    /// contributes: `(undefined, null)`.
+    ///
+    /// The keywords answer for themselves (`void` is `undefined`). A member
+    /// whose lowering is an optional (an alias of `T | null`, a parenthesised
+    /// union) contributes the absences of its optional layers. Any other
+    /// member contributes neither.
+    pub(in crate::lowering) fn ts_member_absences(
+        &self,
+        member: &oxc::ast::ast::TSType<'_>,
+        member_ty: smelt_hir::TypeId,
+    ) -> (bool, bool) {
+        use oxc::ast::ast::TSType;
+        match member {
+            TSType::TSNullKeyword(_) => (false, true),
+            TSType::TSUndefinedKeyword(_) | TSType::TSVoidKeyword(_) => (true, false),
+            TSType::TSParenthesizedType(inner) => {
+                self.ts_member_absences(&inner.type_annotation, member_ty)
+            }
+            _ => {
+                let (_, undefined, null) =
+                    smelt_hir::type_normalize::peel_optional(&self.ctx.krate.types, member_ty);
+                (undefined, null)
+            }
         }
     }
 }

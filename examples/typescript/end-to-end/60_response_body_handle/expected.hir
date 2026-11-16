@@ -34,8 +34,9 @@ interned types
   t12 = Optional<Float>
   t13 = Bool
   t14 = ReadableStream
-  t15 = Optional<ReadableStream>
+  t15 = Nullable<ReadableStream>
   t16 = Headers
   t17 = Dict<String, String>
-  t18 = Future<String>
-  t19 = async fn() -> Future<None>
+  t18 = Nullable<String>
+  t19 = Future<String>
+  t20 = async fn() -> Future<None>

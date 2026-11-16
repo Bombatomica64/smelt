@@ -47,7 +47,7 @@ async fn main (FuncId(1)) -> None throws
     %19 temp: None
     %20 temp: None
     %21 temp: None
-    %22 temp: Optional<String | File>
+    %22 temp: Nullable<String | File>
     %23 temp: None
     %24 temp: List<String | File>
     %25 temp: List<String | File>
@@ -76,7 +76,7 @@ async fn main (FuncId(1)) -> None throws
     %48 temp: List<String>
     %49 temp: String
     %50 temp: None
-    %51 temp: Optional<String | File>
+    %51 temp: Nullable<String | File>
     %52 temp: String | File
     %53 temp: None
     %54 temp: FormData

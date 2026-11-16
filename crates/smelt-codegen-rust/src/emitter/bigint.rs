@@ -96,7 +96,7 @@ impl FunctionEmitter<'_> {
         match self.mir.types.get(ty) {
             Some(Type::BigInt) => true,
             Some(Type::Union(items)) => items.iter().any(|item| self.type_may_hold_bigint(*item)),
-            Some(Type::Optional(inner)) => self.type_may_hold_bigint(*inner),
+            Some(Type::Optional(inner, _)) => self.type_may_hold_bigint(*inner),
             _ => false,
         }
     }

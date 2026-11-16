@@ -816,7 +816,7 @@ impl ModuleBuilder<'_> {
             // `Object.fromEntries(null)` does not type-check, so an optional
             // argument (a field a guard proved present, `this.#var`) holds its
             // payload: read it as that payload.
-            if let Some(Type::Optional(inner)) = self
+            if let Some(Type::Optional(inner, _)) = self
                 .ctx
                 .krate
                 .types
@@ -1163,7 +1163,11 @@ impl ModuleBuilder<'_> {
             ty: none_ty,
             span,
         });
-        let ty = self.ctx.krate.types.intern(Type::Optional(record_ty));
+        let ty = self
+            .ctx
+            .krate
+            .types
+            .intern(Type::Optional(record_ty, smelt_hir::Absence::Undefined));
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::Conditional {
                 cond: is_own,
@@ -1306,7 +1310,7 @@ impl ModuleBuilder<'_> {
         // receivers (`object?: unknown`). Unwrap the optional and assert the
         // value to its inner shape so the ownership check sees the underlying
         // record/erased type instead of rejecting the `Optional` wrapper.
-        if let Some(Type::Optional(inner)) = self.ctx.krate.types.get(dict_shape_ty).cloned() {
+        if let Some(Type::Optional(inner, _)) = self.ctx.krate.types.get(dict_shape_ty).cloned() {
             dict = body.push_expr(Expr {
                 kind: ExprKind::TypeAssert { value: dict },
                 ty: inner,

@@ -216,7 +216,10 @@ pub(super) fn type_text(krate: &Crate, ty: &Type) -> String {
                 .join(", ");
             format!("({items})")
         }
-        Type::Optional(item) => format!("Optional<{}>", type_ref(krate, *item)),
+        Type::Optional(item, absence) => match absence {
+            crate::Absence::Undefined => format!("Optional<{}>", type_ref(krate, *item)),
+            crate::Absence::Null => format!("Nullable<{}>", type_ref(krate, *item)),
+        },
         Type::Union(items) => items
             .iter()
             .map(|item| type_ref(krate, *item))

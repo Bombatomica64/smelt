@@ -1940,6 +1940,7 @@ impl<T: SmeltFromUnknown + Clone + 'static> SmeltList<T> {
     fn into_live_smelt_unknown_with(self, erase: impl Fn(T) -> SmeltUnknown + 'static) -> SmeltUnknown { SmeltUnknown::Array(SmeltArray { id: self.id(), values: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new())), detached: false, live: Some(::std::rc::Rc::new(::std::cell::RefCell::new(Some(::std::rc::Rc::new(SmeltLiveListWith { list: self, erase }))))) }) }
 }
 
+
 impl SmeltArray {
     fn live_typed<T: 'static>(&self) -> Option<SmeltList<T>> { self.live_view()?.typed_list().downcast_ref::<SmeltList<T>>().cloned() }
     fn live_view(&self) -> Option<::std::rc::Rc<dyn SmeltLiveList>> { self.live.as_ref()?.borrow().clone() }
@@ -3634,6 +3635,8 @@ fn smelt_has_property(value: &SmeltUnknown, key: &(impl SmeltHostText + ?Sized))
 
 fn smelt_unknown_is_nullish(value: &SmeltUnknown) -> bool { matches!(value, SmeltUnknown::Null | SmeltUnknown::Undefined) }
 fn smelt_unknown_is_undefined(value: &SmeltUnknown) -> bool { matches!(value, SmeltUnknown::Undefined) }
+#[allow(dead_code)]
+const fn smelt_unknown_is_null(value: &SmeltUnknown) -> bool { matches!(value, SmeltUnknown::Null) }
 fn smelt_missing_property_value() -> SmeltUnknown { SmeltUnknown::Undefined }
 fn smelt_missing_index_value() -> SmeltUnknown { SmeltUnknown::Undefined }
 
@@ -5862,7 +5865,7 @@ pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
     parsed = _smelt_tmp_59.await?;
     _smelt_tmp_61 = parsed.clone().get(&JsString::from("name")).map(|smelt_entry| match smelt_entry { SmeltFormDataValue::Text(smelt_text) => SmeltUnion20::M0(JsString::from(smelt_text)), SmeltFormDataValue::File(smelt_file) => SmeltUnion20::M1(smelt_file) });
     _smelt_tmp_62 = parsed.get(&JsString::from("kind")).map(|smelt_entry| match smelt_entry { SmeltFormDataValue::Text(smelt_text) => SmeltUnion20::M0(JsString::from(smelt_text)), SmeltFormDataValue::File(smelt_file) => SmeltUnion20::M1(smelt_file) });
-    let _ = { println!("{} {}", match &_smelt_tmp_61 { Some(smelt_value) => format!("{}", smelt_value.clone().into_smelt_unknown()), None => "undefined".to_owned() }, match &_smelt_tmp_62 { Some(smelt_value) => format!("{}", smelt_value.clone().into_smelt_unknown()), None => "undefined".to_owned() }); };
+    let _ = { println!("{} {}", match &_smelt_tmp_61 { Some(smelt_value) => format!("{}", smelt_value.clone().into_smelt_unknown()), None => "null".to_owned() }, match &_smelt_tmp_62 { Some(smelt_value) => format!("{}", smelt_value.clone().into_smelt_unknown()), None => "null".to_owned() }); };
     _smelt_tmp_64 = SmeltRequest::from_parts_with_init(&JsString::from("https://a.test"), (JsString::from("POST")).to_string(), SmeltHeaders::new(), { let smelt_boundary = smelt_multipart_boundary(); SmeltBody::from_blob(form.to_multipart(&smelt_boundary), format!("multipart/form-data; boundary={smelt_boundary}")) }, { let mut smelt_request_init = SmeltRequestInit::default(); smelt_request_init.referrer = "about:client".to_owned(); smelt_request_init.referrer_policy = String::new(); smelt_request_init });
     _smelt_tmp_65 = _smelt_tmp_64.headers();
     _smelt_tmp_66 = (_smelt_tmp_65.get(&JsString::from("content-type"))).map(JsString::from);

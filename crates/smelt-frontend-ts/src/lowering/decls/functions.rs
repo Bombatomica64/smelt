@@ -550,7 +550,7 @@ impl ModuleBuilder<'_> {
         let mut first_error = None;
         for (abi_local, abi_ty, initializer, param_name, source_name, span) in defaulted_params {
             let inner_ty = match self.ctx.krate.types.get(abi_ty) {
-                Some(Type::Optional(inner)) => *inner,
+                Some(Type::Optional(inner, _)) => *inner,
                 _ => abi_ty,
             };
             let optional = body.push_expr(Expr {
@@ -565,11 +565,20 @@ impl ModuleBuilder<'_> {
                     continue;
                 }
             };
-            let value = body.push_expr(Expr {
-                kind: ExprKind::OptionalCoalesce { optional, fallback },
-                ty: inner_ty,
-                span,
-            });
+            let value = if matches!(
+                smelt_hir::type_normalize::peel_optional(&self.ctx.krate.types, abi_ty),
+                (_, true, true)
+            ) {
+                // `x: T | null = d`: `??` would replace a `null` too, so only
+                // `undefined` selects the default and `null` passes through.
+                self.undefined_default_expr(abi_local, abi_ty, inner_ty, fallback, span, body)
+            } else {
+                body.push_expr(Expr {
+                    kind: ExprKind::OptionalCoalesce { optional, fallback },
+                    ty: inner_ty,
+                    span,
+                })
+            };
             let applied = body.push_local(LocalDecl {
                 name: Some(param_name),
                 ty: inner_ty,
@@ -592,6 +601,62 @@ impl ModuleBuilder<'_> {
             );
         }
         first_error.map_or(Ok(()), Err)
+    }
+
+    /// `param === undefined ? fallback : param`, with the present arm at
+    /// `inner_ty` (the parameter's own type, which still admits `null`).
+    ///
+    /// The default of a parameter whose annotation admits `null` (an ABI of
+    /// both absences, `Option<Option<T>>`): JavaScript applies a default for
+    /// `undefined` only.
+    fn undefined_default_expr(
+        &mut self,
+        abi_local: smelt_hir::LocalId,
+        abi_ty: smelt_hir::TypeId,
+        inner_ty: smelt_hir::TypeId,
+        fallback: smelt_hir::ExprId,
+        span: Span,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let read = |target: &mut Body| {
+            target.push_expr(Expr {
+                kind: ExprKind::Local(abi_local),
+                ty: abi_ty,
+                span,
+            })
+        };
+        let none_ty = self.ctx.krate.types.intern(Type::None);
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        let tested = read(body);
+        let undefined = body.push_expr(Expr {
+            kind: ExprKind::Literal(smelt_hir::Literal::Undefined),
+            ty: none_ty,
+            span,
+        });
+        let cond = body.push_expr(Expr {
+            kind: ExprKind::BinOp {
+                op: smelt_hir::BinOp::JsStrictEq,
+                lhs: tested,
+                rhs: undefined,
+            },
+            ty: bool_ty,
+            span,
+        });
+        let present = read(body);
+        let narrowed = body.push_expr(Expr {
+            kind: ExprKind::TypeAssert { value: present },
+            ty: inner_ty,
+            span,
+        });
+        body.push_expr(Expr {
+            kind: ExprKind::Conditional {
+                cond,
+                then_expr: fallback,
+                else_expr: narrowed,
+            },
+            ty: inner_ty,
+            span,
+        })
     }
 
     /// Return whether a parameter default is the type's zero value.
@@ -646,8 +711,11 @@ impl ModuleBuilder<'_> {
             ));
         };
         let widened = self.presence_widened_param_type(param, ty);
-        if param.optional && !matches!(self.ctx.krate.types.get(widened), Some(Type::Optional(_))) {
-            Ok(self.ctx.krate.types.intern(Type::Optional(widened)))
+        if param.optional {
+            Ok(smelt_hir::type_normalize::admit_undefined(
+                &mut self.ctx.krate.types,
+                widened,
+            ))
         } else {
             Ok(widened)
         }
@@ -711,7 +779,10 @@ impl ModuleBuilder<'_> {
             _ => false,
         };
         if tested && record {
-            self.ctx.krate.types.intern(Type::Optional(ty))
+            self.ctx
+                .krate
+                .types
+                .intern(Type::Optional(ty, smelt_hir::Absence::Undefined))
         } else {
             ty
         }
@@ -757,7 +828,7 @@ impl ModuleBuilder<'_> {
         if param.initializer.is_some()
             || matches!(
                 self.ctx.krate.types.get(ty),
-                Some(Type::Optional(_) | Type::Unknown)
+                Some(Type::Optional(..) | Type::Unknown)
             )
         {
             return ty;
@@ -772,7 +843,10 @@ impl ModuleBuilder<'_> {
                 })
             });
         if omitted {
-            self.ctx.krate.types.intern(Type::Optional(ty))
+            self.ctx
+                .krate
+                .types
+                .intern(Type::Optional(ty, smelt_hir::Absence::Undefined))
         } else {
             ty
         }
@@ -787,10 +861,18 @@ impl ModuleBuilder<'_> {
             .then_some(param.initializer.as_deref())
             .flatten()
             .filter(|initializer| !self.initializer_is_type_zero_default(initializer));
-        let ty = if default_initializer.is_some()
-            && !matches!(self.ctx.krate.types.get(ty), Some(Type::Optional(_)))
-        {
-            self.ctx.krate.types.intern(Type::Optional(ty))
+        // Only `undefined` (an omitted argument included) takes the default;
+        // `null` is a value. So the ABI admits `undefined` on top of what the
+        // annotation admits: `x: T | null = d` is `Option<Option<T>>`, whose
+        // outer `None` alone runs the default.
+        let (_, admits_undefined, _) =
+            smelt_hir::type_normalize::peel_optional(&self.ctx.krate.types, ty);
+        let ty = if default_initializer.is_some() && !admits_undefined {
+            smelt_hir::type_normalize::wrap_optional(
+                &mut self.ctx.krate.types,
+                ty,
+                smelt_hir::Absence::Undefined,
+            )
         } else {
             ty
         };

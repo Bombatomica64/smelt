@@ -1419,17 +1419,17 @@ impl ModuleBuilder<'_> {
             return Some(lhs_ty);
         }
         if let Some(hint) = type_hint
-            && let Some(Type::Optional(inner)) = self.ctx.krate.types.get(hint)
+            && let Some(Type::Optional(inner, _)) = self.ctx.krate.types.get(hint)
             && ((*inner == lhs_ty && self.ctx.krate.types.get(rhs_ty) == Some(&Type::None))
                 || (*inner == rhs_ty && self.ctx.krate.types.get(lhs_ty) == Some(&Type::None)))
         {
             return Some(hint);
         }
         if self.ctx.krate.types.get(rhs_ty) == Some(&Type::None) {
-            return Some(self.intern_type(Type::Optional(lhs_ty)));
+            return Some(self.intern_type(Type::Optional(lhs_ty, smelt_hir::Absence::Undefined)));
         }
         if self.ctx.krate.types.get(lhs_ty) == Some(&Type::None) {
-            return Some(self.intern_type(Type::Optional(rhs_ty)));
+            return Some(self.intern_type(Type::Optional(rhs_ty, smelt_hir::Absence::Undefined)));
         }
         None
     }

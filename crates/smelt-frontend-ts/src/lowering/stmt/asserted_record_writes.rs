@@ -113,7 +113,7 @@ impl ModuleBuilder<'_> {
         for field in record.fields.clone() {
             // A required field cannot be absent in its struct; JavaScript would
             // remove it, which the record's type rules out.
-            if !matches!(self.ctx.krate.types.get(field.ty), Some(Type::Optional(_))) {
+            if !matches!(self.ctx.krate.types.get(field.ty), Some(Type::Optional(..))) {
                 continue;
             }
             let absent = body.push_expr(Expr {

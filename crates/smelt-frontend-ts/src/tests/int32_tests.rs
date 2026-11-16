@@ -117,13 +117,13 @@ fn int32_inside_another_type_is_a_number() -> Result<(), String> {
     };
     ensure_eq!(ctx.krate.types.get(item), Some(&Type::Float));
     let maybe = field_type(&ctx, "Shape", "maybe").ok_or("no maybe")?;
-    let Type::Optional(inner) = maybe else {
+    let Type::Optional(inner, _) = maybe else {
         return Err(format!("maybe is {maybe:?}"));
     };
     ensure_eq!(ctx.krate.types.get(inner), Some(&Type::Float));
     // An optional property is an int32 or undefined.
     let opt = field_type(&ctx, "Shape", "opt").ok_or("no opt")?;
-    let Type::Optional(inner) = opt else {
+    let Type::Optional(inner, _) = opt else {
         return Err(format!("opt is {opt:?}"));
     };
     ensure_eq!(ctx.krate.types.get(inner), Some(&I32));

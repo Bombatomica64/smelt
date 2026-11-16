@@ -539,7 +539,7 @@ impl FunctionEmitter<'_> {
         match self.mir.types.get(ty) {
             Some(Type::TypeParam { .. }) => true,
             Some(
-                Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item),
+                Type::List(item) | Type::Set(item) | Type::Optional(item, _) | Type::Future(item),
             ) => self.type_mentions_param(*item, next),
             Some(Type::Dict(key, value) | Type::JsMap(key, value)) => any(&[*key, *value]),
             Some(Type::Tuple(items) | Type::Union(items)) => any(items),

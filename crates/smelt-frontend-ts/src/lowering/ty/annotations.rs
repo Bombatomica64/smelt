@@ -164,30 +164,23 @@ impl ModuleBuilder<'_> {
                     }) =>
             {
                 let none = self.ctx.krate.types.intern(Type::None);
-                Ok(self.ctx.krate.types.intern(Type::Optional(none)))
+                Ok(self
+                    .ctx
+                    .krate
+                    .types
+                    .intern(Type::Optional(none, smelt_hir::Absence::Undefined)))
             }
             TSType::TSUnionType(union) => {
                 let mut members = Vec::new();
-                // Whether every absent arm is `null` (the keyword, or a member
-                // that is itself `T | null`): then the optional's absent value
-                // is `null`, not `undefined` (`TypeInterner::intern_null_optional`).
-                let mut absent_only_null = true;
+                // Which absent values the union admits, so the result keeps
+                // `null` apart from `undefined` (`Type::Optional`'s tag).
+                let (mut admits_undefined, mut admits_null) = (false, false);
                 for member in &union.types {
                     let mut member_ty = self.ts_type_to_hir(member)?;
-                    if !Self::is_null_keyword(member)
-                        && !self.ctx.krate.types.absent_is_null(member_ty)
-                        && (matches!(
-                            self.ctx.krate.types.get(member_ty),
-                            Some(Type::Optional(_) | Type::None)
-                        ) || self
-                            .flatten_union_member_types(member_ty)
-                            .iter()
-                            .any(|flat| {
-                                matches!(self.ctx.krate.types.get(*flat), Some(Type::None))
-                            }))
-                    {
-                        absent_only_null = false;
-                    }
+                    let (member_undefined, member_null) =
+                        self.ts_member_absences(member, member_ty);
+                    admits_undefined |= member_undefined;
+                    admits_null |= member_null;
                     if matches!(self.ctx.krate.types.get(member_ty), Some(Type::Function(_)))
                         && self.ts_type_is_known_callable_object_surface(member)
                     {
@@ -195,7 +188,13 @@ impl ModuleBuilder<'_> {
                     }
                     members.push(member_ty);
                 }
-                Ok(self.union_of_member_types_with_absence(&members, absent_only_null))
+                Ok(
+                    self.union_of_member_types_with_absence(
+                        &members,
+                        admits_undefined,
+                        admits_null,
+                    ),
+                )
             }
             TSType::TSIntersectionType(intersection) => {
                 // An intersection of a call signature with object members is a
@@ -334,7 +333,10 @@ impl ModuleBuilder<'_> {
             TSType::TSNamedTupleMember(named) => {
                 let inner = self.tuple_element_type_to_hir(&named.element_type)?;
                 Ok(if named.optional {
-                    self.ctx.krate.types.intern(Type::Optional(inner))
+                    self.ctx
+                        .krate
+                        .types
+                        .intern(Type::Optional(inner, smelt_hir::Absence::Undefined))
                 } else {
                     inner
                 })
@@ -540,17 +542,5 @@ impl ModuleBuilder<'_> {
         (number.value.fract() == 0.0 && number.value >= 0.0)
             .then(|| text.parse::<usize>().ok())
             .flatten()
-    }
-}
-
-impl ModuleBuilder<'_> {
-    /// Whether `ty` is the `null` keyword, through any parentheses: the
-    /// checker's respelled types parenthesize every union member
-    /// (`(string) | (null)`), and a source may write `(null)` too.
-    fn is_null_keyword(mut ty: &TSType<'_>) -> bool {
-        while let TSType::TSParenthesizedType(inner) = ty {
-            ty = &inner.type_annotation;
-        }
-        matches!(ty, TSType::TSNullKeyword(_))
     }
 }

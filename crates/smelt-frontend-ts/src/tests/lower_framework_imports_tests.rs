@@ -91,7 +91,7 @@ function sameDate<DateType extends Date>(
         .iter()
         .find(|field| ctx.krate.symbols.get(field.name) == Some("in"))
         .ok_or_else(|| "missing inherited `in` field".to_owned())?;
-    let Some(Type::Optional(inner)) = ctx.krate.types.get(inherited.ty) else {
+    let Some(Type::Optional(inner, _)) = ctx.krate.types.get(inherited.ty) else {
         return Err("inherited field should be optional".to_owned());
     };
     ensure!(matches!(

@@ -37,7 +37,7 @@ module examples/typescript/end-to-end/48_form_data/input.ts (ModuleId(0))
     #12: None = form_data_append #9, #10, #11
     #13: FormData = %0
     #14: String = "a"
-    #15: Optional<String | File> = form_data_get #13, #14
+    #15: Nullable<String | File> = form_data_get #13, #14
     #16: None = @3(console_log)
     #17: None = call #16(#15)
     #18: FormData = %0
@@ -92,7 +92,7 @@ module examples/typescript/end-to-end/48_form_data/input.ts (ModuleId(0))
     #67: None = call #66(#65)
     #68: FormData = %0
     #69: String = "a"
-    #70: Optional<String | File> = form_data_get #68, #69
+    #70: Nullable<String | File> = form_data_get #68, #69
     #71: String = "absent"
     #72: String | File = #70 ?? #71
     #73: None = @9(console_log)
@@ -322,7 +322,7 @@ interned types
   t10 = Future<FormData>
   t11 = File
   t12 = String | File
-  t13 = Optional<String | File>
+  t13 = Nullable<String | File>
   t14 = List<String | File>
   t15 = Float
   t16 = Bool

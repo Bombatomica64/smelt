@@ -342,10 +342,14 @@ impl ModuleBuilder<'_> {
                 let index = self.substitute_type_params(index, substitutions);
                 self.indexed_access_of(object, index, literal.as_deref())
             }
-            Type::Optional(inner) => {
+            Type::Optional(inner, absence) => {
+                // The layer keeps its own absent value.
                 let inner = self.evaluate_deferred(inner, substitutions, keys, depth + 1)?;
-                let none = self.ctx.krate.types.intern(Type::None);
-                Some(self.union_of_member_types(&[inner, none]))
+                Some(smelt_hir::type_normalize::optional_with(
+                    &mut self.ctx.krate.types,
+                    inner,
+                    absence,
+                ))
             }
             Type::Union(members) => {
                 let members = members
@@ -460,7 +464,7 @@ impl ModuleBuilder<'_> {
             Some(Type::Union(members)) => members
                 .iter()
                 .all(|member| !matches!(self.ctx.krate.types.get(*member), Some(Type::Unknown))),
-            Some(Type::Optional(inner)) => {
+            Some(Type::Optional(inner, _)) => {
                 !matches!(self.ctx.krate.types.get(*inner), Some(Type::Unknown))
             }
             Some(_) => true,

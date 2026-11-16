@@ -118,7 +118,7 @@ fn shape_at_depth(krate: &Crate, id: TypeId, depth: usize) -> String {
     let symbol = |name| krate.symbols.source(name).unwrap_or("?");
     match ty {
         Type::List(inner) => format!("List<{}>", shape_at_depth(krate, *inner, next)),
-        Type::Optional(inner) => format!("Optional<{}>", shape_at_depth(krate, *inner, next)),
+        Type::Optional(inner, _) => format!("Optional<{}>", shape_at_depth(krate, *inner, next)),
         Type::Future(inner) => format!("Future<{}>", shape_at_depth(krate, *inner, next)),
         Type::Set(inner) => format!("Set<{}>", shape_at_depth(krate, *inner, next)),
         Type::Union(members) => join(members, " | "),
@@ -242,7 +242,7 @@ impl Comparer<'_> {
             return true;
         }
         let next = depth.saturating_add(1);
-        if let Type::Optional(inner) = hir_type {
+        if let Type::Optional(inner, _) = hir_type {
             return self.optional_agrees(*inner, ts_type, next);
         }
         self.primitive_agrees(hir_type, &ts_type.kind)
@@ -349,7 +349,7 @@ impl Comparer<'_> {
         }
         let next = depth.saturating_add(1);
         match self.krate.types.get(hir) {
-            Some(Type::Optional(inner)) => {
+            Some(Type::Optional(inner, _)) => {
                 self.agrees(*inner, ts, next) || self.wider(*inner, ts, next)
             }
             Some(Type::Union(members)) => members
@@ -506,7 +506,7 @@ impl Comparer<'_> {
             | Type::Set(_)
             | Type::Dict(..)
             | Type::JsMap(..)
-            | Type::Optional(_)
+            | Type::Optional(..)
             | Type::Union(_)
             | Type::Class { .. }
             | Type::Function(_)

@@ -436,7 +436,10 @@ impl ModuleBuilder<'_> {
             TSTupleElement::TSFunctionType(function) => self.function_type_to_hir(function),
             TSTupleElement::TSOptionalType(optional) => {
                 let inner = self.ts_type_to_hir(&optional.type_annotation)?;
-                Ok(self.ctx.krate.types.intern(Type::Optional(inner)))
+                Ok(smelt_hir::type_normalize::admit_undefined(
+                    &mut self.ctx.krate.types,
+                    inner,
+                ))
             }
             TSTupleElement::TSRestType(rest) => Err(SmeltError::unsupported(
                 self.span(rest.span.start, rest.span.end),
@@ -448,7 +451,7 @@ impl ModuleBuilder<'_> {
             TSTupleElement::TSNamedTupleMember(named) => {
                 let inner = self.tuple_element_type_to_hir(&named.element_type)?;
                 Ok(if named.optional {
-                    self.ctx.krate.types.intern(Type::Optional(inner))
+                    smelt_hir::type_normalize::admit_undefined(&mut self.ctx.krate.types, inner)
                 } else {
                     inner
                 })
@@ -502,7 +505,7 @@ impl ModuleBuilder<'_> {
     pub(in crate::lowering) fn mutable_abi_param_type(&self, ty: smelt_hir::TypeId) -> bool {
         match self.ctx.krate.types.get(ty) {
             Some(Type::Class { .. } | Type::List(_) | Type::Set(_) | Type::Dict(_, _)) => true,
-            Some(Type::Optional(inner)) => self.mutable_abi_param_type(*inner),
+            Some(Type::Optional(inner, _)) => self.mutable_abi_param_type(*inner),
             _ => false,
         }
     }
@@ -518,7 +521,7 @@ impl ModuleBuilder<'_> {
             Some(Type::Union(items)) => items
                 .iter()
                 .any(|item| self.return_type_tuple_contains(*item, target)),
-            Some(Type::Optional(inner) | Type::Future(inner)) => {
+            Some(Type::Optional(inner, _) | Type::Future(inner)) => {
                 self.return_type_tuple_contains(*inner, target)
             }
             _ => false,

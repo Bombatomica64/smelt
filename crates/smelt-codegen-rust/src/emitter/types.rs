@@ -117,9 +117,24 @@ impl FunctionEmitter<'_> {
         Some(TypeId(compact))
     }
 
+    /// The payload type an `Option` of `absence` renders around `ty`: `ty`
+    /// with every leading optional layer of that same absence stripped.
+    ///
+    /// Layers of one absence are one Rust `Option` (`(T | null) | null` holds
+    /// nothing a single `Option<T>` cannot). A layer of the other absence is
+    /// kept, so `T | null | undefined` renders `Option<Option<T>>`.
+    pub(super) fn optional_payload(&self, mut ty: TypeId, absence: smelt_hir::Absence) -> TypeId {
+        while let Some(Type::Optional(inner, layer)) = self.mir.types.get(ty)
+            && *layer == absence
+        {
+            ty = *inner;
+        }
+        ty
+    }
+
     /// Return the innermost non-optional type for defensive Rust `Option<T>` emission.
     pub(super) fn flatten_optional_inner(&self, mut ty: TypeId) -> TypeId {
-        while let Some(Type::Optional(inner)) = self.mir.types.get(ty) {
+        while let Some(Type::Optional(inner, _)) = self.mir.types.get(ty) {
             ty = *inner;
         }
         ty
@@ -499,9 +514,9 @@ impl FunctionEmitter<'_> {
                 };
                 Ok(RustType::composed(text, &items))
             }
-            Type::Optional(item) => {
+            Type::Optional(item, absence) => {
                 let item =
-                    self.rust_type(self.flatten_optional_inner(*item), false, substitution)?;
+                    self.rust_type(self.optional_payload(*item, *absence), false, substitution)?;
                 Ok(RustType::composed(format!("Option<{item}>"), [&item]))
             }
             // The generated enum's arguments resolve through the same

@@ -43,7 +43,7 @@ impl FunctionEmitter<'_> {
         );
         let source_inner_is_erased = matches!(
             self.mir.types.get(source_ty),
-            Some(Type::Optional(inner)) if self.has_dynamic_shape(*inner)
+            Some(Type::Optional(inner, _)) if self.has_dynamic_shape(*inner)
         );
         // The same holds for a FUNCTION target that is the optional's own inner
         // type: a narrowed `Option<Rc<dyn Fn ..>>` unwraps to its function. The
@@ -54,10 +54,10 @@ impl FunctionEmitter<'_> {
         let target_is_source_inner =
             matches!(
                 self.mir.types.get(source_ty),
-                Some(Type::Optional(inner)) if *inner == target
+                Some(Type::Optional(inner, _)) if *inner == target
             ) && matches!(self.mir.types.get(target), Some(Type::Function(_)));
         if (target_is_primitive || target_is_source_inner)
-            && matches!(self.mir.types.get(source_ty), Some(Type::Optional(_)))
+            && matches!(self.mir.types.get(source_ty), Some(Type::Optional(..)))
             && !source_inner_is_erased
         {
             return self.value_at_type(value, target);
@@ -542,7 +542,9 @@ impl FunctionEmitter<'_> {
                 union::union_name(target), text = text.delimited()
             )))),
             Some(Type::Never | Type::Union(_)) => Ok(text.to_owned()),
-            Some(Type::Optional(inner)) => self.extract_optional(text, *inner, scope),
+            Some(Type::Optional(inner, absence)) => {
+                self.extract_optional(text, *inner, *absence, scope)
+            }
             Some(Type::Tuple(items)) => self.extract_tuple(&smelt_owned_text, items, scope),
             // The prelude `SmeltFromUnknown` impl is the single inverse of the
             // `SmeltRegExp` erasure adapter, so `source`, `flags` AND the
@@ -803,8 +805,13 @@ impl FunctionEmitter<'_> {
     /// a run-time `null` or `undefined`: `unknown`, an erased type parameter,
     /// or a union kept on the dynamic carrier. A concrete `SmeltUnion…` enum
     /// has no such arm.
+    ///
+    /// A type parameter that renders as a real Rust generic (a lifted `T`)
+    /// is no carrier: its values are matched by type, not by tag.
     fn inner_holds_erased_nullish(&self, ty: TypeId) -> bool {
-        self.concrete_union_members(ty).is_none() && self.has_dynamic_shape(ty)
+        self.concrete_union_members(ty).is_none()
+            && self.has_dynamic_shape(ty)
+            && self.renders_erased(ty).unwrap_or(true)
     }
 
     pub(in crate::emitter) fn optional_inner_preserves_erased_singletons(
@@ -1024,12 +1031,45 @@ pub(in crate::emitter) fn erased_to_bounded_list_expr(
 
 impl FunctionEmitter<'_> {
     /// Extraction at an optional type.
+    ///
+    /// `absence` is the optional's own absent value: an erased value holding
+    /// that tag is the slot's `None`. A slot that admits both absences
+    /// (`Option<Option<T>>`, `undefined` outside) puts each tag on its own
+    /// layer.
     fn extract_optional(
         &self,
         text: &RustExpr,
         inner: TypeId,
+        absence: smelt_hir::Absence,
         scope: &RenderScope,
     ) -> Result<RustExpr, EmitError> {
+        if let Some(&Type::Optional(base, smelt_hir::Absence::Null)) = self.mir.types.get(inner)
+            && absence == smelt_hir::Absence::Undefined
+        {
+            let base_text =
+                self.extract_rendered(&RustExpr::path("smelt_optional_source"), base, scope)?;
+            return Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
+                "{{ let smelt_optional_source = {text}; match smelt_optional_source {{ SmeltUnknown::Undefined => None, SmeltUnknown::Null => Some(None), smelt_optional_source => Some(Some({base_text})) }} }}",
+                text = text.delimited(),
+                base_text = base_text.delimited()
+            ))));
+        }
+        if absence == smelt_hir::Absence::Null
+            && self.optional_inner_preserves_erased_singletons(inner)
+        {
+            // A `T | null` over an erased payload: `null` is the slot's
+            // `None`; an `undefined` stays a present value of `T`. The tag
+            // test is the runtime narrowing of an erased value its
+            // `undefined` and nullish siblings below perform, spelled
+            // through the same family of prelude helpers.
+            let inner_text =
+                self.extract_rendered(&RustExpr::path("smelt_optional_source"), inner, scope)?;
+            return Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
+                "{{ let smelt_optional_source = {text}; if smelt_unknown_is_null(&smelt_optional_source) {{ None }} else {{ Some({inner_text}) }} }}",
+                text = text.delimited(),
+                inner_text = inner_text.delimited()
+            ))));
+        }
         if self.optional_inner_preserves_erased_singletons(inner) {
             // The slot keeps an explicit `null` as a present
             // `Some(SmeltUnknown::Null)`, but `undefined` IS the absent

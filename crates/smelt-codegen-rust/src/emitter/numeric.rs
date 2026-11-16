@@ -84,7 +84,7 @@ impl FunctionEmitter<'_> {
             Some(Type::String | Type::PyStr) => {
                 self.string_len_text(&receiver_text.parenthesized_if_needed())
             }
-            Some(Type::Optional(inner))
+            Some(Type::Optional(inner, _))
                 if matches!(self.mir.types.get(*inner), Some(Type::String | Type::PyStr)) =>
             {
                 format!(
@@ -93,7 +93,7 @@ impl FunctionEmitter<'_> {
                     receiver_text = receiver_text.tight()
                 )
             }
-            Some(Type::Optional(inner))
+            Some(Type::Optional(inner, _))
                 if matches!(self.mir.types.get(*inner), Some(Type::List(_))) =>
             {
                 format!(
@@ -101,7 +101,7 @@ impl FunctionEmitter<'_> {
                     receiver_text = receiver_text.tight()
                 )
             }
-            Some(Type::Optional(inner))
+            Some(Type::Optional(inner, _))
                 if matches!(self.mir.types.get(*inner), Some(Type::Unknown)) =>
             {
                 self.carrier_format(
@@ -112,7 +112,7 @@ impl FunctionEmitter<'_> {
                     ),
                 )
             }
-            Some(Type::Optional(inner))
+            Some(Type::Optional(inner, _))
                 if matches!(
                     self.mir.types.get(*inner),
                     Some(Type::Union(_) | Type::TypeParam { .. })
@@ -383,8 +383,12 @@ impl FunctionEmitter<'_> {
         // `Number.*` predicate (the frontend asserts presence for the
         // coercing global ones): absent is "not a number", so the predicate
         // is `false` there and tested on the value where present.
-        if let Some(Type::Optional(inner)) = self.mir.types.get(operand_ty)
-            && matches!(self.mir.types.get(*inner), Some(Type::Int | Type::Float))
+        // Every optional layer: a `number | null | undefined` is tested on its
+        // payload too (`flatten` first).
+        let (payload, undefined, null) =
+            smelt_hir::type_normalize::peel_optional(&self.mir.types, operand_ty);
+        if (undefined || null)
+            && matches!(self.mir.types.get(payload), Some(Type::Int | Type::Float))
         {
             let test = match op {
                 smelt_hir::NumericPredicateOp::IsFinite => "smelt_value.is_finite()",
@@ -395,7 +399,10 @@ impl FunctionEmitter<'_> {
                 }
             };
             return Ok({
-                let receiver = self.operand_expr(operand)?;
+                let mut receiver = self.operand_expr(operand)?;
+                if undefined && null {
+                    receiver = receiver.cloned_value().postfix(".flatten()");
+                }
                 receiver.postfix(format!(".map_or(false, |smelt_value| {{ let smelt_value = smelt_value as f64; {test} }})"))
             });
         }
@@ -442,7 +449,7 @@ impl FunctionEmitter<'_> {
             // too: absent is `undefined`, which is not a Number.
             let optional_erased = matches!(
                 self.mir.types.get(operand_ty),
-                Some(Type::Optional(inner)) if self.has_dynamic_shape(*inner)
+                Some(Type::Optional(inner, _)) if self.has_dynamic_shape(*inner)
             );
             if !is_erased_operand && !optional_erased {
                 return Ok(RustExpr::path("false"));
@@ -774,7 +781,7 @@ impl FunctionEmitter<'_> {
         let operand_is_string = matches!(operand_ty, Some(Type::String | Type::PyStr));
         let operand_is_optional_string = matches!(
             operand_ty,
-            Some(Type::Optional(inner)) if matches!(self.mir.types.get(*inner), Some(Type::String | Type::PyStr))
+            Some(Type::Optional(inner, _)) if matches!(self.mir.types.get(*inner), Some(Type::String | Type::PyStr))
         );
         if !(operand_is_string || operand_is_optional_string)
             || !matches!(

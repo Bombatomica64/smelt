@@ -550,7 +550,7 @@ impl ModuleBuilder<'_> {
                     // TypeScript class fields carry for the `?` spelling.
                     let field_optional = matches!(
                         self.ctx.krate.types.get(field_ty),
-                        Some(Type::Optional(_))
+                        Some(Type::Optional(..))
                     );
                     let field = Field {
                         name: field_sym,
@@ -1012,7 +1012,7 @@ impl ModuleBuilder<'_> {
                 }
                 let optional = matches!(
                     self.ctx.krate.types.get(field_ty),
-                    Some(Type::Optional(_))
+                    Some(Type::Optional(..))
                 );
                 collected.push(Field {
                     name: field_sym,
@@ -1527,7 +1527,7 @@ impl ModuleBuilder<'_> {
                         name: self.intern_name(target.id.as_str()),
                         ty,
                         visibility: Visibility::Public,
-                        optional: matches!(self.ctx.krate.types.get(ty), Some(Type::Optional(_))),
+                        optional: matches!(self.ctx.krate.types.get(ty), Some(Type::Optional(..))),
                         span: self.span(ann.range),
                     });
                 }

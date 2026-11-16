@@ -181,10 +181,9 @@ pub(super) fn substitute_type_id(
                 .collect();
             mir.types.intern(Type::Tuple(substituted_items))
         }
-        Some(Type::Optional(item)) => {
+        Some(Type::Optional(item, absence)) => {
             let substituted_item = substitute_type_id(mir, item, substitutions);
-            // A `T | null` substitutes to `U | null` (its absent value).
-            mir.types.intern_optional_like(ty, substituted_item)
+            smelt_hir::type_normalize::wrap_optional(&mut mir.types, substituted_item, absence)
         }
         Some(Type::Union(items)) => {
             let substituted_items = items

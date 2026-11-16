@@ -433,7 +433,7 @@ impl ModuleBuilder<'_> {
         let string_ty = self.ctx.krate.types.intern(Type::String);
         match self.ctx.krate.types.get(ty) {
             Some(Type::String) => Ok(value),
-            Some(Type::Optional(inner)) if *inner == string_ty => Ok(value),
+            Some(Type::Optional(inner, _)) if *inner == string_ty => Ok(value),
             Some(Type::Unknown | Type::TypeParam { .. }) => Ok(body.push_expr(Expr {
                 kind: ExprKind::UnknownCast {
                     value,

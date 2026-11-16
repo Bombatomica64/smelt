@@ -360,9 +360,9 @@ impl ModuleBuilder<'_> {
     ) -> smelt_hir::ExprId {
         let value_ty = Self::expr_ty(body, value);
         let value_is_optional =
-            matches!(self.ctx.krate.types.get(value_ty), Some(Type::Optional(_)));
+            matches!(self.ctx.krate.types.get(value_ty), Some(Type::Optional(..)));
         let slot_is_optional =
-            matches!(self.ctx.krate.types.get(field_ty), Some(Type::Optional(_)));
+            matches!(self.ctx.krate.types.get(field_ty), Some(Type::Optional(..)));
         if !value_is_optional || slot_is_optional {
             return value;
         }
@@ -413,7 +413,10 @@ impl ModuleBuilder<'_> {
             ErrorMarkerShape::Text => self.ctx.krate.types.intern(Type::String),
             ErrorMarkerShape::OptionalText => {
                 let string_ty = self.ctx.krate.types.intern(Type::String);
-                self.ctx.krate.types.intern(Type::Optional(string_ty))
+                self.ctx
+                    .krate
+                    .types
+                    .intern(Type::Optional(string_ty, smelt_hir::Absence::Undefined))
             }
             // ES2022 declares `Error.cause` as `unknown`.
             ErrorMarkerShape::Dynamic => {

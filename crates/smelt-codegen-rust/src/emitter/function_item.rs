@@ -599,6 +599,9 @@ impl FunctionEmitter<'_> {
                 ));
                 // A method a subclass overrides forwards to the override
                 // first (`crate::class_polymorphism`).
+                // A method of a widened class answers a call on a converting
+                // view from the source instantiation (`crate::class_widening`).
+                out.push_str(&self.widened_view_prologue()?);
                 out.push_str(&self.override_dispatch_prologue()?);
             }
             HirOrigin::ClassStaticMethod { .. } => {

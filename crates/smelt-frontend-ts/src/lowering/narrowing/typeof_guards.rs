@@ -41,7 +41,7 @@ impl ModuleBuilder<'_> {
                     _ => Some(self.ctx.krate.types.intern(Type::Union(remaining))),
                 }
             }
-            Some(Type::Optional(item)) if kind == "undefined" => Some(item),
+            Some(Type::Optional(item, _)) if kind == "undefined" => Some(item),
             Some(_) if self.type_matches_typeof(resolved_ty, kind) => None,
             Some(_) => Some(resolved_ty),
             None => None,
@@ -66,7 +66,7 @@ impl ModuleBuilder<'_> {
                 .iter()
                 .copied()
                 .any(|item| self.type_matches_typeof(item, kind)),
-            Some(Type::None | Type::Optional(_)) => matches!(kind, "undefined" | "object"),
+            Some(Type::None | Type::Optional(..)) => matches!(kind, "undefined" | "object"),
             Some(concrete) => concrete
                 .runtime_kind()
                 .is_some_and(|actual| actual.typeof_name() == kind),
@@ -173,7 +173,7 @@ impl ModuleBuilder<'_> {
                 // `ErasedFunctionMethodCall`.
                 let erased_payload = local_ty.and_then(|ty| match self.ctx.krate.types.get(ty) {
                     Some(Type::Unknown) => Some(ty),
-                    Some(Type::Optional(inner))
+                    Some(Type::Optional(inner, _))
                         if matches!(self.ctx.krate.types.get(*inner), Some(Type::Unknown)) =>
                     {
                         Some(*inner)
@@ -244,7 +244,7 @@ impl ModuleBuilder<'_> {
             .narrowed_type(name)
             .unwrap_or_else(|| Self::local_ty(body, local));
         let inner = match self.ctx.krate.types.get(local_ty).cloned() {
-            Some(Type::Optional(inner)) => inner,
+            Some(Type::Optional(inner, _)) => inner,
             _ => local_ty,
         };
         let Some(Type::Union(items)) = self.ctx.krate.types.get(inner).cloned() else {
@@ -304,7 +304,7 @@ impl ModuleBuilder<'_> {
         // the absent (`undefined`) member unless it is an explicit
         // `case 'undefined'`, handled by the single-kind fallback below.
         let inner_ty = match self.ctx.krate.types.get(current_ty) {
-            Some(Type::Optional(inner)) => *inner,
+            Some(Type::Optional(inner, _)) => *inner,
             _ => current_ty,
         };
         if let Some(Type::Union(items)) = self.ctx.krate.types.get(inner_ty).cloned() {

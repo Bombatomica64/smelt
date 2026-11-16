@@ -249,7 +249,9 @@ impl ModuleBuilder<'_> {
     fn concrete_element_bound(&self, element: TypeId) -> Option<TypeId> {
         let single_shape = !matches!(
             self.ctx.krate.types.get(element),
-            Some(Type::Unknown | Type::Union(_) | Type::Optional(_) | Type::PropKey | Type::String)
+            Some(
+                Type::Unknown | Type::Union(_) | Type::Optional(..) | Type::PropKey | Type::String
+            )
         );
         (single_shape && !self.type_mentions_any_param(element)).then_some(element)
     }

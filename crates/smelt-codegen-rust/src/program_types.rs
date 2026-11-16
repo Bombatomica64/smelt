@@ -257,6 +257,7 @@ fn emit_interface_type(
             &scoped_type_params,
             None,
             false,
+            false,
         )?;
         emit_debug_impl_for_storage_type(writer, &name, &impl_generics, &type_params);
     }
@@ -277,6 +278,7 @@ fn emit_interface_type(
             &phantom_args,
             &scoped_type_params,
             None,
+            false,
             false,
         )?;
         emit_debug_impl_for_storage_type(writer, &name, &type_params, &type_params);
@@ -539,6 +541,7 @@ fn emit_class_type(
             &phantom_args,
             &scoped_type_params,
             identity.as_deref(),
+            false,
             false,
         )?;
         // `Debug` names the struct and stops, so it needs no bound at all.

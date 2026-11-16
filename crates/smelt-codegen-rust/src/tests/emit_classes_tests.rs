@@ -690,15 +690,26 @@ const parser: Parser<any> = new ForwardingParser(new YearParser());
 ",
     );
 
+    // Old requirement: a `ForwardingParser<number>` stored as a `Parser<any>`
+    // is rebuilt as a new `Parser<SmeltUnknown>` whose `parse` slot is bound
+    // to the original receiver, so the call still reaches the override. New
+    // requirement: it is the SAME object (`crate::class_widening`): `===`,
+    // writes and method calls hold through either handle, which a copy broke.
+    // The override is reached through the placeholder's view, which hands out
+    // the source's own `parse` slot behind an adapter converting its answer.
+    // The guarantee the old test protected (the call dispatches to the
+    // override, never to a defaulted slot) is unchanged.
     assert!(
-        source.contains(
-            "ParserInner { parse: { let smelt_virtual_receiver = smelt_struct_value.clone();"
-        ),
-        "{source}"
+        source.contains("parser = Parser::<SmeltUnknown>::smelt_retarget("),
+        "the upcast keeps the object: {source}"
     );
     assert!(
-        source.contains("smelt_method_receiver.parse(smelt_arg0.clone())"),
-        "{source}"
+        !source.contains("smelt_struct_value.0.borrow().parse"),
+        "no field-wise copy of the instance: {source}"
+    );
+    assert!(
+        source.contains("fn smelt_read_parse_view(&self) -> ::std::rc::Rc<dyn Fn(JsString) -> Result_<T>> { let smelt_slot = self.source.smelt_read_parse().clone();"),
+        "a view reads the source's own `parse` slot: {source}"
     );
     assert!(!source.contains("parse: Default::default()"), "{source}");
 }

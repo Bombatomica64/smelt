@@ -1115,7 +1115,7 @@ impl ModuleBuilder<'_> {
         let hir_span = self.span(span.start, span.end);
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
         match self.ctx.krate.types.get(Self::expr_ty(body, actual)) {
-            Some(Type::Optional(_)) => {
+            Some(Type::Optional(..)) => {
                 let none_ty = self.ctx.krate.types.intern(Type::None);
                 let none = body.push_expr(Expr {
                     kind: ExprKind::Literal(Literal::None),
@@ -1226,7 +1226,7 @@ impl ModuleBuilder<'_> {
     /// the lowering picked different widths, and compare numerically as-is.
     fn matcher_operand_is_number(&self, ty: smelt_hir::TypeId) -> bool {
         match self.ctx.krate.types.get(ty) {
-            Some(Type::Optional(inner)) => self.matcher_operand_is_number(*inner),
+            Some(Type::Optional(inner, _)) => self.matcher_operand_is_number(*inner),
             Some(Type::Int | Type::Float) => true,
             _ => false,
         }
@@ -1242,7 +1242,7 @@ impl ModuleBuilder<'_> {
     /// extra erased temporaries would add boundary crossings for nothing.
     fn matcher_operand_is_scalar_or_instance(&self, ty: smelt_hir::TypeId) -> bool {
         match self.ctx.krate.types.get(ty) {
-            Some(Type::Optional(inner)) => self.matcher_operand_is_scalar_or_instance(*inner),
+            Some(Type::Optional(inner, _)) => self.matcher_operand_is_scalar_or_instance(*inner),
             Some(Type::Bool | Type::Int | Type::Float | Type::String) => true,
             // A class instance qualifies only when its type arguments do too:
             // one whose arguments carry `unknown` (an unresolved helper alias
@@ -1320,7 +1320,7 @@ impl ModuleBuilder<'_> {
     /// Return whether a type has reference identity under JavaScript `toBe`.
     pub(in crate::lowering) fn test_to_be_identity_type(&self, ty: smelt_hir::TypeId) -> bool {
         match self.ctx.krate.types.get(ty) {
-            Some(Type::Optional(inner)) => self.test_to_be_identity_type(*inner),
+            Some(Type::Optional(inner, _)) => self.test_to_be_identity_type(*inner),
             Some(
                 Type::List(_)
                 | Type::Dict(_, _)
@@ -1392,8 +1392,10 @@ impl ModuleBuilder<'_> {
             return Ok(true);
         }
         let actual_ty = Self::expr_ty(body, actual);
-        if !matches!(self.ctx.krate.types.get(actual_ty), Some(Type::Optional(_)))
-            && self.assertion_type_contains_unknown(actual_ty)
+        if !matches!(
+            self.ctx.krate.types.get(actual_ty),
+            Some(Type::Optional(..))
+        ) && self.assertion_type_contains_unknown(actual_ty)
         {
             // not a new erasure: the actual's type already contains `unknown`
             let unknown_ty = self.unknown_type(NotNewErasure::ErasedUpstream);
@@ -1981,7 +1983,7 @@ impl ModuleBuilder<'_> {
             let try_block = body.push_block(self.span(actual_span.start, actual_span.end));
             let mut args = Vec::new();
             for param_ty in function.params {
-                if !matches!(self.ctx.krate.types.get(param_ty), Some(Type::Optional(_))) {
+                if !matches!(self.ctx.krate.types.get(param_ty), Some(Type::Optional(..))) {
                     return Err(SmeltError::unsupported(
                         self.span(actual_span.start, actual_span.end),
                         "expect(...).toThrow(...) requires a zero-argument callback",
@@ -2342,7 +2344,7 @@ impl ModuleBuilder<'_> {
                 self.ctx.krate.types.get(lhs_ty),
                 self.ctx.krate.types.get(rhs_ty)
             ),
-            (Some(Type::Optional(_)), Some(Type::None))
+            (Some(Type::Optional(..)), Some(Type::None))
         );
         if lhs_ty != rhs_ty
             && self.assertion_type_contains_unknown(lhs_ty)
@@ -2375,7 +2377,7 @@ impl ModuleBuilder<'_> {
         match self.ctx.krate.types.get(ty) {
             Some(Type::Unknown | Type::TypeParam { .. }) => true,
             Some(
-                Type::Optional(item) | Type::List(item) | Type::Set(item) | Type::Future(item),
+                Type::Optional(item, _) | Type::List(item) | Type::Set(item) | Type::Future(item),
             ) => self.assertion_type_contains_unknown(*item),
             Some(Type::Dict(key, value)) => {
                 self.assertion_type_contains_unknown(*key)
@@ -2466,7 +2468,7 @@ impl ModuleBuilder<'_> {
         // itself erased to the runtime value (JS `includes`/`has` semantics),
         // exactly like a bare erased expected.
         let expected_inner = match self.ctx.krate.types.get(expected_ty) {
-            Some(Type::Optional(inner)) => Some(*inner),
+            Some(Type::Optional(inner, _)) => Some(*inner),
             _ => None,
         };
         let expected_inner_is_erased = expected_inner.is_some_and(|inner| {
@@ -2509,7 +2511,7 @@ impl ModuleBuilder<'_> {
             // `string | null` (`headers.get(name)`) and every other optional
             // actual: vitest rejects a nullish actual, so an absent value never
             // contains anything, and a present one is checked at its inner type.
-            Some(Type::Optional(inner)) => {
+            Some(Type::Optional(inner, _)) => {
                 let inner_ty = *inner;
                 return self.optional_contains_expr(actual, inner_ty, expected, span, body);
             }

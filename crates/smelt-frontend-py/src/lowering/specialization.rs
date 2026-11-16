@@ -375,7 +375,7 @@ impl ModuleBuilder<'_> {
             // materialized field whose type is `Type::Optional` is an optional
             // data field, matching how the ordinary `AnnAssign` path records
             // `Optional[T]` / `T | None` fields.
-            let optional = matches!(self.ctx.krate.types.get(ty), Some(Type::Optional(_)));
+            let optional = matches!(self.ctx.krate.types.get(ty), Some(Type::Optional(..)));
             let lowered = Field {
                 name,
                 ty,

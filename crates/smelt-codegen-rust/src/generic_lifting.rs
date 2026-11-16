@@ -215,7 +215,7 @@ fn body_only_moves(
         id_index(local.0, "local index does not fit usize")
             .ok()
             .and_then(|index| locals.get(index))
-            .is_some_and(|decl| matches!(mir.types.get(decl.ty), Some(Type::Optional(_))))
+            .is_some_and(|decl| matches!(mir.types.get(decl.ty), Some(Type::Optional(..))))
     };
     // Whether a compared operand's presence is all `== null` reads: an
     // optional whose payload is not itself a bare type parameter (a bare `T`
@@ -231,10 +231,8 @@ fn body_only_moves(
         else {
             return false;
         };
-        let payload = match mir.types.get(decl.ty) {
-            Some(Type::Optional(inner)) => *inner,
-            _ => decl.ty,
-        };
+        // Every optional layer (`T | null | undefined` is two).
+        let payload = smelt_hir::type_normalize::peel_optional(&mir.types, decl.ty).0;
         !matches!(
             mir.types.get(payload),
             Some(Type::TypeParam { .. } | Type::Unknown | Type::Union(_)) | None
@@ -255,10 +253,8 @@ fn body_only_moves(
         else {
             return false;
         };
-        let payload = match mir.types.get(decl.ty) {
-            Some(Type::Optional(inner)) => *inner,
-            _ => decl.ty,
-        };
+        // Every optional layer (`T | null | undefined` is two).
+        let payload = smelt_hir::type_normalize::peel_optional(&mir.types, decl.ty).0;
         matches!(
             mir.types.get(payload),
             Some(
@@ -497,7 +493,7 @@ fn place_projects_into_type_param(
         return false;
     };
     let payload = match mir.types.get(decl.ty) {
-        Some(Type::Optional(inner)) => *inner,
+        Some(Type::Optional(inner, _)) => *inner,
         _ => decl.ty,
     };
     matches!(mir.types.get(payload), Some(Type::TypeParam { name: found }) if *found == name)
@@ -549,7 +545,7 @@ fn is_absence_test(
 pub(crate) fn type_is_erased_whole(mir: &Mir, ty: TypeId) -> bool {
     match mir.types.get(ty) {
         Some(Type::Unknown) => true,
-        Some(Type::Optional(inner)) => matches!(mir.types.get(*inner), Some(Type::Unknown)),
+        Some(Type::Optional(inner, _)) => matches!(mir.types.get(*inner), Some(Type::Unknown)),
         _ => false,
     }
 }
@@ -1122,7 +1118,7 @@ fn binds_through_containers(mir: &Mir, ty: TypeId, name: Symbol) -> bool {
     }
     match mir.types.get(ty) {
         Some(Type::TypeParam { name: found }) => *found == name,
-        Some(Type::List(item) | Type::Set(item) | Type::Optional(item)) => {
+        Some(Type::List(item) | Type::Set(item) | Type::Optional(item, _)) => {
             binds_through_containers(mir, *item, name)
         }
         Some(Type::Tuple(items)) => items
@@ -1157,11 +1153,11 @@ fn bind_type_param(
         }
         (Some(Type::List(param_item)), Some(Type::List(arg_item)))
         | (Some(Type::Set(param_item)), Some(Type::Set(arg_item)))
-        | (Some(Type::Optional(param_item)), Some(Type::Optional(arg_item))) => {
+        | (Some(Type::Optional(param_item, _)), Some(Type::Optional(arg_item, _))) => {
             bind_type_param(mir, *param_item, *arg_item, name, bindings)
         }
         // A present value handed to an optional parameter binds its inner type.
-        (Some(Type::Optional(param_item)), Some(_)) => {
+        (Some(Type::Optional(param_item, _)), Some(_)) => {
             bind_type_param(mir, *param_item, arg, name, bindings)
         }
         (Some(Type::Tuple(param_items)), Some(Type::Tuple(arg_items)))
@@ -1717,7 +1713,7 @@ fn type_param_inferable_through_callback(
 /// signature and the call-site argument would be rendered by two different
 /// paths that cannot agree:
 ///
-/// * **optional** (`Type::Optional(Function)`) — lowers to
+/// * **optional** (`Type::Optional(Function, _)`) — lowers to
 ///   `Option<Rc<dyn Fn(T) -> _>>`. An omitted argument is `None`, which carries
 ///   no closure and therefore no `T`; the call site must name a concrete
 ///   element type for the `None` and picks the erased one (`E0308`, and `E0631`
@@ -1798,7 +1794,7 @@ fn callback_occurrences_are_liftable(
 ///
 /// * **direct / required** — the local's type must be *exactly* `Type::Function`.
 ///   `MirFunction` has no separate optionality flag, so an optional parameter is
-///   spelled `Type::Optional(Function)` and fails this test, which is precisely
+///   spelled `Type::Optional(Function, _)` and fails this test, which is precisely
 ///   the "required" half of the rule.
 /// * **non-rest** — `function.rest == Some(index)` is the enclosing function's
 ///   packed rest parameter, which is emitted as an erased sequence of callables.

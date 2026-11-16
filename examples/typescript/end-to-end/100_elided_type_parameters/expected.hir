@@ -2,7 +2,7 @@ module examples/typescript/end-to-end/100_elided_type_parameters/input.ts (Modul
   body BodyId(9)
   items
     class Route fields [Public path: String] constructor Some(ItemId(0)) methods [ItemId(1)] implements []
-    class Session fields [Public name: String, Public renew: Optional<fn(Session<Env>) -> String>] constructor Some(ItemId(3)) methods [ItemId(4)] implements []
+    class Session fields [Public name: String, Public renew: Nullable<fn(Session<Env>) -> String>] constructor Some(ItemId(3)) methods [ItemId(4)] implements []
     class Cell fields [Public value: T] constructor Some(ItemId(6)) methods [ItemId(7)] implements []
     class Pair fields [Public left: Cell<Carried>, Public right: Route<Dropped>] constructor Some(ItemId(9)) methods [ItemId(10)] implements []
   locals
@@ -22,7 +22,7 @@ module examples/typescript/end-to-end/100_elided_type_parameters/input.ts (Modul
     #8: String = "s1"
     #9: Session<Float> = new Session(#8)
     #10: Session<Float> = %1
-    #11: Optional<fn(Session<Float>) -> String> = #10.renew
+    #11: Nullable<fn(Session<Float>) -> String> = #10.renew
     #12: fn(Session<Float>) -> String = closure BodyId(8) captures 0 -> String
     #13: Session<Float> = %1
     #14: fn() -> String = #13.label
@@ -31,7 +31,7 @@ module examples/typescript/end-to-end/100_elided_type_parameters/input.ts (Modul
     #17: None = @13(console_log)
     #18: None = call #17(#16)
     #19: Session<Float> = %1
-    #20: Optional<fn(Session<Float>) -> String> = #19.renew
+    #20: Nullable<fn(Session<Float>) -> String> = #19.renew
     #21: Session<Float> = %1
     #22: Session<Float> = %1
     #23: fn(Session<Float>) -> String = assert_type #20
@@ -86,7 +86,7 @@ interned types
   t4 = Session<Env>
   t5 = fn(Session<Env>) -> String
   t6 = None
-  t7 = Optional<fn(Session<Env>) -> String>
+  t7 = Nullable<fn(Session<Env>) -> String>
   t8 = T
   t9 = fn() -> T
   t10 = Carried
@@ -105,7 +105,7 @@ interned types
   t23 = Route<String>
   t24 = Session<Float>
   t25 = fn(Session<Float>) -> String
-  t26 = Optional<fn(Session<Float>) -> String>
+  t26 = Nullable<fn(Session<Float>) -> String>
   t27 = Cell<String>
   t28 = Pair<Float, String>
   t29 = fn() -> Float
