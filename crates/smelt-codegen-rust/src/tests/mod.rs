@@ -296,6 +296,7 @@ mod emit_unions_tests;
 mod emit_vitest_tests;
 mod erased_rest_callback_tests;
 mod erased_runtime_shape_tests;
+mod exhaustive_walker_tests;
 mod fetch_types_tests;
 mod function_semantics_tests;
 mod generic_call_site_tests;

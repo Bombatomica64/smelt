@@ -116,6 +116,10 @@ impl FunctionEmitter<'_> {
     /// Classifies the target type a local is coerced to inside an rvalue whose
     /// destination is `dest`. Returns `None` for unhandled rvalue shapes or when
     /// the local appears more than once.
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "single-shape recogniser: only a literal element, a dict value and a plain copy are classified uses; every other rvalue is unclassified, which keeps the binding"
+    )]
     fn rvalue_use_target(
         &self,
         value: &Rvalue,
@@ -187,7 +191,14 @@ impl FunctionEmitter<'_> {
             Terminator::Return(operand) if operand.reads_local(local) => {
                 Ok(Some(self.function.return_ty))
             }
-            _ => Ok(None),
+            // Unclassified: the conservative answer keeps the binding.
+            Terminator::Goto(_)
+            | Terminator::Call { .. }
+            | Terminator::Await { .. }
+            | Terminator::Switch { .. }
+            | Terminator::Match { .. }
+            | Terminator::Return(_)
+            | Terminator::Throw(_) => Ok(None),
         }
     }
 
@@ -218,7 +229,10 @@ impl FunctionEmitter<'_> {
         );
         let statement_names_local = |statement: &Statement| {
             let inlined = if is_function {
-                inlined_callback_operands(statement.value())
+                statement
+                    .value()
+                    .map(inlined_callback_operands)
+                    .unwrap_or_default()
             } else {
                 Vec::new()
             };
@@ -275,9 +289,8 @@ impl FunctionEmitter<'_> {
 
     /// Returns whether an operand is a local closure whose body can throw.
     pub(super) fn operand_closure_can_throw(&self, operand: &Operand) -> Result<bool, EmitError> {
-        let local = match operand {
-            Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) => *local,
-            _ => return Ok(false),
+        let Some(local) = operand.local() else {
+            return Ok(false);
         };
         for block in &self.function.blocks {
             for statement in &block.statements {
@@ -309,6 +322,10 @@ impl FunctionEmitter<'_> {
 /// `ListCallback` inlines too, but is left out: its closures keep a binding.
 /// Anything not listed counts as naming the local, so a new callback rvalue costs
 /// at most a dead binding, never a missing one.
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "single-shape recogniser: the documented catch-all counts every other rvalue as naming the closure local"
+)]
 fn inlined_callback_operands(value: &Rvalue) -> Vec<&Operand> {
     match value {
         Rvalue::ListReduce { callback, .. }

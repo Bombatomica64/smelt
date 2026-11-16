@@ -881,27 +881,66 @@ fn sources_outside_crate(
 /// message where Bun names a position, and keeps the full diagnostic list
 /// below it. Removing the typed version is a real way out: the package is then
 /// resolved as installed.
-fn manifest_source_error(source: &ManifestSource, diagnostics: &[ManifestDiagnostic]) -> io::Error {
+fn manifest_source_error(
+    source: &ManifestSource,
+    diagnostics: &[ManifestDiagnostic],
+) -> SourceRejected {
     let path = source.path.display();
+    let listed = diagnostics
+        .iter()
+        .map(ManifestDiagnostic::to_string)
+        .collect::<Vec<_>>()
+        .join("\n");
     let Some(origin) = &source.typed_version else {
-        return io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("{path}:\n{diagnostics:#?}"),
-        );
+        return SourceRejected(listed);
     };
     let first = diagnostics.first().map_or_else(String::new, |diagnostic| {
         format!(": {}", diagnostic.message)
     });
-    io::Error::new(
-        io::ErrorKind::InvalidData,
-        format!(
-            "error: the typed version of '{name}' in {shown} is rejected by Smelt's frontend ({count} diagnostic{plural}), the first at {path}{first}. Fix it, or remove it to compile '{name}' untyped.\n{diagnostics:#?}",
-            name = origin.name,
-            shown = origin.shown,
-            count = diagnostics.len(),
-            plural = if diagnostics.len() == 1 { "" } else { "s" },
-        ),
-    )
+    SourceRejected(format!(
+        "error: the typed version of '{name}' in {shown} is rejected by Smelt's frontend ({count} diagnostic{plural}), the first at {path}{first}. Fix it, or remove it to compile '{name}' untyped.\n{listed}",
+        name = origin.name,
+        shown = origin.shown,
+        count = diagnostics.len(),
+        plural = if diagnostics.len() == 1 { "" } else { "s" },
+    ))
+}
+
+/// A manifest source the frontend rejected: its diagnostics, one per line in
+/// the `file:line:column: error[code]: message` form compilers print, so the
+/// build's error reads as one (its `Debug` is the same text, which is what
+/// the CLI prints).
+struct SourceRejected(String);
+
+impl std::fmt::Display for SourceRejected {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+impl std::fmt::Debug for SourceRejected {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for SourceRejected {}
+
+impl std::fmt::Display for ManifestDiagnostic {
+    /// `file:line:column: severity[code]: message`, the position omitted when
+    /// the frontend reported none inside the file.
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let severity = match self.severity {
+            Some(Severity::Warning) => "warning",
+            Some(Severity::Error) | None => "error",
+        };
+        match (self.line, self.column) {
+            (Some(line), Some(column)) => write!(formatter, "{}:{line}:{column}: ", self.file)?,
+            (Some(line), None) => write!(formatter, "{}:{line}: ", self.file)?,
+            _ => write!(formatter, "{}: ", self.file)?,
+        }
+        write!(formatter, "{severity}[{}]: {}", self.code, self.message)
+    }
 }
 
 /// The frontend erasures `settings` marks `warn`/`deny`, as diagnostics.

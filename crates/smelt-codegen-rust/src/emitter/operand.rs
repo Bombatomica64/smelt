@@ -414,6 +414,7 @@ impl FunctionEmitter<'_> {
             Operand::Const(Constant::Int(_)) => self.type_id(Type::Int),
             Operand::Const(Constant::Float(_)) => self.type_id(Type::Float),
             Operand::Const(Constant::BigInt(_)) => self.type_id(Type::BigInt),
+            Operand::Const(Constant::PyInt(_)) => self.type_id(Type::PyInt),
             Operand::Const(Constant::String(_)) => self.type_id(self.text_type()),
             Operand::Const(Constant::StringUnits(_)) => self.type_id(Type::String),
             Operand::Const(Constant::Symbol(_)) => self.type_id(Type::Symbol),

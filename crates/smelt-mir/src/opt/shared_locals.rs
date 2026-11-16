@@ -142,6 +142,7 @@ fn created_closures(blocks: &[BasicBlock]) -> impl Iterator<Item = ClosureId> + 
             } => Some(*id),
             Statement::Assign { .. }
             | Statement::AssignPlace { .. }
-            | Statement::DictEntryUpdate { .. } => None,
+            | Statement::DictEntryUpdate { .. }
+            | Statement::StorageLive(_) => None,
         })
 }

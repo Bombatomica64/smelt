@@ -180,6 +180,7 @@ pub(super) fn type_text(krate: &Crate, ty: &Type) -> String {
     match ty {
         Type::Bool => "Bool".to_owned(),
         Type::Int => "Int".to_owned(),
+        Type::PyInt => "PyInt".to_owned(),
         Type::Float => "Float".to_owned(),
         Type::FixedInt(width) => width.rust_name().to_owned(),
         Type::BigInt => "BigInt".to_owned(),

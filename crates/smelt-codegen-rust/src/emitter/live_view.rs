@@ -107,6 +107,10 @@ pub(crate) fn is_live_record(_mir: &Mir, context: &EmitContext, name: Symbol) ->
 /// value, and converting it would store something nobody wrote
 /// (`"[object Object]"`): a live record's setter refuses the write instead,
 /// and the runtime keeps the value on the object (`SmeltOpenShape::extras`).
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "the types not listed have no single runtime tag a write can be checked against: the write is admitted"
+)]
 fn erased_value_fits(mir: &Mir, ty: TypeId) -> Option<String> {
     let tag = |variant: &str| Some(format!("matches!(value, SmeltUnknown::{variant}(_))"));
     match mir.types.get(ty)? {

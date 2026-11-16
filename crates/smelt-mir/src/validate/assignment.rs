@@ -84,7 +84,7 @@ impl Checker<'_> {
 
     /// Checks the reads of one statement.
     fn statement(self, statement: &Statement, state: &Assigned, errors: &mut Vec<ValidationError>) {
-        if let Rvalue::BindingCheck { .. } = statement.value() {
+        if let Some(Rvalue::BindingCheck { .. }) = statement.value() {
             errors.push(error(format!(
                 "{} has a binding check outside a call terminator",
                 super::owner_name(self.mir, self.body.owner)
@@ -114,10 +114,11 @@ impl Checker<'_> {
                 for local in reads {
                     self.read(local, state, errors);
                 }
-                if let Rvalue::Closure { id, captures } = statement.value() {
+                if let Some(Rvalue::Closure { id, captures }) = statement.value() {
                     self.captures(*id, captures, state, errors);
                 }
             }
+            Statement::StorageLive(_) => {}
         }
     }
 
@@ -218,12 +219,14 @@ impl Checker<'_> {
                     | Statement::DictEntryUpdate { current: local, .. } => {
                         written.insert(*local);
                     }
-                    Statement::Assign { .. } | Statement::AssignPlace { .. } => {}
+                    Statement::Assign { .. }
+                    | Statement::AssignPlace { .. }
+                    | Statement::StorageLive(_) => {}
                 }
-                if let Rvalue::GeneratorYield {
+                if let Some(Rvalue::GeneratorYield {
                     unwind: Some(handler),
                     ..
-                } = statement.value()
+                }) = statement.value()
                     && let Some(local) = handler.exception_local
                 {
                     written.insert(local);

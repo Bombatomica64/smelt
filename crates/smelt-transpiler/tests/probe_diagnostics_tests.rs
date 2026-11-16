@@ -205,3 +205,135 @@ clone-strategy = "aggressive"
 
     Ok(())
 }
+
+/// Builds a one-file Python project from `source` and answers the stderr of
+/// the `smelt build` that must reject it.
+fn rejected_python_build(source: &str) -> TestResult<String> {
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src"))?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "py-diagnostics"
+version = "0.1.0"
+
+[sources]
+entries = ["src/main.py"]
+
+[output]
+target = "./dist"
+crate-name = "py_diagnostics"
+build = false
+"#,
+    )?;
+    fs::write(project_path.join("src/main.py"), source)?;
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_smelt"))
+        .current_dir(project_path)
+        .arg("build")
+        .output()?;
+    ensure(
+        !output.status.success(),
+        "the build must reject the program",
+    )?;
+    Ok(String::from_utf8(output.stderr)?)
+}
+
+/// A rejected Python source reports each diagnostic as
+/// `file:line:column: error[code]: message`, at the expression it is about:
+/// a type helper's diagnostic takes the position of the expression that
+/// asked, never line 1, column 1, and the text is not a `Debug` dump.
+#[test]
+fn python_diagnostics_point_at_the_rejected_expression() -> TestResult {
+    let stderr = rejected_python_build("s: str = \"x\"\n\n\nprint(s.expandtabs(4))\n")?;
+    ensure(
+        stderr.contains("src/main.py:4:7: error[smelt::unsupported-py]: "),
+        format!("diagnostic at line 4, column 7 in compiler form:\n{stderr}"),
+    )?;
+    ensure(
+        !stderr.contains("ManifestDiagnostic") && !stderr.contains(":1:1:"),
+        format!("no Debug dump and no 1:1 position:\n{stderr}"),
+    )
+}
+
+/// A use of an imported API Smelt has no mapping for names the API at the
+/// use, through `import m`, `from m import x` and an attribute read, and a
+/// later statement that fails only because it uses the rejected definition
+/// is not reported a second time.
+#[test]
+fn unmapped_python_imports_are_named_once() -> TestResult {
+    let from_import = rejected_python_build(
+        "from collections import deque\n\n\ndef main() -> None:\n    d: deque[int] = deque()\n    print(d)\n\n\nmain()\n",
+    )?;
+    ensure(
+        from_import.contains(
+            "src/main.py:5:21: error[smelt::unsupported-py]: `collections.deque` is not supported",
+        ),
+        format!("from-import use names the API:\n{from_import}"),
+    )?;
+    ensure(
+        from_import
+            .lines()
+            .filter(|line| line.contains("error["))
+            .count()
+            == 1,
+        format!("the call of the failed `main` is not a second diagnostic:\n{from_import}"),
+    )?;
+    let attribute = rejected_python_build("import sys\n\nprint(sys.argv)\n")?;
+    ensure(
+        attribute
+            .contains("src/main.py:3:7: error[smelt::unsupported-py]: `sys.argv` is not supported"),
+        format!("module attribute read names the API:\n{attribute}"),
+    )?;
+    let module_variable = rejected_python_build(
+        "import collections\n\nq = collections.deque()\nq.append(1)\nprint(len(q))\n",
+    )?;
+    // An untyped module variable is materialized by running the module in the
+    // specialization guest, which rejects a runtime-dynamic `deque`: one
+    // diagnostic naming the API, not the guest's Python traceback.
+    ensure(
+        module_variable.contains("error[smelt::dynamic-attribute-access]: 'collections.deque'")
+            && !module_variable.contains("Traceback")
+            && !module_variable.contains("Guest {"),
+        format!("guest rejection is a diagnostic:\n{module_variable}"),
+    )?;
+    ensure(
+        module_variable
+            .lines()
+            .filter(|line| line.contains("error["))
+            .count()
+            == 1,
+        format!(
+            "uses of a module variable whose initializer failed do not cascade:\n{module_variable}"
+        ),
+    )?;
+    let typed_variable = rejected_python_build(
+        "from collections import deque\n\nq: deque[int] = deque()\nq.append(1)\nprint(len(q))\n",
+    )?;
+    ensure(
+        typed_variable.lines().filter(|line| line.contains("error[")).count() == 1
+            && typed_variable.contains("src/main.py:3:17: error[smelt::unsupported-py]: `collections.deque` is not supported"),
+        format!("uses of a module variable whose initializer failed do not cascade:\n{typed_variable}"),
+    )
+}
+
+/// A statement that fails only because it uses a definition whose own
+/// lowering failed (a function, at module level or inside another function)
+/// is not reported a second time.
+#[test]
+fn failed_definitions_do_not_cascade() -> TestResult {
+    let in_function = rejected_python_build(
+        "def gen(n: int) -> int:\n    yield n\n    return n\n\n\ndef main() -> None:\n    print(gen(1))\n\n\nmain()\n",
+    )?;
+    ensure(
+        in_function
+            .lines()
+            .filter(|line| line.contains("error["))
+            .count()
+            == 1,
+        format!(
+            "a call of a failed function inside another function is not a second diagnostic:\n{in_function}"
+        ),
+    )?;
+    Ok(())
+}

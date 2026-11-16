@@ -1,5 +1,5 @@
 {
-  "_comment": "Hono's generated test target builds with zero rustc errors (`test_compile_errors`, exact pin via scripts/check_library_gate.py compile-pin), so its tests run and are ratcheted like es-toolkit's (runtime-ratchet): `runtime_passed` is the floor and `runtime_known_failures` the only tests allowed to fail. The six E0308 in src/router_test_2.rs that used to keep the target from building went away when nested union arms started flattening (#354). The 21 `cors` failures that surfaced then were fixed in the same PR (a call through a union of callables of different arity passes every argument; `typeof f === 'function'` on an erased value is variadic). The pinned failures are pre-existing defects that were never run before: `mount` routing (3), pretty-json's indent argument (3), RegExpRouter param capture (4).",
+  "_comment": "Hono's generated test target builds with zero rustc errors (`test_compile_errors`, exact pin via scripts/check_library_gate.py compile-pin), so its tests run and are ratcheted like es-toolkit's (runtime-ratchet): `runtime_passed` is the floor, `runtime_known_failures` the only tests allowed to fail and `runtime_total` the exact number of tests run. The six E0308 in src/router_test_2.rs that used to keep the target from building went away when nested union arms started flattening (#354). The 21 `cors` failures that surfaced then were fixed in the same PR (a call through a union of callables of different arity passes every argument; `typeof f === 'function'` on an erased value is variadic). The pinned failures are pre-existing defects that were never run before: `mount` routing (3), pretty-json's indent argument (3), RegExpRouter param capture (4).",
   "test_compile_errors": 0,
   "runtime_passed": 444,
   "runtime_known_failures": [
@@ -13,5 +13,6 @@
     "__smelt_module_router_test_2::test_regexprouter_return_value_type_should_return_t_paramindexmap_paramstash",
     "__smelt_module_router_test_2::test_regexprouter_single_character_regexp_pattern_should_capture_a_param_even_if_a_static_path_created_the_node_first",
     "__smelt_module_router_test_2::test_regexprouter_unsupportedpatherror_pattern_that_matches_an_empty_string_should_still_accept_a_pattern_that_requires_at_least_one_character"
-  ]
+  ],
+  "runtime_total": 454
 }

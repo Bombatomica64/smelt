@@ -352,6 +352,7 @@ mod tests {
             symbols: smelt_hir::SymbolInterner::default(),
             names: smelt_hir::OriginalNameTable::default(),
             accessor_fields: Vec::default(),
+            inherited_member_types: Vec::new(),
             constructible_function_items: std::collections::BTreeSet::new(),
             index: crate::index::MirIndex::default(),
         }
@@ -596,6 +597,7 @@ mod tests {
             escapes: false,
             can_throw: false,
             is_generator: false,
+            is_async: false,
             function_item_key: None,
             this_binding: smelt_hir::ClosureThis::Own,
             language: smelt_hir::Language::TypeScript,

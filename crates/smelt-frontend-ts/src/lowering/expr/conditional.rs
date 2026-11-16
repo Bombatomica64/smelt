@@ -171,7 +171,32 @@ impl ModuleBuilder<'_> {
     }
 
     /// `Some(true)` for a `null` literal arm, `Some(false)` for `undefined`.
-    fn nullish_literal_of(body: &Body, expr: smelt_hir::ExprId) -> Option<bool> {
+    /// The optional a conditional joins when one arm is absent: `present`
+    /// around the `absent_arm`'s absence.
+    ///
+    /// An absent arm that is the `null` literal makes the join `T | null`,
+    /// whose absent value erases as `null` (`flag ? items : null`, the
+    /// ts-pattern `.otherwise(() => null)` shape); any other absent arm keeps
+    /// the plain `Option`, absent as `undefined`.
+    fn optional_join_around(
+        &mut self,
+        body: &Body,
+        absent_arm: smelt_hir::ExprId,
+        present: smelt_hir::TypeId,
+    ) -> smelt_hir::TypeId {
+        if Self::nullish_literal_of(body, absent_arm) == Some(true) {
+            self.ctx.krate.types.intern_null_optional(present)
+        } else {
+            self.ctx.krate.types.intern(Type::Optional(present))
+        }
+    }
+
+    /// `Some(true)` for the `null` literal, `Some(false)` for `undefined`
+    /// (through type assertions), `None` for any other expression.
+    pub(in crate::lowering) fn nullish_literal_of(
+        body: &Body,
+        expr: smelt_hir::ExprId,
+    ) -> Option<bool> {
         match &body.expr_at(expr)?.kind {
             ExprKind::Literal(smelt_hir::Literal::None) => Some(true),
             ExprKind::Literal(smelt_hir::Literal::Undefined) => Some(false),
@@ -292,9 +317,9 @@ impl ModuleBuilder<'_> {
         } else if Self::is_empty_list_expr(body, else_expr) && !self.is_dict_type(then_ty) {
             then_ty
         } else if self.ctx.krate.types.get(then_ty) == Some(&Type::None) {
-            self.ctx.krate.types.intern(Type::Optional(else_ty))
+            self.optional_join_around(body, then_expr, else_ty)
         } else if self.ctx.krate.types.get(else_ty) == Some(&Type::None) {
-            self.ctx.krate.types.intern(Type::Optional(then_ty))
+            self.optional_join_around(body, else_expr, then_ty)
         } else if let Some(unified) = self.unify_optional_conditional_branches(then_ty, else_ty) {
             // One arm is `Optional<inner>` and the other unifies with
             // `inner`, so the TypeScript union `inner | undefined` IS

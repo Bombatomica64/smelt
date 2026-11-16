@@ -34,8 +34,8 @@ async function main(): Promise<void> {
   log.push("sync");
   const sizes = [await first, await second];
   for (const step of walk(log)) log.push("y" + String(step));
-  console.log(sizes.length, [...log].sort().join(","));
-  console.log(JSON.stringify([...m.keys()].sort()), [...s].sort((x, y) => x - y).join(","));
-  console.log(JSON.stringify(Object.keys(r).sort()), c.n);
+  console.log(sizes.join(","), log.join(","));
+  console.log(JSON.stringify([...m.keys()]), [...s].join(","));
+  console.log(JSON.stringify(Object.keys(r)), c.n);
 }
 main();

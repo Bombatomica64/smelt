@@ -31,6 +31,10 @@ impl FunctionEmitter<'_> {
     /// rules). The element type must be one that cannot itself hold a
     /// nullish value; an optional or erased element keeps the existing
     /// nullish-tag comparisons, which already see a present `undefined`.
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "single-shape recogniser: only the four equality operators against a nullish constant compare presence"
+    )]
     pub(super) fn element_presence_comparison_expr(
         &self,
         op: smelt_hir::BinOp,
@@ -548,6 +552,10 @@ impl FunctionEmitter<'_> {
     /// `===` tells the two apart (`x === null` is the present case), while `==`
     /// holds for both. `None` when `inner` is not the unit or the other side is
     /// not a nullish constant, which keeps the ordinary presence rule.
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "single-shape recogniser: only a `null` or `undefined` constant is a nullish singleton"
+    )]
     fn null_or_undefined_equality_expr(
         &self,
         option_text: &RustExpr,
@@ -697,6 +705,10 @@ impl FunctionEmitter<'_> {
             // The guard at the top of this function restricts `op` to the four
             // relational operators, so the `Gte` wildcard is the only remaining
             // case (`match` cannot see through that earlier guard).
+            #[expect(
+                clippy::wildcard_enum_match_arm,
+                reason = "sub-dispatch: the guard at the top of this function admits only the four relational operators"
+            )]
             let ordering_pattern = match op {
                 smelt_hir::BinOp::Lt => "::std::cmp::Ordering::Less",
                 smelt_hir::BinOp::Lte => "::std::cmp::Ordering::Less | ::std::cmp::Ordering::Equal",
@@ -1240,6 +1252,10 @@ impl FunctionEmitter<'_> {
     /// id today, so there is no identity to read and this returns `None` rather
     /// than inventing one. A class compared by `===` is lifted to the handle
     /// representation by `classify::reference_classes` for exactly that reason.
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "single-shape recogniser: only class handles and the stdlib containers with an object id carry a JavaScript identity"
+    )]
     fn reference_identity_expr(&self, text: &RustExpr, ty: TypeId) -> Option<RustExpr> {
         match self.mir.types.get(ty)? {
             Type::List(_) => Some(text.postfix(".id()")),
@@ -1411,6 +1427,10 @@ impl FunctionEmitter<'_> {
     /// both operands erased and compared by the runtime's IsLooselyEqual
     /// (`smelt_js_loose_eq`), so `2n == 2`, `"1" == 1` and `null == undefined`
     /// answer as in JavaScript whatever arm a union holds.
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "single-shape recogniser: only `JsLooseEq`/`JsLooseNotEq` compare by IsLooselyEqual"
+    )]
     fn js_loose_equality_expr(
         &self,
         op: smelt_hir::BinOp,
@@ -1851,6 +1871,10 @@ impl FunctionEmitter<'_> {
     /// allocates nothing. Equality of code units and of UTF-8 text agree for
     /// every constant, since a constant that holds a lone surrogate is not a
     /// `Constant::String`.
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "single-shape recogniser: only the equality operators against a string constant compare text"
+    )]
     fn js_string_literal_equality_expr(
         &self,
         op: smelt_hir::BinOp,
@@ -1897,6 +1921,9 @@ impl FunctionEmitter<'_> {
         }
         // A bigint against a number has its typed rule, which `==` shares.
         if let Some(text) = self.bigint_binary_expr(op, lhs, rhs, dest_ty)? {
+            return Ok(text);
+        }
+        if let Some(text) = self.py_int_binary_expr(op, lhs, rhs, dest_ty)? {
             return Ok(text);
         }
         // An absence test of a lifted type parameter value reads its erased
@@ -2126,6 +2153,12 @@ impl FunctionEmitter<'_> {
                 self.truthy_operand_expr(operand)?.delimited()
             ))),
             smelt_hir::UnaryOp::Neg => {
+                if self.is_py_int_type(self.operand_ty(operand)?) {
+                    return Ok(RustExpr::loose(format!(
+                        "-{}",
+                        self.py_int_ref_expr(operand)?.tight()
+                    )));
+                }
                 if let Some(text) = self.bigint_negation_expr(operand)? {
                     if self.mir.types.get(dest_ty) == Some(&Type::Unknown) {
                         return self.erase_rendered(&text, self.type_id(Type::BigInt)?);

@@ -1773,3 +1773,51 @@ console.log(mapValue(digits("ab"), (n) => n * 2)?.value);
         "{map_value}\n{digits}"
     );
 }
+
+/// A type parameter bounded by an interface stays a Rust generic when it
+/// reaches the function inside a container: the call site's argument binds it
+/// arm by arm (`User[]` at `xs: T[]` binds `T` to `User`, which implements the
+/// bound's trait), so a hand port's `fn max_id<T: HasIdLike>(xs: SmeltList<T>)
+/// -> T` is emitted instead of `SmeltList<SmeltUnknown> -> SmeltUnknown`.
+/// Behaviour: `fixtures/node-parity/bounded_generic_containers.ts`.
+#[test]
+fn a_bounded_type_parameter_inside_a_container_stays_generic() {
+    let source = source_for(
+        r##"
+interface HasId { id: number; }
+interface User extends HasId { name: string; }
+function maxId<T extends HasId>(xs: T[]): T {
+  let best = xs[0];
+  for (const x of xs) { if (x.id > best.id) { best = x; } }
+  return best;
+}
+function idsOf<T extends HasId>(byKey: Record<string, T>): number[] {
+  const ids: number[] = [];
+  for (const key of Object.keys(byKey)) { ids.push(byKey[key].id); }
+  return ids;
+}
+function labelled<T extends HasId>(pair: [T, string]): string { return pair[1] + "#" + pair[0].id; }
+const users: User[] = [{ id: 1, name: "ada" }, { id: 3, name: "grace" }];
+console.log(maxId(users).name);
+console.log(idsOf({ a: users[0] }).join(","));
+console.log(labelled([users[1], "x"]));
+"##,
+    );
+    for (signature, parameter) in [
+        ("fn max_id<T: HasIdLike", "(xs: SmeltList<T>) -> T {"),
+        (
+            "fn ids_of<T: HasIdLike",
+            "(by_key: SmeltRecord<JsString, T>) -> SmeltList<f64> {",
+        ),
+        (
+            "fn labelled<T: HasIdLike",
+            "(pair: (T, JsString)) -> JsString {",
+        ),
+    ] {
+        let line = source
+            .lines()
+            .find(|line| line.contains(signature))
+            .unwrap_or_else(|| panic!("`{signature}` is not generic over the bound:\n{source}"));
+        assert!(line.ends_with(parameter), "{line}");
+    }
+}

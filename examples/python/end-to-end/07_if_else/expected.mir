@@ -1,32 +1,32 @@
 fn main (FuncId(0)) -> None
   locals
-    %0 temp: Int
+    %0 temp: PyInt
     %1 temp: Bool
-    %2 temp: Int
+    %2 temp: PyInt
     %3 temp: None
-    %4 temp: Int
+    %4 temp: PyInt
     %5 temp: Bool
     %6 temp: None
     %7 temp: None
   bb0:
     %0 = global_get #0
-    %1 = move %0 > 10
+    %1 = move %0 > 10py
     switch move %1 ? bb1 : bb2
   bb1:
     %2 = global_get #0
     %3 = call @console_log(move %2) -> bb3
   bb2:
     %4 = global_get #0
-    %5 = move %4 > 3
+    %5 = move %4 > 3py
     switch move %5 ? bb5 : bb6
   bb3:
     goto bb4
   bb4:
     return none
   bb5:
-    %6 = call @console_log(1) -> bb7
+    %6 = call @console_log(1py) -> bb7
   bb6:
-    %7 = call @console_log(0) -> bb9
+    %7 = call @console_log(0py) -> bb9
   bb7:
     goto bb8
   bb8:

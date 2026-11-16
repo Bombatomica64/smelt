@@ -19,7 +19,7 @@ use crate::{
 
 use super::context::LoweringCtx;
 use super::scope::{ControlScope, FinallyClause, LabelScope, LoopExit, LoopTargets, Protected};
-use super::{LowerError, LoweredFunction, lower_literal};
+use super::{LowerError, LoweredFunction, lower_literal_as};
 
 impl LoweringCtx<'_> {
     /// Lowers the entire function body to MIR.
@@ -220,6 +220,20 @@ impl LoweringCtx<'_> {
                     }
                     None => Operand::Const(Constant::Undefined),
                 };
+                // A JavaScript declaration that runs again (inside a loop)
+                // starts a new binding each time; a closure that captured the
+                // previous one keeps it. See `Statement::StorageLive`. Python
+                // has one binding per function scope, which its closures share
+                // however often the assignment runs.
+                let declared_at = self.block()?.span;
+                if self.source_language(declared_at) == smelt_hir::Language::TypeScript
+                    && self.in_loop()
+                    && self.is_captured_by_closure(hir_local)
+                {
+                    self.block_mut()?
+                        .statements
+                        .push(Statement::StorageLive(dest));
+                }
                 self.block_mut()?.statements.push(Statement::Assign {
                     dest,
                     value: Rvalue::Use(lowered_value),
@@ -813,6 +827,9 @@ impl LoweringCtx<'_> {
         default: Option<smelt_hir::BlockId>,
     ) -> Result<(), LowerError> {
         let lowered_scrutinee = self.lower_expr(scrutinee)?;
+        // An arm's label is carried as the scrutinee is: `case 1:` on a Python
+        // `int` is a Python `int` constant.
+        let scrutinee_ty = self.hir_expr(scrutinee)?.ty;
         let span = self.block()?.span;
         let mut mir_arms = Vec::new();
         let mut arm_blocks = Vec::new();
@@ -823,7 +840,7 @@ impl LoweringCtx<'_> {
                 .entry(arm.body)
                 .or_insert_with(|| self.function.push_block(span));
             mir_arms.push(crate::MatchArm {
-                label: lower_literal(&arm.label),
+                label: lower_literal_as(&arm.label, self.krate.types.get(scrutinee_ty)),
                 target,
             });
             if !arm_blocks

@@ -140,7 +140,9 @@ impl LocalBinding {
         match self {
             Self::SharedCapture(cell) => cell.cell.clone(),
             Self::WeakEmitter { name } => format!("smelt_weak_{name}"),
-            other => other.text().into_owned(),
+            Self::Plain(_) | Self::Receiver | Self::ClosureArg(_) | Self::SelfOwned => {
+                self.text().into_owned()
+            }
         }
     }
 
@@ -148,7 +150,11 @@ impl LocalBinding {
     pub(super) fn shared_cell(&self) -> Option<&SharedCell> {
         match self {
             Self::SharedCapture(cell) => Some(cell),
-            _ => None,
+            Self::Plain(_)
+            | Self::Receiver
+            | Self::ClosureArg(_)
+            | Self::SelfOwned
+            | Self::WeakEmitter { .. } => None,
         }
     }
 }
@@ -207,7 +213,10 @@ impl BindingUses {
         match binding {
             LocalBinding::SelfOwned => self.self_owned.set(true),
             LocalBinding::SharedCapture(cell) => self.record_mut_borrow(cell),
-            _ => {}
+            LocalBinding::Plain(_)
+            | LocalBinding::Receiver
+            | LocalBinding::ClosureArg(_)
+            | LocalBinding::WeakEmitter { .. } => {}
         }
     }
 

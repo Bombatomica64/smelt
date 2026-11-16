@@ -59,20 +59,29 @@ pub(crate) fn new_project(
     Ok(root)
 }
 
-/// Rejects a name that is not one plain directory name.
+/// Rejects a name that is not one plain directory name, or whose crate name
+/// (see [`crate_name`]) the manifest parser would refuse, so a new project
+/// always builds.
 fn validate_name(name: &str) -> Result<(), String> {
     let mut characters = name.chars();
     let starts_with_letter = characters
         .next()
         .is_some_and(|first| first.is_ascii_alphabetic());
-    if starts_with_letter
-        && characters.all(|rest| rest.is_ascii_alphanumeric() || rest == '-' || rest == '_')
+    if !(starts_with_letter
+        && characters.all(|rest| rest.is_ascii_alphanumeric() || rest == '-' || rest == '_'))
     {
-        return Ok(());
+        return Err(format!(
+            "invalid project name `{name}`: use a letter followed by letters, digits, `-` or `_`"
+        ));
     }
-    Err(format!(
-        "invalid project name `{name}`: use a letter followed by letters, digits, `-` or `_`"
-    ))
+    crate::config::crate_name_violation(&crate_name(name)).map_or(Ok(()), |reason| {
+        Err(format!("invalid project name `{name}`: {reason}"))
+    })
+}
+
+/// The generated crate's name for project `name`: snake case.
+fn crate_name(name: &str) -> String {
+    name.replace('-', "_").to_ascii_lowercase()
 }
 
 /// Writes the project files under `root`.
@@ -93,7 +102,7 @@ fn write_files(root: &Path, name: &str, language: EntryLanguage) -> io::Result<(
 
 /// The project's `Smelt.toml`.
 fn manifest(name: &str, language: EntryLanguage) -> String {
-    let crate_name = name.replace('-', "_").to_ascii_lowercase();
+    let crate_name = crate_name(name);
     format!(
         "[project]\nname = \"{name}\"\nversion = \"0.1.0\"\n\n[sources]\nentries = [\"{entry}\"]\n\n\
          [output]\ntarget = \"./dist\"\ncrate-name = \"{crate_name}\"\nbuild = true\n",
@@ -111,18 +120,34 @@ mod tests {
         for good in ["app", "my-app", "app_2"] {
             assert_eq!(validate_name(good), Ok(()), "{good}");
         }
-        for bad in ["", "2app", "-app", "a/b", "../app", "a b", "app\""] {
+        for bad in [
+            "", "2app", "-app", "a/b", "../app", "a b", "app\"", "fn", "Std", "Test",
+        ] {
             assert!(validate_name(bad).is_err(), "{bad:?} was accepted");
         }
     }
 
-    /// The crate name is the project name in Rust's spelling.
+    /// The crate name is the project name in Rust's spelling, and the
+    /// manifest is read back by the real parser.
     #[test]
+    #[expect(clippy::expect_used, reason = "a test fails fast on what it set up")]
     fn the_manifest_names_the_crate_in_snake_case() {
-        let text = manifest("My-App", EntryLanguage::TypeScript);
-        assert!(text.contains("crate-name = \"my_app\""), "{text}");
-        assert!(text.contains("entries = [\"src/main.ts\"]"), "{text}");
-        let python = manifest("app", EntryLanguage::Python);
-        assert!(python.contains("entries = [\"src/main.py\"]"), "{python}");
+        let directory = std::env::temp_dir().join(format!(
+            "smelt-scaffold-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        for (name, language, entry) in [
+            ("My-App", EntryLanguage::TypeScript, "src/main.ts"),
+            ("app", EntryLanguage::Python, "src/main.py"),
+        ] {
+            let root = new_project(&directory, name, language).expect("the project is created");
+            let config = crate::config_parser::parse_path(&root.join("Smelt.toml"))
+                .expect("the scaffolded manifest parses");
+            assert_eq!(config.generated_crate_name(), crate_name(name), "{name}");
+            assert_eq!(config.entries(), [PathBuf::from(entry)], "{name}");
+        }
+        assert_eq!(crate_name("My-App"), "my_app");
+        fs::remove_dir_all(&directory).expect("the scratch project is removed");
     }
 }

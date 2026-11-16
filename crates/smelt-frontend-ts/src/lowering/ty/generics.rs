@@ -912,7 +912,8 @@ impl ModuleBuilder<'_> {
             }
             Type::Optional(item) => {
                 let item = self.substitute_type_params(item, substitutions);
-                self.ctx.krate.types.intern(Type::Optional(item))
+                // `T | null` substitutes to `U | null` (its absent value).
+                self.ctx.krate.types.intern_optional_like(ty, item)
             }
             Type::Union(items) => {
                 let items = items
@@ -989,6 +990,7 @@ impl ModuleBuilder<'_> {
             }
             Type::Bool
             | Type::Int
+            | Type::PyInt
             | Type::FixedInt(_)
             | Type::BigInt
             | Type::Float

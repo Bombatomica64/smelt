@@ -173,7 +173,8 @@ fn fresh_single_use_temps(
             }
             Statement::Assign { .. }
             | Statement::AssignPlace { .. }
-            | Statement::DictEntryUpdate { .. } => None,
+            | Statement::DictEntryUpdate { .. }
+            | Statement::StorageLive(_) => None,
         })
         .collect()
 }

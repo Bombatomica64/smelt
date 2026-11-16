@@ -34,6 +34,11 @@ The third one is the `Math.random`-as-a-value family below (now fixed).
 
 ## Not fixed (and why)
 
+The radash pin in `.github/workflows/ci.yml` (`381 passed; 6 failed`, CI run on
+`main` at `62ef98134`) fails exactly: `boil` funky shape and `inRange` nullish
+(A), `omit` null keys and `diff` null root (A2), and the two `AggregateError`
+"uses stack from ..." tests (D). The `Proxy` test (B) passes now.
+
 ### A. `as any` type-violating inputs (radash, 2 tests) — test-semantics, not a Smelt gap
 
 - `array.test.ts` "boil does not fail when provided array is funky shaped":
@@ -64,7 +69,20 @@ are out of scope for typed lowering.
   (`_.omit` had resolved to `undefined`), which is why the radash gate moved
   from 384/3 to 383/4.
 
-### B. `Proxy` traps (radash, 1 test) — unmodeled runtime feature
+### A3. `diff` null root (radash, 1 test) — test-semantics, same family as A2
+
+- `array.test.ts` "diff handles null root": `_.diff(NULL, ['a'])` with
+  `const NULL = null as unknown as unknown[]` passes `null` where
+  `root: readonly T[]` is declared. "handles null other" passes.
+
+### D. V8 stack-trace text (radash, 2 tests) — unmodeled runtime feature
+
+- `async.test.ts` "AggregateError uses stack from the first given error" and
+  "uses stack from first error with a stack" assert that
+  `aggregate.stack` includes `at fakeMicrotask`, V8's rendering of the call
+  stack. The runtime has no JavaScript call-stack text to report.
+
+### B. `Proxy` traps (radash, 1 test) — passes now; kept for history
 
 `curry.test.ts` "callable makes object callable": `_.callable(obj, fn)` returns
 `new Proxy(Object.assign(FUNC, obj), { get, set, apply })`. `new Proxy` lowers

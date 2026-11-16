@@ -32,10 +32,6 @@
     reason = "generated Rust format strings intentionally contain braces"
 )]
 #![expect(
-    clippy::wildcard_enum_match_arm,
-    reason = "operand formatting groups future constants with existing constants"
-)]
-#![expect(
     clippy::unused_self,
     reason = "helper methods stay on the emitter for future shared state"
 )]
@@ -100,6 +96,8 @@ mod module_map;
 pub(crate) mod names;
 mod options;
 mod program_types;
+mod py_int;
+pub(crate) mod reachable_types;
 pub(crate) mod reference_origin;
 mod reference_storage;
 mod reflection_prelude;

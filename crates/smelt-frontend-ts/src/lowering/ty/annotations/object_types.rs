@@ -305,8 +305,18 @@ impl ModuleBuilder<'_> {
         // has no concrete representation and erased every record of the alias.
         let mut value_tys = Vec::new();
         let mut nullable = false;
+        // Whether every member that can be absent is a `T | null`
+        // (`TypeInterner::intern_null_optional`): the record's value type is
+        // then one too, its `None` the `null` the members hold.
+        let mut absent_only_null = true;
         for member_ty in member_tys {
+            let member_absent_is_null = self.ctx.krate.types.absent_is_null(member_ty);
             for arm in self.flatten_union_member_types(member_ty) {
+                if matches!(self.ctx.krate.types.get(arm), Some(Type::None))
+                    && !member_absent_is_null
+                {
+                    absent_only_null = false;
+                }
                 if matches!(self.ctx.krate.types.get(arm), Some(Type::None)) {
                     nullable = true;
                 } else if !value_tys.contains(&arm) {
@@ -326,7 +336,11 @@ impl ModuleBuilder<'_> {
         };
         let value_ty =
             if nullable && !matches!(self.ctx.krate.types.get(value_ty), Some(Type::None)) {
-                self.ctx.krate.types.intern(Type::Optional(value_ty))
+                if absent_only_null {
+                    self.ctx.krate.types.intern_null_optional(value_ty)
+                } else {
+                    self.ctx.krate.types.intern(Type::Optional(value_ty))
+                }
             } else {
                 value_ty
             };

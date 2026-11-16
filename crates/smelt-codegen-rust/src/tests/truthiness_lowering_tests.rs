@@ -228,7 +228,7 @@ Ok::<SmeltUnknown, Box<dyn std::error::Error>>(smelt_async_value.into_smelt_unkn
 }) as ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<SmeltUnknown, Box<dyn std::error::Error>>>>>) });
 let _smelt_tmp_2: (SmeltUnknown, SmeltUnknown) = attempt(&mut { let _smelt_adapted_callback = _smelt_tmp_1.clone(); move || { let smelt_future = (_smelt_adapted_callback)(); SmeltUnknown::Promise(smelt_future.smelt_promise_with(move |smelt_value| smelt_value)) } });
 result = _smelt_tmp_2.1.clone();
-let _smelt_tmp_4: SmeltFuture<SmeltUnknown> = { let smelt_erased_future = (result).into_smelt_unknown(); SmeltFuture::from_future(Box::pin(async move { let smelt_awaited = smelt_await_flatten(smelt_erased_future).await?; Ok::<_, Box<dyn std::error::Error>>(smelt_awaited) })) };
+let _smelt_tmp_4: SmeltFuture<SmeltUnknown> = { let smelt_erased_future = (result).into_smelt_unknown(); SmeltFuture::from_erased(smelt_erased_future, move |smelt_awaited| Ok::<_, Box<dyn std::error::Error>>(smelt_awaited)) };
 _smelt_tmp_5 = _smelt_tmp_4.await?;
 return Ok(_smelt_tmp_5);
 }"

@@ -14,6 +14,7 @@ mod host_types;
 mod method_resolution;
 mod object_types;
 mod record_keys;
+mod settled_result;
 mod structural_fields;
 mod tuples_rest;
 mod type_queries;
@@ -167,8 +168,26 @@ impl ModuleBuilder<'_> {
             }
             TSType::TSUnionType(union) => {
                 let mut members = Vec::new();
+                // Whether every absent arm is `null` (the keyword, or a member
+                // that is itself `T | null`): then the optional's absent value
+                // is `null`, not `undefined` (`TypeInterner::intern_null_optional`).
+                let mut absent_only_null = true;
                 for member in &union.types {
                     let mut member_ty = self.ts_type_to_hir(member)?;
+                    if !Self::is_null_keyword(member)
+                        && !self.ctx.krate.types.absent_is_null(member_ty)
+                        && (matches!(
+                            self.ctx.krate.types.get(member_ty),
+                            Some(Type::Optional(_) | Type::None)
+                        ) || self
+                            .flatten_union_member_types(member_ty)
+                            .iter()
+                            .any(|flat| {
+                                matches!(self.ctx.krate.types.get(*flat), Some(Type::None))
+                            }))
+                    {
+                        absent_only_null = false;
+                    }
                     if matches!(self.ctx.krate.types.get(member_ty), Some(Type::Function(_)))
                         && self.ts_type_is_known_callable_object_surface(member)
                     {
@@ -176,7 +195,7 @@ impl ModuleBuilder<'_> {
                     }
                     members.push(member_ty);
                 }
-                Ok(self.union_of_member_types(&members))
+                Ok(self.union_of_member_types_with_absence(&members, absent_only_null))
             }
             TSType::TSIntersectionType(intersection) => {
                 // An intersection of a call signature with object members is a
@@ -521,5 +540,17 @@ impl ModuleBuilder<'_> {
         (number.value.fract() == 0.0 && number.value >= 0.0)
             .then(|| text.parse::<usize>().ok())
             .flatten()
+    }
+}
+
+impl ModuleBuilder<'_> {
+    /// Whether `ty` is the `null` keyword, through any parentheses: the
+    /// checker's respelled types parenthesize every union member
+    /// (`(string) | (null)`), and a source may write `(null)` too.
+    fn is_null_keyword(mut ty: &TSType<'_>) -> bool {
+        while let TSType::TSParenthesizedType(inner) = ty {
+            ty = &inner.type_annotation;
+        }
+        matches!(ty, TSType::TSNullKeyword(_))
     }
 }

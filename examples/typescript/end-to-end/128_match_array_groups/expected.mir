@@ -148,7 +148,7 @@ fn describe (FuncId(1)) -> None
     %40 = copy %1
     %41 = move %1
     %42 = move %5 == undefined
-    %43 = call @console_log(move %39, copy %40.field12, copy %41.field22, move %4, move %42) -> bb13
+    %43 = call @console_log(move %39, copy %40.field12, copy %41.field23, move %4, move %42) -> bb13
   bb9:
     %29 = "undefined"
     goto bb11

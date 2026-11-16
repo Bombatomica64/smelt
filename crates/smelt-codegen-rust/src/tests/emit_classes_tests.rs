@@ -751,13 +751,25 @@ const second = counter.value;
 ",
     );
 
+    // The getter-aware read is the erased runtime's (`property_access.rs`):
+    // a read runs the getter with the object as `this` and leaves the
+    // accessor in the object. Old requirement: this program's own text carried
+    // that runtime. It did only because every TypeScript program demanded the
+    // erased carrier; this one spells no erased type, so the rule is checked on
+    // the runtime the carrier brings.
+    assert!(source.contains("fn make_counter"), "{source}");
+    let runtime = runtime_prelude::rendered_text(&|_| true);
     assert!(
-        source.contains("match getter.get(\"__smelt_get\")"),
-        "{source}"
+        runtime.contains("match accessor.get(\"__smelt_get\")"),
+        "{runtime}"
     );
     assert!(
-        !source.contains("getter.remove(\"__smelt_get\")"),
-        "{source}"
+        runtime.contains("fn smelt_resolve_accessor(value: SmeltUnknown, receiver: impl FnOnce() -> SmeltUnknown)"),
+        "{runtime}"
+    );
+    assert!(
+        !runtime.contains("accessor.remove(\"__smelt_get\")"),
+        "{runtime}"
     );
 }
 
@@ -871,7 +883,8 @@ function make(): number {
 #[test]
 fn lowers_optional_dataclass_field_to_option_with_explicit_construction() {
     // A Python dataclass field annotated `Optional[int]` (with a `None` default)
-    // must lower to a concrete `Option<i64>` struct slot, and construction that
+    // must lower to a concrete `Option<SmeltPyInt>` struct slot (a Python `int`
+    // is the arbitrary-precision `SmeltPyInt`), and construction that
     // omits the field must synthesize the typed `None` default while a present
     // argument is wrapped as `Some(..)`. The required `int` field stays concrete.
     let source = source_for_py(
@@ -894,11 +907,17 @@ def make() -> Optional[int]:
     );
 
     assert!(source.contains("struct Point"), "{source}");
-    assert!(source.contains("x: i64,"), "{source}");
-    assert!(source.contains("y: Option<i64>,"), "{source}");
-    assert!(source.contains("Point::new(1, Some(2))"), "{source}");
-    assert!(source.contains("Point::new(3, None::<i64>)"), "{source}");
-    // Reading the optional field yields the `Option<i64>` value unchanged.
+    assert!(source.contains("x: SmeltPyInt,"), "{source}");
+    assert!(source.contains("y: Option<SmeltPyInt>,"), "{source}");
+    assert!(
+        source.contains("Point::new(SmeltPyInt::Small(1), Some(SmeltPyInt::Small(2)))"),
+        "{source}"
+    );
+    assert!(
+        source.contains("Point::new(SmeltPyInt::Small(3), None::<SmeltPyInt>)"),
+        "{source}"
+    );
+    // Reading the optional field yields the `Option<SmeltPyInt>` value unchanged.
     assert!(source.contains("a.y.clone()"), "{source}");
 }
 
@@ -955,8 +974,8 @@ def area(radius: float) -> float:
     assert!(source.contains("MathUtils::square("), "{source}");
     assert_eq!(
         rust_items(&source, &["fn __smelt_static_PI"]),
-        r"fn __smelt_static_PI() -> i64 {
-3
+        r"fn __smelt_static_PI() -> SmeltPyInt {
+SmeltPyInt::Small(3)
 }"
     );
 }
@@ -1370,22 +1389,22 @@ class B(A):
     assert_eq!(
         rust_items(&source, &["impl B {"]),
         r"impl B {
-fn new(x: i64, y: i64) -> Self {
-let mut self_: B = B { x: 0, y: 0 };
-self_.x = x;
-self_.y = y;
+fn new(x: SmeltPyInt, y: SmeltPyInt) -> Self {
+let mut self_: B = B { x: SmeltPyInt::Small(0), y: SmeltPyInt::Small(0) };
+self_.x = x.clone();
+self_.y = y.clone();
 return self_;
 }
-fn fetch(&self) -> i64 {
-return self.x;
+fn fetch(&self) -> SmeltPyInt {
+return self.x.clone();
 }
-fn __smelt_super_fetch(&self) -> i64 {
-return self.x;
+fn __smelt_super_fetch(&self) -> SmeltPyInt {
+return self.x.clone();
 }
-fn total(&self) -> i64 {
-let _smelt_tmp_2: i64;
-let _smelt_tmp_1: i64 = self.fetch();
-_smelt_tmp_2 = _smelt_tmp_1 + self.y;
+fn total(&self) -> SmeltPyInt {
+let _smelt_tmp_2: SmeltPyInt;
+let _smelt_tmp_1: SmeltPyInt = self.fetch();
+_smelt_tmp_2 = (&_smelt_tmp_1) + (&self.y);
 return _smelt_tmp_2;
 }
 }"
@@ -1418,18 +1437,18 @@ class B(A):
     assert_eq!(
         rust_items(&source, &["impl B {"]),
         r"impl B {
-fn new(x: i64) -> Self {
+fn new(x: SmeltPyInt) -> Self {
 let __smelt_super: A;
-let mut self_: B = B(::std::rc::Rc::new(::std::cell::RefCell::new(BInner { __smelt_base: AInner { x: 0 } })));
-let _smelt_tmp_3: A = A::new(x);
+let mut self_: B = B(::std::rc::Rc::new(::std::cell::RefCell::new(BInner { __smelt_base: AInner { x: SmeltPyInt::Small(0) } })));
+let _smelt_tmp_3: A = A::new(x.clone());
 __smelt_super = _smelt_tmp_3;
 self_.0.borrow_mut().x = __smelt_super.0.borrow().x.clone();
 return self_;
 }
-fn fetch(&self) -> i64 {
-return 99;
+fn fetch(&self) -> SmeltPyInt {
+return SmeltPyInt::Small(99);
 }
-fn __smelt_super_fetch(&self) -> i64 {
+fn __smelt_super_fetch(&self) -> SmeltPyInt {
 return self.0.borrow().x.clone();
 }
 }"
@@ -1462,14 +1481,14 @@ fn new() -> Self {
 let self_: B = B(::std::rc::Rc::new(::std::cell::RefCell::new(BInner { __smelt_base: AInner {  } })));
 return self_;
 }
-fn greet(&self, value: i64) -> i64 {
-let _smelt_tmp_3: i64;
-let _smelt_tmp_2: i64 = self.__smelt_super_greet(value);
-_smelt_tmp_3 = _smelt_tmp_2 + 10;
+fn greet(&self, value: SmeltPyInt) -> SmeltPyInt {
+let _smelt_tmp_3: SmeltPyInt;
+let _smelt_tmp_2: SmeltPyInt = self.__smelt_super_greet(value.clone());
+_smelt_tmp_3 = (&_smelt_tmp_2) + (&SmeltPyInt::Small(10));
 return _smelt_tmp_3;
 }
-fn __smelt_super_greet(&self, value: i64) -> i64 {
-let _smelt_tmp_2: i64 = value + 1;
+fn __smelt_super_greet(&self, value: SmeltPyInt) -> SmeltPyInt {
+let _smelt_tmp_2: SmeltPyInt = (&value) + (&SmeltPyInt::Small(1));
 return _smelt_tmp_2;
 }
 }"
@@ -1503,12 +1522,12 @@ class C(B):
         r"impl C {
 fn new() -> Self {
 let __smelt_super: B;
-let mut self_: C = C { x: 0, y: 0, z: 0 };
-let _smelt_tmp_2: B = B::new(1, 2);
+let mut self_: C = C { x: SmeltPyInt::Small(0), y: SmeltPyInt::Small(0), z: SmeltPyInt::Small(0) };
+let _smelt_tmp_2: B = B::new(SmeltPyInt::Small(1), SmeltPyInt::Small(2));
 __smelt_super = _smelt_tmp_2;
-self_.x = __smelt_super.x;
-self_.y = __smelt_super.y;
-self_.z = 3;
+self_.x = __smelt_super.x.clone();
+self_.y = __smelt_super.y.clone();
+self_.z = SmeltPyInt::Small(3);
 return self_;
 }
 }"
@@ -1541,15 +1560,15 @@ def read(o: Ok) -> int:
     assert_eq!(
         rust_items(&source, &["struct Ok_", "fn ok_value", "fn read"]),
         r"struct Ok_ {
-_value: i64,
+_value: SmeltPyInt,
 }
 
-fn ok_value(&self) -> i64 {
-return self._value;
+fn ok_value(&self) -> SmeltPyInt {
+return self._value.clone();
 }
 
-fn read(o: Ok_) -> i64 {
-return o.ok_value();
+fn read(o: Ok_) -> SmeltPyInt {
+return o.ok_value().clone();
 }"
     );
 }
@@ -1698,12 +1717,18 @@ console.log(store.total());
 
     // `Store` has a subclass, so it is a polymorphic handle
     // (`crate::class_polymorphism`); both stay reference classes.
+    //
+    // `Object.keys` of the record reads its keys unfiltered: the program holds
+    // no erased value, so no record carries Smelt's internal marker keys
+    // (`emitter::map`'s `records_may_hold_markers`). Old requirement: the
+    // marker filter. It was emitted because every TypeScript program demanded
+    // the erased carrier; the demand now follows the types a program spells.
     assert_eq!(
         rust_items(
             &source,
             &["struct Store(", "struct CountingStore(", "fn total"]
         ),
-        r#"struct Store(::std::rc::Rc<dyn StoreSmeltCell>);
+        r"struct Store(::std::rc::Rc<dyn StoreSmeltCell>);
 
 struct CountingStore(::std::rc::Rc<::std::cell::RefCell<CountingStoreInner>>);
 
@@ -1713,7 +1738,7 @@ let mut _smelt_tmp_5: usize;
 let mut _smelt_tmp_6: bool;
 let mut _smelt_tmp_7: SmeltRecord<JsString, f64>;
 let mut sum: f64 = 0.0;
-let _smelt_tmp_3: SmeltList<JsString> = Into::<SmeltList<_>>::into(self.0.borrow().entries.clone().keys().filter(|smelt_key| !smelt_key.starts_with("__smelt_symbol") && smelt_is_for_in_record_key(&self.0.borrow().entries.clone(), smelt_key)).collect::<Vec<_>>());
+let _smelt_tmp_3: SmeltList<JsString> = Into::<SmeltList<_>>::into(self.0.borrow().entries.clone().keys().collect::<Vec<_>>());
 let mut _smelt_tmp_4: usize = 0;
 loop {
 _smelt_tmp_5 = _smelt_tmp_3.len();
@@ -1725,7 +1750,7 @@ sum = sum + _smelt_tmp_7.get(&key.clone()).unwrap_or(0.0);
 _smelt_tmp_4 = _smelt_tmp_4 + 1;
 }
 return sum;
-}"#
+}"
     );
 }
 

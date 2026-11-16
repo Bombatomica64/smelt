@@ -7,12 +7,12 @@ expression: emitted
 
 // ... shared generated runtime prelude omitted from selective snapshot ...
 
-fn make_adder(base: i64) -> ::std::rc::Rc<dyn Fn(i64) -> i64> {
+fn make_adder(base: SmeltPyInt) -> ::std::rc::Rc<dyn Fn(SmeltPyInt) -> SmeltPyInt> {
     let _smelt_tmp_2 = ::std::rc::Rc::new({
     let base = base.clone();
-    move |closure_arg_0: i64| {
-    let _smelt_tmp_2: i64 = closure_arg_0 + base;
-    _smelt_tmp_2
+    move |closure_arg_0: SmeltPyInt| {
+    let _smelt_tmp_2: SmeltPyInt = (&closure_arg_0) + (&base);
+    _smelt_tmp_2.clone()
     }
 });
     let add = _smelt_tmp_2.clone();
@@ -20,11 +20,11 @@ fn make_adder(base: i64) -> ::std::rc::Rc<dyn Fn(i64) -> i64> {
 }
 
 fn run() -> () {
-    let adder: ::std::rc::Rc<dyn Fn(i64) -> i64>;
-    let result: i64;
-    let _smelt_tmp_2 = make_adder(5).clone();
+    let adder: ::std::rc::Rc<dyn Fn(SmeltPyInt) -> SmeltPyInt>;
+    let result: SmeltPyInt;
+    let _smelt_tmp_2 = make_adder(SmeltPyInt::Small(5)).clone();
     adder = _smelt_tmp_2.clone();
-    result = (adder)(6);
+    result = (adder)(SmeltPyInt::Small(6));
     return;
 }
 

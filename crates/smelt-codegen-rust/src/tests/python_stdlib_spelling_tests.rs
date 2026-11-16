@@ -86,11 +86,12 @@ def same() -> bool:
             )
         });
         assert!(
-            source.contains("struct Point {\n    x: i64,\n    y: String,\n}"),
+            source.contains("struct Point {\n    x: SmeltPyInt,\n    y: String,\n}"),
             "{source}"
         );
         assert!(
-            emitted_function_body(&source, "fn same() -> bool").contains("Point::new(1, "),
+            emitted_function_body(&source, "fn same() -> bool")
+                .contains("Point::new(SmeltPyInt::Small(1), "),
             "{source}"
         );
     }
@@ -114,8 +115,12 @@ def next_after_green() -> int:
 ",
         )
     });
-    let body = emitted_function_body(&source, "fn next_after_green() -> i64");
-    assert!(body.contains("2 + 1"), "{source}");
+    // A Python `int` is a `SmeltPyInt`: the member reads as its constant.
+    let body = emitted_function_body(&source, "fn next_after_green() -> SmeltPyInt");
+    assert!(
+        body.contains("(&SmeltPyInt::Small(2)) + (&SmeltPyInt::Small(1))"),
+        "{source}"
+    );
 }
 
 /// Only spelling-independence is asserted here. The class's type parameter

@@ -489,8 +489,41 @@ impl<'a> CrateBuilder<'a, FreeFunctionsWritten> {
                 }
                 out.push_str("}\n");
             }
+            let text_method = |wanted: fn(&MirClassProtocol) -> Option<smelt_mir::FuncId>| {
+                class
+                    .protocols
+                    .iter()
+                    .find_map(wanted)
+                    .and_then(|method| mir.functions.get(usize::try_from(method.0).ok()?))
+            };
+            let str_method = text_method(|protocol| {
+                if let MirClassProtocol::Str { method } = protocol {
+                    Some(*method)
+                } else {
+                    None
+                }
+            });
+            let repr_method = text_method(|protocol| {
+                if let MirClassProtocol::Repr { method } = protocol {
+                    Some(*method)
+                } else {
+                    None
+                }
+            });
+            if str_method.is_some() || repr_method.is_some() {
+                out.push_str(&emitter::py_text_protocol::python_text_impl_text(
+                    mir,
+                    context,
+                    &name,
+                    &impl_generics,
+                    &type_args,
+                    str_method,
+                    repr_method,
+                )?);
+            }
             for protocol in &class.protocols {
                 match protocol {
+                    MirClassProtocol::Str { .. } | MirClassProtocol::Repr { .. } => {}
                     MirClassProtocol::Add { method } => {
                         let function = mir
                             .functions

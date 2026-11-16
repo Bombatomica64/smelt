@@ -956,9 +956,8 @@ impl FunctionEmitter<'_> {
         // DECLARED ABI (`record_slot_abi`), not at the substituted type MIR
         // hands this read: the forwarding must take the declared side of the
         // `&`/`.clone()` seam.
-        let declared_source = match operand {
-            Operand::Copy(Place::Field { base, field })
-            | Operand::Move(Place::Field { base, field }) => {
+        let declared_source = match operand.place() {
+            Some(Place::Field { base, field }) => {
                 match self.mir.types.get(self.local_decl(*base)?.ty) {
                     Some(Type::Class { name, .. })
                         if self.nested_slot_level(*name, *field).is_some() =>
@@ -968,7 +967,8 @@ impl FunctionEmitter<'_> {
                     _ => None,
                 }
             }
-            _ => None,
+            // Only a class field has a declared slot ABI apart from its type.
+            Some(Place::Local(_) | Place::Index { .. } | Place::Global { .. }) | None => None,
         };
         let source = declared_source.as_ref().unwrap_or(substituted_source);
         let _declared_abi = self.enter_declared_slot_abi(declared_source.is_some());

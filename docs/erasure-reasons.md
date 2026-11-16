@@ -28,7 +28,7 @@ Records live in `smelt_hir::Crate::erasures` (frontends) and are returned by
 | Reason | Class | Decided where | Meaning |
 | --- | --- | --- | --- |
 | `source-unknown` | legitimate | TS annotations | the source says `unknown` |
-| `explicit-any` | avoidable | TS annotations, `as any` | the author opted out with `any` |
+| `explicit-any` | avoidable | TS annotations, `as any` | the author opted out with `any`; also the parameters of functions defined in an object literal cast `as any`, which callers reach only through `any` (`unchecked_params`) |
 | `unfilled-generic` | avoidable | TS generics | a type argument is unfilled or defaults to `any` |
 | `type-level` | avoidable | TS annotations | conditional/indexed/mapped types, intersections, mixed-arity function unions Smelt does not evaluate |
 | `unmodeled-type` | avoidable | TS | `symbol`, callable-object surfaces |

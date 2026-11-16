@@ -2,15 +2,15 @@ module examples/python/end-to-end/10_protocol/input.py (ModuleId(0))
   body BodyId(9)
   items
     interface Named fields [Public name: PyStr] methods []
-    interface Shape fields [Public area: fn() -> Int, Public label: fn(PyStr) -> PyStr] methods [Public area() -> Int, Public label(prefix: PyStr) -> PyStr]
+    interface Shape fields [Public area: fn() -> PyInt, Public label: fn(PyStr) -> PyStr] methods [Public area() -> PyInt, Public label(prefix: PyStr) -> PyStr]
     fn __init__ owner Constructor { class: Symbol(7) }
     fn area owner ClassMethod { class: Symbol(7), method: Symbol(4) }
     fn label owner ClassMethod { class: Symbol(7), method: Symbol(6) }
-    class Square fields [Public side: Int, Public name: PyStr] constructor Some(ItemId(5)) methods [ItemId(3), ItemId(4)] implements []
+    class Square fields [Public side: PyInt, Public name: PyStr] constructor Some(ItemId(5)) methods [ItemId(3), ItemId(4)] implements []
     fn __init__ owner Constructor { class: Symbol(12) }
     fn area owner ClassMethod { class: Symbol(12), method: Symbol(4) }
     fn label owner ClassMethod { class: Symbol(12), method: Symbol(6) }
-    class Rect fields [Public w: Int, Public h: Int, Public name: PyStr] constructor Some(ItemId(9)) methods [ItemId(7), ItemId(8)] implements []
+    class Rect fields [Public w: PyInt, Public h: PyInt, Public name: PyStr] constructor Some(ItemId(9)) methods [ItemId(7), ItemId(8)] implements []
     fn describe owner Module
     fn biggest owner Module
     fn run owner Module
@@ -24,8 +24,8 @@ interned types
   t0 = Named
   t1 = PyStr
   t2 = Shape
-  t3 = Int
-  t4 = fn() -> Int
+  t3 = PyInt
+  t4 = fn() -> PyInt
   t5 = fn(PyStr) -> PyStr
   t6 = Square
   t7 = None

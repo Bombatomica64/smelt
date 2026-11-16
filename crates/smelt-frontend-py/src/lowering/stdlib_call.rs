@@ -26,11 +26,34 @@ impl ModuleBuilder<'_> {
         }
     }
 
+    /// The diagnostic for a use of an imported name Smelt has no mapping for:
+    /// `deque()` after `from collections import deque`, `collections.deque`,
+    /// `sys.argv`. It names the API, where the generic fallback would only say
+    /// that the call or name is not understood. `None` when `callee` does not
+    /// reach through an import, or reaches a module of this program.
+    pub(super) fn unmapped_import_use(&self, callee: &Expr, span: Span) -> Option<SmeltError> {
+        let path = match callee {
+            Expr::Name(name) => self.qualified_import_path(name.id.as_str(), &[])?,
+            Expr::Attribute(attribute) => self.qualified_attribute(attribute)?,
+            _ => return None,
+        };
+        let module = path.split('.').next().unwrap_or(&path);
+        if self.ctx.krate.modules.iter().any(|candidate| {
+            candidate.name.split('.').next() == Some(module)
+        }) {
+            return None;
+        }
+        Some(SmeltError::unsupported(
+            span,
+            format!("`{path}` is not supported: Smelt has no mapping for this imported API"),
+        ))
+    }
+
     /// The fully qualified name `root` plus `members` denote through the imports.
     ///
     /// A local binding of `root` is that binding, and a name no import binds
     /// denotes nothing the standard library provides.
-    fn qualified_import_path(&self, root: &str, members: &[&str]) -> Option<String> {
+    pub(super) fn qualified_import_path(&self, root: &str, members: &[&str]) -> Option<String> {
         if self.scope.locals.contains_key(root) {
             return None;
         }
@@ -302,12 +325,8 @@ impl ModuleBuilder<'_> {
                 }
                 let text = self.expression(&call.arguments.args[0], body)?;
                 self.require_string_exprs(&[text], body, call.range())?;
-                let ty = self.intern_type(Type::Int);
-                Ok(Some(body.push_expr(HirExpr {
-                    kind: ExprKind::FileWriteText { path, text },
-                    ty,
-                    span: self.span(call.range()),
-                })))
+                let span = self.span(call.range());
+                Ok(Some(self.machine_int_as_py_int(ExprKind::FileWriteText { path, text }, span, body)))
             }
             _ => Ok(None),
         }
@@ -328,6 +347,8 @@ impl ModuleBuilder<'_> {
                     ));
                 }
                 let ty = self.intern_type(Type::PyStr);
+                // The clock's milliseconds are a machine timestamp, never a
+                // Python value.
                 let now = body.push_expr(HirExpr {
                     kind: ExprKind::DateNow,
                     ty: self.intern_type(Type::Int),
@@ -349,25 +370,28 @@ impl ModuleBuilder<'_> {
                 let seconds = self.expression(&call.arguments.args[0], body)?;
                 if !matches!(
                     self.ctx.krate.types.get(Self::expr_ty(body, seconds)),
-                    Some(Type::Int | Type::Float)
+                    Some(Type::PyInt | Type::Float)
                 ) {
                     return Err(SmeltError::unsupported(
                         self.span(call.range()),
                         "datetime.datetime.fromtimestamp() requires a numeric timestamp",
                     ));
                 }
+                // The timestamp is milliseconds as a `float`, as the clock
+                // keeps it; an `int` of seconds converts like `float(n)`.
+                let seconds_float = self.promote_int_to_float(seconds, body);
                 let thousand = body.push_expr(HirExpr {
-                    kind: ExprKind::Literal(smelt_hir::Literal::Int(1000)),
-                    ty: self.intern_type(Type::Int),
+                    kind: ExprKind::Literal(smelt_hir::Literal::Float(1000.0)),
+                    ty: self.intern_type(Type::Float),
                     span: self.span(call.range()),
                 });
                 let timestamp_ms = body.push_expr(HirExpr {
                     kind: ExprKind::BinOp {
                         op: smelt_hir::BinOp::Mul,
-                        lhs: seconds,
+                        lhs: seconds_float,
                         rhs: thousand,
                     },
-                    ty: Self::expr_ty(body, seconds),
+                    ty: Self::expr_ty(body, seconds_float),
                     span: self.span(call.range()),
                 });
                 let ty = self.intern_type(Type::PyStr);

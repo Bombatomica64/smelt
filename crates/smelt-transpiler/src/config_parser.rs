@@ -136,6 +136,87 @@ mod tests {
         }
     }
 
+    /// Parse a manifest whose `[project]` and `[output]` sections are given.
+    fn parse_named(project: &str, output: &str) -> ConfigResult<Config> {
+        let directory = std::env::temp_dir().join(format!(
+            "smelt-config-named-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        fs::create_dir_all(&directory)?;
+        let path = directory.join("Smelt.toml");
+        fs::write(
+            &path,
+            format!(
+                "[project]\nname = \"{project}\"\nversion = \"0.1.0\"\n\n[sources]\nentries = [\"src/main.ts\"]\n\n[output]\ntarget = \"./dist\"\n{output}\n"
+            ),
+        )?;
+        let parsed = parse_path(&path);
+        fs::remove_dir_all(&directory)?;
+        parsed
+    }
+
+    /// `[output] crate-name`, else the project name, becomes the generated
+    /// crate's package name; one Cargo would reject (`cargo metadata` fails
+    /// on `name = "my crate!"`) is refused when the manifest is read, naming
+    /// the key and the reason.
+    #[test]
+    fn the_generated_crate_name_must_be_a_cargo_package_name() {
+        for (project, output, expected) in [
+            ("p", "crate-name = \"my_app\"", "my_app"),
+            ("p", "crate-name = \"my-app\"", "my_app"),
+            ("p", "crate-name = \"_private2\"", "_private2"),
+            ("my-app", "", "my_app"),
+            ("bad name", "crate-name = \"fine\"", "fine"),
+        ] {
+            let config = parse_named(project, output).expect(output);
+            assert_eq!(
+                config.generated_crate_name(),
+                expected,
+                "{project} {output}"
+            );
+        }
+        let too_long = "a".repeat(65);
+        for (project, output, expected) in [
+            (
+                "p",
+                "crate-name = \"my crate!\"",
+                "output.crate-name=\"my crate!\" is not a valid Cargo package name: it contains ' '",
+            ),
+            (
+                "p",
+                "crate-name = \"\"",
+                "output.crate-name=\"\" is not a valid Cargo package name: it is empty",
+            ),
+            ("p", "crate-name = \"2fast\"", "it starts with '2'"),
+            ("p", "crate-name = \"-x\"", "it starts with '-'"),
+            ("p", "crate-name = \"café\"", "it contains 'é'"),
+            ("p", "crate-name = \"fn\"", "`fn` is a Rust keyword"),
+            (
+                "p",
+                "crate-name = \"proc-macro\"",
+                "`proc_macro` is the name of a Rust sysroot crate",
+            ),
+            (
+                "p",
+                &format!("crate-name = \"{too_long}\""),
+                "it is 65 characters long, the limit is 64",
+            ),
+            (
+                "my app",
+                "",
+                "project.name=\"my app\" is not a valid Cargo package name: it contains ' '",
+            ),
+            ("std", "", "set `[output] crate-name` to a valid name"),
+        ] {
+            let error = parse_named(project, output).expect_err(output).to_string();
+            assert!(
+                error.contains("error[smelt::manifest]") && error.contains(expected),
+                "{project} {output}: {error}"
+            );
+        }
+    }
+
     /// `[specialization.oci-fallback]` names a runtime and an image; without it
     /// there is no fallback, and a misspelt key is rejected.
     #[test]

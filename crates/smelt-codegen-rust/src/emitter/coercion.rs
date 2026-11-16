@@ -159,6 +159,9 @@ impl FunctionEmitter<'_> {
         if let Some(key) = self.prop_key_conversion(&operand_expr, source_ty, target)? {
             return Ok(key);
         }
+        if let Some(converted) = self.py_int_conversion(&operand_expr, source_ty, target) {
+            return Ok(converted);
+        }
         if let Some(key) =
             self.key_union_at_string(&operand_expr.cloned_value(), source_ty, target)?
         {
@@ -521,11 +524,12 @@ impl FunctionEmitter<'_> {
         if let Some(Type::Optional(inner)) = self.mir.types.get(self.operand_ty(operand)?) {
             let value_text =
                 self.rendered_at_type(&RustExpr::path("smelt_value"), *inner, target, scope)?;
+            let absent = self.absent_value_at(self.operand_ty(operand)?, target)?;
             return Ok({
                 let receiver = self.operand_expr(operand)?;
                 receiver.postfix(format!(
                     ".clone().map_or({}, |smelt_value| {value_text})",
-                    self.default_value(target)?.delimited(),
+                    absent.delimited(),
                     value_text = value_text.delimited()
                 ))
             });
@@ -909,6 +913,9 @@ impl FunctionEmitter<'_> {
     ) -> Result<RustExpr, EmitError> {
         if let Some(key) = self.prop_key_conversion(value_text, source, target)? {
             return Ok(key);
+        }
+        if let Some(converted) = self.py_int_conversion(value_text, source, target) {
+            return Ok(converted);
         }
         if let Some(key) = self.key_union_at_string(value_text, source, target)? {
             return Ok(key);
@@ -1450,11 +1457,28 @@ impl FunctionEmitter<'_> {
                 self.rendered_at_type(&RustExpr::path("smelt_value"), *inner, target, scope)?;
             return Ok(smelt_owned_value.postfix(format!(
                 ".map_or({}, |smelt_value| {mapped_value})",
-                self.default_value(target)?.delimited(),
+                self.absent_value_at(source, target)?.delimited(),
                 mapped_value = mapped_value.delimited()
             )));
         }
         self.rendered_across_containers(value_text, source, target, scope)
+    }
+
+    /// The value an absent `optional` stands for at `target`.
+    ///
+    /// The target's default, except where `target` is the erased carrier and
+    /// `optional` is a `T | null` (`TypeInterner::intern_null_optional`): its
+    /// only absent value is `null`, so at that dynamic boundary its `None` is
+    /// `SmeltUnknown::Null`, as the erasure of the value itself answers
+    /// (`erase::optional_absent_value`). `[1, null]` handed to an
+    /// `unknown[]` parameter kept `null === null` false otherwise.
+    fn absent_value_at(&self, optional: TypeId, target: TypeId) -> Result<RustExpr, EmitError> {
+        if self.mir.types.absent_is_null(optional)
+            && matches!(self.mir.types.get(target), Some(Type::Unknown))
+        {
+            return Ok(self.carrier_expr(self.carrier()?, &RustExpr::path("SmeltUnknown::Null")));
+        }
+        self.default_value(target)
     }
 
     /// Conversions between container kinds: a tuple, list, dict or record read as another.

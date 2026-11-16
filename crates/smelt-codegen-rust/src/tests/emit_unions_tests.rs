@@ -1052,3 +1052,78 @@ export function pick(options?: Options): boolean {
         "the fallback must be adapted, not routed through a union guard:\n{source}"
     );
 }
+
+/// A union of two or more present types and `undefined` is stored as the
+/// optional of the generated enum over the present arms, the shape an optional
+/// parameter `x?: A | B` already had, instead of the erased carrier. (A union
+/// whose only absent value is `null` keeps `null` as an arm; see
+/// `ty::annotations`.)
+/// Behaviour: `fixtures/node-parity/nullable_unions.ts`.
+#[test]
+fn a_nullable_union_is_an_optional_of_the_present_union() {
+    let source = source_for(
+        r#"
+export function w(x: string | number | undefined): string {
+  if (x === undefined) { return "none"; }
+  if (typeof x === "string") { return "s:" + x; }
+  return "n:" + (x + 1);
+}
+export function len(x: string | number[] | undefined): number {
+  if (x === undefined) { return -1; }
+  return x.length;
+}
+"#,
+    );
+    for signature in ["fn w(x: Option<SmeltUnion", "fn len(x: Option<SmeltUnion"] {
+        assert!(
+            source.contains(signature),
+            "`{signature}` is not typed:\n{source}"
+        );
+    }
+    assert!(!source.contains("fn w(x: SmeltUnknown"), "{source}");
+}
+
+/// The lib's `PromiseSettledResult<T>` is the tagged union of two generated
+/// records, `PromiseFulfilledResult<T>` (`value: T`) and
+/// `PromiseRejectedResult` (`reason`, a thrown value), discriminated by their
+/// `status` literal. Behaviour: `fixtures/node-parity/all_settled_entries.ts`.
+#[test]
+fn a_settled_result_is_a_tagged_union_of_two_records() {
+    let source = source_for(
+        r#"
+export function describe(entry: PromiseSettledResult<number>): number {
+  return entry.status === "fulfilled" ? entry.value : -1;
+}
+"#,
+    );
+    assert!(source.contains("fn describe(entry: SmeltUnion"), "{source}");
+    assert!(
+        source.contains("M0(PromiseFulfilledResult<f64>)"),
+        "{source}"
+    );
+    assert!(source.contains("M1(PromiseRejectedResult)"), "{source}");
+    assert!(
+        source.contains("struct PromiseFulfilledResult<T"),
+        "{source}"
+    );
+}
+
+/// A run-time index into a tuple whose items share one type reads the array of
+/// those items (`for (const x of pair)`), and a miss is the element's missing
+/// value, as a list read's is.
+#[test]
+fn a_runtime_index_into_a_homogeneous_tuple_reads_its_items() {
+    let source = source_for(
+        r"
+export function total(pair: [number, number]): number {
+  let sum = 0;
+  for (const x of pair) { sum += x; }
+  return sum;
+}
+",
+    );
+    assert!(
+        source.contains("[pair.0.clone(), pair.1.clone()].get("),
+        "{source}"
+    );
+}

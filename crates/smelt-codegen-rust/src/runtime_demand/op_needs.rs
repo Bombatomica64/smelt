@@ -31,6 +31,10 @@ impl RuntimeDemand {
                     self.add(Need::MathRound);
                 }
             }
+            // `Math.max`/`Math.min` on numbers (`smelt_math_max`).
+            Rvalue::NumericExtrema { .. } => {
+                self.add(Need::MathExtrema);
+            }
             Rvalue::NumericRandom => {
                 self.add(Need::DepRand);
             }
@@ -376,6 +380,8 @@ impl RuntimeDemand {
                 }
                 if matches!(op, smelt_hir::AsyncOp::HttpFetch | smelt_hir::AsyncOp::HttpGetText) {
                     self.add(Need::DepReqwest);
+                    // An idle event loop waits for the response (`SmeltIoGuard`).
+                    self.add(Need::Timers);
                 }
                 if op.arms_a_timer() {
                     self.add(Need::Timers);
@@ -460,6 +466,21 @@ impl RuntimeDemand {
             Rvalue::UrlNew { .. } => {
                 self.add(Need::UrlThrowing);
             }
+            Rvalue::PyNumericCall { op, .. } => {
+                self.add(Need::PyInt);
+                if matches!(op, smelt_hir::PyNumericOp::Chr | smelt_hir::PyNumericOp::Ord) {
+                    self.add(Need::PyStrMethods);
+                }
+            }
+            Rvalue::PyStrCall { .. } => {
+                self.add(Need::PyStrMethods);
+            }
+            Rvalue::PyFormat { .. } => {
+                self.add(Need::PyFormat);
+            }
+            Rvalue::PyListPopAt { .. } => {
+                self.add(Need::PyException);
+            }
             Rvalue::JsonParse { .. } => {
                 self.add(Need::JsonParse);
                 self.add(Need::ErasedAnswer);
@@ -480,7 +501,6 @@ impl RuntimeDemand {
             | Rvalue::OptionalIndex { .. }
             | Rvalue::Len { .. }
             | Rvalue::NumericAbs { .. }
-            | Rvalue::NumericExtrema { .. }
             | Rvalue::NumericHypot { .. }
             | Rvalue::NumericPredicate { .. }
             | Rvalue::NumericUnaryFunc { .. }
@@ -520,6 +540,7 @@ impl RuntimeDemand {
             | Rvalue::ProcessEnvRead { .. }
             | Rvalue::ProcessArgv
             | Rvalue::ListConcat { .. }
+            | Rvalue::ListRepeat { .. }
             | Rvalue::ListSearch { .. }
             | Rvalue::ListCallback { .. }
             | Rvalue::ListFromLength { .. }

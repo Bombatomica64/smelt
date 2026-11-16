@@ -185,6 +185,10 @@ impl LoweringCtx<'_> {
             escapes: false,
             can_throw: function.can_throw,
             is_generator: function.is_generator,
+            is_async: matches!(
+                self.krate.types.get(expr_ty),
+                Some(Type::Function(function_ty)) if function_ty.is_async
+            ),
             function_item_key,
             this_binding: closure.this_binding,
             language: function.language,

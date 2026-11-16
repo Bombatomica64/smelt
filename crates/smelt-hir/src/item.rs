@@ -224,6 +224,17 @@ pub enum ClassProtocol {
         /// Method implementing the protocol.
         method: ItemId,
     },
+    /// Python `__str__`: `str(x)`, `print(x)` and `f"{x}"`.
+    Str {
+        /// Method implementing the protocol.
+        method: ItemId,
+    },
+    /// Python `__repr__`: `repr(x)`, `f"{x!r}"`, and the text of `x` inside a
+    /// printed container (and `str(x)` when the class has no `__str__`).
+    Repr {
+        /// Method implementing the protocol.
+        method: ItemId,
+    },
 }
 
 /// A typed materialized descriptor member.

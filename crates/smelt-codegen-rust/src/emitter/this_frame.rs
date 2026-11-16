@@ -34,23 +34,44 @@ impl FunctionEmitter<'_> {
     /// Whether `blocks` read the `this` of the frame they belong to: a
     /// `Rvalue::ThisRead`, or an arrow created there that needs it. `depth`
     /// bounds the walk through nested arrows.
+    ///
+    /// An rvalue is asked the same question wherever it sits: as a statement's
+    /// value or as the operation a call terminator carries (`Callee::Op`),
+    /// which is where a callback op such as `fn.apply(this, args)` lands inside
+    /// a `try`.
     fn blocks_need_enclosing_this(&self, blocks: &[BasicBlock], depth: usize) -> bool {
-        const MAX_DEPTH: usize = 64;
         blocks.iter().any(|block| {
-            block.statements.iter().any(|statement| match statement.value() {
-                Rvalue::ThisRead | Rvalue::BindOwnThis { .. } => true,
-                Rvalue::Closure { id, .. } if depth < MAX_DEPTH => self
-                    .mir_closure(*id)
-                    .is_ok_and(|closure| {
-                        closure.this_binding == smelt_hir::ClosureThis::Lexical
-                            && self.blocks_need_enclosing_this(&closure.blocks, depth.saturating_add(1))
-                    }),
-                _ => false,
+            block.statements.iter().any(|statement| {
+                statement
+                    .value()
+                    .is_some_and(|value| self.rvalue_needs_enclosing_this(value, depth))
             }) || matches!(
                 &block.terminator,
-                Some(Terminator::Call { callee: Callee::Op(op, _), .. }) if matches!(**op, Rvalue::ThisRead)
+                Some(Terminator::Call { callee: Callee::Op(op, _), .. })
+                    if self.rvalue_needs_enclosing_this(op, depth)
             )
         })
+    }
+
+    /// Whether evaluating `value` reads the `this` of the frame it is in: a
+    /// `Rvalue::ThisRead`, a `Rvalue::BindOwnThis`, or an arrow created here
+    /// that needs it (see [`Self::blocks_need_enclosing_this`]).
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "single-shape recogniser: only `ThisRead`, `BindOwnThis` and an arrow `Closure` read the frame's `this`; every other rvalue reads only its operands"
+    )]
+    fn rvalue_needs_enclosing_this(&self, value: &Rvalue, depth: usize) -> bool {
+        const MAX_DEPTH: usize = 64;
+        match value {
+            Rvalue::ThisRead | Rvalue::BindOwnThis { .. } => true,
+            Rvalue::Closure { id, .. } if depth < MAX_DEPTH => {
+                self.mir_closure(*id).is_ok_and(|closure| {
+                    closure.this_binding == smelt_hir::ClosureThis::Lexical
+                        && self.blocks_need_enclosing_this(&closure.blocks, depth.saturating_add(1))
+                })
+            }
+            _ => false,
+        }
     }
 
     /// The frame prologue statement (without indentation or newline), or

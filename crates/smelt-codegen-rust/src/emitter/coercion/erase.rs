@@ -48,6 +48,17 @@ impl FunctionEmitter<'_> {
             && self.container_erasure_method(&[item]) == ".into_live_smelt_unknown()"
     }
 
+    /// The method that erases a typed list of `item`s to its live view:
+    /// `.into_live_smelt_unknown()`, or its `_with` twin handed the element
+    /// erasure when `item` erases differently from its Rust storage type's impl
+    /// (`emitter::absent_value`).
+    fn list_live_erasure(&self, item: TypeId) -> Result<String, EmitError> {
+        Ok(match self.element_erasure_closure(item, "smelt_value")? {
+            Some(erase) => format!(".into_live_smelt_unknown_with({erase})"),
+            None => ".into_live_smelt_unknown()".to_owned(),
+        })
+    }
+
     /// Converts a statically typed operand into a tagged `SmeltUnknown` value.
     ///
     /// The operand-shaped twin of [`Self::erase_value`]; the two must agree
@@ -97,12 +108,10 @@ impl FunctionEmitter<'_> {
                     && self.list_erases_live(*item) =>
             {
                 // Genuine dynamic boundary: the live view IS the erased array.
+                let method = self.list_live_erasure(*item)?;
                 Ok(RustExpr::atom(self.carrier_format(
                     self.carrier()?,
-                    format_args!(
-                        "SmeltList::clone(&{text}).into_live_smelt_unknown()",
-                        text = text.delimited()
-                    ),
+                    format_args!("SmeltList::clone(&{text}){method}", text = text.delimited()),
                 )))
             }
             Some(Type::List(item))
@@ -185,13 +194,14 @@ impl FunctionEmitter<'_> {
                 // the erased value and `SmeltFromUnknown` round-trips it. The
                 // adapter is the live one when the members can be rebuilt
                 // (`Self::container_erasure_method`).
-                let method = self.container_erasure_method(&[*item]);
+                let method =
+                    self.container_erasure_with(self.container_erasure_method(&[*item]), &[*item])?;
                 Ok(smelt_owned_text
                     .postfix(self.carrier_format(self.carrier()?, format_args!("{method}"))))
             }
             Some(Type::Optional(inner)) => {
                 let value_wrap = self.erase_rendered(&RustExpr::path("smelt_value"), *inner)?;
-                let absent = self.optional_absent_value(*inner);
+                let absent = self.optional_absent_value(ty, *inner);
                 Ok(smelt_owned_text.postfix(self.carrier_format(
                     self.carrier()?,
                     format_args!(
@@ -323,7 +333,16 @@ impl FunctionEmitter<'_> {
     /// answer `null` when nothing matches (ECMA-262), never `undefined`, so an
     /// absent match erases to `null` (`JSON.stringify("zz".match(/\d/))` is
     /// `"null"`, and `m === null` holds through erased dataflow).
-    fn optional_absent_value(&self, inner: TypeId) -> &'static str {
+    ///
+    /// Likewise a type the source writes `T | null` (`optional` is a
+    /// `TypeInterner::intern_null_optional` id): `null` is the only absent
+    /// value it holds, so at this dynamic boundary its `None` is `null`
+    /// (ts-pattern's `.otherwise(() => null)` answer compared with
+    /// `toEqual(null)`). `T | undefined` and optional fields stay `undefined`.
+    fn optional_absent_value(&self, optional: TypeId, inner: TypeId) -> &'static str {
+        if self.mir.types.absent_is_null(optional) {
+            return "SmeltUnknown::Null";
+        }
         match self.mir.types.get(inner) {
             Some(Type::Class { name, .. })
                 if matches!(
@@ -382,6 +401,10 @@ impl FunctionEmitter<'_> {
     /// One helper for all three container shapes on purpose: the list arm grew
     /// this recovery first, the dict arm reproduced the bug because it did not,
     /// and a tuple arm would have been the third.
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "single-shape recogniser: only a list, tuple or dict literal defines the held values; any other definition is not a literal"
+    )]
     pub(super) fn container_local_all_undefined_constants(
         &self,
         operand: &Operand,
@@ -533,6 +556,7 @@ impl FunctionEmitter<'_> {
             // runtime's own `IntoSmeltUnknown` adapter.
             Some(Type::Symbol) => Ok(smelt_owned_value.postfix(self.carrier_format(self.carrier()?, format_args!(".into_smelt_unknown()")))),
             Some(Type::PropKey) => Ok(smelt_owned_value.postfix(self.carrier_format(self.carrier()?, format_args!(".to_unknown()")))),
+            Some(Type::PyInt) => Ok(smelt_owned_value.postfix(self.carrier_format(self.carrier()?, format_args!(".into_smelt_unknown()")))),
             Some(Type::Int | Type::FixedInt(_) | Type::Float) => {
                 // Cast operand: a loose top-level operator must be parenthesized
                 // so `as f64` does not reassociate across it.
@@ -560,8 +584,9 @@ impl FunctionEmitter<'_> {
             Some(Type::List(item)) if self.list_erases_live(*item) => {
                 // Genuine dynamic boundary: the live view IS the erased array
                 // (see the operand-based erasure above).
+                let method = self.list_live_erasure(*item)?;
                 Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
-                    "SmeltList::clone(&{}).into_live_smelt_unknown()",
+                    "SmeltList::clone(&{}){method}",
                     value.parenthesized_if_needed()
                 ))))
             }
@@ -584,7 +609,10 @@ impl FunctionEmitter<'_> {
             // the erased value stays observable as a Map (see the operand-based
             // erasure above).
             Some(Type::JsMap(key, item)) => {
-                let method = self.container_erasure_method(&[*key, *item]);
+                let method = self.container_erasure_with(
+                    self.container_erasure_method(&[*key, *item]),
+                    &[*key, *item],
+                )?;
                 Ok(smelt_owned_value.postfix(self.carrier_format(self.carrier()?, format_args!("{method}"))))
             }
             Some(Type::Dict(key, item))
@@ -639,7 +667,8 @@ impl FunctionEmitter<'_> {
             Some(Type::Class { .. }) => self.class_unknown_object_expr(value_text, ty),
             Some(Type::Set(item)) => {
                 // See the sibling `Type::Set` arm above.
-                let method = self.container_erasure_method(&[*item]);
+                let method =
+                    self.container_erasure_with(self.container_erasure_method(&[*item]), &[*item])?;
                 Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
                     "({}).clone(){method}",
                     value.parenthesized_if_needed()
@@ -661,7 +690,7 @@ impl FunctionEmitter<'_> {
             }
             Some(Type::Optional(inner)) => {
                 let value_wrap = self.erase_rendered(&RustExpr::path("smelt_value"), *inner)?;
-                let absent = self.optional_absent_value(*inner);
+                let absent = self.optional_absent_value(ty, *inner);
                 Ok(RustExpr::postfix_on(value.expr(), self.carrier_format(self.carrier()?, format_args!(
                     "{}.clone().map_or({absent}, |smelt_value| {value_wrap})",
                     value.parenthesized_if_needed(), value_wrap = value_wrap.delimited()
@@ -848,8 +877,9 @@ impl FunctionEmitter<'_> {
     /// Whether an interface field is declared `p: T | null`: it admits `null`
     /// and can never be absent, so its empty `Option` is `null`.
     ///
-    /// Read from the interface's `FieldDecodeFacts`; a class records none and
-    /// keeps the `undefined` reading.
+    /// Read from the interface's `FieldDecodeFacts`; a class records none, and
+    /// its field says so through its type instead (a `T | null` type id,
+    /// `TypeInterner::absent_is_null`).
     fn field_absent_is_null(&self, owner: Symbol, field: Symbol) -> bool {
         self.mir
             .interfaces
@@ -1006,7 +1036,9 @@ impl FunctionEmitter<'_> {
                         // A `p: T | null` field holds `null` when its `Option` is
                         // empty, so its key is present with a `null` value; an
                         // absent `undefined` is omitted, as JavaScript omits it.
-                        if self.field_absent_is_null(*name, field.name) {
+                        if self.field_absent_is_null(*name, field.name)
+                            || self.mir.types.absent_is_null(field.ty)
+                        {
                             return Ok(self.carrier_format(self.carrier()?, format_args!(
                                 "smelt_object_entries.push(({source_name:?}.to_owned(), match {optional_read} {{ Some(smelt_value) => {field_value}, None => SmeltUnknown::Null }}));", optional_read = optional_read.delimited(), field_value = field_value.delimited()
                             )));

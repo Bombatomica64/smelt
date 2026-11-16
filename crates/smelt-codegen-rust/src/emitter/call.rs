@@ -429,7 +429,9 @@ impl FunctionEmitter<'_> {
                         .unwrap_or(function.return_ty)
                 }
             }
-            _ => self.call_source_ty(callee, Some(dest_ty))?,
+            Callee::Indirect(_) | Callee::Builtin(_) | Callee::Op(..) => {
+                self.call_source_ty(callee, Some(dest_ty))?
+            }
         };
         Ok(source_ty)
     }
@@ -591,7 +593,9 @@ impl FunctionEmitter<'_> {
     fn base_initializer_owner(&self) -> Option<Symbol> {
         match &self.role {
             emit_role::EmitRole::BaseInitializerCopy { receiver, .. } => Some(receiver.owner),
-            _ => crate::base_init::constructor_class(self.function),
+            emit_role::EmitRole::Own { .. }
+            | emit_role::EmitRole::InheritedCopy { .. }
+            | emit_role::EmitRole::Closure(_) => crate::base_init::constructor_class(self.function),
         }
     }
 

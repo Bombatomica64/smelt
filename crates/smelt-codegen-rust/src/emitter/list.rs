@@ -345,7 +345,32 @@ impl FunctionEmitter<'_> {
         )))
     }
 
-    /// Converts a list concatenation operation to Rust text.
+    /// Python's `list * n`: a new list of the elements `n` times over.
+    ///
+    /// The elements are cloned, which for a list element is the shared
+    /// handle, so `[[0]] * 3` holds the same inner list three times as in
+    /// `CPython`. A count of zero or less is the empty list; the count is a
+    /// machine integer (the frontend converts a Python `int` with
+    /// `OverflowError` past one).
+    pub(super) fn list_repeat_expr(
+        &self,
+        list: &Operand,
+        count: &Operand,
+    ) -> Result<RustExpr, EmitError> {
+        if !matches!(
+            self.mir.types.get(self.operand_ty(list)?),
+            Some(Type::List(_))
+        ) {
+            return Err(EmitError::new("list repetition needs a list operand"));
+        }
+        let read = list_read_expr(&self.operand_borrow_expr(list)?);
+        Ok(RustExpr::atom(format!(
+            "{{ let smelt_count = usize::try_from(i64::max({count}, 0)).unwrap_or(0); let smelt_items = {read}; SmeltList::from(smelt_items.iter().cloned().cycle().take(smelt_items.len().saturating_mul(smelt_count)).collect::<Vec<_>>()) }}",
+            count = self.operand_expr(count)?.delimited(),
+            read = read.tight()
+        )))
+    }
+
     /// Converts a list concatenation operation to Rust text.
     pub(super) fn list_concat_expr(
         &self,

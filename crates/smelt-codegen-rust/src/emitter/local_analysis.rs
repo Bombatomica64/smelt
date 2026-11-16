@@ -102,6 +102,9 @@ impl FunctionEmitter<'_> {
                             index.mutated.insert(*base);
                         }
                     }
+                    Statement::StorageLive(local) => {
+                        index.storage_live.insert(*local);
+                    }
                 }
             }
             if let Some(
@@ -178,6 +181,10 @@ impl FunctionEmitter<'_> {
 
     /// The locals an rvalue mutates in place, borrows mutably, or captures
     /// into a closure that needs shared access to them.
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "single-shape recogniser: beyond `mutated_binding_root`, only a mutable-borrowing callback and a closure capture need a local mutable"
+    )]
     fn rvalue_mutable_locals(&self, value: &Rvalue) -> Vec<LocalId> {
         let mut locals = Vec::new();
         if let Some(root) = mutated_binding_root(value) {
@@ -404,10 +411,10 @@ impl FunctionEmitter<'_> {
                     .find(|candidate| candidate.name == *field)
                     .map(|candidate| candidate.ty)
             })?;
-        match self.mir.types.get(declared_ty)? {
-            Type::Function(declared_function) => Some(declared_function.clone()),
-            _ => None,
-        }
+        let Type::Function(declared_function) = self.mir.types.get(declared_ty)? else {
+            return None;
+        };
+        Some(declared_function.clone())
     }
 
     /// Count direct assignments to a MIR local (binding a dict entry's value
@@ -461,6 +468,7 @@ impl FunctionEmitter<'_> {
                             return true;
                         }
                     }
+                    Statement::StorageLive(_) => {}
                 }
             }
             if block
@@ -528,6 +536,7 @@ impl FunctionEmitter<'_> {
                     ..
                 } => *candidate == local,
                 Statement::DictEntryUpdate { current, .. } => *current == local,
+                Statement::StorageLive(_) => false,
                 Statement::AssignPlace { .. } => false,
             };
             if writes_local {
@@ -558,20 +567,45 @@ impl FunctionEmitter<'_> {
     }
 }
 
+/// The rvalue `statement` assigns to the compiler temporary `temp`, if it is an
+/// `Assign` of it.
+///
+/// The single-assignment scans over temporaries count these. A temporary is
+/// never the target of an `AssignPlace` (a projected write names a container,
+/// a whole-binding one a user binding), and the scalar `current` a fused
+/// `DictEntryUpdate` binds is the entry's value rather than a forwarded rvalue,
+/// so neither is an assignment these scans could follow.
+pub(super) fn temp_assigned_value(statement: &Statement, temp: LocalId) -> Option<&Rvalue> {
+    match statement {
+        Statement::Assign { dest, value } if *dest == temp => Some(value),
+        Statement::Assign { .. }
+        | Statement::AssignPlace { .. }
+        | Statement::DictEntryUpdate { .. }
+        | Statement::StorageLive(_) => None,
+    }
+}
+
 /// The local whose Rust binding an in-place mutation makes `mut`: the root of
 /// [`Rvalue::mutated_receiver`], except where the receiver's representation
 /// decides. `DictAssign` is settled per representation by
 /// `rvalue_borrows_local_mutably`, and `ListUnshift` writes through the list's
 /// shared `borrow_mut` handle, so the binding itself stays immutable.
 fn mutated_binding_root(value: &Rvalue) -> Option<LocalId> {
-    match value {
-        Rvalue::DictAssign { .. } | Rvalue::ListUnshift { .. } => None,
-        other => other.mutated_receiver().and_then(operand_mutation_root),
+    if matches!(
+        value,
+        Rvalue::DictAssign { .. } | Rvalue::ListUnshift { .. }
+    ) {
+        return None;
     }
+    value.mutated_receiver().and_then(operand_mutation_root)
 }
 
 impl FunctionEmitter<'_> {
     /// Returns whether rendering an rvalue needs a mutable borrow of `local`.
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "single-shape recogniser: only an object spread target and a list of callbacks borrow their local mutably"
+    )]
     pub(super) fn rvalue_borrows_local_mutably(&self, value: &Rvalue, local: LocalId) -> bool {
         match value {
             Rvalue::DictAssign { target, .. } if target.local() == Some(local) => {
@@ -701,6 +735,7 @@ impl FunctionEmitter<'_> {
                         return Ok(true);
                     }
                 }
+                Statement::StorageLive(_) => {}
             }
         }
         let Some(terminator) = &block.terminator else {
@@ -766,6 +801,11 @@ pub(super) struct LocalWriteIndex {
     /// Locals an unwind edge writes: the handler local of a `Call` or `Await`
     /// terminator, which receives the thrown value.
     unwind_written: HashSet<LocalId>,
+    /// Locals with a [`Statement::StorageLive`]: a binding declared in a loop
+    /// that a closure captures, whose shared capture cell is replaced by a
+    /// fresh one each time the declaration runs, so the cell's own Rust
+    /// binding is reassigned.
+    pub(super) storage_live: HashSet<LocalId>,
 }
 
 /// The blocks of `function` that lie on a cycle, or are reachable from a block

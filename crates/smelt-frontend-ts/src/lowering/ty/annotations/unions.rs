@@ -50,9 +50,34 @@ impl ModuleBuilder<'_> {
     /// around a single remaining arm, lists and dictionaries with one key
     /// type merge, and function arms whose call shapes disagree become one
     /// variadic erased signature.
+    ///
+    /// The members carry no source spelling here, so a bare absent member
+    /// counts as `undefined`: the absent value is `null` only when every
+    /// member holding one is itself a `T | null`
+    /// (`TypeInterner::absent_is_null`).
     pub(in crate::lowering) fn union_of_member_types(
         &mut self,
         members: &[smelt_hir::TypeId],
+    ) -> smelt_hir::TypeId {
+        let absent_only_null = members.iter().all(|member_ty| {
+            self.ctx.krate.types.absent_is_null(*member_ty)
+                || !self
+                    .flatten_union_member_types(*member_ty)
+                    .iter()
+                    .any(|flat| matches!(self.ctx.krate.types.get(*flat), Some(Type::None)))
+        });
+        self.union_of_member_types_with_absence(members, absent_only_null)
+    }
+
+    /// [`Self::union_of_member_types`] with the caller's knowledge of the
+    /// absent arms: `absent_only_null` says every absent arm is `null` (the
+    /// keyword, or a member that is itself `T | null`), so the resulting
+    /// optional's absent value is `null`, not `undefined`
+    /// (`TypeInterner::intern_null_optional`).
+    pub(in crate::lowering) fn union_of_member_types_with_absence(
+        &mut self,
+        members: &[smelt_hir::TypeId],
+        absent_only_null: bool,
     ) -> smelt_hir::TypeId {
         let mut lowered = Vec::new();
         let mut nullish = Vec::new();
@@ -142,14 +167,40 @@ impl ModuleBuilder<'_> {
         }
         if lowered.len() == 1 && !nullish.is_empty() {
             let single = lowered.remove(0);
+            if absent_only_null {
+                return self.ctx.krate.types.intern_null_optional(single);
+            }
             self.ctx.krate.types.intern(Type::Optional(single))
         } else if lowered.len() == 1 {
             lowered.remove(0)
         } else if lowered.is_empty() && nullish.is_empty() && saw_never {
             self.ctx.krate.types.intern(Type::Never)
-        } else {
+        } else if nullish.is_empty()
+            || lowered.len() < 2
+            || !lowered
+                .iter()
+                .all(|arm| self.union_arm_has_concrete_storage(*arm))
+        {
+            // Fewer than two present arms leave no union to make
+            // optional, and a union with an arm the generated crate
+            // stores erased (`unknown`, a type parameter, a class
+            // nothing declares) is the erased value, which already
+            // holds `null` and `undefined`: the union stays as written.
             lowered.extend(nullish);
             self.ctx.krate.types.intern(Type::Union(lowered))
+        } else {
+            // Two or more present arms and an absent value: the optional
+            // of the present union, as a single present arm already is
+            // (and as an optional parameter `x?: A | B` is). When every
+            // absent arm is `null`, the optional is a `T | null`
+            // (`TypeInterner::intern_null_optional`): its `None` erases
+            // and prints as `null`, inside a container too
+            // (`emitter::absent_value` in the Rust backend).
+            let present = self.ctx.krate.types.intern(Type::Union(lowered));
+            if absent_only_null {
+                return self.ctx.krate.types.intern_null_optional(present);
+            }
+            self.ctx.krate.types.intern(Type::Optional(present))
         }
     }
 
@@ -293,5 +344,82 @@ impl ModuleBuilder<'_> {
             _ => self.ctx.krate.types.intern(Type::Union(element_tys)),
         };
         Some(self.ctx.krate.types.intern(Type::List(element_ty)))
+    }
+
+    /// Whether a union arm has concrete storage in the generated crate, so a
+    /// union of such arms is a generated enum rather than the erased carrier.
+    ///
+    /// Follows codegen's `union_member_is_concrete`, more strictly: primitives
+    /// are; a list, set, tuple or future is when everything it holds is; a
+    /// class or interface is when it is declared (or a stdlib class with a
+    /// concrete runtime type), since an undeclared one renders erased; a record,
+    /// map or function arm, `unknown`, `never`, a type parameter, and a nullish
+    /// or optional arm are not. A class
+    /// declared later than this annotation reads as undeclared here, which only
+    /// keeps the union in its erased form.
+    pub(in crate::lowering) fn union_arm_has_concrete_storage(
+        &self,
+        ty: smelt_hir::TypeId,
+    ) -> bool {
+        match self.ctx.krate.types.get(ty) {
+            Some(
+                Type::Bool
+                | Type::Int
+                | Type::FixedInt(_)
+                | Type::BigInt
+                | Type::Float
+                | Type::String
+                | Type::PyStr
+                | Type::PyInt
+                | Type::Symbol
+                | Type::PropKey,
+            ) => true,
+            Some(
+                container @ (Type::List(_)
+                | Type::Set(_)
+                | Type::Future(_)
+                | Type::Tuple(_)
+                | Type::Union(_)
+                | Type::GeneratorResult { .. }),
+            ) => container
+                .children()
+                .all(|child| self.union_arm_has_concrete_storage(child)),
+            Some(Type::Generator {
+                yield_ty,
+                return_ty,
+                ..
+            }) => {
+                self.union_arm_has_concrete_storage(*yield_ty)
+                    && self.union_arm_has_concrete_storage(*return_ty)
+            }
+            Some(Type::Class { name, args }) => {
+                let declared = self.find_class(*name).is_some()
+                    || self.find_interface(*name).is_some()
+                    || self.ctx.krate.symbols.get(*name).is_some_and(|text| {
+                        smelt_stdlib::typescript_stdlib_class(text)
+                            .is_some_and(smelt_stdlib::StdlibClass::has_concrete_runtime_type)
+                    });
+                declared
+                    && args
+                        .iter()
+                        .all(|arg| self.union_arm_has_concrete_storage(*arg))
+            }
+            // A record or map arm and a function arm stay erased: a value
+            // reaches such a union through a merged record type or another
+            // callable spelling than the arm's (`Record<string, string> |
+            // Record<string, string[]>` assigned from one record of a merged
+            // value type), which the generated enum does not inject.
+            Some(
+                Type::Dict(_, _)
+                | Type::JsMap(_, _)
+                | Type::Function(_)
+                | Type::Unknown
+                | Type::Never
+                | Type::TypeParam { .. }
+                | Type::None
+                | Type::Optional(_),
+            )
+            | None => false,
+        }
     }
 }

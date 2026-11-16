@@ -412,6 +412,13 @@ impl ModuleBuilder<'_> {
                         )?;
                         return Ok(None);
                     }
+                    // An object iterates through its `[Symbol.iterator]()`
+                    // generator (`class_iterator_generator`).
+                    let right_span =
+                        this.span(for_stmt.right.span().start, for_stmt.right.span().end);
+                    if let Some(generator) = this.class_iterator_generator(iter, right_span, body) {
+                        iter = generator;
+                    }
                     // A synchronous generator receiver has no indexable Rust
                     // representation, so it cannot flow through the index-based
                     // `Stmt::For` lowering. Drain it through the resume protocol
@@ -792,7 +799,7 @@ impl ModuleBuilder<'_> {
         self.with_narrowing(Some(std::collections::HashMap::default()), |this| {
             let iter_ty = Self::expr_ty(body, iter);
             let Some((pat, value, binding, annotated_ty, mutable)) =
-                this.for_left_destructuring(left, iter_ty, body)?
+                this.for_left_destructuring(left, loop_statement, iter_ty, body)?
             else {
                 let pat = this.for_left_pattern(left, iter_ty, body)?;
                 return Ok((pat, this.block_from_statement(loop_statement, body)?));

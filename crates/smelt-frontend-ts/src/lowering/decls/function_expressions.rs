@@ -69,7 +69,7 @@ impl ModuleBuilder<'_> {
                     _ => None,
                 });
             let return_ty = if let Some(return_type) = &function.return_type {
-                match this.ts_type_to_hir(&return_type.type_annotation) {
+                match this.function_return_annotation_type(function, &return_type.type_annotation) {
                     Ok(value) => value,
                     Err(error) => {
                         return Err(error);
@@ -226,7 +226,7 @@ impl ModuleBuilder<'_> {
         }
 
         if function.generator && function.return_type.is_none() && hinted_function.is_none() {
-            return_ty = self.inferred_generator_type(&body, function.r#async);
+            return_ty = self.inferred_generator_type(&body, function.r#async, function);
         }
         if function.generator && (function.return_type.is_some() || hinted_function.is_some()) {
             return_ty = self.generator_type_with_fallthrough(&body, return_ty);

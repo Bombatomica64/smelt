@@ -442,7 +442,7 @@ pub(crate) fn substituted_type_id_interning(
     }
     Some(
         mir.types
-            .lookup(&rewritten)
+            .lookup_like(declared, &rewritten)
             .unwrap_or_else(|| mir.types.intern_late(rewritten)),
     )
 }
@@ -480,6 +480,10 @@ enum Unrewritable {
 ///
 /// The interner is frozen during codegen, so a rewritten layer is a lookup,
 /// never an insert.
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "the catch-all rewrites through `Type::try_map_children`, which visits every child of every other type"
+)]
 fn substitute_type(
     mir: &Mir,
     declared: TypeId,
@@ -500,7 +504,7 @@ fn substitute_type(
     if rewritten == *kind {
         return Some(declared);
     }
-    mir.types.lookup(&rewritten).or(keep)
+    mir.types.lookup_like(declared, &rewritten).or(keep)
 }
 
 /// Return whether `actual` is exactly `declared` with `bindings` applied.
@@ -602,6 +606,7 @@ fn literal_type(mir: &Mir, language: smelt_hir::Language, constant: &Constant) -
         Constant::Int(_) => Type::Int,
         Constant::Float(_) => Type::Float,
         Constant::BigInt(_) => Type::BigInt,
+        Constant::PyInt(_) => Type::PyInt,
         Constant::String(_) if language == smelt_hir::Language::Python => Type::PyStr,
         Constant::String(_) | Constant::StringUnits(_) => Type::String,
         Constant::None | Constant::Undefined => Type::None,
