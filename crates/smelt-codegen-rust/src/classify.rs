@@ -898,7 +898,7 @@ fn scan_value_flows(
                         _ => None,
                     }
                 }
-                Place::Field { .. } | Place::Index { .. } => None,
+                Place::Field { .. } | Place::Index { .. } | Place::Global { .. } => None,
             };
             if let Some(source) = handed {
                 flow(source, slot);
