@@ -1399,7 +1399,7 @@ export function clearSlot(handle: unknown): number {
         rust_items(&source, &["fn clear_slot"]),
         r"fn clear_slot(handle: SmeltUnknown) -> f64 {
 let mut slot: Option<SmeltUnknown> = None::<SmeltUnknown>;
-slot = { let smelt_optional_source = handle.clone(); if matches!(smelt_optional_source, SmeltUnknown::Null) { None } else { Some(smelt_optional_source) } };
+slot = { let smelt_optional_source = handle.clone(); if smelt_unknown_is_null(&smelt_optional_source) { None } else { Some(smelt_optional_source) } };
 slot = None::<SmeltUnknown>;
 let _smelt_tmp_2: bool = !(slot.as_ref().map_or(true, |smelt_value| matches!(smelt_value, SmeltUnknown::Null)));
 if _smelt_tmp_2 {

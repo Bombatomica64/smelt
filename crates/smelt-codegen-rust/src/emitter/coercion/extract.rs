@@ -1058,11 +1058,14 @@ impl FunctionEmitter<'_> {
             && self.optional_inner_preserves_erased_singletons(inner)
         {
             // A `T | null` over an erased payload: `null` is the slot's
-            // `None`; an `undefined` stays a present value of `T`.
+            // `None`; an `undefined` stays a present value of `T`. The tag
+            // test is the runtime narrowing of an erased value its
+            // `undefined` and nullish siblings below perform, spelled
+            // through the same family of prelude helpers.
             let inner_text =
                 self.extract_rendered(&RustExpr::path("smelt_optional_source"), inner, scope)?;
             return Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
-                "{{ let smelt_optional_source = {text}; if matches!(smelt_optional_source, SmeltUnknown::Null) {{ None }} else {{ Some({inner_text}) }} }}",
+                "{{ let smelt_optional_source = {text}; if smelt_unknown_is_null(&smelt_optional_source) {{ None }} else {{ Some({inner_text}) }} }}",
                 text = text.delimited(),
                 inner_text = inner_text.delimited()
             ))));
