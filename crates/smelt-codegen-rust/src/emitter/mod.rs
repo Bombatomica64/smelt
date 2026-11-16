@@ -98,6 +98,7 @@ impl Drop for HoistedModuleItemScope<'_, '_> {
 /// in a couple of instructions and removes that cost without changing behavior.
 pub(crate) type BlockIdSet = rustc_hash::FxHashSet<smelt_mir::BlockId>;
 
+mod absent_value;
 mod aggregate_literal;
 mod async_op;
 mod backend_erasure;
@@ -174,6 +175,9 @@ mod polymorphic_cast;
 mod post_dominance;
 mod primitive_cast;
 mod py_exception;
+mod py_int;
+mod py_str;
+pub(crate) mod py_text_protocol;
 mod receiver_bound_slot;
 mod record_slot_abi;
 mod redeclared_field;
@@ -1053,16 +1057,12 @@ fn callback_param_escapes_locally(
         .blocks
         .iter()
         .flat_map(|block| &block.statements)
-        .filter_map(|statement| match statement {
-            Statement::Assign {
-                value: Rvalue::Closure { id, .. },
-                ..
+        .filter_map(|statement| {
+            if let Some(Rvalue::Closure { id, .. }) = statement.value() {
+                Some(*id)
+            } else {
+                None
             }
-            | Statement::AssignPlace {
-                value: Rvalue::Closure { id, .. },
-                ..
-            } => Some(*id),
-            _ => None,
         })
         .collect::<HashSet<_>>();
     let captured_by_any_closure = mir
@@ -1091,17 +1091,24 @@ fn callback_param_escapes_locally(
             if !type_erases_values(mir, dest_ty) {
                 return false;
             }
-            let maybe_source_local = match value {
-                Rvalue::Use(
-                    Operand::Copy(Place::Local(source) | Place::Field { base: source, .. })
-                    | Operand::Move(Place::Local(source) | Place::Field { base: source, .. }),
-                ) => Some(*source),
-                _ => None,
-            };
-            let Some(source_local) = maybe_source_local else {
+            let Rvalue::Use(
+                Operand::Copy(
+                    Place::Local(source_local)
+                    | Place::Field {
+                        base: source_local, ..
+                    },
+                )
+                | Operand::Move(
+                    Place::Local(source_local)
+                    | Place::Field {
+                        base: source_local, ..
+                    },
+                ),
+            ) = value
+            else {
                 return false;
             };
-            let Some(closure_id) = closure_defs.get(&source_local) else {
+            let Some(closure_id) = closure_defs.get(source_local) else {
                 return false;
             };
             mir.closures
@@ -1193,7 +1200,12 @@ fn callback_param_escapes_locally(
                 place: Place::Local(candidate),
                 ..
             } => *candidate == local,
-            _ => false,
+            // A projected write leaves the binding itself in place, and a
+            // fused entry update binds only its scalar `current` temporary;
+            // a fresh binding cell is a loop declaration's, never a parameter.
+            Statement::AssignPlace { .. }
+            | Statement::DictEntryUpdate { .. }
+            | Statement::StorageLive(_) => false,
         })
     });
     // A callback passed as the function argument of a timer async op
@@ -1363,7 +1375,7 @@ fn function_rvalues(function: &MirFunction) -> impl Iterator<Item = &Rvalue> {
                 Statement::Assign { value, .. } | Statement::AssignPlace { value, .. } => {
                     Some(value)
                 }
-                Statement::DictEntryUpdate { .. } => None,
+                Statement::DictEntryUpdate { .. } | Statement::StorageLive(_) => None,
             });
         let carried = match &block.terminator {
             Some(Terminator::Call {
@@ -1382,6 +1394,10 @@ fn function_rvalues(function: &MirFunction) -> impl Iterator<Item = &Rvalue> {
 /// generated runtime. If a source callback parameter is wrapped into unknown
 /// state, or passed to an erased closure-call result, the parameter cannot stay
 /// as `&dyn Fn`; it must enter the function as an owned handle.
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "single-shape recogniser: only container literals, callable-object assembly and plain copies wrap an operand into erased state"
+)]
 fn statement_erases_callback_param(
     mir: &Mir,
     function: &MirFunction,
@@ -1514,6 +1530,10 @@ fn statement_erases_callback_param(
 /// A container whose element type is *not* function-shaped cannot be holding the
 /// callback at all, so the destination type is checked with
 /// [`type_holds_function`] rather than assuming every container is a sink.
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "single-shape recogniser: only list, set, tuple and dict literals pack an operand into a container"
+)]
 fn statement_packs_callback_param_into_container(
     mir: &Mir,
     function: &MirFunction,
@@ -1523,10 +1543,18 @@ fn statement_packs_callback_param_into_container(
     let (dest, value) = match statement {
         Statement::Assign { dest, value } => (*dest, value),
         Statement::AssignPlace {
-            place: Place::Local(dest) | Place::Field { base: dest, .. },
+            place:
+                Place::Local(dest) | Place::Field { base: dest, .. } | Place::Index { base: dest, .. },
             value,
         } => (*dest, value),
-        _ => return false,
+        // A global's cell has no local whose type could say it holds a
+        // callback, and a fused entry update stores scalar arithmetic.
+        Statement::AssignPlace {
+            place: Place::Global { .. },
+            ..
+        }
+        | Statement::DictEntryUpdate { .. }
+        | Statement::StorageLive(_) => return false,
     };
     let Some(dest_ty) = id_index(dest.0, "local index does not fit usize")
         .ok()
@@ -1604,13 +1632,14 @@ fn closure_source_for_local(
                 if *dest != current {
                     return None;
                 }
-                match value {
-                    Rvalue::Use(
-                        Operand::Copy(Place::Local(source) | Place::Field { base: source, .. })
-                        | Operand::Move(Place::Local(source) | Place::Field { base: source, .. }),
-                    ) => Some(*source),
-                    _ => None,
-                }
+                let Rvalue::Use(
+                    Operand::Copy(Place::Local(source) | Place::Field { base: source, .. })
+                    | Operand::Move(Place::Local(source) | Place::Field { base: source, .. }),
+                ) = value
+                else {
+                    return None;
+                };
+                Some(*source)
             })
         })?;
         if let Some(closure_id) = closure_definitions.get(&next).copied() {
@@ -1660,7 +1689,12 @@ fn closure_definitions(
                         definitions.insert(*dest, id);
                     }
                 }
-                _ => {}
+                // Only a closure construction or a copy of a closure local
+                // defines one; any other statement defines no closure local.
+                Statement::Assign { .. }
+                | Statement::AssignPlace { .. }
+                | Statement::DictEntryUpdate { .. }
+                | Statement::StorageLive(_) => {}
             }
         }
     }

@@ -3,4 +3,6 @@ same promise true
 awaited erased 40 40
 then on erased 70
 typed after erased 70
+reaction first 90
+await second 90
 done

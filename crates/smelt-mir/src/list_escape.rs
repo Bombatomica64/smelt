@@ -811,6 +811,8 @@ impl<'a> BodyWalk<'a> {
                 self.escape_operand(default, EscapeReason::StoredInContainer);
                 self.visit_rvalue(value, None);
             }
+            // A new binding instance moves no value.
+            Statement::StorageLive(_) => {}
         }
     }
 

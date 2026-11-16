@@ -116,6 +116,15 @@ pub fn normalize_type(types: &mut TypeInterner, ty: TypeId, options: NormalizeOp
                 Some(Type::Optional(present)) if types.absent_is_null(ty) => {
                     types.intern_null_optional(present)
                 }
+                // A plain optional over a `T | null` (`pop()` of a
+                // `(T | null)[]`) holds `undefined` too: flattened, it is the
+                // plain optional, whose absent value is `undefined`.
+                Some(Type::Optional(present))
+                    if types.absent_is_null(normalized)
+                        && matches!(types.get(inner), Some(Type::Optional(_))) =>
+                {
+                    types.intern(Type::Optional(present))
+                }
                 _ => normalized,
             }
         }
@@ -177,6 +186,7 @@ pub fn normalize_type(types: &mut TypeInterner, ty: TypeId, options: NormalizeOp
         }
         Type::Bool
         | Type::Int
+        | Type::PyInt
         | Type::FixedInt(_)
         | Type::BigInt
         | Type::Float

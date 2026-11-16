@@ -14,6 +14,7 @@ impl FunctionEmitter<'_> {
             Some(Type::Bool) => Ok(operand_expr.postfix(".clone().unwrap_or(false)")),
             Some(Type::Int | Type::FixedInt(_)) => Ok(operand_expr.postfix(".clone().is_some_and(|value| value != 0)")),
             Some(Type::BigInt) => Ok(operand_expr.postfix(".as_ref().is_some_and(|value| !::num_traits::Zero::is_zero(value))")),
+            Some(Type::PyInt) => Ok(operand_expr.postfix(".as_ref().is_some_and(SmeltPyInt::truthy)")),
             Some(Type::Float) => Ok(operand_expr.postfix(".clone().is_some_and(|value| value != 0.0 && !value.is_nan())")),
             Some(Type::String | Type::PyStr) => Ok(operand_expr.postfix(".clone().is_some_and(|value| !value.is_empty())")),
             // Every symbol is truthy; only its absence is falsy.
@@ -113,6 +114,7 @@ impl FunctionEmitter<'_> {
             Some(Type::Bool) => Ok(value_text.to_owned()),
             Some(Type::Int | Type::FixedInt(_)) => Ok(RustExpr::loose(format!("({value_text}) != 0", value_text = value_text.delimited()))),
             Some(Type::BigInt) => Ok(RustExpr::loose(format!("!::num_traits::Zero::is_zero(&({value_text}))", value_text = value_text.delimited()))),
+            Some(Type::PyInt) => Ok(RustExpr::chain(format!("({value_text}).truthy()", value_text = value_text.delimited()))),
             Some(Type::Float) => Ok(RustExpr::atom(format!(
                 "{{ let smelt_number = ({value_text}); smelt_number != 0.0 && !smelt_number.is_nan() }}", value_text = value_text.delimited()
             ))),

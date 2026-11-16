@@ -900,7 +900,7 @@ impl FunctionEmitter<'_> {
             )));
         }
         match self.mir.types.get(*item_ty) {
-            Some(Type::Bool | Type::Int | Type::String | Type::PyStr) => {
+            Some(Type::Bool | Type::Int | Type::PyInt | Type::String | Type::PyStr) => {
                 Ok(RustExpr::atom(format!(
                     "{{ {list_mut}.sort(); {result_text} }}",
                     list_mut = list_mut.tight(),
@@ -923,7 +923,7 @@ impl FunctionEmitter<'_> {
     fn element_sorts_natively(&self, element_ty: TypeId) -> bool {
         matches!(
             self.mir.types.get(element_ty),
-            Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::PyStr)
+            Some(Type::Bool | Type::Int | Type::PyInt | Type::Float | Type::String | Type::PyStr)
         )
     }
 

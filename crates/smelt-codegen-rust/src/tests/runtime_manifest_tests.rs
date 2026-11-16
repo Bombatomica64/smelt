@@ -21,9 +21,12 @@ fn runtime_order_and_items_agree() {
     let ordered: Vec<&str> = ORDER
         .iter()
         .chain(CONSOLE_INSPECT)
-        .filter_map(|entry| match entry {
-            Entry::Item(name) => Some(*name),
-            _ => None,
+        .filter_map(|entry| {
+            if let Entry::Item(name) = entry {
+                Some(*name)
+            } else {
+                None
+            }
         })
         .collect();
     let missing: Vec<_> = ordered

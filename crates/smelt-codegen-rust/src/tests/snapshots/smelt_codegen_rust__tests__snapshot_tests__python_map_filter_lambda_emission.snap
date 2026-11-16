@@ -8,21 +8,21 @@ expression: emitted
 // ... shared generated runtime prelude omitted from selective snapshot ...
 
 fn run() -> () {
-    let values: SmeltList<i64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<i64> = vec![1, 2, 3]; smelt_list_items }));
-    let _smelt_tmp_4 = ::std::rc::Rc::new(|closure_arg_0: i64| {
-    let _smelt_tmp_1: i64 = closure_arg_0 * 2;
-    _smelt_tmp_1
+    let values: SmeltList<SmeltPyInt> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltPyInt> = vec![SmeltPyInt::Small(1), SmeltPyInt::Small(2), SmeltPyInt::Small(3)]; smelt_list_items }));
+    let _smelt_tmp_4 = ::std::rc::Rc::new(|closure_arg_0: SmeltPyInt| {
+    let _smelt_tmp_1: SmeltPyInt = (&closure_arg_0) * (&SmeltPyInt::Small(2));
+    _smelt_tmp_1.clone()
     });
-    let doubled: SmeltList<i64> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: i64| {
-    let _smelt_tmp_1: i64 = closure_arg_0 * 2;
-    _smelt_tmp_1
+    let doubled: SmeltList<SmeltPyInt> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: SmeltPyInt| {
+    let _smelt_tmp_1: SmeltPyInt = (&closure_arg_0) * (&SmeltPyInt::Small(2));
+    _smelt_tmp_1.clone()
     }); values.borrow().iter().enumerate().map(|(smelt_index, smelt_item)| { (smelt_callback)(smelt_item.clone()) }).collect::<Vec<_>>() });
-    let _smelt_tmp_6 = ::std::rc::Rc::new(|closure_arg_0: i64| {
-    let _smelt_tmp_1: bool = closure_arg_0 > 1;
+    let _smelt_tmp_6 = ::std::rc::Rc::new(|closure_arg_0: SmeltPyInt| {
+    let _smelt_tmp_1: bool = (&closure_arg_0) > (&SmeltPyInt::Small(1));
     _smelt_tmp_1
     });
-    let positives: SmeltList<i64> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: i64| {
-    let _smelt_tmp_1: bool = closure_arg_0 > 1;
+    let positives: SmeltList<SmeltPyInt> = Into::<SmeltList<_>>::into({ let smelt_callback = ::std::rc::Rc::new(|closure_arg_0: SmeltPyInt| {
+    let _smelt_tmp_1: bool = (&closure_arg_0) > (&SmeltPyInt::Small(1));
     _smelt_tmp_1
     }); values.borrow().iter().enumerate().filter_map(|(smelt_index, smelt_item)| if (smelt_callback)(smelt_item.clone()) { Some(smelt_item.clone()) } else { None }).collect::<Vec<_>>() });
     return;

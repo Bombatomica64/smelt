@@ -1,21 +1,21 @@
 fn main (FuncId(0)) -> None
   locals
-    %0 temp: Int
+    %0 temp: PyInt
     %1 temp: Bool
-    %2 temp: Int
-    %3 temp: Int
-    %4 temp: Int
-    %5 temp: Int
-    %6 temp: Int
-    %7 temp: Int
-    %8 temp: Int
-    %9 temp: Int
+    %2 temp: PyInt
+    %3 temp: PyInt
+    %4 temp: PyInt
+    %5 temp: PyInt
+    %6 temp: PyInt
+    %7 temp: PyInt
+    %8 temp: PyInt
+    %9 temp: PyInt
     %10 temp: None
   bb0:
     goto bb1
   bb1:
     %0 = global_get #0
-    %1 = move %0 < 4
+    %1 = move %0 < 4py
     switch move %1 ? bb2 : bb3
   bb2:
     %2 = global_get #1
@@ -23,7 +23,7 @@ fn main (FuncId(0)) -> None
     %4 = move %2 + move %3
     %5 = global_set #1 = move %4
     %6 = global_get #0
-    %7 = move %6 + 1
+    %7 = move %6 + 1py
     %8 = global_set #0 = move %7
     goto bb1
   bb3:

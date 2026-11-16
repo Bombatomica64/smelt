@@ -473,6 +473,7 @@ pub(crate) fn type_supports_partial_eq_where(
         Some(
             Type::Bool
             | Type::Int
+            | Type::PyInt
             | Type::FixedInt(_)
             | Type::BigInt
             | Type::Float

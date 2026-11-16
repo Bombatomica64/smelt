@@ -32,13 +32,20 @@ impl ModuleBuilder<'_> {
         let Some(argument) = call.arguments.first() else {
             return Ok(None);
         };
-        // Arguments in source order: the value, then the replacer (evaluated
-        // for its effects; only `null`/`undefined` replacers are modeled),
-        // then the indentation `space`, which lays the text out afterwards.
+        // Arguments in source order: the value, then the replacer (a function
+        // or an array of keys, applied by the runtime serializer; `null` and
+        // `undefined` mean none), then the indentation `space`, which lays the
+        // text out afterwards.
         let value = self.argument(argument, body)?;
         let mut space = None;
+        let mut replacer = None;
         for (index, extra) in call.arguments.iter().enumerate().skip(1) {
             let lowered = self.argument(extra, body)?;
+            if index == 1
+                && !matches!(Self::expr_ty(body, lowered), ty if matches!(self.ctx.krate.types.get(ty), Some(Type::None)))
+            {
+                replacer = Some(lowered);
+            }
             if index == 2 {
                 space = Some(lowered);
             }
@@ -66,7 +73,7 @@ impl ModuleBuilder<'_> {
         };
         let span = self.span(call.span.start, call.span.end);
         let text = body.push_expr(Expr {
-            kind: ExprKind::JsonStringify { value },
+            kind: ExprKind::JsonStringify { value, replacer },
             ty,
             span,
         });
@@ -400,6 +407,7 @@ impl ModuleBuilder<'_> {
         match ty_kind {
             Type::Bool
             | Type::Int
+            | Type::PyInt
             | Type::FixedInt(_)
             | Type::Float
             | Type::String

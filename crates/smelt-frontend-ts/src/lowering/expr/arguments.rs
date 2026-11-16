@@ -17,7 +17,10 @@ impl ModuleBuilder<'_> {
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let lowered = self.argument_shape(argument, body)?;
         // A read of a Bun `int32` slot is a `number` to every consumer.
-        Ok(self.int32_read_as_number(lowered, body))
+        let lowered = self.int32_read_as_number(lowered, body);
+        // A value from a Python module (a call result passed straight on) is
+        // seen at its TypeScript view, as every other expression is.
+        Ok(self.in_own_language_view(lowered, body))
     }
 
     /// Lower one call argument; see [`Self::argument`].

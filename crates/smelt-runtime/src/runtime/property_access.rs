@@ -20,7 +20,7 @@ fn smelt_index_assign(target: &mut SmeltUnknown, key: impl Into<JsString>, value
         //~ A keyed write through a reference instance's erased view reaches the
         //~ instance, as a `.field` write does; one through a class value
         //~ reaches the class's live static storage, leaving no stale own copy.
-        SmeltUnknown::Object(map) => { /*@if write_through*/smelt_object_write_through(map, &key.to_string_lossy(), &value);/*@end*/ /*@if class_value*/let smelt_static_key = key.to_string_lossy(); let smelt_static_value = value.clone(); /*@end*/map.insert(key, value);/*@if class_value*/ smelt_class_static_write(map, &smelt_static_key, &smelt_static_value);/*@end*/ }
+        SmeltUnknown::Object(map) => { /*@if write_through*/smelt_object_write_through(map, &key.to_string_lossy(), &value);/*@end*/ /*@if class_value*/let smelt_static_key = key.to_string_lossy(); let smelt_static_value = value.clone(); /*@end*/smelt_object_put(map, key, value);/*@if class_value*/ smelt_class_static_write(map, &smelt_static_key, &smelt_static_value);/*@end*/ }
         //~ A JavaScript function is an object, so a keyed write onto one is a
         //~ real store into its own-property bag (`smelt-runtime`'s `function_object.rs`) --
         //~ not a reason to replace the function with a record, which is what the
@@ -79,24 +79,86 @@ fn smelt_map_entry_key_is(entry: &SmeltUnknown, key: &SmeltUnknown) -> bool {
 #[allow(dead_code)]
 fn smelt_record_inherited(record: &SmeltRecord<JsString, SmeltUnknown>, key: &str) -> SmeltUnknown { record.get(&*JsString::from(format!("__smelt_proto:{key}"))).or_else(|| record.get(&*JsString::from(format!("__smelt_method:{key}")))).unwrap_or(SmeltUnknown::Undefined) }
 
-/// What a property read answers for the stored `value`: an accessor record
-/// (`{ __smelt_get: getter }`, an object literal's `get`) is called.
+/// Whether `object` is an accessor marker: the erased form of an object
+/// literal's `get`/`set`, holding its getter under `__smelt_get`, its setter
+/// under `__smelt_setter` (not `__smelt_set`, the erased Set's tag), or both, and nothing else.
 #[allow(dead_code)]
-fn smelt_resolve_accessor(value: SmeltUnknown) -> SmeltUnknown {
+fn smelt_is_accessor(object: &SmeltObject) -> bool {
+    let keys = object.keys();
+    !keys.is_empty() && keys.len() <= 2 && keys.iter().all(|key| key.eq_str("__smelt_get") || key.eq_str("__smelt_setter"))
+}
+
+/// What a property read of an object answers for the stored `value`: an
+/// accessor (`{ __smelt_get: getter }`, an object literal's `get`) is
+/// called, with the object the property was read from as its `this`, as
+/// JavaScript's [[Get]] passes the receiver to a getter; an accessor with a
+/// setter and no getter reads as `undefined`. `receiver` builds that object's
+/// erased view and runs only for a getter.
+#[allow(dead_code)]
+fn smelt_resolve_accessor(value: SmeltUnknown, receiver: impl FnOnce() -> SmeltUnknown) -> SmeltUnknown {
     match value {
-        SmeltUnknown::Object(getter) if getter.contains_key("__smelt_get") => match getter.get("__smelt_get") {
-            Some(SmeltUnknown::Function(smelt_getter)) => (smelt_getter)(Vec::new()).unwrap_or_else(|error| smelt_panic_throw(error)),
-            _ => SmeltUnknown::Null,
+        SmeltUnknown::Object(accessor) if smelt_is_accessor(&accessor) => match accessor.get("__smelt_get") {
+            Some(SmeltUnknown::Function(smelt_getter)) => {
+// @smelt:if this_channel
+                let _smelt_this_guard = smelt_push_this(receiver());
+// @smelt:else
+//=                 drop(receiver);
+// @smelt:end
+                (smelt_getter)(Vec::new()).unwrap_or_else(|error| smelt_panic_throw(error))
+            }
+            _ => SmeltUnknown::Undefined,
         },
         value => value,
     }
+}
+
+/// `object[key] = value` as JavaScript's [[Set]] does it on an object
+/// literal's own properties: a stored accessor runs its setter with `object`
+/// as `this` (an accessor without one ignores the write, as sloppy-mode
+/// JavaScript does), and any other key stores the value.
+#[allow(dead_code)]
+fn smelt_object_put(object: &SmeltObject, key: impl Into<JsString>, value: SmeltUnknown) {
+    let key: JsString = key.into();
+    if let Some(SmeltUnknown::Object(accessor)) = object.get(&*key) && smelt_is_accessor(&accessor) && !matches!(&value, SmeltUnknown::Object(new) if smelt_is_accessor(new)) {
+        if let Some(SmeltUnknown::Function(smelt_setter)) = accessor.get("__smelt_setter") {
+// @smelt:if this_channel
+            let _smelt_this_guard = smelt_push_this(SmeltUnknown::Object(object.clone()));
+// @smelt:end
+            (smelt_setter)(Vec::from([value])).unwrap_or_else(|error| smelt_panic_throw(error));
+        }
+        return;
+    }
+    object.insert(key, value);
+}
+
+impl SmeltRecord<JsString, SmeltUnknown> {
+    /// This record as an erased object over the SAME store: the identity and
+    /// every write are shared, which is what a getter's or setter's `this`
+    /// must be.
+    #[allow(dead_code)]
+    fn shared_object(&self) -> SmeltObject { SmeltObject { id: self.id, store: self.store.clone() } }
+}
+
+/// `record[key] = value` on a string-keyed record of erased values, with
+/// [[Set]]'s accessor rule (see `smelt_object_put`).
+#[allow(dead_code)]
+fn smelt_record_put(record: &SmeltRecord<JsString, SmeltUnknown>, key: impl Into<JsString>, value: SmeltUnknown) {
+    smelt_object_put(&record.shared_object(), key, value);
+}
+
+/// An own value of the erased record `record`, read as a property read reads
+/// it (`Object.values`, `Object.entries`): an accessor runs with the record as
+/// its `this`, any other value is itself.
+#[allow(dead_code)]
+fn smelt_record_own_value(record: &SmeltRecord<JsString, SmeltUnknown>, value: SmeltUnknown) -> SmeltUnknown {
+    smelt_resolve_accessor(value, || SmeltUnknown::Object(record.shared_object()))
 }
 
 /// A dotted property read on a string-keyed record of erased values: the own
 /// entry, else the prototype entries, with an accessor called.
 #[allow(dead_code)]
 fn smelt_record_property(record: &SmeltRecord<JsString, SmeltUnknown>, key: &(impl SmeltHostText + ?Sized)) -> SmeltUnknown { let key = key.host_text(); let key: &str = &key;
-    smelt_resolve_accessor(record.get(&*JsString::from(key)).unwrap_or_else(|| smelt_record_inherited(record, key)))
+    smelt_resolve_accessor(record.get(&*JsString::from(key)).unwrap_or_else(|| smelt_record_inherited(record, key)), || SmeltUnknown::Object(record.shared_object()))
 }
 // @smelt:item-end
 
@@ -297,7 +359,7 @@ fn smelt_get_object_field(map: &SmeltObject, field: &(impl SmeltHostText + ?Size
     //~ `__smelt_proto:`. Both are consulted only after the own property
     //~ misses, exactly as JavaScript's prototype chain does.
     let smelt_field_value = match map.get(field) { Some(value) => Some(value), None => match map.get(&format!("__smelt_proto:{field}")) { Some(value) => Some(value), None if field.starts_with('#') => None, None => map.get(&format!("__smelt_method:{field}")).or_else(|| match map.get("__smelt_class") { Some(SmeltUnknown::String(tag)) => smelt_class_inherited_method(&tag.to_string_lossy(), field), _ => None }) } };
-    smelt_resolve_accessor(smelt_field_value.unwrap_or(SmeltUnknown::Undefined))
+    smelt_resolve_accessor(smelt_field_value.unwrap_or(SmeltUnknown::Undefined), || SmeltUnknown::Object(map.clone()))
 }
 
 // @smelt:end

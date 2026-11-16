@@ -195,6 +195,7 @@ fn statement_text(statement: &Statement) -> String {
             local_ref(*current),
             rvalue_text(value)
         ),
+        Statement::StorageLive(local) => format!("storage_live {}", local_ref(*local)),
     }
 }
 
@@ -573,6 +574,7 @@ fn constant_text(constant: &Constant) -> String {
             }
         }
         Constant::BigInt(digits) => format!("{digits}n"),
+        Constant::PyInt(digits) => format!("{digits}py"),
         Constant::String(value) => format!("\"{value}\""),
         Constant::StringUnits(units) => format!("\"{}\"", smelt_hir::string_units_text(units)),
         Constant::Symbol(value) => format!("symbol({value:?})"),
@@ -594,6 +596,7 @@ fn type_ref(mir: &Mir, ty: TypeId) -> String {
     match ty_value {
         Type::Bool => "Bool".to_owned(),
         Type::Int => "Int".to_owned(),
+        Type::PyInt => "PyInt".to_owned(),
         Type::Float => "Float".to_owned(),
         Type::FixedInt(width) => width.rust_name().to_owned(),
         Type::BigInt => "BigInt".to_owned(),

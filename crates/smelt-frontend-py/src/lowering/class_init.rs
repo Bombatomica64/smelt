@@ -91,14 +91,30 @@ impl ModuleBuilder<'_> {
     /// Synthesise an `__init__` method for a `@dataclass` class.
     ///
     /// Creates one parameter per annotated field and emits
-    /// `self.field = param` assignments in the body.
+    /// `self.field = param` assignments in the body. A field declared with a
+    /// default (`label: str = "origin"`) takes it when the caller leaves the
+    /// argument out, through the same callee-side default every function
+    /// parameter uses (see `default_params.rs`).
+    #[expect(clippy::too_many_arguments, reason = "one operation, its operands and its lowering position")]
     fn synthesize_dataclass_init(
         &mut self,
+        class: &StmtClassDef,
         class_sym: Symbol,
         class_ty: TypeId,
         fields: &[Field],
         span: Span,
     ) -> Result<ItemId, SmeltError> {
+        let defaults: HashMap<String, Expr> = class
+            .body
+            .iter()
+            .filter_map(|stmt| match stmt {
+                Stmt::AnnAssign(ann) => match (ann.target.as_ref(), ann.value.as_deref()) {
+                    (Expr::Name(name), Some(value)) => Some((name.id.as_str().to_owned(), value.clone())),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .collect();
         let none_ty = self.intern_type(Type::None);
         let (fn_body, params) = self.with_fn_scope(FnKind::Sync, |this| {
             let mut fn_body = Body::new(None, span);
@@ -115,16 +131,9 @@ impl ModuleBuilder<'_> {
             });
             this.scope.locals.insert("self".to_owned(), self_local);
 
-            // One param per field.
+            // One param per field; a defaulted one is `Optional` to callers.
+            let mut pending_defaults = Vec::new();
             for field in fields {
-                let local = fn_body.push_local(LocalDecl {
-                    name: Some(field.name),
-                    ty: field.ty,
-                    mutable: false,
-                    span: field.span,
-                });
-                fn_body.params.push(local);
-                field_locals.push(local);
                 let field_name_str = this
                     .ctx
                     .krate
@@ -132,13 +141,41 @@ impl ModuleBuilder<'_> {
                     .get(field.name)
                     .unwrap_or("")
                     .to_owned();
-                this.scope.locals.insert(field_name_str, local);
+                let defaulted = match defaults.get(&field_name_str) {
+                    Some(default) => this.defaulted_param(&field_name_str, field.ty, default, field.span)?,
+                    None => None,
+                };
+                let param_ty = defaulted.as_ref().map_or(field.ty, |found| found.optional_ty);
+                let local = fn_body.push_local(LocalDecl {
+                    name: Some(field.name),
+                    ty: param_ty,
+                    mutable: false,
+                    span: field.span,
+                });
+                fn_body.params.push(local);
+                field_locals.push(local);
+                this.scope.locals.insert(field_name_str.clone(), local);
                 params.push(Param {
                     name: field.name,
                     local,
-                    ty: field.ty,
+                    ty: param_ty,
                     span: field.span,
                 });
+                if let Some(found) = defaulted {
+                    pending_defaults.push((field_name_str, local, found));
+                }
+            }
+            for (name, local, found) in pending_defaults {
+                let default = defaults.get(&name).cloned().ok_or_else(|| {
+                    SmeltError::unsupported(span, "a dataclass default disappeared")
+                })?;
+                this.default_prologue(&name, local, &found, &default, &mut fn_body)?;
+                // The prologue rebinds the name to the value with its default.
+                if let Some(rebound) = this.scope.locals.get(&name).copied()
+                    && let Some(slot) = field_locals.iter_mut().find(|slot| **slot == local)
+                {
+                    *slot = rebound;
+                }
             }
 
             // Body: `self.field = param` for each field.
@@ -191,6 +228,78 @@ return_ty: none_ty,
             owner: FunctionOwner::Constructor { class: class_sym },
         });
         Ok(self.ctx.krate.push_item(item))
+    }
+
+    /// Synthesise `__repr__` for a `@dataclass` class that does not define
+    /// one: `Point(x=1, y='a')`, each field's `repr` after its name, as the
+    /// dataclass decorator generates. `None` when a field's type has no Python
+    /// text, which leaves the class without one.
+    fn synthesize_dataclass_repr(
+        &mut self,
+        class_sym: Symbol,
+        class_ty: TypeId,
+        fields: &[Field],
+        span: Span,
+    ) -> Result<Option<ItemId>, SmeltError> {
+        if fields.iter().any(|field| !self.has_python_text(field.ty)) {
+            return Ok(None);
+        }
+        let class_name = self.ctx.krate.symbols.source(class_sym).unwrap_or("").to_owned();
+        let str_ty = self.intern_type(Type::PyStr);
+        let (fn_body, self_local) = self.with_fn_scope(FnKind::Sync, |this| {
+            let mut fn_body = Body::new(None, span);
+            let self_sym = this.intern_name("self");
+            let self_local = fn_body.push_local(LocalDecl { name: Some(self_sym), ty: class_ty, mutable: false, span });
+            fn_body.params.push(self_local);
+            this.scope.locals.insert("self".to_owned(), self_local);
+            let literal = |target: &mut Body, text: String| {
+                target.push_expr(HirExpr { kind: ExprKind::Literal(Literal::String(text)), ty: str_ty, span })
+            };
+            let concat = |target: &mut Body, lhs, rhs| {
+                target.push_expr(HirExpr { kind: ExprKind::BinOp { op: BinOp::Add, lhs, rhs }, ty: str_ty, span })
+            };
+            let mut text = literal(&mut fn_body, format!("{class_name}("));
+            for (index, field) in fields.iter().enumerate() {
+                let name = this.ctx.krate.symbols.get(field.name).unwrap_or("").to_owned();
+                let separator = if index == 0 { "" } else { ", " };
+                let label = literal(&mut fn_body, format!("{separator}{name}="));
+                text = concat(&mut fn_body, text, label);
+                let receiver = fn_body.push_expr(HirExpr { kind: ExprKind::Local(self_local), ty: class_ty, span });
+                let value = fn_body.push_expr(HirExpr {
+                    kind: ExprKind::Field { receiver, field: field.name },
+                    ty: field.ty,
+                    span: field.span,
+                });
+                let shown = this.python_text_expr(value, true, span, &mut fn_body)?;
+                text = concat(&mut fn_body, text, shown);
+            }
+            let close = literal(&mut fn_body, ")".to_owned());
+            text = concat(&mut fn_body, text, close);
+            let root = fn_body.root;
+            fn_body.push_stmt_to_block(root, HirStmt::Return(Some(text)));
+            Ok::<_, SmeltError>((fn_body, self_local))
+        })?;
+        let body_id = self.ctx.krate.push_body(fn_body);
+        let self_param = Param {
+            name: self.intern_name("self"),
+            local: self_local,
+            ty: class_ty,
+            span,
+        };
+        let repr_sym = self.intern_name("__repr__");
+        Ok(Some(self.ctx.krate.push_item(Item::Function(Function {
+            name: repr_sym,
+            span,
+            type_params: Vec::new(),
+            params: vec![self_param],
+            rest: None,
+            required_params: None,
+            return_ty: str_ty,
+            is_async: false,
+            is_test: false,
+            body: Some(body_id),
+            owner: FunctionOwner::ClassMethod { class: class_sym, method: repr_sym },
+        }))))
     }
 
     /// Synthesize an empty constructor for a plain Python class without `__init__`.

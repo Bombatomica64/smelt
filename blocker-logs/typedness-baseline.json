@@ -2,17 +2,17 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 8604,
+      "concrete": 8474,
       "generic": 162,
       "erased": 56
     },
     "reads": {
-      "concrete": 970,
+      "concrete": 931,
       "generic": 47,
       "erased": 20
     },
     "calls": {
-      "concrete": 2383,
+      "concrete": 2350,
       "generic": 16,
       "erased": 2
     }
@@ -1266,7 +1266,7 @@
         "erased": 0
       },
       "reads": {
-        "concrete": 15,
+        "concrete": 14,
         "generic": 0,
         "erased": 0
       },
@@ -1718,23 +1718,6 @@
         "erased": 0
       }
     },
-    "examples/typescript/end-to-end/201_record_viewed_as_another_record_type/input.ts": {
-      "values": {
-        "concrete": 128,
-        "generic": 0,
-        "erased": 0
-      },
-      "reads": {
-        "concrete": 38,
-        "generic": 0,
-        "erased": 0
-      },
-      "calls": {
-        "concrete": 33,
-        "generic": 0,
-        "erased": 0
-      }
-    },
     "examples/typescript/end-to-end/20_method_call/input.ts": {
       "values": {
         "concrete": 9,
@@ -2128,7 +2111,7 @@
     },
     "examples/typescript/end-to-end/44_node_http_echo/input.ts": {
       "values": {
-        "concrete": 71,
+        "concrete": 69,
         "generic": 0,
         "erased": 0
       },

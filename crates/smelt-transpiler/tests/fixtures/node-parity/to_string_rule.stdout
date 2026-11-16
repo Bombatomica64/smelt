@@ -1,0 +1,17 @@
+1,2 1,2 1,2 1,2!
+A3 A3 A3
+1,2,3 [object Object] [object Set]
+B4 B4 B4 B4!
+[object Object] [object Object]
+undefined
+B2
+,,1,a,true 1,2,3,
+1,a 1,a 1,a
+Error: boom TypeError: t
+null null null undefined undefined
+lit n lit n
+[object Map] [object Set] [object Object] true
+1,2 x
+5 0 NaN 7
+1,2,3 1,
+[ 'a', 'b;c' ] [ 'a', 'b', 'c' ]

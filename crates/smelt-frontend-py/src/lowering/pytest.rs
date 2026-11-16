@@ -9,7 +9,7 @@ impl ModuleBuilder<'_> {
     ) -> Result<TypeId, SmeltError> {
         match value {
             PytestLiteral::Bool(_) => Ok(self.intern_type(Type::Bool)),
-            PytestLiteral::Int(_) => Ok(self.intern_type(Type::Int)),
+            PytestLiteral::Int(_) => Ok(self.intern_type(Type::PyInt)),
             PytestLiteral::Float(_) => Ok(self.intern_type(Type::Float)),
             PytestLiteral::String(_) => Ok(self.intern_type(Type::PyStr)),
             PytestLiteral::None => Ok(self.intern_type(Type::None)),
@@ -57,7 +57,7 @@ impl ModuleBuilder<'_> {
                 }))
             }
             PytestLiteral::Int(inner) => {
-                let ty = self.intern_type(Type::Int);
+                let ty = self.intern_type(Type::PyInt);
                 Ok(body.push_expr(HirExpr {
                     kind: ExprKind::Literal(Literal::Int(*inner)),
                     ty,

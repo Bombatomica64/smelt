@@ -141,7 +141,7 @@ fn smelt_vitest_mock_called_with(value: &SmeltUnknown, expected: Vec<SmeltUnknow
 //~ its settled `Ok` value before comparison (the caller has already awaited
 //~ it, so the shared state cell is populated). A non-mock actual is false,
 //~ as in the other mock matchers.
-fn smelt_vitest_mock_last_resolved_with(value: &SmeltUnknown, expected: SmeltUnknown) -> bool { match smelt_vitest_mock_state(value) { Some(state) => { let last = state.borrow().results.last().cloned(); match last { Some(result) => { let resolved = match &result { SmeltUnknown::Promise(promise) => match &*promise.state.borrow() { Some(Ok(value)) => value.clone(), _ => return false }, other => other.clone() }; smelt_vitest_asymmetric_equals(&resolved, &expected, &mut ::std::collections::HashSet::new()) }, None => false } }, None => false } }
+fn smelt_vitest_mock_last_resolved_with(value: &SmeltUnknown, expected: SmeltUnknown) -> bool { match smelt_vitest_mock_state(value) { Some(state) => { let last = state.borrow().results.last().cloned(); match last { Some(result) => { let resolved = match &result { SmeltUnknown::Promise(promise) => match promise.smelt_settled() { Some(Ok(value)) => value, _ => return false }, other => other.clone() }; smelt_vitest_asymmetric_equals(&resolved, &expected, &mut ::std::collections::HashSet::new()) }, None => false } }, None => false } }
 //~ Emits the whole asymmetric-matcher runtime into the generated prelude.
 //~
 //~ Only called from the vitest-mock region of the prelude: every helper here is

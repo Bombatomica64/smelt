@@ -433,7 +433,7 @@ impl ModuleBuilder<'_> {
         }
 
         let mut return_ty = if function.generator && declared_return_ty.is_none() {
-            self.inferred_generator_type(&body, function.r#async)
+            self.inferred_generator_type(&body, function.r#async, function)
         } else {
             declared_return_ty
                 .or_else(|| self.last_return_type(&body))

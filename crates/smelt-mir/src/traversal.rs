@@ -434,6 +434,7 @@ impl Statement {
                 visit(Read::Operand(default));
                 value.reads(|operand| visit(Read::Operand(operand)));
             }
+            Self::StorageLive(_) => {}
         }
     }
 
@@ -471,25 +472,30 @@ impl Statement {
                 visit(ReadMut::Operand(default));
                 value.reads_mut(|operand| visit(ReadMut::Operand(operand)));
             }
+            Self::StorageLive(_) => {}
         }
     }
 
-    /// The rvalue this statement evaluates.
+    /// The rvalue this statement evaluates; `None` for a
+    /// [`Statement::StorageLive`], which evaluates nothing.
     #[must_use]
-    pub const fn value(&self) -> &Rvalue {
+    pub const fn value(&self) -> Option<&Rvalue> {
         match self {
             Self::Assign { value, .. }
             | Self::AssignPlace { value, .. }
-            | Self::DictEntryUpdate { value, .. } => value,
+            | Self::DictEntryUpdate { value, .. } => Some(value),
+            Self::StorageLive(_) => None,
         }
     }
 
-    /// The rvalue this statement evaluates, in rewritable form.
-    pub const fn value_mut(&mut self) -> &mut Rvalue {
+    /// The rvalue this statement evaluates, in rewritable form; see
+    /// [`Self::value`].
+    pub const fn value_mut(&mut self) -> Option<&mut Rvalue> {
         match self {
             Self::Assign { value, .. }
             | Self::AssignPlace { value, .. }
-            | Self::DictEntryUpdate { value, .. } => value,
+            | Self::DictEntryUpdate { value, .. } => Some(value),
+            Self::StorageLive(_) => None,
         }
     }
 
@@ -504,7 +510,7 @@ impl Statement {
                 ..
             }
             | Self::DictEntryUpdate { current: local, .. } => Some(*local),
-            Self::AssignPlace { .. } => None,
+            Self::AssignPlace { .. } | Self::StorageLive(_) => None,
         }
     }
 

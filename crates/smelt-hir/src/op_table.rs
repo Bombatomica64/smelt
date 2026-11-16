@@ -1296,6 +1296,18 @@ macro_rules! op_group_transcribed {
             }
                 fresh(true)
                 => (format!("list_concat {left}, {right}"));
+            /// Python's `list * n` (and `n * list`): a NEW list holding the
+            /// list's elements `n` times over, the elements themselves shared
+            /// (a shallow copy, as `CPython` makes). A count of zero or less is
+            /// the empty list.
+            ListRepeat {
+                /// The repeated list.
+                list: one @RECV,
+                /// The repeat count, a machine integer.
+                count: one,
+            }
+                fresh(true)
+                => (format!("list_repeat {list}, {count}"));
             /// Normalize one `Array.prototype.concat` argument whose static type is
             /// erased into the list of items it contributes.
             ///
@@ -1803,8 +1815,11 @@ macro_rules! op_group_transcribed {
             JsonStringify {
                 /// Value to serialize.
                 value: one @READ,
+                /// The source `replacer`: a function or an array of keys
+                /// (`None` when the source passed none, `null` or `undefined`).
+                replacer: opt,
             }
-                => (format!("json_stringify {value}"));
+                => (format!("json_stringify {value}{}", tail(", ", ", ", &replacer.iter().cloned().collect::<Vec<_>>())));
             /// The `space` argument of `JSON.stringify(value, replacer, space)`:
             /// re-indent compact JSON `text` the way JavaScript lays out an indented
             /// result. `space` is the source argument (a number clamped to 10, a
@@ -2728,6 +2743,29 @@ macro_rules! op_group_transcribed {
                 fallible(true)
                 call(format!("@{}", op.name()))
                 => (format!("{} {}", op.name(), args.join(" ")));
+            /// A Python `str` method with `CPython`'s own rules (see
+            /// [`crate::PyStrOp`]); the ones that can raise take an unwind edge.
+            PyStrCall {
+                /// Which method this is.
+                op: [$crate::PyStrOp],
+                /// The receiver, then the method's operands.
+                args: many,
+            }
+                fallible(op.can_raise())
+                call(format!("@py_str_{}", op.name()))
+                => (format!("py_str_{} {}", op.name(), args.join(" ")));
+            /// A raising Python numeric operation (see [`crate::PyNumericOp`]):
+            /// `int(s)`, `int(x)` of a float, `float(n)`, `/`, `//`, `%`, `**`,
+            /// the shifts, and the conversion to an index or a size.
+            PyNumericCall {
+                /// Which operation this is.
+                op: [$crate::PyNumericOp],
+                /// The operands in source order.
+                args: many,
+            }
+                fallible(op.can_raise())
+                call(format!("@{}", op.name()))
+                => (format!("{} {}", op.name(), args.join(" ")));
             /// `new URL(input, base?)`: a parsed WHATWG URL value, which throws a
             /// catchable `TypeError` when the input (resolved against the base) is not
             /// a valid URL.
@@ -2930,6 +2968,31 @@ macro_rules! op_group_custom {
                 mutates(Some(list))
                 fallible(*raises_when_empty)
                 => (format!("list_pop {list}{}", if *raises_when_empty { " raises" } else { "" }));
+            /// Python's `format(value, spec)` (an f-string's `{value:spec}`) over an
+            /// `int`, a `float` or a `str`, with `CPython`'s format-spec
+            /// mini-language; a spec the type does not take is a `ValueError`.
+            PyFormat {
+                /// The formatted value.
+                value: one,
+                /// The format spec text.
+                spec: [String],
+            }
+                fallible(true)
+                call("@py_format".to_owned())
+                => (format!("py_format {value}, {spec:?}"));
+            /// Python's `xs.pop(i)`: remove and return the item at `i` (negative
+            /// from the end); an empty list or an `i` out of range raises
+            /// `IndexError`.
+            PyListPopAt {
+                /// List value to mutate.
+                list: one @RECV_MUT,
+                /// The position, a machine integer.
+                index: one,
+            }
+                mutates(Some(list))
+                fallible(true)
+                call("@py_list_pop_at".to_owned())
+                => (format!("py_list_pop_at {list}, {index}"));
             /// Remove and return the first item from a list.
             ListShift {
                 /// List value to mutate.

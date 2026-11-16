@@ -1,0 +1,40 @@
+{"f":"custom"}
+["1970-01-01T00:00:00.000Z"]
+{"a":1,"c":3}
+{"d":"1970-01-02T00:00:00.000Z"}
+true
+Infinity
+{"a":10,"b":"two","c":[10,20],"d":{"e":true}}
+{"d":{"e":true},"a":1}
+{
+  "a": 1,
+  "b": "two",
+  "c": [
+    1,
+    2
+  ],
+  "d": {
+    "e": true
+  }
+}
+{
+-"a": 1,
+-"b": "two"
+}
+{"when":"1970-01-01T00:00:00.000Z","list":["1970-01-02T00:00:00.000Z"]}
+"1970-01-01T00:00:00.000Z" null
+{"price":"12.34"} ["0.05"]
+{"w":3,"h":4,"area":12}
+{"inner":"key=inner"}
+01 -> SyntaxError
+1. -> SyntaxError
+.5 -> SyntaxError
+- -> SyntaxError
+1e -> SyntaxError
+[1,] -> SyntaxError
+{"a":1,} -> SyntaxError
+-0 -> -0
+1E+2 -> 100
+[] -> []
+{} -> {}
+true Infinity -Infinity 1

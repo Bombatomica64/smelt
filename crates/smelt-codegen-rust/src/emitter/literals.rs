@@ -12,6 +12,7 @@ pub(crate) fn constant_expr(constant: &Constant, js_text: bool) -> RustExpr {
         Constant::Bool(value) => RustExpr::path(value.to_string()),
         Constant::Int(value) => number_literal(value.to_string(), *value < 0),
         Constant::BigInt(digits) => crate::bigint_prelude::literal_expr(digits),
+        Constant::PyInt(digits) => crate::py_int::literal_expr(digits),
         Constant::Float(value) => {
             if value.is_infinite() {
                 return if value.is_sign_negative() {

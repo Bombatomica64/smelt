@@ -211,12 +211,12 @@ fn manifest_materializes_property_as_typed_descriptor() -> TestResult {
     )?;
     ensure_eq(
         &ctx.krate.types.get(descriptor.read_ty),
-        &Some(&Type::Int),
+        &Some(&Type::PyInt),
         "descriptor read type",
     )?;
     ensure_eq(
         &descriptor.write_ty.and_then(|ty| ctx.krate.types.get(ty)),
-        &Some(&Type::Int),
+        &Some(&Type::PyInt),
         "descriptor write type",
     )?;
     ensure(

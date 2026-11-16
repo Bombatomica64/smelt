@@ -217,12 +217,13 @@ as_bool: bool = bool("")
     let module = module(&ctx, module_id)?;
     let code = module_code(&ctx, module)?;
 
-    for expected in [
-        PrimitiveCastOp::ToString,
-        PrimitiveCastOp::ToInt,
-        PrimitiveCastOp::ToFloat,
-        PrimitiveCastOp::ToBool,
-    ] {
+    // `str(True)` and `bool("")` cannot raise and stay plain casts. The
+    // conversions into and out of `int` keep `CPython`'s semantics instead:
+    // `int(3.8)` is the raising `FromFloat` (an `int` of a `NaN` or an
+    // infinity raises), and `float(7)` of a constant is the exact constant.
+    // Old requirement: all four were `PrimitiveCast`s, which wrapped an `int`
+    // in `i64` and panicked on `int("x")` rather than raising `ValueError`.
+    for expected in [PrimitiveCastOp::ToString, PrimitiveCastOp::ToBool] {
         ensure(
             code.exprs().any(
                 |expr| matches!(expr.kind, ExprKind::PrimitiveCast { op, .. } if op == expected),
@@ -230,6 +231,22 @@ as_bool: bool = bool("")
             "expected primitive conversion lowering",
         )?;
     }
+    ensure(
+        code.exprs().any(|expr| {
+            matches!(
+                expr.kind,
+                ExprKind::PyNumericCall {
+                    op: smelt_hir::PyNumericOp::FromFloat,
+                    ..
+                }
+            )
+        }),
+        "int(3.8) is the raising int-of-float conversion",
+    )?;
+    ensure(
+        code.exprs().any(|expr| matches!(expr.kind, ExprKind::Literal(Literal::Float(value)) if value.to_bits() == 7.0_f64.to_bits())),
+        "float(7) folds to the exact constant",
+    )?;
     Ok(())
 }
 

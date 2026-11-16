@@ -1,14 +1,14 @@
 module examples/python/end-to-end/01_number/input.py (ModuleId(0))
   body BodyId(0)
   items
-    global mut count: Int
+    global mut count: PyInt
   exprs
     #0: None = @1(console_log)
-    #1: Int = global_get @0(count)
+    #1: PyInt = global_get @0(count)
     #2: None = call #0(#1)
   stmts
     s0: #2
 
 interned types
-  t0 = Int
+  t0 = PyInt
   t1 = None

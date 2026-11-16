@@ -5,6 +5,7 @@
 use smelt_hir::StaticMember;
 
 use super::call::RenderedCall;
+use super::callback_signature::ParameterPassing;
 use super::*;
 use crate::rust::RustExpr;
 use crate::static_receiver::{RECEIVER_GENERIC, RECEIVER_PARAM, receiver_argument};
@@ -23,6 +24,8 @@ struct MemberSignature {
     params: Vec<(String, String)>,
     /// The parameters' MIR types, which a dispatch renders its arguments at.
     param_tys: Vec<TypeId>,
+    /// How each parameter is passed, which decides how its argument is borrowed.
+    param_passing: Vec<ParameterPassing>,
     /// The value type it answers (inside the `Result`).
     ret_ty: TypeId,
     /// That type's Rust text.
@@ -135,7 +138,7 @@ impl FunctionEmitter<'_> {
                     Some(global) => self.global_get_expr(global)?,
                     None if declared.value.is_some() => crate::classes::materialized_static_value(
                         declared.value.as_ref(),
-                        self.mir.types.get(declared.ty) != Some(&Type::PyStr),
+                        self.mir.types.get(declared.ty),
                     ),
                     None => continue,
                 };
@@ -185,6 +188,7 @@ impl FunctionEmitter<'_> {
                     name,
                     generics: String::new(),
                     params,
+                    param_passing: vec![ParameterPassing::Owned; param_tys.len()],
                     param_tys,
                     ret_ty: access.ty,
                     ret_text: ty_text,
@@ -215,6 +219,7 @@ impl FunctionEmitter<'_> {
                 generics: String::new(),
                 params: Vec::new(),
                 param_tys: Vec::new(),
+                param_passing: Vec::new(),
                 ret_ty: self.type_id(Type::Unknown)?,
                 ret_text: "SmeltUnknown".to_owned(),
                 fallible: false,
@@ -234,7 +239,9 @@ impl FunctionEmitter<'_> {
         let generics = emitter.method_own_generics_text()?;
         let mut params = Vec::new();
         let mut param_tys = Vec::new();
+        let mut param_passing = Vec::new();
         for param in &function.params {
+            param_passing.push(emitter.parameter_passing(*param)?);
             params.push((
                 emitter.local_name(*param)?.into_owned(),
                 emitter.parameter_decl_type(*param)?.as_str().to_owned(),
@@ -250,6 +257,7 @@ impl FunctionEmitter<'_> {
             generics,
             params,
             param_tys,
+            param_passing,
             ret_ty: function.return_ty,
             ret_text,
             fallible: true,
@@ -514,9 +522,11 @@ impl FunctionEmitter<'_> {
                         constructor.return_ty,
                     ))
                 }
-                _ => Err(EmitError::new(
-                    "a static field or class value reached the fallible dispatch path",
-                )),
+                StaticMember::Get(_) | StaticMember::Set(_) | StaticMember::ClassValue => {
+                    Err(EmitError::new(
+                        "a static field or class value reached the fallible dispatch path",
+                    ))
+                }
             };
         }
         let signature = self.member_signature(class, member)?;
@@ -534,7 +544,10 @@ impl FunctionEmitter<'_> {
                     .map_or(signature.ret_ty, |pinned| pinned.return_ty),
                 None => signature.ret_ty,
             },
-            _ => signature.ret_ty,
+            StaticMember::Get(_)
+            | StaticMember::Set(_)
+            | StaticMember::Construct
+            | StaticMember::ClassValue => signature.ret_ty,
         };
         Ok((RenderedCall::propagating(call), source_ty))
     }
@@ -551,11 +564,11 @@ impl FunctionEmitter<'_> {
             let Some(target_ty) = signature.param_tys.get(index).copied() else {
                 continue;
             };
-            let borrowed_callback = signature
-                .params
-                .get(index)
-                .is_some_and(|(_, ty)| ty.starts_with('&'))
-                && matches!(self.mir.types.get(target_ty), Some(Type::Function(_)));
+            let borrowed_callback =
+                matches!(
+                    signature.param_passing.get(index),
+                    Some(ParameterPassing::BorrowedCallback | ParameterPassing::MutableReference)
+                ) && matches!(self.mir.types.get(target_ty), Some(Type::Function(_)));
             rendered.push(if borrowed_callback {
                 self.borrowed_function_argument_expr(arg, target_ty, None)?
                     .into_string()

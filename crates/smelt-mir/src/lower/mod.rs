@@ -511,9 +511,9 @@ fn lower_globals(
         // expression. That is a compiler bug, not a source problem, so it is
         // reported rather than defaulted to some value the source never wrote.
         let init = match &global.init {
-            smelt_hir::MutableGlobalInit::Literal(literal) => {
-                crate::MirGlobalInit::Constant(lower_literal(literal))
-            }
+            smelt_hir::MutableGlobalInit::Literal(literal) => crate::MirGlobalInit::Constant(
+                lower_literal_as(literal, krate.types.get(global.ty)),
+            ),
             smelt_hir::MutableGlobalInit::Initializer(init_item) => {
                 let Some(func_id) = item_functions.get(init_item) else {
                     errors.push(LowerError {
@@ -666,6 +666,14 @@ fn lower_class_table_entry(
                     .get(method)
                     .copied()
                     .map(|method| crate::MirClassProtocol::Add { method }),
+                smelt_hir::ClassProtocol::Str { method } => item_functions
+                    .get(method)
+                    .copied()
+                    .map(|function| crate::MirClassProtocol::Str { method: function }),
+                smelt_hir::ClassProtocol::Repr { method } => item_functions
+                    .get(method)
+                    .copied()
+                    .map(|function| crate::MirClassProtocol::Repr { method: function }),
             })
             .collect(),
         statics_of: class.statics_of,
@@ -1068,7 +1076,21 @@ fn body_is_empty(krate: &smelt_hir::Crate, body_id: BodyId) -> bool {
         })
 }
 
-/// Converts a HIR literal to a MIR constant.
+/// Converts a HIR literal of type `ty` to a MIR constant.
+///
+/// The literal says what the value is and the type how it is carried: an
+/// integer literal of a Python `int` expression ([`Type::PyInt`]) is a
+/// [`Constant::PyInt`], whatever width its digits need, while the same digits
+/// in an `i64` position stay a [`Constant::Int`].
+fn lower_literal_as(literal: &HirLiteral, ty: Option<&Type>) -> Constant {
+    match (literal, ty) {
+        (HirLiteral::Int(value), Some(Type::PyInt)) => Constant::PyInt(value.to_string()),
+        (HirLiteral::BigInt(digits), Some(Type::PyInt)) => Constant::PyInt(digits.clone()),
+        _ => lower_literal(literal),
+    }
+}
+
+/// Converts a HIR literal to a MIR constant, by the literal's own kind.
 fn lower_literal(literal: &HirLiteral) -> Constant {
     match literal {
         HirLiteral::Bool(value) => Constant::Bool(*value),

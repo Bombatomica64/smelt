@@ -126,9 +126,13 @@ export function orDefault<TDefault = unknown>(value: any, defaultValue?: TDefaul
 /// that names a family it did not declare an edge to shows up here, by need,
 /// instead of as an E0425 in the one program that happens to demand it alone.
 /// The program facts a flag can also ask are checked both off and on.
+///
+/// The `util.inspect` items any `console.log` splices in are rendered too. When
+/// any TypeScript function demanded `JsString`, an item written against it
+/// behind another flag (the inspect core's string entries) never showed.
 #[test]
 fn every_need_closes_to_a_self_contained_runtime() {
-    use crate::runtime_prelude::{ProgramFacts, flag_for, rendered_text};
+    use crate::runtime_prelude::{ProgramFacts, flag_for, rendered_entries, rendered_text};
     let all_facts = ProgramFacts {
         reference_classes: true,
         erased_view_write_through: true,
@@ -140,7 +144,13 @@ fn every_need_closes_to_a_self_contained_runtime() {
         for facts in [ProgramFacts::default(), all_facts] {
             let demand = RuntimeDemand::closed_over(&[*need]);
             let flags = |name: &str| flag_for(&demand, facts, name).unwrap_or(false);
-            let text = rendered_text(&flags);
+            // The `util.inspect` items are spliced in by any `console.log` of
+            // a typed value, whatever else the program demands.
+            let mut text = rendered_text(&flags);
+            text.push_str(&rendered_entries(
+                smelt_runtime::order::CONSOLE_INSPECT,
+                &flags,
+            ));
             let undefined = runtime_symbols_check::undefined_runtime_symbols([text.as_str()]);
             if !undefined.is_empty() {
                 failures.push(format!("{need:?} with {facts:?}: {}", undefined.join(", ")));

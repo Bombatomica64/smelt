@@ -85,12 +85,11 @@ impl ModuleBuilder<'_> {
         let operand = self.argument(arg, body)?;
         // `String(x)` spells an absent `null` as `"null"` (`lowering::null_absent`).
         let operand = if op == PrimitiveCastOp::ToString {
-            self.null_absent_string_operand(operand, arg.span().start, arg.span().end, body)
+            self.string_conversion_operand(operand, arg.span().start, arg.span().end, body)
         } else {
             operand
         };
         let operand_ty = Self::expr_ty(body, operand);
-        let operand_type = self.ctx.krate.types.get(operand_ty);
         if !self.primitive_cast_accepts_operand(op, operand_ty) {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
@@ -99,14 +98,6 @@ impl ModuleBuilder<'_> {
                     callee.name,
                     smelt_hir::type_display(&self.ctx.krate, operand_ty)
                 ),
-            ));
-        }
-        if self.names_host(callee.name.as_str(), "String")
-            && matches!(operand_type, Some(Type::Bool))
-        {
-            return Err(SmeltError::unsupported(
-                self.span(call.span.start, call.span.end),
-                "String currently supports number and string arguments",
             ));
         }
         let ty = self.ctx.krate.types.intern(result_ty);
@@ -131,7 +122,17 @@ impl ModuleBuilder<'_> {
                 // array's string is its elements joined with `,`.
                 || matches!(
                     self.ctx.krate.types.get(operand_ty),
-                    Some(Type::Union(_) | Type::Never | Type::List(_) | Type::Tuple(_))
+                    Some(
+                        Type::Union(_)
+                            | Type::Never
+                            | Type::None
+                            | Type::Bool
+                            | Type::List(_)
+                            | Type::Tuple(_)
+                            | Type::Set(_)
+                            | Type::JsMap(_, _)
+                            | Type::Dict(_, _)
+                    )
                 ))
         {
             return true;

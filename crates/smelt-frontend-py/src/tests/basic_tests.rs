@@ -49,7 +49,7 @@ def add(x: int, y: int) -> int:
     } else {
         return Err("expected Function item".to_owned());
     }
-    ensure_signature(&ctx, "add", "add(x: Int, y: Int) -> Int")?;
+    ensure_signature(&ctx, "add", "add(x: PyInt, y: PyInt) -> PyInt")?;
     Ok(())
 }
 
@@ -488,20 +488,33 @@ def shout() -> str:
     clippy::literal_string_with_formatting_args,
     reason = "the literal is Python source intentionally containing an f-string"
 )]
-fn fstring_format_spec_is_rejected() -> TestResult {
+fn fstring_format_spec_lowers_to_py_format() -> TestResult {
+    // A written-out spec formats through `PyFormat` (the parity fixture
+    // `fstring_format_specs` checks the text); a spec with a nested
+    // replacement field is still refused. Old requirement: every spec was
+    // rejected.
     let source = py!(r#"
 def render(value: float) -> str:
     return f"{value:.2f}"
 "#);
     let mut ctx = HirCtx::new();
-    let errors = lower_errors(source, &mut ctx)?;
-    let error = first_error(&errors)?;
-    ensure_eq(&error.code, &"smelt::unsupported-py", "error code")?;
+    lower_module(source, &mut ctx)?;
     ensure(
-        error.message.contains("format specifications"),
-        "expected format specification rejection message",
+        all_exprs(&ctx)
+            .any(|expr| matches!(&expr.kind, ExprKind::PyFormat { spec, .. } if spec == ".2f")),
+        "expected a PyFormat with the spec text",
     )?;
-    Ok(())
+    let nested = py!(r#"
+def render(value: float, width: int) -> str:
+    return f"{value:{width}}"
+"#);
+    let mut nested_ctx = HirCtx::new();
+    let errors = lower_errors(nested, &mut nested_ctx)?;
+    let error = first_error(&errors)?;
+    ensure(
+        error.message.contains("nested replacement field"),
+        "nested spec refused",
+    )
 }
 
 #[test]
@@ -653,7 +666,11 @@ def collected(xs: list[int]) -> list[int]:
     let mut ctx = HirCtx::new();
     // Generator expressions materialize eagerly; lowering should succeed.
     lower_module(source, &mut ctx)?;
-    ensure_signature(&ctx, "collected", "collected(xs: List<Int>) -> List<Int>")?;
+    ensure_signature(
+        &ctx,
+        "collected",
+        "collected(xs: List<PyInt>) -> List<PyInt>",
+    )?;
     Ok(())
 }
 
@@ -670,20 +687,21 @@ def chars(text: str) -> list[str]:
 }
 
 #[test]
-fn comprehension_destructuring_target_is_rejected() -> TestResult {
+fn comprehension_destructuring_target_lowers() -> TestResult {
+    // A tuple target binds as a `for` statement's does (the parity fixture
+    // `comprehension_targets_and_tuple_order` checks the values). Old
+    // requirement: it was rejected as unsupported.
     let source = py!(r"
 def firsts(pairs: list[tuple[int, int]]) -> list[int]:
     return [a for a, b in pairs]
 ");
     let mut ctx = HirCtx::new();
-    let errors = lower_errors(source, &mut ctx)?;
-    let error = first_error(&errors)?;
-    ensure_eq(&error.code, &"smelt::unsupported-py", "error code")?;
-    ensure(
-        error.message.contains("destructuring"),
-        "expected destructuring rejection message",
-    )?;
-    Ok(())
+    lower_module(source, &mut ctx)?;
+    ensure_signature(
+        &ctx,
+        "firsts",
+        "firsts(pairs: List<(PyInt, PyInt)>) -> List<PyInt>",
+    )
 }
 
 /// Every expression of every body in the crate.
@@ -740,8 +758,13 @@ def bump() -> int:
 
 #[test]
 fn true_division_and_mixed_arithmetic_promote_ints_to_float() -> TestResult {
-    // `/` is true division even for two ints, and `int op float` promotes the
-    // int: both operands of each reach codegen as floats.
+    // `int op float` promotes the int: both operands reach codegen as floats.
+    // `/` of two ints is true division into a float, computed exactly from
+    // the two ints (`PyNumericOp::TrueDiv`, correctly rounded like CPython's
+    // `long_true_divide`) rather than by converting each to a float first.
+    // Old requirement: `n / 2` promoted both operands to float and lowered to a
+    // float `BinOp::Div`, which double-rounds an int past 2**53 and raises
+    // `OverflowError` on an int past `f64`'s range that CPython divides fine.
     let source = py!(r"
 def half(n: int) -> float:
     return n / 2
@@ -755,7 +778,7 @@ def doubled(n: int) -> int:
     let mut ctx = HirCtx::new();
     lower_module(source, &mut ctx)?;
     let float_ty = ctx.krate.types.intern(Type::Float);
-    let int_ty = ctx.krate.types.intern(Type::Int);
+    let int_ty = ctx.krate.types.intern(Type::PyInt);
     let mut float_ops = 0_usize;
     for candidate in &ctx.krate.bodies {
         for expr in &candidate.exprs {
@@ -778,7 +801,23 @@ def doubled(n: int) -> int:
             }
         }
     }
-    ensure_eq(&float_ops, &2, "the division and the mixed addition")
+    ensure_eq(&float_ops, &1, "the mixed addition")?;
+    let true_divisions = ctx
+        .krate
+        .bodies
+        .iter()
+        .flat_map(|candidate| candidate.exprs.iter())
+        .filter(|expr| {
+            matches!(
+                expr.kind,
+                ExprKind::PyNumericCall {
+                    op: smelt_hir::PyNumericOp::TrueDiv,
+                    ..
+                }
+            ) && expr.ty == float_ty
+        })
+        .count();
+    ensure_eq(&true_divisions, &1, "the int / int true division")
 }
 
 #[test]

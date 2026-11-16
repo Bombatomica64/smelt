@@ -556,12 +556,13 @@ impl FunctionEmitter<'_> {
                 if !copied_from_field {
                     return None;
                 }
-                match self.single_assigned_source(*local, 0)? {
-                    Place::Field { base, field } => Some((*base, *field)),
-                    _ => None,
-                }
+                let Place::Field { base, field } = self.single_assigned_source(*local, 0)? else {
+                    return None;
+                };
+                Some((*base, *field))
             }
-            _ => None,
+            // An element or a global's cell is not a class slot.
+            Place::Index { .. } | Place::Global { .. } => None,
         }
     }
 

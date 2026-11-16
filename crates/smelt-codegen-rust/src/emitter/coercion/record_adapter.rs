@@ -34,6 +34,11 @@ impl FunctionEmitter<'_> {
                 (self.mir.types.get(source), self.mir.types.get(inner)),
                 (Some(Type::Int), Some(Type::Float))
                     | (Some(Type::Float), Some(Type::Int))
+                    | (
+                        Some(Type::Int | Type::Float | Type::Bool),
+                        Some(Type::PyInt)
+                    )
+                    | (Some(Type::PyInt), Some(Type::Float | Type::Int))
                     | (Some(Type::List(_)), Some(Type::Tuple(_)))
                     | (Some(Type::List(_)), Some(Type::List(_)))
                     | (Some(Type::Dict(_, _)), Some(Type::Dict(_, _)))

@@ -13,6 +13,15 @@ use oxc::span::GetSpan;
 use smelt_hir::ErasureReason;
 use std::borrow::Cow;
 
+/// The key under which an accessor marker (`{ __smelt_get: getter }`, the
+/// erased form of an object literal's `get`) stores its getter; the runtime's
+/// property reads call it (`smelt_resolve_accessor`).
+const ACCESSOR_GET: &str = smelt_stdlib::runtime_symbols::markers::SMELT_GET;
+
+/// The key under which an accessor marker stores its setter; the runtime's
+/// property writes call it (`smelt_object_put`).
+const ACCESSOR_SET: &str = smelt_stdlib::runtime_symbols::markers::SMELT_SETTER;
+
 /// Whether two literal values are the same JavaScript value (`1` and `1.0`
 /// are one number).
 pub(in crate::lowering) fn literal_values_equal(left: &Literal, right: &Literal) -> bool {
@@ -58,6 +67,23 @@ impl ModuleBuilder<'_> {
                     "object spread properties are not lowered yet",
                 ));
             };
+            if object_property.kind == PropertyKind::Set {
+                if self.is_computed_symbol_key(object_property) {
+                    continue;
+                }
+                let key = self.object_property_key_expr(object_property, body)?;
+                let Expression::FunctionExpression(function) = &object_property.value else {
+                    return Err(SmeltError::unsupported(
+                        self.span(object_property.span.start, object_property.span.end),
+                        "object literal setter without a function body",
+                    ));
+                };
+                let setter =
+                    self.function_expression_value(function, None, object_property.span, body)?;
+                let marker = self.accessor_marker(body, ACCESSOR_SET, setter, object_property);
+                entries.push((key, marker));
+                continue;
+            }
             if object_property.kind == PropertyKind::Get {
                 if self.is_computed_symbol_key(object_property) {
                     continue;
@@ -94,7 +120,7 @@ impl ModuleBuilder<'_> {
                     };
                 let marker_key_ty = self.ctx.krate.types.intern(Type::String);
                 let marker_key = body.push_expr(Expr {
-                    kind: ExprKind::Literal(Literal::String("__smelt_get".to_owned())),
+                    kind: ExprKind::Literal(Literal::String(ACCESSOR_GET.to_owned())),
                     ty: marker_key_ty,
                     span: self.span(
                         object_property.key.span().start,
@@ -154,7 +180,9 @@ impl ModuleBuilder<'_> {
             let value = self.object_property_value_expr(object_property, body, value_hint)?;
             entries.push((key, value));
         }
+        let entries = Self::merge_accessor_pairs(entries, body);
         let ty = self.object_literal_type(&entries, type_hint, body);
+        let ty = self.accessor_literal_map_type(ty, type_hint, &entries, body);
         let entries = self.record_literal_accessor_entries(ty, entries, body);
         Ok(body.push_expr(Expr {
             kind: ExprKind::DictLit(entries),
@@ -184,8 +212,7 @@ impl ModuleBuilder<'_> {
         entries
             .into_iter()
             .map(|(key, value)| {
-                let Some(getter) = Self::accessor_marker_function(body, value, "__smelt_get")
-                else {
+                let Some(getter) = Self::accessor_marker_function(body, value, ACCESSOR_GET) else {
                     return (key, value);
                 };
                 if let Some(ExprKind::Literal(Literal::String(field_key))) =
@@ -201,23 +228,166 @@ impl ModuleBuilder<'_> {
             .collect()
     }
 
-    /// The function an accessor marker `{ <marker>: fn }` wraps.
+    /// The type of an object literal with a getter that is built as a map,
+    /// not a record struct: a map of erased values.
+    ///
+    /// A getter is stored as the accessor marker `{ __smelt_get: fn }`, which
+    /// a property read of an erased object calls (`smelt_record_property`,
+    /// with the object as the getter's `this`). That only happens when the
+    /// map's values are erased: [`Self::object_literal_type`] joins the value
+    /// types, so a literal whose only values are getters became a map of
+    /// marker maps, `Dict<String, Dict<String, T>>`, and `a.x` read the
+    /// marker itself (`{}`) instead of running the getter. A literal that
+    /// takes a record struct stores its getters as accessor fields instead
+    /// ([`Self::record_literal_accessor_entries`]); a map type the context
+    /// supplies is the declared slot's and stays as it is.
+    fn accessor_literal_map_type(
+        &mut self,
+        ty: smelt_hir::TypeId,
+        type_hint: Option<smelt_hir::TypeId>,
+        entries: &[(smelt_hir::ExprId, smelt_hir::ExprId)],
+        body: &Body,
+    ) -> smelt_hir::TypeId {
+        let hinted_map = type_hint
+            .is_some_and(|hint| matches!(self.ctx.krate.types.get(hint), Some(Type::Dict(_, _))));
+        let Some(Type::Dict(key_ty, _)) = self.ctx.krate.types.get(ty).cloned() else {
+            return ty;
+        };
+        if hinted_map
+            || !entries
+                .iter()
+                .any(|(_, value)| Self::is_accessor_marker(body, *value))
+        {
+            return ty;
+        }
+        let value_ty = self.erase_with(ErasureReason::UnmodeledType, "object literal getter");
+        self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty))
+    }
+
+    /// The accessor key of `key`, when it is one of the accessor marker's keys
+    /// (`__smelt_get`, `__smelt_setter`).
+    fn accessor_key(body: &Body, key: smelt_hir::ExprId) -> Option<&str> {
+        match body.expr_at(key).map(|expr| &expr.kind) {
+            Some(ExprKind::Literal(Literal::String(text)))
+                if text == ACCESSOR_GET || text == ACCESSOR_SET =>
+            {
+                Some(text.as_str())
+            }
+            _ => None,
+        }
+    }
+
+    /// The pairs of `value` when it is an accessor marker: a map literal of
+    /// one getter (`__smelt_get`), one setter (`__smelt_setter`) or both.
+    fn accessor_marker_pairs(
+        body: &Body,
+        value: smelt_hir::ExprId,
+    ) -> Option<&[(smelt_hir::ExprId, smelt_hir::ExprId)]> {
+        let Some(ExprKind::DictLit(pairs)) = body.expr_at(value).map(|expr| &expr.kind) else {
+            return None;
+        };
+        (matches!(pairs.len(), 1 | 2)
+            && pairs
+                .iter()
+                .all(|(key, _)| Self::accessor_key(body, *key).is_some()))
+        .then_some(pairs.as_slice())
+    }
+
+    /// Whether `value` is an accessor marker.
+    fn is_accessor_marker(body: &Body, value: smelt_hir::ExprId) -> bool {
+        Self::accessor_marker_pairs(body, value).is_some()
+    }
+
+    /// The function an accessor marker wraps under `marker`
+    /// (`__smelt_get` or `__smelt_setter`).
     fn accessor_marker_function(
         body: &Body,
         value: smelt_hir::ExprId,
         marker: &str,
     ) -> Option<smelt_hir::ExprId> {
-        let Some(ExprKind::DictLit(pairs)) = body.expr_at(value).map(|expr| &expr.kind) else {
-            return None;
+        Self::accessor_marker_pairs(body, value)?
+            .iter()
+            .find(|(key, _)| Self::accessor_key(body, *key) == Some(marker))
+            .map(|(_, function)| *function)
+    }
+
+    /// The accessor marker `{ <marker>: function }` of one `get` or `set`
+    /// property, typed as an erased map: the marker only ever lives in an
+    /// erased object, or is unwrapped into a record's accessor field.
+    fn accessor_marker(
+        &mut self,
+        body: &mut Body,
+        marker: &str,
+        function: smelt_hir::ExprId,
+        object_property: &oxc::ast::ast::ObjectProperty<'_>,
+    ) -> smelt_hir::ExprId {
+        let key_ty = self.ctx.krate.types.intern(Type::String);
+        let marker_key = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String(marker.to_owned())),
+            ty: key_ty,
+            span: self.span(
+                object_property.key.span().start,
+                object_property.key.span().end,
+            ),
+        });
+        let value_ty = self.erase_with(ErasureReason::UnmodeledType, "object literal accessor");
+        let ty = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
+        body.push_expr(Expr {
+            kind: ExprKind::DictLit(vec![(marker_key, function)]),
+            ty,
+            span: self.span(object_property.span.start, object_property.span.end),
+        })
+    }
+
+    /// Merge a `get` and a `set` of the same key into one accessor marker, as
+    /// JavaScript defines one accessor property with both functions.
+    ///
+    /// A later definition of a key replaces an earlier one, so only an
+    /// accessor that directly pairs with the previous accessor of its key
+    /// (a getter with a setter) merges; any other repeat keeps both entries,
+    /// and the map literal's later entry wins as before.
+    fn merge_accessor_pairs(
+        entries: Vec<(smelt_hir::ExprId, smelt_hir::ExprId)>,
+        body: &mut Body,
+    ) -> Vec<(smelt_hir::ExprId, smelt_hir::ExprId)> {
+        let key_text = |exprs: &Body, key: smelt_hir::ExprId| match exprs
+            .expr_at(key)
+            .map(|expr| &expr.kind)
+        {
+            Some(ExprKind::Literal(Literal::String(text))) => Some(text.clone()),
+            _ => None,
         };
-        let [(key, function)] = pairs.as_slice() else {
-            return None;
-        };
-        matches!(
-            body.expr_at(*key).map(|expr| &expr.kind),
-            Some(ExprKind::Literal(Literal::String(text))) if text == marker
-        )
-        .then_some(*function)
+        let mut merged: Vec<(smelt_hir::ExprId, smelt_hir::ExprId)> = Vec::new();
+        for (key, value) in entries {
+            let Some(text) = key_text(body, key) else {
+                merged.push((key, value));
+                continue;
+            };
+            let previous = merged
+                .iter()
+                .rposition(|(other, _)| key_text(body, *other).as_deref() == Some(text.as_str()));
+            let pair = previous.and_then(|index| {
+                let earlier = merged.get(index)?.1;
+                let earlier_pairs = Self::accessor_marker_pairs(body, earlier)?;
+                let later_pairs = Self::accessor_marker_pairs(body, value)?;
+                let ([(earlier_key, _)], [later]) = (earlier_pairs, later_pairs) else {
+                    return None;
+                };
+                (Self::accessor_key(body, *earlier_key) != Self::accessor_key(body, later.0))
+                    .then_some((index, *later))
+            });
+            match pair.and_then(|(index, later)| Some((merged.get(index)?.1, later))) {
+                Some((earlier, later)) => {
+                    if let Some(ExprKind::DictLit(pairs)) =
+                        body.expr_at_mut(earlier).map(|expr| &mut expr.kind)
+                    {
+                        pairs.push(later);
+                    }
+                }
+                None => merged.push((key, value)),
+            }
+        }
+        merged
     }
 
     /// Lower an object expression that uses JavaScript spread properties.
@@ -1111,7 +1281,11 @@ impl ModuleBuilder<'_> {
             let expected = self.class_field_type(candidate, field).ok()?;
             // A getter is stored as the field's accessor, so it fits when it
             // returns exactly the field's type.
-            if let Some(getter) = Self::accessor_marker_function(body, *value, "__smelt_get") {
+            // A setter cannot be a record field's accessor, which only reads.
+            if Self::accessor_marker_function(body, *value, ACCESSOR_SET).is_some() {
+                return None;
+            }
+            if let Some(getter) = Self::accessor_marker_function(body, *value, ACCESSOR_GET) {
                 let returns_field = matches!(
                     self.ctx.krate.types.get(Self::expr_ty(body, getter)),
                     Some(Type::Function(function)) if function.params.is_empty() && function.return_ty == expected
