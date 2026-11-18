@@ -405,7 +405,7 @@ impl ModuleBuilder<'_> {
         if matches!(
             self.resolve_value(name),
             crate::lowering::resolve::ValueBinding::Local(_)
-        ) || self.mutable_global_item(name).is_some()
+        ) || self.mutable_global_ref(name).is_some()
         {
             return None;
         }

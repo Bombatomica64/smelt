@@ -90,6 +90,20 @@ pub struct ObjectConst {
     pub site: Option<Span>,
 }
 
+/// A [`smelt_hir::Item::MutableGlobal`] and the type of its live value.
+///
+/// Every read of a mutable global needs both, and the type lives on the item.
+/// Handing the pair around, built once where the item is known to be a mutable
+/// global, means no consumer looks the item up again and invents a type (an
+/// erasure) for an arm that cannot occur.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MutableGlobalRef {
+    /// The mutable-global item.
+    pub item: ItemId,
+    /// The type of its live value.
+    pub ty: TypeId,
+}
+
 /// The length a parameter's *source* annotation demands of its argument.
 ///
 /// TypeScript states array lengths in the type — `[A, B]` is exactly two
@@ -322,7 +336,7 @@ pub struct HirCtx {
     /// identity, keyed by the declaration it evaluates (see
     /// `lowering::module_init::identity_slots`). Crate-wide, so an importer
     /// and the declaring module read the same object.
-    pub identity_slots: HashMap<IdentitySlotKey, ItemId>,
+    pub identity_slots: HashMap<IdentitySlotKey, MutableGlobalRef>,
     /// Each identity slot in creation order, with the crate's item count
     /// before it: a discarded speculative lowering removes the slots it
     /// created (`lowering::speculation`).
