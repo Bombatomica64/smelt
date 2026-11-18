@@ -225,8 +225,8 @@ mod tests {
             .and_then(|file| file.set_modified(old))
             .expect("age the file");
         write_if_changed(&path, "fn a() {}\n").expect("identical write");
-        let modified = |path: &std::path::Path| {
-            std::fs::metadata(path)
+        let modified = |file: &std::path::Path| {
+            std::fs::metadata(file)
                 .and_then(|meta| meta.modified())
                 .expect("modification time")
         };
