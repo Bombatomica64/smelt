@@ -98,8 +98,9 @@ fn render_baseline_delta(out: &mut String, report: &UnknownReport, baseline: &Un
                 out,
                 format_args!(
                     "> **Regression to review:** avoidable erasure rose by {increase}. \
-                    Confirm each new `SmeltUnknown` marks a genuine dynamic boundary \
-                    (see the `SmeltUnknown enforcement` policy in `AGENTS.md`).\n"
+                    Confirm each new `SmeltUnknown` marks a genuine dynamic boundary: \
+                    documented at the emit site, with a regression test showing a \
+                    concrete type, union or generic cannot represent it.\n"
                 ),
             );
         }

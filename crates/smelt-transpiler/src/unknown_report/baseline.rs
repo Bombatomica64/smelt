@@ -34,9 +34,13 @@ pub(super) fn regression_message(regression: &Regression) -> String {
         }
     }
     message.push_str(
-        "\nReclassify a genuine boundary (with a code comment + regression test) \
-         and re-snapshot the baseline, or reduce the erasure. See the \
-         `SmeltUnknown enforcement` policy in AGENTS.md.",
+        "\nFix the cause: carry the concrete type or a scoped generic to the site. \
+         Only for a genuine dynamic boundary (source `unknown`, erased interop, \
+         JSON/plugin values, runtime-narrowed values): document it in a comment at \
+         the emit site, add a regression test showing a concrete type, union or \
+         generic cannot represent it, classify the line as a legitimate boundary in \
+         `classify_line` (crates/smelt-transpiler/src/unknown_report/classify.rs), and \
+         re-snapshot the baseline in the same commit.",
     );
     message
 }

@@ -526,13 +526,17 @@ impl ModuleBuilder<'_> {
         if !own || !field.mutable {
             return None;
         }
-        match field.inherited {
-            Some(access) => Some(StaticWriteTarget::Inherited {
+        if let Some(access) = field.inherited {
+            return Some(StaticWriteTarget::Inherited {
                 access,
                 ty: field.ty,
-            }),
-            None => field.storage.map(StaticWriteTarget::Global),
+            });
         }
+        let item = field.storage?;
+        Some(StaticWriteTarget::Global {
+            item,
+            ty: self.mutable_global_type(item)?,
+        })
     }
 
     /// The read of `field`, a static of a class: its getter for an inherited
@@ -1026,7 +1030,13 @@ mod tests {
 pub(in crate::lowering) enum StaticWriteTarget {
     /// A mutable global: a static the class declares, or a lifted module
     /// variable.
-    Global(smelt_hir::ItemId),
+    Global {
+        /// The [`smelt_hir::Item::MutableGlobal`] holding the value.
+        item: smelt_hir::ItemId,
+        /// The global's type, read once where the target is built so a
+        /// consumer never looks the item up again.
+        ty: smelt_hir::TypeId,
+    },
     /// A mutable static the class inherits, written through its setter (which
     /// makes the value the class's own) and read through its getter.
     Inherited {

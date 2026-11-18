@@ -350,9 +350,10 @@ fn regression_message(worsened: &[Worsening]) -> Option<String> {
         );
     }
     message.push_str(
-        "\nMake the program at least as typed again, or (only for a documented, \
-         justified boundary) re-snapshot with --update-baseline. See the \
-         `Typedness ratchet` policy in AGENTS.md.",
+        "\nFix the cause: make the program at least as typed again (concrete type, \
+         then scoped generic; `SmeltUnknown` only at a real dynamic boundary). \
+         Editing the baseline is never the fix, and `--update-baseline` refuses \
+         to record a regression.",
     );
     Some(message)
 }

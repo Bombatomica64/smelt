@@ -26,8 +26,6 @@ cargo test
 
 - Plain `cargo` only for `cargo test`, `cargo clippy --all-targets`, `cargo install`, third-party subcommands
   (`corgi test` does not work: integration tests spawn `cargo` on generated crates and read repo-wide files).
-- Declare every non-`.rs` file read at compile time (`include_str!`) in `corgi.toml` `[extra-inputs]`
-  (key = package name, globs relative to that crate); corgi sandboxes rustc.
 - CI clippy fails on deny-level lints and on any rise in `blocker-logs/clippy-baseline.json` (per-crate,
   per-lint counts; may only fall). Locally: `cargo clippy --workspace --all-targets --keep-going --message-format=json > clippy.json`,
   then `python3 scripts/check_clippy_ratchet.py --baseline blocker-logs/clippy-baseline.json --messages clippy.json --cargo-status $?`
@@ -37,10 +35,6 @@ cargo test
   under `~/scratch/<task>/`, deleted at the end. When done: `git worktree remove` your worktrees,
   `corgi clean --older-than 3d` (`corgi clean --cache` only with the user's OK), no builds or runners left running.
 
-## Generated Rust incremental builds
-The emitter writes a generated file only when its bytes change, so Cargo reuses incremental artifacts. Never
-replace this with unconditional `fs::write`; do not touch or regenerate generated files whose contents did not change.
-
 ## Generated Rust investigation
 - Warnings/blockers: `corgi run -p smelt-transpiler --bin smelt -- rust-diagnostics --cargo-manifest <generated-crate>/Cargo.toml --output blocker-logs/<name>.md`
   (sorted by count: start with the biggest class)
@@ -49,7 +43,6 @@ replace this with unconditional `fs::write`; do not touch or regenerate generate
 - Reports in `blocker-logs/` are temporary: delete yours in the PR that closes the investigation, durable conclusions go to `docs/` (`blocker-logs/README.md`).
 
 ## Code rules
-- Put docstrings in modules and functions.
 - Keep Rust emission helpers in separate modules and document them carefully. A codegen feature grown too
   large uses a well-known Rust library over custom machinery.
 - Finish the active feature phase before broad division refactors (unless a small split is low-risk and
@@ -71,45 +64,28 @@ replace this with unconditional `fs::write`; do not touch or regenerate generate
 - New conversions are explicit boundary adapters (`IntoSmeltUnknown`, checked casts, guards). Never use
   `SmeltUnknown` merely to make generated Rust compile, reconcile union arms, bypass missing flow narrowing,
   or avoid writing typed adapters.
-- Every erasure site names its reason: `erase(reason)` in the frontends (`docs/erasure-reasons.md`), never a
-  bare `intern(Type::Unknown)`; `unknown_type()` only for comparisons and already-erased propagation.
 
 ## SmeltUnknown enforcement
 - Before introducing or expanding `SmeltUnknown`: document the genuine dynamic boundary in a code comment and add a
   regression test proving concrete types, unions, or scoped generics cannot represent it.
 - When touching existing `SmeltUnknown` code, try a concrete type, generated union, or generic; report any net increase.
-- Measure: `smelt smelt-unknown-report <generated-crate>/src --baseline blocker-logs/smelt-unknown-baseline.json`
-  (method: `blocker-logs/smelt-unknown-report.md`). A PR that regenerates a corpus includes the report delta.
-
-| Baseline (`blocker-logs/`) | Corpus | Avoidable erasure | CI |
-| --- | --- | --- | --- |
-| `smelt-unknown-baseline.json` | examples | hard invariant: stays 0 | blocking, `--fail-on-regression` |
-| `smelt-unknown-baseline-es-toolkit.json` | es-toolkit | ratchet: may only stay equal or fall | blocking, `--fail-on-regression` |
-| `smelt-unknown-baseline-remeda.json` | remeda | advisory, a diff reference | never blocks |
-| `smelt-unknown-baseline-hono.json` | hono | advisory, a diff reference | never blocks |
-
-- An avoidable rise blocks merge unless the PR (1) documents the boundary at the emit site and (2) adds the
-  regression test; then reclassify via `classify_line` (`crates/smelt-transpiler/src/unknown_report/classify.rs`)
-  and re-snapshot in the same commit. Legitimate-boundary rises never block; avoidable falls re-snapshot in the same commit.
-- A scan of zero files, or one that lost >10% of the baseline's `files_scanned`, fails and never rewrites the baseline.
+- Measure with `smelt smelt-unknown-report <generated-crate>/src --baseline <baseline>` (method:
+  `blocker-logs/smelt-unknown-report.md`). A PR that regenerates a corpus includes the report delta; an avoidable
+  fall re-snapshots in the same commit.
 
 ## Typedness ratchet
 `smelt typedness-report` counts each program's values, property reads and calls as concrete, generic or erased
 (`SmeltUnknown`/`SmeltErasedFunction` anywhere in the type); `smelt build` writes `<output>/smelt-typedness.json`.
 Method: `blocker-logs/typedness-report.md`.
-- Per program and kind, the erased count may not rise; the corpus total likewise. The typed share does not judge.
-- Baselines (`blocker-logs/`): `typedness-baseline.json` (examples) and `typedness-baseline-es-toolkit.json`
-  block (`--fail-on-regression`); `typedness-baseline-remeda.json` is advisory.
-- More typed: re-snapshot with `--update-baseline` in the same commit (it only takes records whose erased counts did not rise).
-  A baseline program no longer measured fails the gate and survives `--update-baseline`; one removed on purpose is named with `--retire-program` in that commit.
-- A real regression is fixed at its source, never by editing the baseline.
+- More typed: re-snapshot with `--update-baseline` in the same commit.
 
 ## Verification contracts and audit evidence
 Read `docs/verification-and-audit.md` before correcting an expectation, adding a general lowering rule, auditing,
 changing allocation/copying/recursion/size arithmetic/runtime adapters, or optimizing.
 - Source behavior and type preservation are requirements independent of the implementation. Never make a fix
-  pass by weakening assertions, deleting coverage, broadening erasure classifications, or relaxing a baseline;
-  a wrong expectation is corrected by documenting old and new requirement, source evidence, and why the guarantee holds.
+  pass by weakening assertions, deleting coverage, or broadening erasure classifications (a relaxed baseline is
+  refused by the ratchets, see the table below); a wrong expectation is corrected by documenting old and new
+  requirement, source evidence, and why the guarantee holds.
 - Fix lowering, emission, or runtime helpers at the source; editing generated Rust is investigation only.
   Regenerate affected committed artifacts and verify they match; validate the final committed tree and rerun
   affected checks if it changes.
@@ -118,6 +94,24 @@ changing allocation/copying/recursion/size arithmetic/runtime adapters, or optim
 - Audits judge behavior, type preservation and weakened checks/stale output separately, shared helpers included,
   with concrete evidence; resource changes are checked on boundary inputs; benchmarks are defined before optimizing.
 - Report exactly what the evidence establishes and what remains unchecked.
+
+## Rules a check enforces
+Each row is a rule that used to be prose here. The check's error names the fix; do not restate the rule elsewhere.
+
+| Rule | Enforced by |
+| --- | --- |
+| Every module and function has a docstring | `missing_docs` and `clippy::missing_docs_in_private_items` in `Cargo.toml` `[workspace.lints]`, counted by `blocker-logs/clippy-baseline.json` |
+| No clippy lint count rises | `scripts/check_clippy_ratchet.py` against `blocker-logs/clippy-baseline.json`, CI `build` job |
+| Every non-`.rs` file read with `include_str!` is declared in `corgi.toml` `[extra-inputs]` | `scripts/check_source_rules.py` (`corgi-inputs`), CI `ci-gates` job |
+| A frontend never interns `Type::Unknown` bare: it calls `erase(reason)` (`docs/erasure-reasons.md`), or `unknown_type(NotNewErasure::..)` for a comparison or an already-erased value | `scripts/check_source_rules.py` (`bare-erasure`); the `NotNewErasure` enum in `crates/smelt-frontend-ts/src/lowering/erasure.rs` is the allowlist |
+| The emitter writes a generated file only when its bytes change | `identical_bytes_leave_the_file_untouched_and_changed_bytes_rewrite_it` in `crates/smelt-codegen-rust/src/crate_writer.rs` |
+| `CLAUDE.md` is `AGENTS.md`, and AGENTS.md names no missing path | `scripts/check_source_rules.py` (`agent-docs`) |
+| Examples corpus: avoidable erasure stays 0 | `blocker-logs/smelt-unknown-baseline.json`, `--fail-on-regression`, blocking |
+| es-toolkit corpus: avoidable erasure only stays equal or falls | `blocker-logs/smelt-unknown-baseline-es-toolkit.json`, `--fail-on-regression`, blocking |
+| remeda, hono corpora: a diff reference | `blocker-logs/smelt-unknown-baseline-remeda.json`, `blocker-logs/smelt-unknown-baseline-hono.json`, never block |
+| A scan that found no files, or lost >10% of the baseline's, judges nothing and never rewrites it | `coverage_loss` in `crates/smelt-transpiler/src/unknown_report/baseline.rs` |
+| No program's erased count rises (per kind, and in total); a regression cannot be snapshotted | `smelt typedness-report --fail-on-regression`: `blocker-logs/typedness-baseline.json` and `blocker-logs/typedness-baseline-es-toolkit.json` block, `blocker-logs/typedness-baseline-remeda.json` is advisory |
+| A baseline program that is no longer measured fails the gate; one removed on purpose is named with `--retire-program` | `vanished` in `crates/smelt-transpiler/src/typedness_report.rs` |
 
 ## Subagents
 - The main session may implement feature code directly; prefer small, well-understood changes inline and
