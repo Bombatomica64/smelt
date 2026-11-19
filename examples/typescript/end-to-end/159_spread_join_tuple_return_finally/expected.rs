@@ -5367,6 +5367,7 @@ impl IntoSmeltUnknown for Failure {
         let mut __smelt_entries: Vec<(String, SmeltUnknown)> = Vec::from([
         ("message".to_owned(), SmeltUnknown::String((__smelt_inner.message.clone()).into())),
         ]);
+        __smelt_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("Failure".into())));
         smelt_finish_reference_view(__smelt_id, __smelt_view, __smelt_entries)
     }
 }

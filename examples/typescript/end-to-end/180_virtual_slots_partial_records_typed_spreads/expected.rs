@@ -4721,6 +4721,7 @@ impl Shape {
         let __smelt_inner = self.0.borrow();
         let mut __smelt_entries: Vec<(String, SmeltUnknown)> = Vec::from([
         ]);
+        __smelt_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("Shape".into())));
         __smelt_entries.extend(__smelt_proto);
         smelt_finish_reference_view(__smelt_id, __smelt_view, __smelt_entries)
     }
@@ -4797,6 +4798,7 @@ impl Square {
         let __smelt_inner = self.0.borrow();
         let mut __smelt_entries: Vec<(String, SmeltUnknown)> = Vec::from([
         ]);
+        __smelt_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("Square".into())));
         __smelt_entries.extend(__smelt_proto);
         smelt_finish_reference_view(__smelt_id, __smelt_view, __smelt_entries)
     }
@@ -4866,6 +4868,7 @@ impl IntoSmeltUnknown for Tile {
         let __smelt_inner = self.0.borrow();
         let mut __smelt_entries: Vec<(String, SmeltUnknown)> = Vec::from([
         ]);
+        __smelt_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("Tile".into())));
         __smelt_entries.extend(__smelt_proto);
         smelt_finish_reference_view(__smelt_id, __smelt_view, __smelt_entries)
     }
@@ -4940,6 +4943,7 @@ impl Counter {
         let mut __smelt_entries: Vec<(String, SmeltUnknown)> = Vec::from([
         ("items".to_owned(), SmeltUnknown::Array(__smelt_inner.items.clone().into_iter().map(|smelt_value| SmeltUnknown::Number(smelt_value as f64)).collect())),
         ]);
+        __smelt_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("Counter".into())));
         __smelt_entries.extend(__smelt_proto);
         smelt_finish_reference_view(__smelt_id, __smelt_view, __smelt_entries)
     }
@@ -5010,6 +5014,7 @@ impl IntoSmeltUnknown for Plain {
         let mut __smelt_entries: Vec<(String, SmeltUnknown)> = Vec::from([
         ("items".to_owned(), SmeltUnknown::Array(__smelt_inner.items.clone().into_iter().map(|smelt_value| SmeltUnknown::Number(smelt_value as f64)).collect())),
         ]);
+        __smelt_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("Plain".into())));
         __smelt_entries.extend(__smelt_proto);
         smelt_finish_reference_view(__smelt_id, __smelt_view, __smelt_entries)
     }
@@ -5088,6 +5093,7 @@ impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Parser<
         let __smelt_inner = self.0.borrow();
         let mut __smelt_entries: Vec<(String, SmeltUnknown)> = Vec::from([
         ]);
+        __smelt_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("Parser".into())));
         __smelt_entries.extend(__smelt_proto);
         smelt_finish_reference_view(__smelt_id, __smelt_view, __smelt_entries)
     }
@@ -5162,6 +5168,7 @@ impl YearParser {
         let __smelt_inner = self.0.borrow();
         let mut __smelt_entries: Vec<(String, SmeltUnknown)> = Vec::from([
         ]);
+        __smelt_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("YearParser".into())));
         __smelt_entries.extend(__smelt_proto);
         smelt_finish_reference_view(__smelt_id, __smelt_view, __smelt_entries)
     }
@@ -5231,6 +5238,7 @@ impl IntoSmeltUnknown for StrictYear {
         let __smelt_inner = self.0.borrow();
         let mut __smelt_entries: Vec<(String, SmeltUnknown)> = Vec::from([
         ]);
+        __smelt_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("StrictYear".into())));
         __smelt_entries.extend(__smelt_proto);
         smelt_finish_reference_view(__smelt_id, __smelt_view, __smelt_entries)
     }

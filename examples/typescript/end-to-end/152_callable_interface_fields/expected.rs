@@ -4837,6 +4837,7 @@ impl IntoSmeltUnknown for Context {
         ("header".to_owned(), smelt_keep_receiver_alive((__smelt_inner.header.clone()).into_smelt_unknown(), &self)),
         ("echo".to_owned(), (__smelt_inner.echo.clone()).into_smelt_unknown()),
         ]);
+        __smelt_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("Context".into())));
         __smelt_entries.extend(__smelt_proto);
         smelt_finish_reference_view(__smelt_id, __smelt_view, __smelt_entries)
     }

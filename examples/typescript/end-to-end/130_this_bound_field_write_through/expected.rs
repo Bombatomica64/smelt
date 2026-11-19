@@ -4653,6 +4653,7 @@ impl IntoSmeltUnknown for Tally {
         ("builds".to_owned(), SmeltUnknown::Number(__smelt_inner.builds.clone() as f64)),
         ("describe".to_owned(), SmeltUnknown::Null),
         ]);
+        __smelt_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("Tally".into())));
         __smelt_entries.push(("__smelt_method:__smelt_set_field".to_owned(), SmeltUnknown::Function(::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { if let Some(SmeltUnknown::String(smelt_key)) = smelt_args.first() { smelt_receiver.__smelt_set_field(&smelt_key.to_string(), smelt_args.get(1).cloned().unwrap_or(SmeltUnknown::Undefined)); } Ok(SmeltUnknown::Undefined) } })))); __smelt_entries.push(("__smelt_method:__smelt_get_callable_field".to_owned(), SmeltUnknown::Function(::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { Ok(match smelt_args.first() { Some(SmeltUnknown::String(smelt_key)) => smelt_receiver.__smelt_get_callable_field(&smelt_key.to_string()), _ => SmeltUnknown::Undefined }) } })))); 
         smelt_finish_reference_view(__smelt_id, __smelt_view, __smelt_entries)
     }

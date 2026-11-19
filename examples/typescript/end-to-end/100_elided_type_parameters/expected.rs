@@ -4485,6 +4485,7 @@ impl IntoSmeltUnknown for Session {
         ("name".to_owned(), SmeltUnknown::String((__smelt_inner.name.clone()).into())),
         ("renew".to_owned(), __smelt_inner.renew.clone().map_or(SmeltUnknown::Null, |smelt_value| SmeltUnknown::Null)),
         ]);
+        __smelt_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("Session".into())));
         __smelt_entries.extend(__smelt_proto);
         smelt_finish_reference_view(__smelt_id, __smelt_view, __smelt_entries)
     }

@@ -4721,6 +4721,7 @@ impl IntoSmeltUnknown for TableRouter {
         ("table".to_owned(), SmeltUnknown::Object(SmeltObject::new(__smelt_inner.table.clone().into_iter().map(|(smelt_key, smelt_value)| (smelt_key, SmeltUnknown::Array(smelt_value.into_iter().map(|smelt_value| SmeltUnknown::String(smelt_value.into())).collect()))).collect()))),
         ("match".to_owned(), SmeltUnknown::Null),
         ]);
+        __smelt_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("TableRouter".into())));
         __smelt_entries.extend(__smelt_proto);
         __smelt_entries.push(("__smelt_method:__smelt_set_field".to_owned(), SmeltUnknown::Function(::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { if let Some(SmeltUnknown::String(smelt_key)) = smelt_args.first() { smelt_receiver.__smelt_set_field(&smelt_key.to_string(), smelt_args.get(1).cloned().unwrap_or(SmeltUnknown::Undefined)); } Ok(SmeltUnknown::Undefined) } })))); __smelt_entries.push(("__smelt_method:__smelt_get_callable_field".to_owned(), SmeltUnknown::Function(::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { Ok(match smelt_args.first() { Some(SmeltUnknown::String(smelt_key)) => smelt_receiver.__smelt_get_callable_field(&smelt_key.to_string()), _ => SmeltUnknown::Undefined }) } })))); 
         smelt_finish_reference_view(__smelt_id, __smelt_view, __smelt_entries)
@@ -4794,6 +4795,7 @@ impl IntoSmeltUnknown for SmartRouter {
         ("name".to_owned(), SmeltUnknown::String((__smelt_inner.name.clone()).into())),
         ("match".to_owned(), SmeltUnknown::Null),
         ]);
+        __smelt_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("SmartRouter".into())));
         __smelt_entries.extend(__smelt_proto);
         __smelt_entries.push(("__smelt_method:__smelt_set_field".to_owned(), SmeltUnknown::Function(::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { if let Some(SmeltUnknown::String(smelt_key)) = smelt_args.first() { smelt_receiver.__smelt_set_field(&smelt_key.to_string(), smelt_args.get(1).cloned().unwrap_or(SmeltUnknown::Undefined)); } Ok(SmeltUnknown::Undefined) } })))); __smelt_entries.push(("__smelt_method:__smelt_get_callable_field".to_owned(), SmeltUnknown::Function(::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { Ok(match smelt_args.first() { Some(SmeltUnknown::String(smelt_key)) => smelt_receiver.__smelt_get_callable_field(&smelt_key.to_string()), _ => SmeltUnknown::Undefined }) } })))); 
         smelt_finish_reference_view(__smelt_id, __smelt_view, __smelt_entries)
@@ -4866,6 +4868,7 @@ impl IntoSmeltUnknown for App {
         ("get".to_owned(), SmeltUnknown::Null),
         ("post".to_owned(), SmeltUnknown::Null),
         ]);
+        __smelt_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("App".into())));
         __smelt_entries.extend(__smelt_proto);
         __smelt_entries.push(("__smelt_method:__smelt_set_field".to_owned(), SmeltUnknown::Function(::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { if let Some(SmeltUnknown::String(smelt_key)) = smelt_args.first() { smelt_receiver.__smelt_set_field(&smelt_key.to_string(), smelt_args.get(1).cloned().unwrap_or(SmeltUnknown::Undefined)); } Ok(SmeltUnknown::Undefined) } })))); __smelt_entries.push(("__smelt_method:__smelt_get_callable_field".to_owned(), SmeltUnknown::Function(::std::rc::Rc::new({ let smelt_receiver = self.clone(); move |smelt_args: Vec<SmeltUnknown>| { Ok(match smelt_args.first() { Some(SmeltUnknown::String(smelt_key)) => smelt_receiver.__smelt_get_callable_field(&smelt_key.to_string()), _ => SmeltUnknown::Undefined }) } })))); 
         smelt_finish_reference_view(__smelt_id, __smelt_view, __smelt_entries)

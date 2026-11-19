@@ -981,6 +981,32 @@ fn emit_reference_class_into_smelt_unknown_impl(
                         ));
                     }
                 }
+                // The class the instance was constructed as, as the inline
+                // erasure (`emitter::coercion::erase`, `class_marker`) stamps
+                // it: `instanceof`, `constructor` and `getPrototypeOf` of the
+                // erased value read it, so the two erasure paths must agree.
+                // A statics frame is the class value, not an instance.
+                if let Some(found) = classes::find_class(mir, class)
+                    && found.statics_of.is_none()
+                {
+                    let tag = if context.carries_class_identity(class) {
+                        format!(
+                            "__smelt_inner.{}.into()",
+                            crate::class_identity::CLASS_IDENTITY_FIELD
+                        )
+                    } else {
+                        let source = mir
+                            .names
+                            .get(class)
+                            .or_else(|| mir.symbols.get(class))
+                            .unwrap_or(name);
+                        format!("{source:?}.into()")
+                    };
+                    fn_writer.line(format!(
+                        "__smelt_entries.push(({:?}.to_owned(), SmeltUnknown::String({tag})));",
+                        smelt_stdlib::runtime_symbols::markers::SMELT_CLASS
+                    ));
+                }
                 if has_proto_entries {
                     fn_writer.line("__smelt_entries.extend(__smelt_proto);");
                 }

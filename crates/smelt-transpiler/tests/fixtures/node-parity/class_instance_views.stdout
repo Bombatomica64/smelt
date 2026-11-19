@@ -1,0 +1,16 @@
+renamed
+z true
+Pt { x: 1, label: 'z' }
+{"x":1,"label":"z"} x,label
+8 true 4
+11 7
+3 z
+true true
+p!,q!
+max true woof
+max true true 2
+zed zed
+CAT:...,BIT:woof,ZED:woof
+true true
+Puppy { name: 'BIT', tricks: 0, age: 1 }
+true true
