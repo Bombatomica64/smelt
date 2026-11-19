@@ -176,6 +176,4 @@ types; no value is erased by a conversion; the SmeltUnknown and typedness ratche
 * **Finer per-item generic bounds**: not attempted.
 
 
-* A class WITH subclasses (polymorphic, `Rc<dyn BaseSmeltCell>`) viewed as an interface still copies: its cell
-  trait would need a `smelt_as_<Target>` method implemented by every concrete cell of the hierarchy.
 * Generic classes and generic shapes keep the field-wise conversion (one cell type per instantiation).
