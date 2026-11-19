@@ -393,18 +393,19 @@ impl FunctionEmitter<'_> {
         dest_ty: TypeId,
     ) -> Result<RustExpr, EmitError> {
         let source_ty = self.call_emitted_source_ty(callee, args, dest_ty)?;
-        let bindings = match callee {
-            Callee::Static(func) if self.generic_union_return(source_ty) => {
-                let function = self
-                    .mir
-                    .functions
-                    .get(id_index(func.0, "function index does not fit usize")?)
-                    .ok_or_else(|| EmitError::new("call references an unknown function"))?;
-                self.static_call_monomorphization(function, args)?
-                    .filter(|pinned| pinned.return_ty == source_ty)
-                    .map(|pinned| pinned.bindings)
-            }
-            _ => None,
+        let bindings = if let Callee::Static(func) = callee
+            && self.generic_union_return(source_ty)
+        {
+            let function = self
+                .mir
+                .functions
+                .get(id_index(func.0, "function index does not fit usize")?)
+                .ok_or_else(|| EmitError::new("call references an unknown function"))?;
+            self.static_call_monomorphization(function, args)?
+                .filter(|pinned| pinned.return_ty == source_ty)
+                .map(|pinned| pinned.bindings)
+        } else {
+            None
         };
         let previous = self.context.union_return_bindings.replace(bindings);
         let converted = self.rendered_at_type(call_text, source_ty, dest_ty, &self.render_scope());

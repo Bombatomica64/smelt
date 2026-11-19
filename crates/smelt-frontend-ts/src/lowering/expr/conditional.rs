@@ -241,23 +241,6 @@ impl ModuleBuilder<'_> {
         )
     }
 
-    /// The type of a ternary `c ? a : b` whose arms lowered to `then_expr`
-    /// and `else_expr`: the conditional expression's own join, in value and
-    /// argument position alike.
-    ///
-    /// TypeScript types `c ? a : b` as `typeof a | typeof b`, so after every
-    /// closer common shape (same type, numeric widening, `None`/optional,
-    /// functions, an empty-list arm, a union already holding the other arm,
-    /// strings, lists) two concrete unrelated arms join to a generated union
-    /// rather than failing. The empty-list arms read the arm EXPRESSIONS, which
-    /// is why this takes them and not just their types.
-    ///
-    /// Not [`Self::conditional_branch_type`], which is a shared "do these two
-    /// types reconcile?" query for `reduce`, callback returns and the logical
-    /// operators, and answers `Err` where a ternary joins to a union. A
-    /// ternary in argument position once asked that query, so
-    /// `console.log(c ? 1 : "a")` and `f(c ? recordA : recordB)` failed to
-    /// lower while the same ternary assigned to a `const` was a union.
     /// The join of two conditional arms of which one is a type parameter
     /// not constrained to a string, and the other a different type.
     ///
@@ -327,6 +310,23 @@ impl ModuleBuilder<'_> {
         )
     }
 
+    /// The type of a ternary `c ? a : b` whose arms lowered to `then_expr`
+    /// and `else_expr`: the conditional expression's own join, in value and
+    /// argument position alike.
+    ///
+    /// TypeScript types `c ? a : b` as `typeof a | typeof b`, so after every
+    /// closer common shape (same type, numeric widening, `None`/optional,
+    /// functions, an empty-list arm, a union already holding the other arm,
+    /// strings, lists) two concrete unrelated arms join to a generated union
+    /// rather than failing. The empty-list arms read the arm EXPRESSIONS, which
+    /// is why this takes them and not just their types.
+    ///
+    /// Not [`Self::conditional_branch_type`], which is a shared "do these two
+    /// types reconcile?" query for `reduce`, callback returns and the logical
+    /// operators, and answers `Err` where a ternary joins to a union. A
+    /// ternary in argument position once asked that query, so
+    /// `console.log(c ? 1 : "a")` and `f(c ? recordA : recordB)` failed to
+    /// lower while the same ternary assigned to a `const` was a union.
     fn ternary_branch_type(
         &mut self,
         body: &Body,

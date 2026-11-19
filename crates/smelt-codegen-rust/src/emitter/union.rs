@@ -249,6 +249,21 @@ impl FunctionEmitter<'_> {
         concrete.then_some(items)
     }
 
+    /// The union arm `member` at the bindings of the call whose result is
+    /// being converted (`call_result_at`): its type parameters, bare or
+    /// inside the arm (`Some<a>` of `Option<a>`), are the bound types.
+    /// `member` itself outside such a conversion.
+    fn call_bound_member(&self, member: TypeId) -> TypeId {
+        self.context
+            .union_return_bindings
+            .borrow()
+            .as_ref()
+            .and_then(|bindings| {
+                crate::generic_bindings::substituted_type_id_interning(self.mir, member, bindings)
+            })
+            .unwrap_or(member)
+    }
+
     /// Whether a union may hold the type parameter `name` as a generic arm:
     /// it is one `crate::generic_lifting::liftable_type_params` lifts.
     fn is_union_arm_param(&self, name: Symbol) -> bool {
@@ -731,22 +746,7 @@ impl FunctionEmitter<'_> {
             let target_name = union_name(target);
             let mut arms = Vec::new();
             for (source_index, declared_member) in source_members.iter().enumerate() {
-                // A callee's arm at the bindings of the call whose result this
-                // is (`call_result_at`): its type parameters, bare or inside
-                // the arm (`Some<a>` of `Option<a>`), are the bound types.
-                let bound = self
-                    .context
-                    .union_return_bindings
-                    .borrow()
-                    .as_ref()
-                    .and_then(|bindings| {
-                        crate::generic_bindings::substituted_type_id_interning(
-                            self.mir,
-                            *declared_member,
-                            bindings,
-                        )
-                    });
-                let member = &bound.unwrap_or(*declared_member);
+                let member = &self.call_bound_member(*declared_member);
                 if let Some(target_index) = target_members
                     .iter()
                     .position(|target_member| target_member == member)
@@ -808,11 +808,30 @@ impl FunctionEmitter<'_> {
                 value_text = value_text.delimited()
             ))));
         }
-        let Some(index) = source_members.iter().position(|member| *member == target) else {
+        // Every arm that is the target: itself, or a callee arm at the
+        // bindings of the call whose result this is (`run<T>(..): T | number`
+        // at `T = number` gives two `f64` arms).
+        let matching = source_members
+            .iter()
+            .enumerate()
+            .filter(|(_, member)| self.call_bound_member(**member) == target)
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        if matching.is_empty() {
             return Ok(None);
+        }
+        let arms = matching
+            .iter()
+            .map(|index| format!("{source_name}::M{index}(value) => value"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let fallback = if matching.len() == source_members.len() {
+            String::new()
+        } else {
+            ", _ => unreachable!(\"union guard selected an excluded member\")".to_owned()
         };
         Ok(Some(RustExpr::atom(format!(
-            "match {value_text} {{ {source_name}::M{index}(value) => value, _ => unreachable!(\"union guard selected an excluded member\") }}",
+            "match {value_text} {{ {arms}{fallback} }}",
             value_text = value_text.delimited()
         ))))
     }
