@@ -94,7 +94,7 @@ impl<T: Clone> SmeltList<T> {
     //~ Read one element by index, cloned out of the shared buffer (JS `arr[i]`).
     fn get_index(&self, index: usize) -> Option<T> { /*@if list_links*/smelt_list_sync(&self.values, false);/*@end*/self.values.borrow().get(index).cloned() }
     //~ Set the element at a numeric index, extending with `fill` holes to match JS `arr[i] = v`.
-    fn set_index(&self, index: usize, value: T, fill: T) { /*@if list_links*/smelt_list_sync(&self.values, false);/*@end*/{ let mut values = self.values.borrow_mut(); if index >= values.len() { values.resize(index.saturating_add(1), fill); } values[index] = value; } /*@if list_links*/smelt_list_mirror(&self.values, index);/*@end*/}
+    fn set_index(&self, index: usize, value: T, fill: T) { /*@if list_links*/smelt_list_sync(&self.values, false);/*@end*/let mut values = self.values.borrow_mut(); if index >= values.len() { values.resize(index.saturating_add(1), fill); } values[index] = value; /*@if list_links*/drop(values); smelt_list_mirror(&self.values, index);/*@end*/}
     // @smelt:if list_links
     //~ Append one element (JS `arr.push(v)`), keeping a linked `unknown[]`
     //~ view in step by that one element (`smelt_list_link`).
