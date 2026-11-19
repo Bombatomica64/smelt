@@ -85,6 +85,11 @@ jobs:
       - name: Workflows and test helpers keep their gates
         run: python3 scripts/check_ci_gates.py
 
+      # The source rules AGENTS.md used to state in prose; each violation names
+      # the root-cause fix.
+      - name: Source rules (corgi inputs, bare erasure, agent docs)
+        run: python3 scripts/check_source_rules.py
+
       # rust-toolchain.toml carries rustfmt; formatting needs no build.
       - name: Set up Rust
         uses: ./.github/actions/setup-rust

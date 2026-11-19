@@ -9,7 +9,7 @@ use oxc::ast::ast::{AssignmentTarget, Expression, SimpleAssignmentTarget};
 use oxc::span::GetSpan;
 use oxc::syntax::operator::{AssignmentOperator, UpdateOperator};
 use smelt_hir::{
-    BinOp, Body, ErasureReason, Expr, ExprKind, Item, Literal, LocalDecl, Pattern, Span, Stmt, Type,
+    BinOp, Body, ErasureReason, Expr, ExprKind, Literal, LocalDecl, Pattern, Span, Stmt, Type,
 };
 
 impl ModuleBuilder<'_> {
@@ -30,8 +30,7 @@ impl ModuleBuilder<'_> {
         if self.scope.is_bound(identifier.name.as_str()) {
             return None;
         }
-        self.mutable_global_item(identifier.name.as_str())
-            .map(StaticWriteTarget::Global)
+        self.mutable_global_target(identifier.name.as_str())
     }
 
     /// The store of `value` into `target`, evaluating to the stored value: a
@@ -46,7 +45,7 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         Ok(match target {
-            StaticWriteTarget::Global(item) => body.push_expr(Expr {
+            StaticWriteTarget::Global { item, .. } => body.push_expr(Expr {
                 kind: ExprKind::GlobalSet { item, value },
                 ty,
                 span,
@@ -93,20 +92,14 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Result<(smelt_hir::ExprId, smelt_hir::TypeId), SmeltError> {
         Ok(match target {
-            StaticWriteTarget::Global(item) => {
-                let ty = match self.item_ref(item) {
-                    Item::MutableGlobal(global_item) => global_item.ty,
-                    _ => self.ctx.krate.types.intern(Type::Unknown),
-                };
-                (
-                    body.push_expr(Expr {
-                        kind: ExprKind::GlobalGet { item },
-                        ty,
-                        span,
-                    }),
+            StaticWriteTarget::Global { item, ty } => (
+                body.push_expr(Expr {
+                    kind: ExprKind::GlobalGet { item },
                     ty,
-                )
-            }
+                    span,
+                }),
+                ty,
+            ),
             StaticWriteTarget::Receiver { class, field, ty } => (
                 Self::static_dispatch_expr(
                     class,
@@ -194,12 +187,12 @@ impl ModuleBuilder<'_> {
         keep_old_value: bool,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         // `Class.count++` on a mutable static updates its live storage.
-        let (target, name) = match &update.argument {
+        let target = match &update.argument {
             SimpleAssignmentTarget::StaticMemberExpression(member) => {
                 let Some(target) = self.static_field_write_storage(member) else {
                     return Ok(None);
                 };
-                (target, member.property.name.as_str())
+                target
             }
             SimpleAssignmentTarget::AssignmentTargetIdentifier(identifier) => {
                 // A same-named local (function body or re-lowered test setup)
@@ -208,21 +201,17 @@ impl ModuleBuilder<'_> {
                 if self.scope.is_bound(identifier.name.as_str()) {
                     return Ok(None);
                 }
-                let Some(item) = self.mutable_global_item(identifier.name.as_str()) else {
+                let Some(target) = self.mutable_global_target(identifier.name.as_str()) else {
                     return Ok(None);
                 };
-                (StaticWriteTarget::Global(item), identifier.name.as_str())
+                target
             }
             _ => return Ok(None),
         };
         let span = self.span(update.span.start, update.span.end);
-        let cell_ty = match target {
-            StaticWriteTarget::Global(item) => match self.item_ref(item) {
-                Item::MutableGlobal(global_item) => global_item.ty,
-                _ => self.erase_at(ErasureReason::ByName, span, name),
-            },
-            StaticWriteTarget::Inherited { ty, .. } | StaticWriteTarget::Receiver { ty, .. } => ty,
-        };
+        let (StaticWriteTarget::Global { ty: cell_ty, .. }
+        | StaticWriteTarget::Inherited { ty: cell_ty, .. }
+        | StaticWriteTarget::Receiver { ty: cell_ty, .. }) = target;
         let op = match update.operator {
             UpdateOperator::Increment => BinOp::Add,
             UpdateOperator::Decrement => BinOp::Sub,

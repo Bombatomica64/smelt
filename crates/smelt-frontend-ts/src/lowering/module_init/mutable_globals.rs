@@ -4,6 +4,7 @@
 use super::super::{ConstLiteral, ModuleBuilder};
 use crate::SmeltError;
 use crate::lowering::js_text::js_str_literal;
+use crate::lowering::specialization::StaticWriteTarget;
 use oxc::ast::ast::{BindingPattern, Declaration, Expression, Program, Statement};
 use smelt_hir::{
     Body, Expr, ExprKind, Function, FunctionOwner, Item, Literal, Module, Type, Visibility,
@@ -699,6 +700,31 @@ impl ModuleBuilder<'_> {
         }
         let item = self.items.get(name).copied()?;
         matches!(self.item_ref(item), Item::MutableGlobal(_)).then_some(item)
+    }
+
+    /// The type of the live value of the mutable global `item`; `None` when
+    /// `item` is not a [`Item::MutableGlobal`].
+    pub(in crate::lowering) fn mutable_global_type(
+        &self,
+        item: smelt_hir::ItemId,
+    ) -> Option<smelt_hir::TypeId> {
+        match self.item_ref(item) {
+            Item::MutableGlobal(global) => Some(global.ty),
+            _ => None,
+        }
+    }
+
+    /// The write target for the module-level mutable global `name`, with its
+    /// type, when `name` is one.
+    pub(in crate::lowering) fn mutable_global_target(
+        &self,
+        name: &str,
+    ) -> Option<StaticWriteTarget> {
+        let item = self.mutable_global_item(name)?;
+        Some(StaticWriteTarget::Global {
+            item,
+            ty: self.mutable_global_type(item)?,
+        })
     }
 
     /// Return whether a binding declarator IS the lifted module-level

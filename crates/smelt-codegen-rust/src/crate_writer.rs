@@ -173,7 +173,7 @@ fn write_if_changed(
 #[cfg(test)]
 #[expect(clippy::expect_used, reason = "a test fails fast on fixture setup")]
 mod tests {
-    use super::{GENERATED_HEADER, remove_stale_modules};
+    use super::{GENERATED_HEADER, remove_stale_modules, write_if_changed};
     use crate::CrateKind;
 
     /// The crate root carries the header stale-module removal recognises, so
@@ -207,5 +207,39 @@ mod tests {
             !src.join("stale.rs").exists(),
             "a stale generated module must be removed"
         );
+    }
+
+    /// A generated file whose bytes did not change is left untouched, so
+    /// Cargo's mtime-based freshness check reuses the incremental artifacts;
+    /// a file whose bytes changed is rewritten. This is the behavior that
+    /// forbids replacing `write_if_changed` with an unconditional write.
+    #[test]
+    fn identical_bytes_leave_the_file_untouched_and_changed_bytes_rewrite_it() {
+        let dir = tempfile::tempdir().expect("temporary directory");
+        let path = dir.path().join("module.rs");
+        write_if_changed(&path, "fn a() {}\n").expect("first write");
+        let old = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1);
+        std::fs::File::options()
+            .write(true)
+            .open(&path)
+            .and_then(|file| file.set_modified(old))
+            .expect("age the file");
+        write_if_changed(&path, "fn a() {}\n").expect("identical write");
+        let modified = |file: &std::path::Path| {
+            std::fs::metadata(file)
+                .and_then(|meta| meta.modified())
+                .expect("modification time")
+        };
+        assert_eq!(
+            modified(&path),
+            old,
+            "identical bytes must not touch the file"
+        );
+        write_if_changed(&path, "fn b() {}\n").expect("changed write");
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("read back"),
+            "fn b() {}\n"
+        );
+        assert_ne!(modified(&path), old, "changed bytes must be written");
     }
 }
