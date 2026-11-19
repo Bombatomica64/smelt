@@ -454,7 +454,16 @@ impl FunctionEmitter<'_> {
         let list_iteration =
             self.list_callback_iteration_parts(list, list_ty, element_ty, callback, function_ty)?;
         let call_args = list_iteration.call_args;
-        let call_text = self.callback_invocation_expr(function_ty, &call_args.join(", "));
+        let mut call_text = self.callback_invocation_expr(function_ty, &call_args.join(", "));
+        // A callback returning a generated union (`T | readonly T[]` as
+        // `SmeltUnionN<..>`) is flattened through its erased form, as an
+        // erased union always was.
+        if self.concrete_union_members(function_ty.return_ty).is_some() {
+            call_text = RustExpr::atom(format!(
+                "IntoSmeltUnknown::into_smelt_unknown({})",
+                call_text.delimited()
+            ));
+        }
         let flattened_text = match self.mir.types.get(function_ty.return_ty) {
             Some(Type::List(callback_item_ty)) => {
                 let value_text = self.rendered_at_type(

@@ -259,10 +259,20 @@ impl ModuleBuilder<'_> {
     /// `console.log(c ? 1 : "a")` and `f(c ? recordA : recordB)` failed to
     /// lower while the same ternary assigned to a `const` was a union.
     /// The join of two conditional arms of which one is a type parameter
-    /// not constrained to a string, and the other a different type: the
-    /// union of the two (TypeScript's type of `c ? a : b`), or the hint when
-    /// it is a union holding both arms. `None` when neither arm is such a
-    /// type parameter.
+    /// not constrained to a string, and the other a different type.
+    ///
+    /// - The hint, when it is one of the two arms and a type parameter: the
+    ///   conditional is asserted or assigned straight to it
+    ///   (`(cb ? cb(s) : s) as Result`), so the other arm converts into it.
+    /// - The other arm, when the parameter's constraint is exactly that arm
+    ///   (`K extends PropertyKey` against a `PropertyKey`): the parameter is
+    ///   a subtype of it.
+    /// - Otherwise the union of the two (TypeScript's type of `c ? a : b`),
+    ///   or the hint when it is a union holding both arms. With a lifted
+    ///   parameter that union is a generic enum (`crate::emitter::union` in
+    ///   the Rust backend); with an erased one it stays erased.
+    ///
+    /// `None` when neither arm is such a type parameter.
     fn type_param_arm_join(
         &mut self,
         then_ty: smelt_hir::TypeId,
@@ -361,7 +371,10 @@ impl ModuleBuilder<'_> {
             ),
             (Some(Type::TypeParam { .. }), Some(Type::TypeParam { .. }))
         ) {
-            then_ty
+            // Two distinct type parameters (`left ? a : b` over `A`, `B`) are
+            // two arms: `A | B`, not `A` with `b` converted into it.
+            self.type_param_arm_join(then_ty, else_ty, type_hint)
+                .unwrap_or(then_ty)
         } else if self.date_runtime_float_matches_type_param(then_ty, else_ty) {
             else_ty
         } else if self.date_runtime_float_matches_type_param(else_ty, then_ty) {
