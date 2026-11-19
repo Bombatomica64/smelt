@@ -15,6 +15,16 @@ const fn smelt_number_hole() -> f64 { f64::from_bits(SMELT_NUMBER_HOLE_BITS) }
 /// Whether `value` is a hole of a `number[]`.
 const fn smelt_is_number_hole(value: f64) -> bool { value.to_bits() == SMELT_NUMBER_HOLE_BITS }
 
+/// The value a JavaScript read that finds no slot yields (an out-of-range
+/// index, an `Array(n)` hole), in the carrier of a generic element `T`.
+fn smelt_missing<T: Default + 'static>() -> T {
+    let mut value = T::default();
+    if let Some(number) = (&mut value as &mut dyn ::std::any::Any).downcast_mut::<f64>() {
+        *number = smelt_number_hole();
+    }
+    value
+}
+
 /// `Number::toString(value, 10)`: JavaScript's number formatting.
 fn smelt_number_to_string<N: ::std::borrow::Borrow<f64>>(value: N) -> String {
     let value = *value.borrow();
@@ -3858,7 +3868,7 @@ impl IntoSmeltUnknown for bool {
 
 impl IntoSmeltUnknown for f64 {
     fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Number(self)
+        if smelt_is_number_hole(self) { SmeltUnknown::Undefined } else { SmeltUnknown::Number(self) }
     }
 }
 
@@ -4484,7 +4494,7 @@ fn main() {
     let _smelt_tmp_7: SmeltList<f64> = drop_while(_smelt_tmp_5, &mut { let _smelt_adapted_callback = _smelt_tmp_6.clone(); move |smelt_arg0: &f64, smelt_arg1: f64, smelt_arg2: &SmeltList<f64>| (_smelt_adapted_callback)(smelt_arg0.clone()) });
     numbers = Into::<SmeltList<_>>::into(_smelt_tmp_7);
     _smelt_tmp_8 = JsString::join(numbers.clone().borrow().iter().map(|smelt_item| JsString::from({ if smelt_is_number_hole(*smelt_item) { String::new() } else { smelt_number_to_string(*smelt_item) } })), &JsString::from(","));
-    _smelt_tmp_9 = numbers.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0) + 1.0;
+    _smelt_tmp_9 = numbers.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| smelt_number_hole()) + 1.0;
     let _ = { println!("{} {}", _smelt_tmp_8, smelt_console_number(_smelt_tmp_9)); };
     _smelt_tmp_11 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("a"), JsString::from("bb"), JsString::from("ccc")]; smelt_list_items }));
     _smelt_tmp_12 = ::std::rc::Rc::new(|closure_arg_0: JsString, closure_arg_1: f64| {
@@ -4513,7 +4523,7 @@ fn main() {
     let _smelt_tmp_20: SmeltList<f64> = drop_while(_smelt_tmp_18, &mut { let _smelt_adapted_callback = _smelt_tmp_19.clone(); move |smelt_arg0: &f64, smelt_arg1: f64, smelt_arg2: &SmeltList<f64>| (_smelt_adapted_callback)(smelt_arg0.clone()) });
     explicit = Into::<SmeltList<_>>::into(_smelt_tmp_20);
     _smelt_tmp_21 = explicit.len() as f64;
-    _smelt_tmp_22 = explicit.borrow().get({ let smelt_normalized = 1.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0) * 2.0;
+    _smelt_tmp_22 = explicit.borrow().get({ let smelt_normalized = 1.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| smelt_number_hole()) * 2.0;
     let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_21), smelt_console_number(_smelt_tmp_22)); };
     tagged = SmeltUnion10::M0(JsString::from("label"));
     _smelt_tmp_24 = tagged.clone().into_smelt_unknown().js_strict_eq(&SmeltUnknown::String("label".into()));

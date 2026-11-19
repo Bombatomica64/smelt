@@ -16,6 +16,12 @@ use super::{rust_fn, source_for};
 /// (`crate::generic_inspection`); the arms of the test are unchanged. Evidence:
 /// example `202_inspected_type_parameter_stays_generic` prints Node's output
 /// for `compact([0, 1, 2, 0, 3])` and `compact(["", "a", "b"])`.
+///
+/// Corrected expectation (the element read's miss). Old: the loop's element
+/// read fell back to `Default::default()`. New: it falls back to the
+/// runtime's `smelt_missing::<T>()`, the `undefined` of `T`'s carrier (the
+/// number hole at `number`), as the typed `number[]` read does. Evidence:
+/// Node-parity fixture `generic_missing_element`; the guard's arms are unchanged.
 #[test]
 fn a_generic_condition_is_tested_rather_than_folded_to_true() {
     let source = source_for(
@@ -45,7 +51,7 @@ loop {
 _smelt_tmp_5 = items.len();
 _smelt_tmp_6 = _smelt_tmp_4 < _smelt_tmp_5;
 if !(_smelt_tmp_6) { break; }
-item = items.borrow().get(_smelt_tmp_4).cloned().unwrap_or_else(|| Default::default());
+item = items.borrow().get(_smelt_tmp_4).cloned().unwrap_or_else(|| smelt_missing());
 _smelt_tmp_7 = match ((item.clone()).into_smelt_unknown()) { SmeltUnknown::Null | SmeltUnknown::Undefined => false, SmeltUnknown::Bool(smelt_value) => smelt_value, SmeltUnknown::Number(smelt_value) => smelt_value != 0.0 && !smelt_value.is_nan(), SmeltUnknown::String(smelt_value) => !smelt_value.is_empty(), SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => true };
 if _smelt_tmp_7 {
 _smelt_tmp_8 = { let smelt_push_item = item; out.borrow_mut().push(smelt_push_item); out.len() as f64 };

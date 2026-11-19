@@ -102,11 +102,11 @@ calls get a concrete Rust type, a real Rust generic, or an erased type
 <!-- results:typedness:begin -->
 | Corpus (baseline file) | Kind | Concrete | Generic | Erased | Erased share |
 | --- | --- | ---: | ---: | ---: | ---: |
-| examples, 180 programs ([`typedness-baseline.json`](blocker-logs/typedness-baseline.json)) | values | 8822 | 193 | 56 | 0.6% |
-|  | reads | 977 | 50 | 20 | 1.9% |
-|  | calls | 2477 | 16 | 2 | 0.1% |
-| es-toolkit, 744 programs ([`typedness-baseline-es-toolkit.json`](blocker-logs/typedness-baseline-es-toolkit.json)) | values | 14243 | 355 | 7041 | 32.5% |
-|  | reads | 367 | 51 | 978 | 70.1% |
+| examples, 180 programs ([`typedness-baseline.json`](blocker-logs/typedness-baseline.json)) | values | 8853 | 193 | 56 | 0.6% |
+|  | reads | 981 | 50 | 20 | 1.9% |
+|  | calls | 2480 | 16 | 2 | 0.1% |
+| es-toolkit, 744 programs ([`typedness-baseline-es-toolkit.json`](blocker-logs/typedness-baseline-es-toolkit.json)) | values | 14277 | 358 | 7038 | 32.5% |
+|  | reads | 366 | 51 | 978 | 70.1% |
 |  | calls | 2194 | 63 | 1179 | 34.3% |
 | remeda, 390 programs ([`typedness-baseline-remeda.json`](blocker-logs/typedness-baseline-remeda.json)) | values | 13667 | 268 | 9187 | 39.7% |
 |  | reads | 345 | 29 | 800 | 68.1% |
@@ -361,16 +361,16 @@ the library gates run on it.
 
 | Metric | Coverage |
 | --- | ---: |
-| Functions | 80.12% |
-| Lines | 82.74% |
-| Regions | 75.89% |
-| Branches | 70.58% |
+| Functions | 80.15% |
+| Lines | 82.75% |
+| Regions | 75.90% |
+| Branches | 70.59% |
 
 ### Per Crate
 
 | Crate | Functions | Lines | Branches |
 | --- | ---: | ---: | ---: |
-| `smelt-codegen-rust` | 91.43% | 86.33% | 73.65% |
+| `smelt-codegen-rust` | 91.49% | 86.36% | 73.66% |
 | `smelt-frontend-py` | 87.21% | 80.62% | 72.41% |
 | `smelt-frontend-ts` | 90.68% | 84.35% | 72.93% |
 | `smelt-hir` | 85.41% | 79.89% | 72.81% |
@@ -383,6 +383,7 @@ the library gates run on it.
 | `smelt-ts-model` | 91.67% | 93.27% | 50.00% |
 | `smelt-ts-types` | 86.05% | 90.62% | 84.72% |
 <!-- COVERAGE:END -->
+
 
 
 

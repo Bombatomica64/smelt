@@ -101,11 +101,14 @@ test('an in-range read is unaffected', () => {
 #[test]
 #[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
 fn a_concrete_destination_still_stores_the_element_default() {
-    // The erased-target rule must not leak into a concrete slot: a `Vec<f64>`
-    // has nowhere to put `undefined`, so widening it is a STORAGE question and
-    // is deliberately out of scope here. This test pins the behaviour that was
-    // left alone, so a later storage change is a deliberate edit rather than
-    // accidental fallout.
+    // The erased-target rule must not leak into a concrete slot: a concrete
+    // list keeps its element type. Requirement changed (old -> new), the
+    // deliberate storage edit this test was waiting for: a `number` slot now
+    // stores the number hole (`smelt_number_hole`), which IS `undefined` in a
+    // `number[]` (it reads, prints and compares as `undefined`, and is `NaN` in
+    // arithmetic), so `m[0] = n[5]` stores `undefined` as JavaScript does where
+    // it stored `0`. A `string` slot has no such value and still stores `''`
+    // (JavaScript stores `undefined`; that gap is a string-storage question).
     let source = r"
 import { test, expect } from 'vitest';
 
@@ -117,8 +120,8 @@ function copy(b: string[], n: number[], i: number): [string, number] {
   return [s[0], m[0]];
 }
 
-test('a concrete slot keeps the element default for a miss', () => {
-  expect(copy(['a'], [1], 5)).toEqual(['', 0]);
+test('a concrete slot stores the number hole, and a string slot its default, for a miss', () => {
+  expect(copy(['a'], [1], 5)).toEqual(['', undefined]);
   expect(copy(['a'], [1], 0)).toEqual(['a', 1]);
 });
 ";

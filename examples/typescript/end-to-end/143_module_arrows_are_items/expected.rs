@@ -15,6 +15,16 @@ const fn smelt_number_hole() -> f64 { f64::from_bits(SMELT_NUMBER_HOLE_BITS) }
 /// Whether `value` is a hole of a `number[]`.
 const fn smelt_is_number_hole(value: f64) -> bool { value.to_bits() == SMELT_NUMBER_HOLE_BITS }
 
+/// The value a JavaScript read that finds no slot yields (an out-of-range
+/// index, an `Array(n)` hole), in the carrier of a generic element `T`.
+fn smelt_missing<T: Default + 'static>() -> T {
+    let mut value = T::default();
+    if let Some(number) = (&mut value as &mut dyn ::std::any::Any).downcast_mut::<f64>() {
+        *number = smelt_number_hole();
+    }
+    value
+}
+
 /// `Number::toString(value, 10)`: JavaScript's number formatting.
 fn smelt_number_to_string<N: ::std::borrow::Borrow<f64>>(value: N) -> String {
     let value = *value.borrow();
@@ -4075,7 +4085,7 @@ impl IntoSmeltUnknown for bool {
 
 impl IntoSmeltUnknown for f64 {
     fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Number(self)
+        if smelt_is_number_hole(self) { SmeltUnknown::Undefined } else { SmeltUnknown::Number(self) }
     }
 }
 
@@ -5096,22 +5106,25 @@ pub(crate) fn fact__module_main(n: f64) -> f64 {
 }
 
 pub(crate) fn join(head: JsString, rest: SmeltList<JsString>) -> JsString {
-    let mut _smelt_tmp_4: JsString;
-    let _smelt_tmp_5: JsString;
-    let _smelt_tmp_6: JsString;
-    let _smelt_tmp_7: SmeltList<JsString>;
+    let mut _smelt_tmp_7: JsString;
+    let _smelt_tmp_8: JsString;
+    let _smelt_tmp_9: JsString;
+    let _smelt_tmp_10: SmeltList<JsString>;
     let _smelt_tmp_2: f64 = rest.len() as f64;
     let _smelt_tmp_3: bool = _smelt_tmp_2 != 0.0;
-    if _smelt_tmp_3 {
-    _smelt_tmp_5 = JsString::new() + &head.clone();
-    _smelt_tmp_6 = _smelt_tmp_5 + &JsString::from("/");
-    _smelt_tmp_7 = Into::<SmeltList<_>>::into(rest.borrow().iter().skip({ let smelt_len = rest.len() as i64; let smelt_index = 1.0 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }).take(rest.len().saturating_sub({ let smelt_len = rest.len() as i64; let smelt_index = 1.0 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } })).cloned().collect::<Vec<_>>());
-    let _smelt_tmp_8: JsString = join(rest.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| JsString::new()), _smelt_tmp_7);
-    _smelt_tmp_4 = _smelt_tmp_6 + &_smelt_tmp_8;
+    let _smelt_tmp_4: bool = _smelt_tmp_2.is_nan();
+    let _smelt_tmp_5: bool = !(_smelt_tmp_4);
+    let _smelt_tmp_6: bool = _smelt_tmp_3 && _smelt_tmp_5;
+    if _smelt_tmp_6 {
+    _smelt_tmp_8 = JsString::new() + &head.clone();
+    _smelt_tmp_9 = _smelt_tmp_8 + &JsString::from("/");
+    _smelt_tmp_10 = Into::<SmeltList<_>>::into(rest.borrow().iter().skip({ let smelt_len = rest.len() as i64; let smelt_index = 1.0 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }).take(rest.len().saturating_sub({ let smelt_len = rest.len() as i64; let smelt_index = 1.0 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } })).cloned().collect::<Vec<_>>());
+    let _smelt_tmp_11: JsString = join(rest.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| JsString::new()), _smelt_tmp_10);
+    _smelt_tmp_7 = _smelt_tmp_9 + &_smelt_tmp_11;
     } else {
-    _smelt_tmp_4 = head.clone();
+    _smelt_tmp_7 = head.clone();
     }
-    return _smelt_tmp_4;
+    return _smelt_tmp_7;
 }
 
 pub(crate) fn scan__module_main(url: JsString, key: Option<JsString>, multiple: Option<bool>) -> Option<JsString> {
@@ -5144,7 +5157,7 @@ pub(crate) fn scan__module_main(url: JsString, key: Option<JsString>, multiple: 
     let mut _smelt_tmp_44: JsString;
     let _smelt_tmp_8: f64 = url.index_of(&JsString::from("%"), 0).map_or(-1.0, |smelt_index| smelt_index as f64);
     let _smelt_tmp_9: f64 = -1.0;
-    let encoded: bool = _smelt_tmp_8 != _smelt_tmp_9;
+    let encoded: bool = { let smelt_lhs: f64 = _smelt_tmp_8; let smelt_rhs: f64 = _smelt_tmp_9; !(smelt_lhs == smelt_rhs || (smelt_is_number_hole(smelt_lhs) && smelt_is_number_hole(smelt_rhs))) };
     let _smelt_tmp_11: bool = !(multiple.clone().clone().unwrap_or(false));
     let _smelt_tmp_12: bool = if _smelt_tmp_11 { key.clone().clone().is_some_and(|value| !value.is_empty()) } else { false };
     let mut _smelt_tmp_14: bool = false;
@@ -5152,14 +5165,14 @@ pub(crate) fn scan__module_main(url: JsString, key: Option<JsString>, multiple: 
     _smelt_tmp_15 = key.clone().expect("optional value was absent after narrowing");
     _smelt_tmp_16 = _smelt_tmp_15.index_of(&JsString::from("%"), 0).map_or(-1.0, |smelt_index| smelt_index as f64);
     _smelt_tmp_17 = -1.0;
-    _smelt_tmp_14 = _smelt_tmp_16 == _smelt_tmp_17;
+    _smelt_tmp_14 = { let smelt_lhs: f64 = _smelt_tmp_16; let smelt_rhs: f64 = _smelt_tmp_17; (smelt_lhs == smelt_rhs || (smelt_is_number_hole(smelt_lhs) && smelt_is_number_hole(smelt_rhs))) };
     } else {
     _smelt_tmp_14 = false;
     }
     if _smelt_tmp_14 {
     _smelt_tmp_19 = url.index_of(&JsString::from("?"), 0).map_or(-1.0, |smelt_index| smelt_index as f64);
     _smelt_tmp_20 = -1.0;
-    _smelt_tmp_21 = _smelt_tmp_19 == _smelt_tmp_20;
+    _smelt_tmp_21 = { let smelt_lhs: f64 = _smelt_tmp_19; let smelt_rhs: f64 = _smelt_tmp_20; (smelt_lhs == smelt_rhs || (smelt_is_number_hole(smelt_lhs) && smelt_is_number_hole(smelt_rhs))) };
     if _smelt_tmp_21 {
     return None::<JsString>;
     }
@@ -5168,7 +5181,7 @@ pub(crate) fn scan__module_main(url: JsString, key: Option<JsString>, multiple: 
     out = JsString::new();
     loop {
     _smelt_tmp_23 = -1.0;
-    _smelt_tmp_24 = index != _smelt_tmp_23;
+    _smelt_tmp_24 = { let smelt_lhs: f64 = index; let smelt_rhs: f64 = _smelt_tmp_23; !(smelt_lhs == smelt_rhs || (smelt_is_number_hole(smelt_lhs) && smelt_is_number_hole(smelt_rhs))) };
     if !(_smelt_tmp_24) { break; }
     _smelt_tmp_25 = index + 1.0;
     next = url.index_of(&JsString::from("&"), (_smelt_tmp_25 as i64).max(0) as usize).map_or(-1.0, |smelt_index| smelt_index as f64);
@@ -5176,7 +5189,7 @@ pub(crate) fn scan__module_main(url: JsString, key: Option<JsString>, multiple: 
     _smelt_tmp_28 = eq > next;
     if _smelt_tmp_28 {
     _smelt_tmp_30 = -1.0;
-    _smelt_tmp_29 = next != _smelt_tmp_30;
+    _smelt_tmp_29 = { let smelt_lhs: f64 = next; let smelt_rhs: f64 = _smelt_tmp_30; !(smelt_lhs == smelt_rhs || (smelt_is_number_hole(smelt_lhs) && smelt_is_number_hole(smelt_rhs))) };
     if _smelt_tmp_29 {
     eq = -1.0;
     } else {
@@ -5186,7 +5199,7 @@ pub(crate) fn scan__module_main(url: JsString, key: Option<JsString>, multiple: 
     } else {
     }
     _smelt_tmp_34 = -1.0;
-    _smelt_tmp_35 = eq == _smelt_tmp_34;
+    _smelt_tmp_35 = { let smelt_lhs: f64 = eq; let smelt_rhs: f64 = _smelt_tmp_34; (smelt_lhs == smelt_rhs || (smelt_is_number_hole(smelt_lhs) && smelt_is_number_hole(smelt_rhs))) };
     if _smelt_tmp_35 {
     if encoded {
     out = out + &JsString::from("?");
@@ -5201,7 +5214,7 @@ pub(crate) fn scan__module_main(url: JsString, key: Option<JsString>, multiple: 
     }
     _smelt_tmp_39 = index + 1.0;
     _smelt_tmp_40 = -1.0;
-    _smelt_tmp_41 = next == _smelt_tmp_40;
+    _smelt_tmp_41 = { let smelt_lhs: f64 = next; let smelt_rhs: f64 = _smelt_tmp_40; (smelt_lhs == smelt_rhs || (smelt_is_number_hole(smelt_lhs) && smelt_is_number_hole(smelt_rhs))) };
     if _smelt_tmp_41 {
     _smelt_tmp_42 = None::<f64>;
     } else {
@@ -5223,7 +5236,7 @@ pub(crate) fn scan__module_main(url: JsString, key: Option<JsString>, multiple: 
     } else {
     }
     _smelt_tmp_34 = -1.0;
-    _smelt_tmp_35 = eq == _smelt_tmp_34;
+    _smelt_tmp_35 = { let smelt_lhs: f64 = eq; let smelt_rhs: f64 = _smelt_tmp_34; (smelt_lhs == smelt_rhs || (smelt_is_number_hole(smelt_lhs) && smelt_is_number_hole(smelt_rhs))) };
     if _smelt_tmp_35 {
     if encoded {
     out = out + &JsString::from("?");
@@ -5238,7 +5251,7 @@ pub(crate) fn scan__module_main(url: JsString, key: Option<JsString>, multiple: 
     }
     _smelt_tmp_39 = index + 1.0;
     _smelt_tmp_40 = -1.0;
-    _smelt_tmp_41 = next == _smelt_tmp_40;
+    _smelt_tmp_41 = { let smelt_lhs: f64 = next; let smelt_rhs: f64 = _smelt_tmp_40; (smelt_lhs == smelt_rhs || (smelt_is_number_hole(smelt_lhs) && smelt_is_number_hole(smelt_rhs))) };
     if _smelt_tmp_41 {
     _smelt_tmp_42 = None::<f64>;
     } else {

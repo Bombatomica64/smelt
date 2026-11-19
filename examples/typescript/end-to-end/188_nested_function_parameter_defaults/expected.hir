@@ -38,7 +38,7 @@ interned types
   t2 = Bool
   t3 = Optional<Float>
   t4 = fn(Optional<Float>, Optional<Float>) -> Float
-  t5 = fn(Float, Optional<Float>, Float) -> Float
+  t5 = fn(Float, Optional<Float>, Optional<Float>) -> Float
   t6 = String
   t7 = Optional<String>
   t8 = Optional<Bool>

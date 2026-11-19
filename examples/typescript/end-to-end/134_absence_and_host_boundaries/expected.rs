@@ -15,6 +15,16 @@ const fn smelt_number_hole() -> f64 { f64::from_bits(SMELT_NUMBER_HOLE_BITS) }
 /// Whether `value` is a hole of a `number[]`.
 const fn smelt_is_number_hole(value: f64) -> bool { value.to_bits() == SMELT_NUMBER_HOLE_BITS }
 
+/// The value a JavaScript read that finds no slot yields (an out-of-range
+/// index, an `Array(n)` hole), in the carrier of a generic element `T`.
+fn smelt_missing<T: Default + 'static>() -> T {
+    let mut value = T::default();
+    if let Some(number) = (&mut value as &mut dyn ::std::any::Any).downcast_mut::<f64>() {
+        *number = smelt_number_hole();
+    }
+    value
+}
+
 /// `Number::toString(value, 10)`: JavaScript's number formatting.
 fn smelt_number_to_string<N: ::std::borrow::Borrow<f64>>(value: N) -> String {
     let value = *value.borrow();
@@ -4076,7 +4086,7 @@ impl IntoSmeltUnknown for bool {
 
 impl IntoSmeltUnknown for f64 {
     fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Number(self)
+        if smelt_is_number_hole(self) { SmeltUnknown::Undefined } else { SmeltUnknown::Number(self) }
     }
 }
 
@@ -5656,7 +5666,7 @@ pub(crate) async fn digest_length(data: SmeltUnion30) -> Result<f64, Box<dyn std
     let _smelt_tmp_8: SmeltFuture<SmeltArrayBuffer> = { let smelt_algorithm = (JsString::from("SHA-256")).clone(); let smelt_data = match &(source) { SmeltUnion40::M0(value) => value.to_bytes(), SmeltUnion40::M1(value) => value.to_bytes(), SmeltUnion40::M2(value) => value.to_bytes(), SmeltUnion40::M3(value) => value.to_bytes(), SmeltUnion40::M4(value) => value.to_bytes(), SmeltUnion40::M5(value) => value.to_bytes(), SmeltUnion40::M6(value) => value.to_bytes(), SmeltUnion40::M7(value) => value.to_bytes(), SmeltUnion40::M8(value) => value.to_bytes(), SmeltUnion40::M9(value) => value.to_bytes(), SmeltUnion40::M10(value) => value.to_bytes(), SmeltUnion40::M11(value) => value.to_bytes(), SmeltUnion40::M12(value) => value.to_bytes() }; SmeltFuture::from_future(Box::pin(async move { smelt_crypto_digest(&smelt_algorithm, &smelt_data) })) };
     buffer = _smelt_tmp_8.await?;
     _smelt_tmp_10 = SmeltTypedArray::over_buffer(SmeltTypedArrayKind::Uint8, &buffer, 0, None);
-    return Ok(_smelt_tmp_10.get(0.0).unwrap_or(0.0));
+    return Ok(_smelt_tmp_10.get(0.0).unwrap_or_else(smelt_number_hole));
 }
 
 pub(crate) fn collect(mut into: &mut SmeltList<SmeltUnion7>, value: SmeltUnion7) -> f64 {

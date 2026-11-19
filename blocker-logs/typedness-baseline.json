@@ -2,17 +2,17 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 8822,
+      "concrete": 8853,
       "generic": 193,
       "erased": 56
     },
     "reads": {
-      "concrete": 977,
+      "concrete": 981,
       "generic": 50,
       "erased": 20
     },
     "calls": {
-      "concrete": 2477,
+      "concrete": 2480,
       "generic": 16,
       "erased": 2
     }
@@ -819,7 +819,7 @@
     },
     "examples/typescript/end-to-end/143_module_arrows_are_items/input.ts": {
       "values": {
-        "concrete": 96,
+        "concrete": 99,
         "generic": 0,
         "erased": 0
       },
@@ -972,12 +972,12 @@
     },
     "examples/typescript/end-to-end/158_joins_absence_and_host_reads/input.ts": {
       "values": {
-        "concrete": 67,
+        "concrete": 70,
         "generic": 0,
         "erased": 0
       },
       "reads": {
-        "concrete": 12,
+        "concrete": 13,
         "generic": 0,
         "erased": 0
       },
@@ -1125,7 +1125,7 @@
     },
     "examples/typescript/end-to-end/169_json_typed_entry_decode/input.ts": {
       "values": {
-        "concrete": 71,
+        "concrete": 75,
         "generic": 0,
         "erased": 0
       },
@@ -1465,7 +1465,7 @@
     },
     "examples/typescript/end-to-end/188_nested_function_parameter_defaults/input.ts": {
       "values": {
-        "concrete": 62,
+        "concrete": 63,
         "generic": 0,
         "erased": 0
       },
@@ -1754,17 +1754,17 @@
     },
     "examples/typescript/end-to-end/203_record_viewed_as_another_record_type/input.ts": {
       "values": {
-        "concrete": 128,
+        "concrete": 139,
         "generic": 0,
         "erased": 0
       },
       "reads": {
-        "concrete": 38,
+        "concrete": 40,
         "generic": 0,
         "erased": 0
       },
       "calls": {
-        "concrete": 33,
+        "concrete": 36,
         "generic": 0,
         "erased": 0
       }
@@ -2723,12 +2723,12 @@
     },
     "examples/typescript/end-to-end/79_logical_assignment_store/input.ts": {
       "values": {
-        "concrete": 129,
+        "concrete": 138,
         "generic": 0,
         "erased": 0
       },
       "reads": {
-        "concrete": 16,
+        "concrete": 17,
         "generic": 0,
         "erased": 0
       },

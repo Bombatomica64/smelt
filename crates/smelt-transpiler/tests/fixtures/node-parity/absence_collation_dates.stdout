@@ -1,0 +1,21 @@
+undefined missing
+-1 undefined
+,, 3 [null] NaN
+8080 80 80
+undefined 0 undefined
+7 f true 1
+true false true null null
+null
+m: null 2
+y false
+-1 a,ä,z
+-1 -1 1 -1
+2020-01-01T10:20:30 2020 0 1 10 20 30 0
+2020-06-15T23:05 2020 5 15 23 5 0 0
+2020-01-01T00:00:00.250 2020 0 1 0 0 0 250
+2020-01-01 1577836800000
+2020-01-01T00:00:00Z 1577836800000
+2020-01-01T00:00:00+02:00 1577829600000
+nonsense NaN
+1
+true true

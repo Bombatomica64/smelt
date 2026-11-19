@@ -474,7 +474,7 @@ export function build(total: number): number[] {
         rust_fn(&source, "build"),
         r#"fn build(total: f64) -> SmeltList<f64> {
 let mut _smelt_tmp_4: bool;
-let mut result: SmeltList<f64> = Into::<SmeltList<_>>::into({ let smelt_array_from_length = (total as f64).max(0.0).floor() as usize; (0..smelt_array_from_length).map(|_| 0.0).collect::<Vec<_>>() });
+let mut result: SmeltList<f64> = Into::<SmeltList<_>>::into({ let smelt_array_from_length = (total as f64).max(0.0).floor() as usize; (0..smelt_array_from_length).map(|_| smelt_number_hole()).collect::<Vec<_>>() });
 let mut i: f64 = 0.0;
 loop {
 _smelt_tmp_4 = i < total;
@@ -492,7 +492,8 @@ fn array_length_allocation_holes_match_out_of_range_reads() {
     // A hole is the element type's MISSING VALUE — the very value an
     // out-of-range read of the same list answers — so construction and reads
     // cannot disagree. A `number[]` allocation therefore stays a `Vec<f64>` of
-    // `0.0` holes instead of being erased to `SmeltUnknown` and mapped back.
+    // number holes (`smelt_number_hole()`, which read as `undefined`) instead
+    // of being erased to `SmeltUnknown` and mapped back.
     let source = source_for(
         r"
 export function numbers(n: number): number[] {
@@ -509,7 +510,7 @@ export function strings(n: number): string[] {
     assert_eq!(
         rust_fn(&source, "numbers"),
         r"fn numbers(n: f64) -> SmeltList<f64> {
-let result: SmeltList<f64> = Into::<SmeltList<_>>::into({ let smelt_array_from_length = (n as f64).max(0.0).floor() as usize; (0..smelt_array_from_length).map(|_| 0.0).collect::<Vec<_>>() });
+let result: SmeltList<f64> = Into::<SmeltList<_>>::into({ let smelt_array_from_length = (n as f64).max(0.0).floor() as usize; (0..smelt_array_from_length).map(|_| smelt_number_hole()).collect::<Vec<_>>() });
 return result;
 }"
     );

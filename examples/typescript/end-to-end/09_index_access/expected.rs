@@ -10,6 +10,16 @@ const fn smelt_number_hole() -> f64 { f64::from_bits(SMELT_NUMBER_HOLE_BITS) }
 /// Whether `value` is a hole of a `number[]`.
 const fn smelt_is_number_hole(value: f64) -> bool { value.to_bits() == SMELT_NUMBER_HOLE_BITS }
 
+/// The value a JavaScript read that finds no slot yields (an out-of-range
+/// index, an `Array(n)` hole), in the carrier of a generic element `T`.
+fn smelt_missing<T: Default + 'static>() -> T {
+    let mut value = T::default();
+    if let Some(number) = (&mut value as &mut dyn ::std::any::Any).downcast_mut::<f64>() {
+        *number = smelt_number_hole();
+    }
+    value
+}
+
 /// `Number::toString(value, 10)`: JavaScript's number formatting.
 fn smelt_number_to_string<N: ::std::borrow::Borrow<f64>>(value: N) -> String {
     let value = *value.borrow();
@@ -1017,6 +1027,6 @@ impl<T: SmeltObjectKey + ?Sized> SmeltObjectKey for &T { fn with_js_key<R>(&self
 fn main() {
     let values: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![5.0, 8.0, 13.0]; smelt_list_items }));
     let names: SmeltRecord<JsString, JsString> = SmeltRecord::from([(JsString::from("first"), JsString::from("Ada")), (JsString::from("second"), JsString::from("Grace"))]);
-    let _ = { println!("{} {}", smelt_console_number(values.borrow().get({ let smelt_normalized = 1.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0)), names.get(&JsString::from("second").clone()).unwrap_or(JsString::new())); };
+    let _ = { println!("{} {}", smelt_console_number(values.borrow().get({ let smelt_normalized = 1.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| smelt_number_hole())), names.get(&JsString::from("second").clone()).unwrap_or(JsString::new())); };
     return;
 }

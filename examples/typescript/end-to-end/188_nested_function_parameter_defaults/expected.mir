@@ -19,8 +19,8 @@ fn block_nested (FuncId(0)) -> Float
 fn body_level (FuncId(1)) -> Float
   locals
     %0 param n: Float
-    %1 user inner: fn(Float, Optional<Float>, Float) -> Float
-    %2 temp: fn(Float, Optional<Float>, Float) -> Float
+    %1 user inner: fn(Float, Optional<Float>, Optional<Float>) -> Float
+    %2 temp: fn(Float, Optional<Float>, Optional<Float>) -> Float
     %3 temp: Float
     %4 temp: Float
     %5 temp: Float
@@ -117,18 +117,21 @@ closure ClosureId(1) -> Float
   locals
     %0 param a: Float
     %1 param b: Optional<Float>
-    %2 param c: Float
+    %2 param c: Optional<Float>
     %3 user b: Float
-    %4 temp: Float
+    %4 user c: Float
     %5 temp: Float
     %6 temp: Float
     %7 temp: Float
+    %8 temp: Float
+    %9 temp: Float
   bb0:
-    %4 = copy %0 * 2.0
-    %3 = copy %1 ?? copy %4
-    %6 = copy %0 + copy %3
-    %7 = copy %6 + copy %2
-    return copy %7
+    %5 = copy %0 * 2.0
+    %3 = copy %1 ?? copy %5
+    %4 = copy %2 ?? 0.0
+    %8 = copy %0 + copy %3
+    %9 = copy %8 + copy %4
+    return copy %9
 
 closure ClosureId(2) -> Float
   locals

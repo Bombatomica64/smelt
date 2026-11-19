@@ -661,17 +661,23 @@ impl ModuleBuilder<'_> {
 
     /// Return whether a parameter default is the type's zero value.
     ///
-    /// For such defaults (`= 0`, `= ""`, `= false`, `= []`, `= {}`,
+    /// For such defaults (`= ""`, `= false`, `= []`, `= {}`,
     /// `= new Map()`, `= new Set()`, `= undefined`) omitted call arguments
     /// already synthesize exactly the defaulted value, so the parameter keeps
     /// its plain (non-`Optional`) ABI. This also preserves mutable-reference
     /// threading for parameters that accumulate state across recursive calls.
+    ///
+    /// `= 0` is not one: JavaScript applies a default exactly when the
+    /// argument is `undefined`, and the `number` carrier spells `undefined` as
+    /// the hole (`smelt_number_hole`), not `0`. An omitted argument padded
+    /// with `undefined` (a call through a function value) or an explicit
+    /// `undefined` would otherwise reach the body as the hole and read as
+    /// `NaN`; the ordinary defaulted ABI answers both with the default.
     pub(in crate::lowering) fn initializer_is_type_zero_default(
         &self,
         initializer: &Expression<'_>,
     ) -> bool {
         match initializer {
-            Expression::NumericLiteral(literal) => literal.value == 0.0,
             Expression::StringLiteral(literal) => literal.value.is_empty(),
             Expression::BooleanLiteral(literal) => !literal.value,
             Expression::NullLiteral(_) => true,
