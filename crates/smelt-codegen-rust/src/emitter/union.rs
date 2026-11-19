@@ -65,6 +65,15 @@ impl FunctionEmitter<'_> {
                     .types
                     .lookup(&Type::TypeParam { name: *param })
                     .ok_or_else(|| EmitError::new("union type parameter is not interned"))?;
+                // A union gathers its parameters from its arms, which may
+                // come from a scope a call site's bindings do not describe
+                // (a callback slot of a generic record bound at its own
+                // arguments): such a parameter is no binding of this
+                // substitution, and renders as the erased carrier, as an
+                // unbound parameter does.
+                if substitution.resolve(*param).is_err() {
+                    return Ok(RustType::from("SmeltUnknown".to_owned()));
+                }
                 self.rust_type(param_ty, false, substitution)
             })
             .collect::<Result<Vec<_>, EmitError>>()?;
@@ -243,10 +252,12 @@ impl FunctionEmitter<'_> {
     /// Determine whether a union member can be stored without runtime erasure.
     fn union_member_is_concrete(&self, ty: TypeId) -> bool {
         match self.mir.types.get(ty) {
-            Some(
-                Type::Unknown | Type::IndexedAccess { .. } | Type::Never | Type::TypeParam { .. },
-            )
-            | None => false,
+            Some(Type::Unknown | Type::IndexedAccess { .. } | Type::Never) | None => false,
+            // A type parameter is an arm like any other: the union is a
+            // generic enum over it (`SmeltUnionN<T>`), which a lifted generic
+            // function spells with its own `T` and an erased-ABI one with the
+            // erased carrier (`docs/design/record-identity.md`, generic unions).
+            Some(Type::TypeParam { .. }) => true,
             // A union nested under a container arm (`number | (number |
             // number[])[]`, the element type of `[1, [2, [3]]]`) is stored as
             // its own generated enum when that union is concrete too. A bare
@@ -671,7 +682,24 @@ impl FunctionEmitter<'_> {
         if let Some(target_members) = self.concrete_union_members(target) {
             let target_name = union_name(target);
             let mut arms = Vec::new();
-            for (source_index, member) in source_members.iter().enumerate() {
+            for (source_index, declared_member) in source_members.iter().enumerate() {
+                // A callee's type-parameter arm, at the bindings of the call
+                // whose result this is (`call_result_at`).
+                let bound = match self.mir.types.get(*declared_member) {
+                    Some(Type::TypeParam { name }) => self
+                        .context
+                        .union_return_bindings
+                        .borrow()
+                        .as_ref()
+                        .and_then(|bindings| match bindings.get(*name) {
+                            Some(crate::generic_bindings::TypeParamBinding::Concrete(bound)) => {
+                                Some(bound)
+                            }
+                            _ => None,
+                        }),
+                    _ => None,
+                };
+                let member = &bound.unwrap_or(*declared_member);
                 if let Some(target_index) = target_members
                     .iter()
                     .position(|target_member| target_member == member)
