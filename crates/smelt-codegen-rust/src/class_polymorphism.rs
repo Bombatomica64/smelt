@@ -351,6 +351,7 @@ pub(crate) fn class_layout(
                 ),
             ));
         }
+        upcasts.extend(view_upcasts(context, trait_class)?);
         cell_impls.push(CellImpl {
             trait_ref: format!("{}{trait_args}", cell_trait_name(&trait_type)),
             inner_view: format!("{trait_type}Inner{trait_args}"),
@@ -407,6 +408,11 @@ pub(crate) fn cell_trait_declaration(
             ancestor_args_text(mir, context, class.name, upper_mir, &scoped)?
         ));
     }
+    for (method, object) in view_upcasts(context, class.name)? {
+        methods.push(format!(
+            "fn {method}(self: ::std::rc::Rc<Self>) -> ::std::rc::Rc<{object}>;"
+        ));
+    }
     // A widened class's handle may hold a converting view
     // (`crate::class_widening`): its fields are reached through accessors.
     Ok(format!(
@@ -414,6 +420,29 @@ pub(crate) fn cell_trait_declaration(
         cell_trait_name(&type_name),
         methods.join(" ")
     ))
+}
+
+/// The conversions the cell trait of polymorphic `class` carries toward the
+/// structural view targets its instances are viewed as
+/// (`crate::structural_views`): one `smelt_as_<Target>` per target, answering
+/// the same `Rc` unsized into the target's view trait object. Every concrete
+/// cell of the hierarchy implements that trait, so each impl is `self`.
+fn view_upcasts(
+    context: &crate::emitter::EmitContext,
+    class: Symbol,
+) -> Result<Vec<(String, String)>, crate::EmitError> {
+    let mut upcasts = Vec::new();
+    for target in context.structural_views().targets(class) {
+        let target_type = context.names().type_name(*target)?.as_str().to_owned();
+        upcasts.push((
+            crate::structural_views::upcast_method_name(&target_type),
+            format!(
+                "dyn {}",
+                crate::structural_views::view_trait_name(&target_type)
+            ),
+        ));
+    }
+    Ok(upcasts)
 }
 
 /// One `impl` of a cell trait for `class`'s own concrete cell.

@@ -99,11 +99,22 @@
 //!
 //! A pair that does not [`shares`]: `T` declares a property at a type `S`'s
 //! does not widen to (a different type, or a widening other than the three
-//! above), `T` declares an optional property `S` lacks, a class instance on
-//! either side
-//! (its view carries prototype members, `emitter::view_write_through`), a
-//! generic, callable or accessor-backed shape. Those keep the field-wise
-//! conversion of `record_adapter`.
+//! above), `T` declares an optional property `S` lacks, a class as the
+//! TARGET (a class slot is nominal), a class source whose instances do not
+//! store `T`'s properties as data fields (a method, a `get`/`set` accessor,
+//! a generic class, a subclass redeclaring the property narrower), a generic,
+//! callable or accessor-backed shape. Those keep the field-wise conversion
+//! of `record_adapter`.
+//!
+//! # Class instances as sources
+//!
+//! A class instance is a source like any shape ([`is_viewable_class`],
+//! [`view_source_fields`]): its cell implements the target's trait from its
+//! own stored data fields, so `rename(new Pt(..))` through a `Labeled`
+//! parameter writes the `Pt`. A class with subclasses is converted through
+//! its polymorphic cell trait's `smelt_as_<Target>` method, which every
+//! concrete cell of the hierarchy implements (`crate::class_polymorphism`).
+//! `docs/design/record-identity.md` states the requirements.
 #![expect(
     clippy::redundant_pub_crate,
     reason = "view planning is shared by classification, the storage emitters and the function emitter"
@@ -167,13 +178,12 @@ pub(crate) fn shares(mir: &Mir, source: Symbol, target: Symbol) -> bool {
     if source == target {
         return false;
     }
-    let (Some(source_shape), Some(target_shape)) = (
-        is_viewable_shape(mir, source),
+    let (Some(source_fields), Some(target_shape)) = (
+        view_source_fields(mir, source),
         is_viewable_shape(mir, target),
     ) else {
         return false;
     };
-    let source_fields = crate::classes::effective_interface_fields(mir, source_shape);
     let target_fields = crate::classes::effective_interface_fields(mir, target_shape);
     !target_fields.is_empty()
         && target_fields.iter().all(|wanted| {
@@ -181,6 +191,124 @@ pub(crate) fn shares(mir: &Mir, source: Symbol, target: Symbol) -> bool {
                 held.name == wanted.name
                     && (held.ty == wanted.ty || widens(mir, held.ty, wanted.ty))
             })
+        })
+}
+
+/// The properties a value of the record type `name` lends a view of it, when
+/// it can be the source of one: a viewable object shape
+/// ([`is_viewable_shape`]) lends every property it declares, an instance of a
+/// [`is_viewable_class`] lends its own data fields.
+///
+/// A view only ever lends a source's STORED fields, so what a class keeps
+/// elsewhere is left out: methods (on the prototype), virtual method slots,
+/// accessor-backed properties (`get`/`set`, answered by functions) and hidden
+/// fields. A target declaring one of those does not [`shares`] with the
+/// class, and its conversion keeps copying.
+pub(crate) fn view_source_fields(mir: &Mir, name: Symbol) -> Option<Vec<MirField>> {
+    if let Some(shape) = is_viewable_shape(mir, name) {
+        return Some(crate::classes::effective_interface_fields(mir, shape));
+    }
+    let class = is_viewable_class(mir, name)?;
+    let slots = crate::classes::own_virtual_slot_names(mir, class);
+    let accessors: HashSet<Symbol> = class
+        .descriptors
+        .iter()
+        .filter(|descriptor| !descriptor.data_descriptor)
+        .map(|descriptor| descriptor.name)
+        .collect();
+    Some(
+        crate::classes::effective_class_fields(mir, class)
+            .into_iter()
+            .filter(|field| {
+                field.visibility.is_own_property()
+                    && !slots.contains(&field.name)
+                    && !accessors.contains(&field.name)
+            })
+            .collect(),
+    )
+}
+
+/// The class named `name`, when its instances can be the SOURCE of a view
+/// (never a target: a slot of a class type is nominal, and an object of
+/// another class or shape reaches it through `crate::class_polymorphism` or
+/// the field-wise conversion).
+///
+/// The class's handle must be `Rc<RefCell<NameInner>>`, the one cell a view
+/// trait object is unsized from, and its inner record must hold every field
+/// it lends:
+///
+/// - not generic (a generic class's cell is `RefCell<NameInner<T>>`, one
+///   type per instantiation, and a widened one is a placeholder,
+///   `crate::class_widening`);
+/// - a class with subclasses qualifies when each of them does and stores the
+///   viewed properties at the base's types ([`StructuralViews::plan`]): its
+///   handle is polymorphic (`Rc<dyn NameSmeltCell>`), every concrete cell of
+///   the hierarchy implements the target's trait, and the conversion goes
+///   through the cell trait's `smelt_as_<Target>` method. A subclass's cell
+///   is `RefCell<SubInner>`, which dereferences to its base's fields;
+/// - not a statics frame, and no index-signature store or call signature
+///   (the same storage reasons as [`is_viewable_shape`]).
+pub(crate) fn is_viewable_class(mir: &Mir, name: Symbol) -> Option<&smelt_mir::MirClass> {
+    let class = crate::classes::find_class(mir, name)?;
+    let callable = mir
+        .interfaces
+        .iter()
+        .find(|interface| interface.name == name)
+        .is_some_and(|interface| crate::classify::is_callable_shape(mir, interface));
+    (class.type_params.is_empty()
+        && class.statics_of.is_none()
+        && !callable
+        && !crate::classify::class_has_index_store(mir, name))
+    .then_some(class)
+}
+
+/// Every class below `class` (its subclasses, theirs, ...), in declaration
+/// order. Empty for a shape or a class nothing extends.
+fn class_descendants(mir: &Mir, class: Symbol) -> Vec<Symbol> {
+    mir.classes
+        .iter()
+        .filter(|candidate| {
+            let mut current = candidate.base;
+            let mut seen = HashSet::new();
+            while let Some(base) = current
+                && seen.insert(base)
+            {
+                if base == class {
+                    return true;
+                }
+                current = crate::classes::find_class(mir, base).and_then(|found| found.base);
+            }
+            false
+        })
+        .map(|candidate| candidate.name)
+        .collect()
+}
+
+/// Whether an instance of the subclass `cell` of `base` lends the view
+/// target `target` exactly what `base` lends it: `cell` is a view source
+/// itself ([`is_viewable_class`]) and stores each of `target`'s properties at
+/// the type `base` declares. A subclass redeclaring one narrower stores it
+/// at the declaring level's type
+/// (`class_polymorphism::redeclared_field_storage`), which a lent accessor
+/// cannot answer, so the conversion keeps copying.
+fn lends_as_base(mir: &Mir, cell: Symbol, base: Symbol, target: Symbol) -> bool {
+    let (Some(cell_fields), Some(base_fields), Some(target_shape)) = (
+        view_source_fields(mir, cell),
+        view_source_fields(mir, base),
+        is_viewable_shape(mir, target),
+    ) else {
+        return false;
+    };
+    crate::classes::effective_interface_fields(mir, target_shape)
+        .iter()
+        .all(|wanted| {
+            let at = |fields: &[MirField]| {
+                fields
+                    .iter()
+                    .find(|field| field.name == wanted.name)
+                    .map(|field| field.ty)
+            };
+            at(&cell_fields).is_some() && at(&cell_fields) == at(&base_fields)
         })
 }
 
@@ -235,8 +363,7 @@ pub(crate) fn field_access(mir: &Mir, held: TypeId, wanted: TypeId) -> Option<Fi
 
 /// The declared type of the property `field` of the shape `shape`.
 fn stored_field_type(mir: &Mir, shape: Symbol, field: Symbol) -> Option<TypeId> {
-    let declared = is_viewable_shape(mir, shape)?;
-    crate::classes::effective_interface_fields(mir, declared)
+    view_source_fields(mir, shape)?
         .into_iter()
         .find(|candidate| candidate.name == field)
         .map(|candidate| candidate.ty)
@@ -313,23 +440,45 @@ impl StructuralViews {
     /// flow between two shapes that [`shares`].
     pub(crate) fn plan(mir: &Mir) -> Self {
         let mut edges: BTreeSet<(usize, usize)> = BTreeSet::new();
-        let position: HashMap<Symbol, usize> = mir
+        // Every record type in declaration order: the object shapes, then
+        // the classes a view can be built over that are not also listed as a
+        // shape.
+        let mut order: Vec<Symbol> = mir
             .interfaces
             .iter()
+            .map(|interface| interface.name)
+            .collect();
+        let listed: HashSet<Symbol> = order.iter().copied().collect();
+        order.extend(
+            mir.classes
+                .iter()
+                .map(|class| class.name)
+                .filter(|name| !listed.contains(name)),
+        );
+        let position: HashMap<Symbol, usize> = order
+            .iter()
             .enumerate()
-            .map(|(index, interface)| (interface.name, index))
+            .map(|(index, name)| (*name, index))
             .collect();
         crate::classify::for_each_value_flow_into_parts(mir, |source, slot| {
             for_each_record_pair(mir, source, slot, 0, &mut |from, to| {
+                // A value of a class with subclasses may be an instance of
+                // any of them: each one's cell is viewed as `to` too.
+                let cells = class_descendants(mir, from);
                 if shares(mir, from, to)
-                    && let (Some(from_index), Some(to_index)) =
-                        (position.get(&from), position.get(&to))
+                    && cells.iter().all(|cell| lends_as_base(mir, *cell, from, to))
                 {
-                    edges.insert((*from_index, *to_index));
+                    for cell in std::iter::once(from).chain(cells) {
+                        if let (Some(from_index), Some(to_index)) =
+                            (position.get(&cell), position.get(&to))
+                        {
+                            edges.insert((*from_index, *to_index));
+                        }
+                    }
                 }
             });
         });
-        let name_at = |index: usize| mir.interfaces.get(index).map(|interface| interface.name);
+        let name_at = |index: usize| order.get(index).copied();
         let mut direct_sources: HashMap<Symbol, Vec<Symbol>> = HashMap::new();
         for (from, to) in &edges {
             if let (Some(source), Some(target)) = (name_at(*from), name_at(*to)) {
@@ -783,14 +932,18 @@ pub(crate) fn upcast_handle_expr(
     value: &str,
 ) -> Result<String, crate::EmitError> {
     let target_type = context.names().type_name(target)?.as_str().to_owned();
-    Ok(if context.structural_views().is_target(source) {
-        format!(
-            "{target_type}({value}.0.clone().{}())",
-            upcast_method_name(&target_type)
-        )
-    } else {
-        format!("{target_type}({value}.0.clone())")
-    })
+    Ok(
+        if context.structural_views().is_target(source)
+            || context.polymorphic_classes().contains(&source)
+        {
+            format!(
+                "{target_type}({value}.0.clone().{}())",
+                upcast_method_name(&target_type)
+            )
+        } else {
+            format!("{target_type}({value}.0.clone())")
+        },
+    )
 }
 
 /// The shapes whose erased origin `target`'s `SmeltFromUnknown` takes back as

@@ -5022,6 +5022,7 @@ impl IntoSmeltUnknown for Wrapper {
         ("raw".to_owned(), (__smelt_inner.raw.clone()).into_smelt_unknown()),
         ("count".to_owned(), SmeltUnknown::Number(__smelt_inner.count.clone() as f64)),
         ]);
+        __smelt_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("Wrapper".into())));
         __smelt_entries.extend(__smelt_proto);
         smelt_finish_reference_view(__smelt_id, __smelt_view, __smelt_entries)
     }

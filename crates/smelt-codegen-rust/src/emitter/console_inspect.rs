@@ -247,7 +247,15 @@ fn inspect_records(mir: &Mir, context: &EmitContext) -> HashMap<Symbol, InspectR
             crate::names::TypeDecl::Class(class) => InspectRecord {
                 rust_name,
                 constructor: mir.names.get(symbol).unwrap_or(source).to_owned(),
-                fields: crate::classes::effective_class_fields(mir, class),
+                // A virtual method slot is storage for a prototype method,
+                // not an own property: Node prints the instance without it.
+                fields: {
+                    let slots = crate::classes::own_virtual_slot_names(mir, class);
+                    crate::classes::effective_class_fields(mir, class)
+                        .into_iter()
+                        .filter(|field| !slots.contains(&field.name))
+                        .collect()
+                },
                 reference: context.is_reference_class(symbol),
                 is_shape: false,
                 eligible: class.type_params.is_empty() && base_chain_is_local(mir, class),

@@ -4514,6 +4514,7 @@ impl IntoSmeltUnknown for Registry {
         let mut __smelt_entries: Vec<(String, SmeltUnknown)> = Vec::from([
         ("slots".to_owned(), SmeltUnknown::Array(__smelt_inner.slots.clone().into_iter().map(|smelt_value| SmeltUnknown::String(smelt_value.into())).collect())),
         ]);
+        __smelt_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("Registry".into())));
         __smelt_entries.extend(__smelt_proto);
         smelt_finish_reference_view(__smelt_id, __smelt_view, __smelt_entries)
     }

@@ -1944,3 +1944,12 @@ fn self_recursive_async_local() -> TestResult {
 fn promise_forwarding_closures() -> TestResult {
     verify_node_parity("promise_forwarding_closures")
 }
+
+/// A class instance at an interface-typed slot is the same object there:
+/// writes both ways, `===`, keys, JSON, inspection and `instanceof`, for a
+/// leaf class, subclasses and a polymorphic hierarchy
+/// (`docs/design/record-identity.md`, step 1).
+#[test]
+fn class_instance_views() -> TestResult {
+    verify_node_parity("class_instance_views")
+}

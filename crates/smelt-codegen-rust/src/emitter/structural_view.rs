@@ -239,24 +239,27 @@ impl FunctionEmitter<'_> {
         let class = |name: Symbol| crate::classes::find_class(self.mir, name).is_some();
         let reason = if from == to {
             "same-record-other-arguments"
-        } else if class(*from) || class(*to) {
-            "class"
+        } else if class(*to) {
+            "class-target"
+        } else if class(*from)
+            && crate::structural_views::view_source_fields(self.mir, *from).is_none()
+        {
+            "class-not-viewable"
         } else if !from_args.is_empty() || !to_args.is_empty() {
             "generic"
-        } else if crate::structural_views::is_viewable_shape(self.mir, *from).is_none()
+        } else if crate::structural_views::view_source_fields(self.mir, *from).is_none()
             || crate::structural_views::is_viewable_shape(self.mir, *to).is_none()
         {
             "callable-accessor-or-index-shape"
         } else if crate::structural_views::shares(self.mir, *from, *to) {
-            "shares-but-no-flow-seen"
+            "shares-but-no-flow-seen-or-subclass-redeclares"
         } else {
-            let fields = |name: Symbol| {
-                crate::structural_views::is_viewable_shape(self.mir, name)
-                    .map(|shape| crate::classes::effective_interface_fields(self.mir, shape))
-                    .unwrap_or_default()
-            };
-            let held = fields(*from);
-            if fields(*to)
+            let held =
+                crate::structural_views::view_source_fields(self.mir, *from).unwrap_or_default();
+            let declared = crate::structural_views::is_viewable_shape(self.mir, *to)
+                .map(|shape| crate::classes::effective_interface_fields(self.mir, shape))
+                .unwrap_or_default();
+            if declared
                 .iter()
                 .all(|wanted| held.iter().any(|field| field.name == wanted.name))
             {
@@ -296,7 +299,23 @@ impl FunctionEmitter<'_> {
         if !views.is_target(from) || !self.context.is_reference_class(to) {
             return Ok(None);
         }
-        let holds = |handle: Symbol, cell: Symbol| handle == cell || views.converts(cell, handle);
+        // A polymorphic class handle holds the cell of any concrete class of
+        // its hierarchy (`crate::class_polymorphism`).
+        let polymorphic = self.context.polymorphic_classes();
+        let hierarchy = |handle: Symbol| {
+            if polymorphic.contains(&handle) {
+                crate::class_polymorphism::concrete_classes(self.mir, polymorphic, handle)
+            } else {
+                Vec::new()
+            }
+        };
+        let (from_cells, to_cells) = (hierarchy(from), hierarchy(to));
+        let holds = |handle: Symbol, cell: Symbol| {
+            handle == cell
+                || views.converts(cell, handle)
+                || (handle == from && from_cells.contains(&cell))
+                || (handle == to && to_cells.contains(&cell))
+        };
         let target_type = self.type_rust_name(to)?;
         let mut cells = Vec::new();
         for candidate in std::iter::once(to)
