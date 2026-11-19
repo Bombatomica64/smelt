@@ -1,6 +1,6 @@
 //! Identifier, constant-expression, and source-location lowering helpers.
 
-use crate::context::IdentitySlotKey;
+use crate::context::{IdentitySlotKey, MutableGlobalRef};
 use crate::lowering::body_arena::BodyArena;
 use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::peel::{Wrappers, peel};
@@ -243,11 +243,7 @@ impl ModuleBuilder<'_> {
             // not shadowed by a local) reads through `GlobalGet`, never the
             // const-inline path. This also resolves imported mutated bindings,
             // which appear in `items` as the same `MutableGlobal` item.
-            if let Some(item) = self.mutable_global_item(name) {
-                let ty = match self.item_ref(item) {
-                    Item::MutableGlobal(global_item) => global_item.ty,
-                    _ => self.erase_with(ErasureReason::ByName, "mutable global"),
-                };
+            if let Some(MutableGlobalRef { item, ty }) = self.mutable_global_ref(name) {
                 return Ok(body.push_expr(Expr {
                     kind: ExprKind::GlobalGet { item },
                     ty,
@@ -458,11 +454,7 @@ impl ModuleBuilder<'_> {
         if body.local_at(local).is_none() {
             // A stale local entry from another body must not hide a lifted
             // mutable global: the read still resolves through `GlobalGet`.
-            if let Some(item) = self.mutable_global_item(name) {
-                let ty = match self.item_ref(item) {
-                    Item::MutableGlobal(global_item) => global_item.ty,
-                    _ => self.erase_with(ErasureReason::ByName, "mutable global"),
-                };
+            if let Some(MutableGlobalRef { item, ty }) = self.mutable_global_ref(name) {
                 return Ok(body.push_expr(Expr {
                     kind: ExprKind::GlobalGet { item },
                     ty,

@@ -30,8 +30,8 @@
 
 use super::super::ModuleBuilder;
 use crate::SmeltError;
-use crate::context::IdentitySlotKey;
-use smelt_hir::{Body, Expr, ExprId, ExprKind, Item, ItemId, Stmt, Type, TypeId, Visibility};
+use crate::context::{IdentitySlotKey, MutableGlobalRef};
+use smelt_hir::{Body, Expr, ExprId, ExprKind, Item, Stmt, Type, TypeId, Visibility};
 
 impl ModuleBuilder<'_> {
     /// Whether a value of `ty` has JavaScript reference identity that a
@@ -111,14 +111,11 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
         build: impl FnOnce(&mut Self, &mut Body) -> Result<ExprId, SmeltError>,
     ) -> Result<ExprId, SmeltError> {
-        let item = match self.ctx.identity_slots.get(&key).copied() {
-            Some(item) => item,
-            None => self.create_identity_slot(key, name, ty, span, build)?,
-        };
-        let slot_ty = match self.item_ref(item) {
-            Item::MutableGlobal(global) => global.ty,
-            _ => self.erase_with(smelt_hir::ErasureReason::ByName, "identity slot"),
-        };
+        let MutableGlobalRef { item, ty: slot_ty } =
+            match self.ctx.identity_slots.get(&key).copied() {
+                Some(slot) => slot,
+                None => self.create_identity_slot(key, name, ty, span, build)?,
+            };
         Ok(body.push_expr(Expr {
             kind: ExprKind::GlobalGet { item },
             ty: slot_ty,
@@ -134,7 +131,7 @@ impl ModuleBuilder<'_> {
         ty: Option<TypeId>,
         span: smelt_hir::Span,
         build: impl FnOnce(&mut Self, &mut Body) -> Result<ExprId, SmeltError>,
-    ) -> Result<ItemId, SmeltError> {
+    ) -> Result<MutableGlobalRef, SmeltError> {
         let mut init_body = Body::new(None, span);
         let symbol = self.intern_synthesized_name(&format!("smelt_identity__{name}"));
         let items_before = self.ctx.krate.items.len();
@@ -149,7 +146,9 @@ impl ModuleBuilder<'_> {
                         visibility: Visibility::Public,
                         span,
                     }));
-            this.ctx.identity_slots.insert(key, item);
+            this.ctx
+                .identity_slots
+                .insert(key, MutableGlobalRef { item, ty: slot_ty });
             item
         };
         // A known type registers the slot before the initializer is built, so
@@ -166,6 +165,6 @@ impl ModuleBuilder<'_> {
         init_body.push_stmt(Stmt::Return(Some(value)));
         self.install_global_initializer(item, name, init_body, slot_ty, span);
         self.ctx.identity_slot_log.push((key, items_before));
-        Ok(item)
+        Ok(MutableGlobalRef { item, ty: slot_ty })
     }
 }

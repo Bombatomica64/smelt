@@ -3,6 +3,7 @@
 
 use super::super::{ConstLiteral, ModuleBuilder};
 use crate::SmeltError;
+use crate::context::MutableGlobalRef;
 use crate::lowering::js_text::js_str_literal;
 use crate::lowering::specialization::StaticWriteTarget;
 use oxc::ast::ast::{BindingPattern, Declaration, Expression, Program, Statement};
@@ -681,7 +682,8 @@ impl ModuleBuilder<'_> {
         }
     }
 
-    /// Return the mutable-global HIR item id for a name, if it was lifted.
+    /// Return the mutable-global HIR item for a name, with the type of its
+    /// live value, if it was lifted.
     ///
     /// This module's own slot answers first. Otherwise the name may be an
     /// imported slot, which `items` carries under its local name. `items` is
@@ -691,15 +693,18 @@ impl ModuleBuilder<'_> {
     /// that slot, as JavaScript module scope does. Without this rule, date-fns'
     /// `eo` locale read `en-US`'s `matchMonthPatterns` slot in place of its own
     /// folded `matchMonthPatterns`.
-    pub(in crate::lowering) fn mutable_global_item(&self, name: &str) -> Option<smelt_hir::ItemId> {
+    pub(in crate::lowering) fn mutable_global_ref(&self, name: &str) -> Option<MutableGlobalRef> {
         if let Some(item) = self.mutable_global_items.get(name).copied() {
-            return Some(item);
+            return self
+                .mutable_global_type(item)
+                .map(|ty| MutableGlobalRef { item, ty });
         }
         if self.source_facts.declares_module_value(name) {
             return None;
         }
         let item = self.items.get(name).copied()?;
-        matches!(self.item_ref(item), Item::MutableGlobal(_)).then_some(item)
+        self.mutable_global_type(item)
+            .map(|ty| MutableGlobalRef { item, ty })
     }
 
     /// The type of the live value of the mutable global `item`; `None` when
@@ -720,11 +725,8 @@ impl ModuleBuilder<'_> {
         &self,
         name: &str,
     ) -> Option<StaticWriteTarget> {
-        let item = self.mutable_global_item(name)?;
-        Some(StaticWriteTarget::Global {
-            item,
-            ty: self.mutable_global_type(item)?,
-        })
+        let MutableGlobalRef { item, ty } = self.mutable_global_ref(name)?;
+        Some(StaticWriteTarget::Global { item, ty })
     }
 
     /// Return whether a binding declarator IS the lifted module-level
