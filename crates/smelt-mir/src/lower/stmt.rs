@@ -675,6 +675,15 @@ impl LoweringCtx<'_> {
             smelt_hir::Pattern::Tuple(_) => {
                 let item_ty = match self.krate.types.get(iter_ty) {
                     Some(smelt_hir::Type::List(item) | smelt_hir::Type::Set(item)) => *item,
+                    // A tuple whose elements all have one type (`[[k, v], [k, v]]`
+                    // as a fixed tuple) destructures each element as that type.
+                    Some(smelt_hir::Type::Tuple(items))
+                        if items
+                            .first()
+                            .is_some_and(|first| items.iter().all(|item| item == first)) =>
+                    {
+                        items.first().copied().unwrap_or(iter_ty)
+                    }
                     _ => {
                         return Err(self.error(
                             "a destructuring for target needs a list or set iterable",
@@ -733,16 +742,28 @@ impl LoweringCtx<'_> {
         })?;
 
         self.switch_to(body_mir);
-        self.block_mut()?.statements.push(Statement::Assign {
-            dest: item_local,
-            value: Rvalue::Use(Operand::Copy(Place::Index {
-                base: iter_local,
-                index: Box::new(Operand::Copy(Place::Local(idx))),
-                // A desugared `for..of` counter only ever runs 0..len, so the
-                // negative rule is unreachable here either way.
-                negative: NegativeIndex::OutOfRange,
-            })),
-        });
+        // A non-empty tuple whose elements share one type is read by index
+        // like an array of those elements (codegen's homogeneous-tuple read,
+        // `emitter::place::homogeneous_tuple_item`); a heterogeneous or empty
+        // one needs a constant field read per position.
+        if matches!(
+            self.krate.types.get(iter_ty),
+            Some(smelt_hir::Type::Tuple(items))
+                if !items.first().is_some_and(|first| items.iter().all(|item| item == first))
+        ) {
+            self.bind_tuple_element_at(iter_local, idx, item_local, iter_span)?;
+        } else {
+            self.block_mut()?.statements.push(Statement::Assign {
+                dest: item_local,
+                value: Rvalue::Use(Operand::Copy(Place::Index {
+                    base: iter_local,
+                    index: Box::new(Operand::Copy(Place::Local(idx))),
+                    // A desugared `for..of` counter only ever runs 0..len, so the
+                    // negative rule is unreachable here either way.
+                    negative: NegativeIndex::OutOfRange,
+                })),
+            });
+        }
         if let Some(item_ty) = item_pattern {
             self.bind_tuple_pattern(pat, item_local, item_ty)?;
         }
@@ -767,6 +788,104 @@ impl LoweringCtx<'_> {
         });
         self.terminate(Terminator::Goto(header))?;
         self.switch_to(after);
+        Ok(())
+    }
+
+    /// Binds `dest` to element `index` of the tuple in `tuple`, for a `for..of`
+    /// over a tuple.
+    ///
+    /// A Rust tuple has no runtime-indexed read: each element is its own field
+    /// with its own type. The counter is compared against each position in
+    /// turn (`index == 0`, `index == 1`, ...); the matching branch reads that
+    /// field with a constant `tuple_index` into a temporary of the element's
+    /// type and assigns it to `dest`, whose type is the union of the element
+    /// types the checker gives the loop variable (the assignment converts each
+    /// element into its arm, as `const w: A | B = t[0]` does). Each iteration
+    /// reads the tuple's CURRENT element, as JavaScript's array iterator does,
+    /// so a write to a later element inside the body is seen. The last
+    /// position needs no test: the loop runs only while `index < length`.
+    /// Every branch writes one temporary of `dest`'s type, and the block where
+    /// they join assigns it to `dest` once: the loop variable keeps a single
+    /// assignment site, as a list's does, so a closure in the body captures
+    /// this iteration's value rather than a cell every branch writes.
+    fn bind_tuple_element_at(
+        &mut self,
+        tuple: LocalId,
+        index: LocalId,
+        dest: LocalId,
+        span: smelt_hir::Span,
+    ) -> Result<(), LowerError> {
+        let bool_ty = self.loop_bool_ty;
+        let local_ty = |local: LocalId| {
+            usize::try_from(local.0)
+                .ok()
+                .and_then(|slot| self.function.locals.get(slot))
+                .map(|decl| decl.ty)
+        };
+        let (Some(dest_ty), Some(tuple_ty)) = (local_ty(dest), local_ty(tuple)) else {
+            return Err(self.error("internal: a for..of binding has no declaration", Some(span)));
+        };
+        // The element types are the tuple local's own type: one field each.
+        let element_types = match self.krate.types.get(tuple_ty) {
+            Some(smelt_hir::Type::Tuple(items)) => items.clone(),
+            _ => return Err(self.error("internal: a tuple for..of over a non-tuple", Some(span))),
+        };
+        let chosen = self.push_temp(dest_ty, span);
+        let join = self.function.push_block(span);
+        let last = element_types.len().saturating_sub(1);
+        for (position, element_ty) in element_types.iter().copied().enumerate() {
+            let read_block = if position < last {
+                let read_block = self.function.push_block(span);
+                let next_test = self.function.push_block(span);
+                let matches = self.push_temp(bool_ty, span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest: matches,
+                    value: Rvalue::Binary {
+                        op: smelt_hir::BinOp::Eq,
+                        lhs: Operand::Copy(Place::Local(index)),
+                        rhs: Operand::Const(Constant::Float(f64::from(
+                            u32::try_from(position).unwrap_or(u32::MAX),
+                        ))),
+                    },
+                });
+                self.terminate(Terminator::Switch {
+                    cond: Operand::Copy(Place::Local(matches)),
+                    then_block: read_block,
+                    else_block: next_test,
+                })?;
+                self.switch_to(read_block);
+                Some(next_test)
+            } else {
+                None
+            };
+            let element = self.push_temp(element_ty, span);
+            self.block_mut()?.statements.push(Statement::Assign {
+                dest: element,
+                value: Rvalue::TupleIndex {
+                    tuple: Operand::Copy(Place::Local(tuple)),
+                    index: position,
+                },
+            });
+            self.block_mut()?.statements.push(Statement::Assign {
+                dest: chosen,
+                value: Rvalue::Use(Operand::Move(Place::Local(element))),
+            });
+            self.terminate(Terminator::Goto(join))?;
+            match read_block {
+                Some(next_test) => self.switch_to(next_test),
+                None => break,
+            }
+        }
+        if element_types.is_empty() {
+            self.terminate(Terminator::Goto(join))?;
+        }
+        self.switch_to(join);
+        if !element_types.is_empty() {
+            self.block_mut()?.statements.push(Statement::Assign {
+                dest,
+                value: Rvalue::Use(Operand::Move(Place::Local(chosen))),
+            });
+        }
         Ok(())
     }
 
