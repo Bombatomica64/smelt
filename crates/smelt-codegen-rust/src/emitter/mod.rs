@@ -277,6 +277,11 @@ pub(crate) struct EmitContext {
     /// Whether each union asked about so far is stored as a generated enum; a
     /// pure function of the MIR that every read of a union member asks.
     pub(crate) concrete_unions: RefCell<HashMap<TypeId, bool>>,
+    /// The bindings of the generic call whose union-typed result is being
+    /// converted to its destination (`FunctionEmitter::call_result_at`): the
+    /// callee's own type-parameter arms resolve through them.
+    pub(crate) union_return_bindings:
+        RefCell<Option<crate::generic_bindings::CalleeTypeParamBindings>>,
     /// Whether the program builds through `new value.constructor()` anywhere
     /// (`Rvalue::ConstructLike`), which is what a class's erased `constructor`
     /// entry is for; computed on first ask.
@@ -490,6 +495,7 @@ impl EmitContext {
             function_return_types,
             owned_callback_params,
             concrete_unions: ::std::cell::RefCell::default(),
+            union_return_bindings: ::std::cell::RefCell::default(),
             constructs_like: ::std::cell::OnceCell::new(),
             erased_arguments: ::std::cell::RefCell::default(),
             generic_functions: RefCell::new(HashSet::new()),

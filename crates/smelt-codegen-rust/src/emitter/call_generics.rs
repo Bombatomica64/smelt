@@ -468,9 +468,18 @@ impl FunctionEmitter<'_> {
         let declared_return = self
             .emitted_function_return_type(&self.emitted_signature_key(function)?)
             .unwrap_or(function.return_ty);
-        let Some(return_ty) = substituted_type_id(self.mir, declared_return, &bindings) else {
-            return Ok(None);
+        // A union return whose arms the bindings change (`pick<T>(..): T |
+        // string` called at `T = number`) is the callee's generic enum at the
+        // bound arguments (`SmeltUnionN<f64>`), which names no planned MIR
+        // type: the call keeps the declared union, and the result converts arm
+        // by arm with these bindings (`call_result_at`).
+        let return_ty = match substituted_type_id(self.mir, declared_return, &bindings) {
+            Some(return_ty) => return_ty,
+            None if self.generic_union_return(declared_return) => declared_return,
+            None => return Ok(None),
         };
+        let mut bindings = bindings;
+        bindings.declare_erased(function.type_params.iter().map(|param| param.name));
         Ok(Some(CallMonomorphization {
             bindings,
             return_ty,
@@ -801,6 +810,14 @@ impl FunctionEmitter<'_> {
         Ok(self
             .static_call_monomorphization(function, args)?
             .map(|monomorphization| monomorphization.return_ty))
+    }
+
+    /// Whether `declared` is a union the callee spells as its own generic enum
+    /// (`crate::emitter::union`, a type-parameter arm), which a call site
+    /// receives at its bindings and converts arm by arm.
+    pub(super) fn generic_union_return(&self, declared: TypeId) -> bool {
+        matches!(self.mir.types.get(declared), Some(Type::Union(_)))
+            && self.concrete_union_members(declared).is_some()
     }
 
     /// The monomorphization decision for a static callee, for seam checking.
