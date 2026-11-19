@@ -424,7 +424,7 @@ impl FunctionEmitter<'_> {
                 }
             }
         }
-        let bindings = crate::generic_bindings::collect_bindings_from_types_in_scope(
+        let mut bindings = crate::generic_bindings::collect_bindings_from_types_in_scope(
             self.mir,
             &type_params,
             &declared,
@@ -478,7 +478,6 @@ impl FunctionEmitter<'_> {
             None if self.generic_union_return(declared_return) => declared_return,
             None => return Ok(None),
         };
-        let mut bindings = bindings;
         bindings.declare_erased(function.type_params.iter().map(|param| param.name));
         Ok(Some(CallMonomorphization {
             bindings,

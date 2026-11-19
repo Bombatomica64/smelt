@@ -280,13 +280,12 @@ pub(crate) struct EmitContext {
     /// The bindings of the generic call whose union-typed result is being
     /// converted to its destination (`FunctionEmitter::call_result_at`): the
     /// callee's own type-parameter arms resolve through them.
-    pub(crate) union_return_bindings:
-        RefCell<Option<crate::generic_bindings::CalleeTypeParamBindings>>,
+    pub(crate) union_return_bindings: RefCell<Option<CalleeTypeParamBindings>>,
     /// The function type parameters that lift to Rust generics
     /// (`crate::generic_lifting::liftable_type_params`), computed on first
     /// use: a union arm of one of them is a generic enum's parameter
     /// (`FunctionEmitter::union_member_is_concrete`).
-    pub(crate) union_arm_params: RefCell<Option<HashSet<smelt_hir::Symbol>>>,
+    pub(crate) union_arm_params: RefCell<Option<HashSet<Symbol>>>,
     /// Whether the program builds through `new value.constructor()` anywhere
     /// (`Rvalue::ConstructLike`), which is what a class's erased `constructor`
     /// entry is for; computed on first ask.
