@@ -331,7 +331,9 @@ export function holeAt(xs: number[], index: number): boolean {
     // `undefined` too, so the optional read drops it before the test; Node
     // answers `true` (fixture `generic_missing_element`).
     assert!(
-        program.contains(".cloned().filter(|smelt_value| !smelt_is_number_hole(*smelt_value))).is_none()"),
+        program.contains(
+            ".cloned().filter(|smelt_value| !smelt_is_number_hole(*smelt_value))).is_none()"
+        ),
         "{program}"
     );
     assert!(!program.contains("= false;"), "{program}");
