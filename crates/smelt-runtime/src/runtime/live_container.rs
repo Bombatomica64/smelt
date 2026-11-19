@@ -298,3 +298,151 @@ impl SmeltArray {
     fn live_view_for(&self, values: &[SmeltUnknown]) -> Option<::std::rc::Rc<dyn SmeltLiveList>> { let live = self.live_view()?; if values.iter().all(|value| live.holds(value)) { return Some(live); } *self.values.borrow_mut() = live.elements(); if let Some(cell) = &self.live { *cell.borrow_mut() = None; } None }
 }
 // @smelt:item-end
+
+// @smelt:item smelt_list_sync when unknown & list_links
+//~ A typed list at an `unknown[]` slot (`fill(nums as unknown[])`,
+//~ `const all: unknown[] = nums`) is the SAME array there.
+//~
+//~ `unknown[]` is `SmeltList<SmeltUnknown>`, whose buffer cannot be the typed
+//~ list's `Vec<E>`. The conversion links the two buffers instead: the erased
+//~ list takes the typed list's identity and a buffer of its elements erased,
+//~ and a link table entry per buffer records which side wrote last. A side
+//~ that is read or written after the OTHER side was mutably borrowed first
+//~ pulls the other's elements across (erasing them, or extracting each with
+//~ `SmeltFromUnknown`), so a write through either handle is read through the
+//~ other however long both live. Reads after reads cost nothing; only the
+//~ first access after a write on the other side converts the elements.
+//~
+//~ A value the typed list cannot hold (a string written into a `number[]`
+//~ through `unknown[]`, which TypeScript accepts) DETACHES the link, as a live
+//~ erased array detaches (`SmeltArray::live_view_for`): each side keeps what it
+//~ holds from then on. A slot left empty past the end reads back as the typed
+//~ list's hole (`smelt_list_hole`).
+//~
+//~ The table keys are buffer addresses. Each entry holds `Weak` handles on
+//~ both buffers, which keeps their allocations (so the addresses) from being
+//~ reused while the entry exists; an entry whose buffers are gone is swept
+//~ when a new link is made.
+struct SmeltListLinkEnd {
+    //~ The side that wrote last since the two were in step (0: neither).
+    state: ::std::rc::Rc<::std::cell::Cell<u8>>,
+    //~ This end's side: 1 typed, 2 erased.
+    side: u8,
+    //~ The other end's buffer address.
+    other: usize,
+    //~ Whether either buffer is still owned by some list.
+    alive: ::std::rc::Rc<dyn Fn() -> bool>,
+    //~ The erased side's buffer, which a second conversion of the same typed
+    //~ list hands out again: one array has one `unknown[]` view.
+    erased: ::std::rc::Weak<::std::cell::RefCell<Vec<SmeltUnknown>>>,
+    //~ Copy this side's element `index` (`usize::MAX`: none) and any change of
+    //~ length to the other side: 0 done, 1 busy (fall back to a whole pull),
+    //~ 2 detach. The O(1) path of an index store or a push, so a loop
+    //~ alternating between the two handles never converts the whole list.
+    mirror: ::std::rc::Rc<dyn Fn(usize) -> u8>,
+    //~ Refresh this side's buffer from the other's: 0 done, 1 busy (a borrow
+    //~ is outstanding; stay out of step), 2 detach.
+    pull: ::std::rc::Rc<dyn Fn() -> u8>,
+}
+
+thread_local! {
+    //~ Every linked buffer, by address.
+    static SMELT_LIST_LINKS: ::std::cell::RefCell<::std::collections::HashMap<usize, SmeltListLinkEnd>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
+    //~ Whether any link exists: the common case returns before the table lookup.
+    static SMELT_LIST_LINKED: ::std::cell::Cell<bool> = const { ::std::cell::Cell::new(false) };
+}
+
+/// Bring the buffer `values` up to date with the list it is linked to, and
+/// record a write when `write` (see `smelt_list_sync`).
+#[inline]
+fn smelt_list_sync<T>(values: &::std::rc::Rc<::std::cell::RefCell<Vec<T>>>, write: bool) {
+    if !SMELT_LIST_LINKED.with(::std::cell::Cell::get) { return; }
+    let address = ::std::rc::Rc::as_ptr(values).cast::<()>() as usize;
+    let Some((state, side, other, pull)) = SMELT_LIST_LINKS.with(|links| links.borrow().get(&address).map(|end| (::std::rc::Rc::clone(&end.state), end.side, end.other, ::std::rc::Rc::clone(&end.pull)))) else { return };
+    let last = state.get();
+    if last != 0 && last != side {
+        match pull() {
+            0 => state.set(0),
+            2 => { SMELT_LIST_LINKS.with(|links| { let mut links = links.borrow_mut(); links.remove(&address); links.remove(&other); }); return; }
+            _ => {}
+        }
+    }
+    if write { state.set(side); }
+}
+
+/// Copy element `index` of the buffer `values` (and any change of length) to
+/// the buffer it is linked to, after an index store or a push through it.
+fn smelt_list_mirror<T>(values: &::std::rc::Rc<::std::cell::RefCell<Vec<T>>>, index: usize) {
+    if !SMELT_LIST_LINKED.with(::std::cell::Cell::get) { return; }
+    let address = ::std::rc::Rc::as_ptr(values).cast::<()>() as usize;
+    let Some((state, side, other, mirror)) = SMELT_LIST_LINKS.with(|links| links.borrow().get(&address).map(|end| (::std::rc::Rc::clone(&end.state), end.side, end.other, ::std::rc::Rc::clone(&end.mirror)))) else { return };
+    match mirror(index) {
+        0 => {}
+        2 => SMELT_LIST_LINKS.with(|links| { let mut links = links.borrow_mut(); links.remove(&address); links.remove(&other); }),
+        _ => state.set(side),
+    }
+}
+
+/// Bring `target` to `source`'s length and copy `source[index]` across, each
+/// element converted by `convert` (`None`: it cannot cross, detach): 0 done,
+/// 2 detach.
+fn smelt_list_mirror_into<S: Clone, D>(source: &[S], target: &mut Vec<D>, index: usize, convert: &dyn Fn(S) -> Option<D>) -> u8 {
+    if source.len() < target.len() { target.truncate(source.len()); }
+    let start = target.len();
+    for value in source.iter().skip(start) { match convert(value.clone()) { Some(converted) => target.push(converted), None => return 2 } }
+    if index < start && let (Some(value), Some(slot)) = (source.get(index), target.get_mut(index)) { match convert(value.clone()) { Some(converted) => *slot = converted, None => return 2 } }
+    0
+}
+
+impl<T: SmeltFromUnknown + Clone + 'static> SmeltList<T> {
+    //~ This list at an `unknown[]` slot: an erased-element list with this
+    //~ list's identity, linked to it (see `smelt_list_sync`). `erase` erases
+    //~ one element.
+    fn into_linked_unknown_list(self, erase: impl Fn(T) -> SmeltUnknown + 'static) -> SmeltList<SmeltUnknown> {
+        let typed = self.storage();
+        let typed_address = ::std::rc::Rc::as_ptr(&typed).cast::<()>() as usize;
+        if let Some(existing) = SMELT_LIST_LINKS.with(|links| links.borrow().get(&typed_address).and_then(|end| end.erased.upgrade())) { return SmeltList::with_storage(self.id(), existing); }
+        let erase = ::std::rc::Rc::new(erase);
+        let erased = ::std::rc::Rc::new(::std::cell::RefCell::new(typed.borrow().iter().cloned().map(|value| smelt_list_slot_unknown(value, &*erase)).collect::<Vec<_>>()));
+        let erased_address = ::std::rc::Rc::as_ptr(&erased).cast::<()>() as usize;
+        let (typed_weak, erased_weak) = (::std::rc::Rc::downgrade(&typed), ::std::rc::Rc::downgrade(&erased));
+        let alive: ::std::rc::Rc<dyn Fn() -> bool> = { let (typed_weak, erased_weak) = (typed_weak.clone(), erased_weak.clone()); ::std::rc::Rc::new(move || typed_weak.strong_count() > 0 || erased_weak.strong_count() > 0) };
+        //~ One erased element at the typed element type, `None` when it does not round-trip.
+        let narrow: ::std::rc::Rc<dyn Fn(SmeltUnknown) -> Option<T>> = { let erase = ::std::rc::Rc::clone(&erase); ::std::rc::Rc::new(move |value: SmeltUnknown| { if matches!(value, SmeltUnknown::Undefined) { return Some(smelt_list_hole::<T>()); } let held = T::smelt_from_unknown(value.clone()); smelt_live_same_content(&erase(held.clone()), &value, 0).then_some(held) }) };
+        let pull_typed: ::std::rc::Rc<dyn Fn() -> u8> = { let (typed_weak, erased_weak, narrow) = (typed_weak.clone(), erased_weak.clone(), ::std::rc::Rc::clone(&narrow)); ::std::rc::Rc::new(move || {
+            let (Some(typed), Some(erased)) = (typed_weak.upgrade(), erased_weak.upgrade()) else { return 2 };
+            let Ok(source) = erased.try_borrow() else { return 1 };
+            let mut values = Vec::with_capacity(source.len());
+            for value in source.iter() { match narrow(value.clone()) { Some(held) => values.push(held), None => return 2 } }
+            drop(source);
+            typed.try_borrow_mut().map_or(1, |mut target| { *target = values; 0 })
+        }) };
+        let pull_erased: ::std::rc::Rc<dyn Fn() -> u8> = { let erase = ::std::rc::Rc::clone(&erase); ::std::rc::Rc::new(move || {
+            let (Some(typed), Some(erased)) = (typed_weak.upgrade(), erased_weak.upgrade()) else { return 2 };
+            let Ok(source) = typed.try_borrow() else { return 1 };
+            let values = source.iter().cloned().map(|value| smelt_list_slot_unknown(value, &*erase)).collect::<Vec<_>>();
+            drop(source);
+            erased.try_borrow_mut().map_or(1, |mut target| { *target = values; 0 })
+        }) };
+        let mirror_typed: ::std::rc::Rc<dyn Fn(usize) -> u8> = { let (typed_weak, erased_weak, erase) = (::std::rc::Rc::downgrade(&typed), ::std::rc::Rc::downgrade(&erased), ::std::rc::Rc::clone(&erase)); ::std::rc::Rc::new(move |index| {
+            let (Some(typed), Some(erased)) = (typed_weak.upgrade(), erased_weak.upgrade()) else { return 2 };
+            let (Ok(source), Ok(mut target)) = (typed.try_borrow(), erased.try_borrow_mut()) else { return 1 };
+            smelt_list_mirror_into(&source, &mut target, index, &|value| Some(smelt_list_slot_unknown(value, &*erase)))
+        }) };
+        let mirror_erased: ::std::rc::Rc<dyn Fn(usize) -> u8> = { let (typed_weak, erased_weak, narrow) = (::std::rc::Rc::downgrade(&typed), ::std::rc::Rc::downgrade(&erased), ::std::rc::Rc::clone(&narrow)); ::std::rc::Rc::new(move |index| {
+            let (Some(typed), Some(erased)) = (typed_weak.upgrade(), erased_weak.upgrade()) else { return 2 };
+            let (Ok(source), Ok(mut target)) = (erased.try_borrow(), typed.try_borrow_mut()) else { return 1 };
+            smelt_list_mirror_into(&source, &mut target, index, &*narrow)
+        }) };
+        let state = ::std::rc::Rc::new(::std::cell::Cell::new(0));
+        SMELT_LIST_LINKS.with(|links| {
+            let mut links = links.borrow_mut();
+            links.retain(|_, end| (end.alive)());
+            links.insert(typed_address, SmeltListLinkEnd { state: ::std::rc::Rc::clone(&state), side: 1, other: erased_address, alive: ::std::rc::Rc::clone(&alive), erased: ::std::rc::Rc::downgrade(&erased), mirror: mirror_typed, pull: pull_typed });
+            links.insert(erased_address, SmeltListLinkEnd { state, side: 2, other: typed_address, alive, erased: ::std::rc::Rc::downgrade(&erased), mirror: mirror_erased, pull: pull_erased });
+        });
+        SMELT_LIST_LINKED.with(|linked| linked.set(true));
+        SmeltList::with_storage(self.id(), erased)
+    }
+}
+// @smelt:item-end

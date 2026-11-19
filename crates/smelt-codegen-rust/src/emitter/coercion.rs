@@ -772,9 +772,13 @@ impl FunctionEmitter<'_> {
                     scope,
                 )?
             };
+            let op = self.operand_expr(operand)?.cloned_value();
+            if self.links_list_to_unknown(*source_item, *target_item) {
+                return Ok(crate::list_links::linked_list_expr(&op, &value_text));
+            }
             return Ok(RustExpr::atom(format!(
                 "{{ let smelt_l: SmeltList<_> = {op}.into(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|smelt_value| {value_text}).collect::<Vec<_>>()) }}",
-                op = self.operand_expr(operand)?.cloned_value().tight(),
+                op = op.tight(),
                 value_text = value_text.delimited()
             )));
         }
@@ -1322,6 +1326,12 @@ impl FunctionEmitter<'_> {
             // `[...list, ...args]`) rather than a `SmeltList`. Normalize through
             // `.into()` (reflexive for `SmeltList`, `From<Vec>` otherwise) so the
             // `.id()` identity read is always available.
+            if self.links_list_to_unknown(source_item, target_item) {
+                return Ok(crate::list_links::linked_list_expr(
+                    &smelt_owned_value,
+                    &element_text,
+                ));
+            }
             return Ok(RustExpr::atom(format!(
                 "{{ let smelt_l: SmeltList<_> = {smelt_owned_value}.into(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|smelt_value| {element_text}).collect::<Vec<_>>()) }}",
                 smelt_owned_value = smelt_owned_value.tight(),

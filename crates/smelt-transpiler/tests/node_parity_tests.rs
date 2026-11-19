@@ -1972,3 +1972,12 @@ fn promise_forwarding_closures() -> TestResult {
 fn class_instance_views() -> TestResult {
     verify_node_parity("class_instance_views")
 }
+
+/// A typed list at an `unknown[]` slot is the same array there: index
+/// stores, `push`, `splice` and `length` through either handle are read
+/// through the other, and identity holds (`docs/design/record-identity.md`,
+/// step 2).
+#[test]
+fn unknown_list_views() -> TestResult {
+    verify_node_parity("unknown_list_views")
+}

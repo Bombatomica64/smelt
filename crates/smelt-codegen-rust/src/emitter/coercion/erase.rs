@@ -53,7 +53,7 @@ impl FunctionEmitter<'_> {
     /// through `SmeltFromUnknown`, so it is chosen under the same rule as a live
     /// `Map`/`Set` ([`Self::container_erasure_method`]); otherwise the erasure
     /// copies, as it did before.
-    fn list_erases_live(&self, item: TypeId) -> bool {
+    pub(in crate::emitter) fn list_erases_live(&self, item: TypeId) -> bool {
         self.context.demand().has(Need::LiveArrays)
             && self.context.demand().has(Need::Unknown)
             && self.container_erases_live(&[item])

@@ -95,6 +95,7 @@ pub(crate) mod generic_inspection;
 pub(crate) mod generic_lifting;
 pub(crate) mod globals;
 pub(crate) mod lazy_view;
+pub(crate) mod list_links;
 mod module_map;
 pub(crate) mod names;
 mod options;
