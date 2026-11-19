@@ -3,8 +3,7 @@
 //   (`===`, its `prototype`);
 // - `"prototype" in f` answers from the function value (a constructor owns
 //   one, an arrow does not);
-// - an erased class instance prints as Node prints it (`P { x: 1 }`);
-// - `c ? a : b` with `a: T` keeps the `T` arm (it joined to `string`).
+// - an erased class instance prints as Node prints it (`P { x: 1 }`).
 
 function partial<A extends unknown[], R>(f: (...args: A) => R): (...args: A) => R { return f; }
 function add(a: number, b: number): number { return a + b; }
@@ -28,7 +27,3 @@ const erased: unknown = new P(1);
 console.log(erased);
 const mixed: unknown[] = [new P(2), { y: 1 }];
 console.log(mixed);
-
-function pick<T>(c: boolean, a: T, b: string): T | string { return c ? a : b; }
-const r = pick(true, 5, "s");
-console.log(typeof r, r, pick(false, 5, "s"));

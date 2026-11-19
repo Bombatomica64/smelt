@@ -1965,8 +1965,8 @@ fn unknown_list_views() -> TestResult {
 
 /// A typed function adapted to another function type is the same function
 /// (`===`, `prototype`); `"prototype" in f` answers from the function value;
-/// an erased class instance prints as `P { x: 1 }`; a conditional with a
-/// type-parameter arm keeps that arm (`docs/design/record-identity.md`).
+/// and an erased class instance prints as `P { x: 1 }`
+/// (`docs/design/record-identity.md`).
 #[test]
 fn function_identity_and_inspection() -> TestResult {
     verify_node_parity("function_identity_and_inspection")
