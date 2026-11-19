@@ -127,6 +127,20 @@ the object, never the view: the trait's erasure method hands out the concrete re
    live bindings; a view of it implements the target's trait the same way; its write accessor throws
    (`TypeError`, ES module namespaces are read-only).
 
+5. **Function identity and inspection** (the remaining small items).
+   * A typed callable adapted to another function type (`void` seen as `unknown`, a generic
+     `(...args: A) => R`, the erased-rest `SmeltErasedFunction`) is the same function. The adapter links its
+     identity to its source (`smelt_link_function_identity`), so `partial(add) === add`, and a constructor's
+     `prototype` is shared. `===` between two DIFFERENT function types compares identity keys instead of folding
+     to `false`. This holds in a program that carries the identity registry (the erased runtime, `Need::Unknown`).
+     A program without it keeps the fold, and an adapter there has its own identity.
+   * `"prototype" in f` answers from the function value: every function owns `name` and `length`, a
+     constructor (a `function` declaration or expression, a class value) owns its `prototype`, and an arrow does
+     not. It erases the operand for the `in` test (`ErasureReason::DynamicOperator`, as for every other dynamic
+     `in` receiver).
+   * An erased class instance prints as Node prints it (`P { x: 1 }`). Its `__smelt_class` tag names the
+     constructor, and its prototype entries are not own properties.
+
 Each step ships as its own PR with a Node-parity fixture, its stated requirements and a planted defect the
 fixture detects.
 
@@ -143,6 +157,24 @@ Type preservation: `S` keeps its struct and field types; `T`'s accessors are typ
 types; no value is erased by a conversion; the SmeltUnknown and typedness ratchets do not rise.
 
 ## 7. Known gaps
+
+* **Generic unions.** `c ? a : b` with `a: T` and `b: string` joins to `String` and converts the `T` arm
+  (`pick(true, 5, "s")` gives `"5"`, so `typeof` is `string`). Joining to `T | string` is correct, but with
+  an erased-generic `T` that union renders as `SmeltUnknown`. Measured: radash `src/array.ts` erased values
+  309 → 311, date-fns `locale/_lib/buildMatchPatternFn` 13 → 14. Per the ratchet rule it is not shipped;
+  it needs generic functions returning unions to monomorphise (a generated `enum` over `T` and `string`), which
+  is the remaining "generic union monomorphisation" item.
+* **Construct-or-call unions.** `(new () => T) | (() => T)` lowers to `fn() -> T`, so a class stored in such a
+  slot is an adapter closure (`ms[0] === P` is false) and `new` through it is a call. It needs a two-armed
+  callable (`enum { Construct(..), Call(..) }`) chosen per slot.
+* **Function at an object-type slot** (`const n: Named = hello`, `{ name; length }`) gives the type's
+  default. It needs the record's `SmeltFromUnknown` to read properties off an erased function.
+* **Accessor-backed and host properties** (`get`/`set` class properties, `RegExp.lastIndex`) and
+  **namespace objects** (`import * as NS` as a value is not modelled at all) are steps 3 and 4.
+* **`unknown[]` export identity**: not attempted. The list link (step 2) keeps identity at no erased cost
+  for conversions inside the program, but an export typed `unknown[]` is a different representation question.
+* **Finer per-item generic bounds**: not attempted.
+
 
 * A class WITH subclasses (polymorphic, `Rc<dyn BaseSmeltCell>`) viewed as an interface still copies: its cell
   trait would need a `smelt_as_<Target>` method implemented by every concrete cell of the hierarchy.
