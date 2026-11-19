@@ -15,6 +15,16 @@ const fn smelt_number_hole() -> f64 { f64::from_bits(SMELT_NUMBER_HOLE_BITS) }
 /// Whether `value` is a hole of a `number[]`.
 const fn smelt_is_number_hole(value: f64) -> bool { value.to_bits() == SMELT_NUMBER_HOLE_BITS }
 
+/// The value a JavaScript read that finds no slot yields (an out-of-range
+/// index, an `Array(n)` hole), in the carrier of a generic element `T`.
+fn smelt_missing<T: Default + 'static>() -> T {
+    let mut value = T::default();
+    if let Some(number) = (&mut value as &mut dyn ::std::any::Any).downcast_mut::<f64>() {
+        *number = smelt_number_hole();
+    }
+    value
+}
+
 /// `Number::toString(value, 10)`: JavaScript's number formatting.
 fn smelt_number_to_string<N: ::std::borrow::Borrow<f64>>(value: N) -> String {
     let value = *value.borrow();
@@ -4073,7 +4083,7 @@ impl IntoSmeltUnknown for bool {
 
 impl IntoSmeltUnknown for f64 {
     fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Number(self)
+        if smelt_is_number_hole(self) { SmeltUnknown::Undefined } else { SmeltUnknown::Number(self) }
     }
 }
 
@@ -5832,7 +5842,7 @@ pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let _smelt_tmp_27: SmeltFuture<SmeltTypedArray> = { let smelt_response = _smelt_tmp_26.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(SmeltTypedArray::from_bytes(smelt_response.body().take_bytes()?)) })) };
     window = _smelt_tmp_27.await?;
     _smelt_tmp_29 = window.clone().length();
-    let _ = { println!("{} {} {}", smelt_console_number(_smelt_tmp_29), smelt_console_number(window.get(0.0).unwrap_or(0.0)), true); };
+    let _ = { println!("{} {} {}", smelt_console_number(_smelt_tmp_29), smelt_console_number(window.get(0.0).unwrap_or_else(smelt_number_hole)), true); };
     _smelt_tmp_31 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0]; smelt_list_items }));
     wide = SmeltTypedArray::with_elements(SmeltTypedArrayKind::Uint32, &_smelt_tmp_31.to_vec());
     _smelt_tmp_33 = SmeltResponse::from_parts(200.0, JsString::new(), SmeltHeaders::new(), SmeltBody::from_bytes(wide.to_bytes()));

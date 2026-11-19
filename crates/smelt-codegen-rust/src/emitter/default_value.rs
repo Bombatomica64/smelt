@@ -26,6 +26,28 @@ impl FunctionEmitter<'_> {
         if matches!(self.mir.types.get(item_ty), Some(Type::Unknown)) {
             return Ok(self.carrier_expr(self.carrier()?, &RustExpr::undefined()));
         }
+        if matches!(
+            self.mir.types.get(item_ty),
+            Some(Type::TypeParam { name }) if self.current_function_has_type_param(*name)
+        ) {
+            return self.generic_missing_value(item_ty);
+        }
+        self.default_value(item_ty)
+    }
+
+    /// The `undefined` of an in-scope type parameter `T`: what a slot of a
+    /// `T[]` that JavaScript leaves empty reads as.
+    ///
+    /// A TypeScript body asks the runtime's `smelt_missing::<T>()`, resolved
+    /// per instantiation: the number hole at `number` (so a generic `at<T>`
+    /// and a typed `number[]` read of the same missing slot agree), `None` at
+    /// an optional, `SmeltUnknown::Undefined` at the erased carrier, and the
+    /// type's `Default` where the carrier has no `undefined`. Python has no
+    /// holes and never reads a missing element, so it keeps `Default`.
+    pub(super) fn generic_missing_value(&self, item_ty: TypeId) -> Result<RustExpr, EmitError> {
+        if self.function.language == smelt_hir::Language::TypeScript {
+            return Ok(RustExpr::chain("smelt_missing()"));
+        }
         self.default_value(item_ty)
     }
 

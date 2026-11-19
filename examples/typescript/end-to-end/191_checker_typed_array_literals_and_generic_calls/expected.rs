@@ -15,6 +15,16 @@ const fn smelt_number_hole() -> f64 { f64::from_bits(SMELT_NUMBER_HOLE_BITS) }
 /// Whether `value` is a hole of a `number[]`.
 const fn smelt_is_number_hole(value: f64) -> bool { value.to_bits() == SMELT_NUMBER_HOLE_BITS }
 
+/// The value a JavaScript read that finds no slot yields (an out-of-range
+/// index, an `Array(n)` hole), in the carrier of a generic element `T`.
+fn smelt_missing<T: Default + 'static>() -> T {
+    let mut value = T::default();
+    if let Some(number) = (&mut value as &mut dyn ::std::any::Any).downcast_mut::<f64>() {
+        *number = smelt_number_hole();
+    }
+    value
+}
+
 /// `Number::toString(value, 10)`: JavaScript's number formatting.
 fn smelt_number_to_string<N: ::std::borrow::Borrow<f64>>(value: N) -> String {
     let value = *value.borrow();
@@ -5063,7 +5073,7 @@ pub(crate) fn keep<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 's
     _smelt_tmp_6 = items.len();
     _smelt_tmp_7 = _smelt_tmp_5 < _smelt_tmp_6;
     if !(_smelt_tmp_7) { break; }
-    item = items.borrow().get(_smelt_tmp_5).cloned().unwrap_or_else(|| Default::default());
+    item = items.borrow().get(_smelt_tmp_5).cloned().unwrap_or_else(|| smelt_missing());
     _smelt_tmp_8 = pred(&item);
     if _smelt_tmp_8 {
     _smelt_tmp_9 = { let smelt_push_item = item; kept.borrow_mut().push(smelt_push_item); kept.len() as f64 };

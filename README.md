@@ -102,11 +102,11 @@ calls get a concrete Rust type, a real Rust generic, or an erased type
 <!-- results:typedness:begin -->
 | Corpus (baseline file) | Kind | Concrete | Generic | Erased | Erased share |
 | --- | --- | ---: | ---: | ---: | ---: |
-| examples, 180 programs ([`typedness-baseline.json`](blocker-logs/typedness-baseline.json)) | values | 8822 | 193 | 56 | 0.6% |
-|  | reads | 977 | 50 | 20 | 1.9% |
-|  | calls | 2477 | 16 | 2 | 0.1% |
-| es-toolkit, 744 programs ([`typedness-baseline-es-toolkit.json`](blocker-logs/typedness-baseline-es-toolkit.json)) | values | 14243 | 355 | 7041 | 32.5% |
-|  | reads | 367 | 51 | 978 | 70.1% |
+| examples, 180 programs ([`typedness-baseline.json`](blocker-logs/typedness-baseline.json)) | values | 8853 | 193 | 56 | 0.6% |
+|  | reads | 981 | 50 | 20 | 1.9% |
+|  | calls | 2480 | 16 | 2 | 0.1% |
+| es-toolkit, 744 programs ([`typedness-baseline-es-toolkit.json`](blocker-logs/typedness-baseline-es-toolkit.json)) | values | 14277 | 358 | 7038 | 32.5% |
+|  | reads | 366 | 51 | 978 | 70.1% |
 |  | calls | 2194 | 63 | 1179 | 34.3% |
 | remeda, 390 programs ([`typedness-baseline-remeda.json`](blocker-logs/typedness-baseline-remeda.json)) | values | 13667 | 268 | 9187 | 39.7% |
 |  | reads | 345 | 29 | 800 | 68.1% |

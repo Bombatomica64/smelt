@@ -54,6 +54,27 @@ const fn smelt_number_hole() -> f64 { f64::from_bits(SMELT_NUMBER_HOLE_BITS) }
 /// Whether `value` is a hole of a `number[]`.
 const fn smelt_is_number_hole(value: f64) -> bool { value.to_bits() == SMELT_NUMBER_HOLE_BITS }
 
+/// The value a JavaScript read that finds no slot yields (an out-of-range
+/// index, an `Array(n)` hole), in the carrier of a generic element `T`.
+//~
+//~ JavaScript answers `undefined` whatever the element type, and each carrier
+//~ spells `undefined` its own way: `number` is the hole above, an optional is
+//~ `None` and the erased carrier is `SmeltUnknown::Undefined` (both their
+//~ `Default`), and a carrier with no `undefined` (a `string`, a record) keeps
+//~ its `Default`, as the typed read of the same element does. A generic body
+//~ asks this function, not `Default::default()`, so `at<T>` instantiated at
+//~ `number` returns the same hole the typed `number[]` read returns; the
+//~ `Any` test is resolved per instantiation, so the typed path and the generic
+//~ one cannot disagree. Needs only `Default + 'static`, which every generated
+//~ type parameter carries with or without the erased carrier.
+fn smelt_missing<T: Default + 'static>() -> T {
+    let mut value = T::default();
+    if let Some(number) = (&mut value as &mut dyn ::std::any::Any).downcast_mut::<f64>() {
+        *number = smelt_number_hole();
+    }
+    value
+}
+
 /// `Number::toString(value, 10)`: JavaScript's number formatting.
 //~
 //~ Exponential notation at `n > 21` and `n <= -6`, where `n` is the

@@ -95,29 +95,8 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let mut args = Vec::new();
-        // The optional arguments whose absent case the checker types as
-        // `null` (`RegExpMatchArray | null`): bound once, and printed as
-        // `null` when absent (see below).
-        let mut null_absent = Vec::new();
         for arg in &call.arguments {
             let value = self.argument(arg, body)?;
-            let value_ty = Self::expr_ty(body, value);
-            if matches!(self.ctx.krate.types.get(value_ty), Some(Type::Optional(inner))
-                    if !matches!(self.ctx.krate.types.get(*inner), Some(Type::String | Type::Bool)))
-                && self.checker_absent_is_null(arg.span().start, arg.span().end)
-            {
-                let span = self.span(arg.span().start, arg.span().end);
-                let name = self.intern_synthesized_name("__smelt_nullable");
-                let local = self.capture_bind_value(value, value_ty, name, span, body);
-                null_absent.push((args.len(), local, value_ty, span));
-                let read = body.push_expr(Expr {
-                    kind: ExprKind::Local(local),
-                    ty: value_ty,
-                    span,
-                });
-                args.push(read);
-                continue;
-            }
             // An absent `null` prints as `null`. Only where printing the
             // value's string conversion is printing the value itself: a
             // top-level string prints raw, and a boolean prints its word
@@ -137,46 +116,6 @@ impl ModuleBuilder<'_> {
                 value
             });
         }
-        // The storage cannot tell `null` from `undefined`, so an argument the
-        // checker types as `T | null` picks between two calls: one printing
-        // its value, one printing `null` where it is absent. A handful such
-        // arguments nest the choice; more keep the storage's `undefined`.
-        if null_absent.len() > 4 {
-            null_absent.clear();
-        }
-        if null_absent.is_empty() {
-            return Ok(self.console_output_call_of(member, call, args, body));
-        }
-        // Each choice is a separate call, so an argument is bound once here and
-        // each call reads its local: one expression is never shared by two
-        // branches.
-        let mut bound = Vec::with_capacity(args.len());
-        for arg in args {
-            let arg_ty = Self::expr_ty(body, arg);
-            let span = body.expr_at(arg).map_or_else(
-                || self.span(call.span.start, call.span.end),
-                |expr| expr.span,
-            );
-            let local =
-                if let Some(ExprKind::Local(local)) = body.expr_at(arg).map(|expr| &expr.kind) {
-                    *local
-                } else {
-                    let name = self.intern_synthesized_name("__smelt_console_arg");
-                    self.capture_bind_value(arg, arg_ty, name, span, body)
-                };
-            bound.push((Some(local), arg_ty, span));
-        }
-        Ok(self.console_output_choice(member, call, &bound, &null_absent, body))
-    }
-
-    /// The `console` call printing the lowered `args`.
-    fn console_output_call_of(
-        &mut self,
-        member: &oxc::ast::ast::StaticMemberExpression<'_>,
-        call: &oxc::ast::ast::CallExpression<'_>,
-        args: Vec<smelt_hir::ExprId>,
-        body: &mut Body,
-    ) -> smelt_hir::ExprId {
         let ty = self.ctx.krate.types.intern(Type::None);
         let callee_item =
             self.ensure_console_log_item(self.span(member.span.start, member.span.end));
@@ -185,83 +124,11 @@ impl ModuleBuilder<'_> {
             ty,
             span: self.span(member.span.start, member.span.end),
         });
-        body.push_expr(Expr {
+        Ok(body.push_expr(Expr {
             kind: ExprKind::Call { callee, args },
             ty,
             span: self.span(call.span.start, call.span.end),
-        })
-    }
-
-    /// The `console` call printing the bound `args` (each a local, or `None`
-    /// for the `null` literal, with its type and span), choosing, for each of
-    /// the `null_absent` arguments (its position, its local, type and span),
-    /// between printing its value and printing `null` when it is absent.
-    fn console_output_choice(
-        &mut self,
-        member: &oxc::ast::ast::StaticMemberExpression<'_>,
-        call: &oxc::ast::ast::CallExpression<'_>,
-        args: &[(
-            Option<smelt_hir::LocalId>,
-            smelt_hir::TypeId,
-            smelt_hir::Span,
-        )],
-        null_absent: &[(
-            usize,
-            smelt_hir::LocalId,
-            smelt_hir::TypeId,
-            smelt_hir::Span,
-        )],
-        body: &mut Body,
-    ) -> smelt_hir::ExprId {
-        let ty = self.ctx.krate.types.intern(Type::None);
-        let Some((&(position, local, value_ty, span), rest)) = null_absent.split_first() else {
-            let reads = args
-                .iter()
-                .map(|&(local, arg_ty, span)| {
-                    body.push_expr(Expr {
-                        kind: local.map_or(ExprKind::Literal(Literal::None), ExprKind::Local),
-                        ty: arg_ty,
-                        span,
-                    })
-                })
-                .collect();
-            return self.console_output_call_of(member, call, reads, body);
-        };
-        let present = self.console_output_choice(member, call, args, rest, body);
-        let mut absent_args = args.to_vec();
-        if let Some(slot) = absent_args.get_mut(position) {
-            *slot = (None, ty, span);
-        }
-        let absent = self.console_output_choice(member, call, &absent_args, rest, body);
-        let tested = body.push_expr(Expr {
-            kind: ExprKind::Local(local),
-            ty: value_ty,
-            span,
-        });
-        let undefined = body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::Undefined),
-            ty,
-            span,
-        });
-        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
-        let cond = body.push_expr(Expr {
-            kind: ExprKind::BinOp {
-                op: smelt_hir::BinOp::JsStrictNotEq,
-                lhs: tested,
-                rhs: undefined,
-            },
-            ty: bool_ty,
-            span,
-        });
-        body.push_expr(Expr {
-            kind: ExprKind::Conditional {
-                cond,
-                then_expr: present,
-                else_expr: absent,
-            },
-            ty,
-            span: self.span(call.span.start, call.span.end),
-        })
+        }))
     }
 
     /// Call `receiver.#method(..)`.

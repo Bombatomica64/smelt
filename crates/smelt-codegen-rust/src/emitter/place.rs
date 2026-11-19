@@ -699,9 +699,10 @@ impl FunctionEmitter<'_> {
     ///
     /// JS out-of-bounds element access is `undefined`, not `null`. A type
     /// parameter that is in scope for the current generic function is a real
-    /// Rust generic, so its missing value is `Default::default()` (a `T`), not
-    /// the erased `SmeltUnknown::Undefined` used for genuinely erased element
-    /// types. A concrete generated union element is likewise a tagged
+    /// Rust generic, so its missing value is a `T`, not the erased
+    /// `SmeltUnknown::Undefined` used for genuinely erased element types: the
+    /// runtime's `smelt_missing::<T>()`, which is the number hole when `T` is
+    /// instantiated at `number` (as the typed read below), never `0`. A concrete generated union element is likewise a tagged
     /// `SmeltUnion…`, so its missing value must be a union value
     /// (`default_value` produces one) rather than an erased tag.
     pub(super) fn element_missing_value(&self, item_ty: TypeId) -> Result<RustExpr, EmitError> {
@@ -711,7 +712,7 @@ impl FunctionEmitter<'_> {
                 if self.current_function_has_type_param(*name)
         );
         if item_is_in_scope_type_param {
-            return self.default_value(item_ty);
+            return self.generic_missing_value(item_ty);
         }
         if matches!(
             self.mir.types.get(item_ty),
@@ -901,6 +902,17 @@ impl FunctionEmitter<'_> {
                     ))
                 };
                 if item_ty == inner {
+                    // A TypeScript `number[]` slot holding the hole
+                    // (`smelt_number_hole`) is `undefined` too: `xs[i] ===
+                    // undefined` and `const v: number | undefined = xs[i]`
+                    // see an empty slot as absent, as a miss.
+                    if self.indexes_utf16()
+                        && matches!(self.mir.types.get(item_ty), Some(Type::Float))
+                    {
+                        return Ok(Some(read.postfix(
+                            ".filter(|smelt_value| !smelt_is_number_hole(*smelt_value))",
+                        )));
+                    }
                     return Ok(Some(read));
                 }
                 // `T[][i]` where the element is itself optional collapses the

@@ -325,7 +325,15 @@ export function holeAt(xs: number[], index: number): boolean {
     let program = program_part(&source);
     assert!(program.contains(".get(&key)).is_none()"), "{program}");
     assert!(program.contains(".get(&key)).is_some()"), "{program}");
-    assert!(program.contains(".cloned()).is_none()"), "{program}");
+    // Corrected expectation. Old: `xs[index] === undefined` was
+    // `.get(..).cloned()).is_none()`, so a slot holding the number hole (an
+    // `Array(n)` slot, a generic miss) answered `false`. New: the hole is
+    // `undefined` too, so the optional read drops it before the test; Node
+    // answers `true` (fixture `generic_missing_element`).
+    assert!(
+        program.contains(".cloned().filter(|smelt_value| !smelt_is_number_hole(*smelt_value))).is_none()"),
+        "{program}"
+    );
     assert!(!program.contains("= false;"), "{program}");
 }
 

@@ -15,6 +15,16 @@ const fn smelt_number_hole() -> f64 { f64::from_bits(SMELT_NUMBER_HOLE_BITS) }
 /// Whether `value` is a hole of a `number[]`.
 const fn smelt_is_number_hole(value: f64) -> bool { value.to_bits() == SMELT_NUMBER_HOLE_BITS }
 
+/// The value a JavaScript read that finds no slot yields (an out-of-range
+/// index, an `Array(n)` hole), in the carrier of a generic element `T`.
+fn smelt_missing<T: Default + 'static>() -> T {
+    let mut value = T::default();
+    if let Some(number) = (&mut value as &mut dyn ::std::any::Any).downcast_mut::<f64>() {
+        *number = smelt_number_hole();
+    }
+    value
+}
+
 /// `Number::toString(value, 10)`: JavaScript's number formatting.
 fn smelt_number_to_string<N: ::std::borrow::Borrow<f64>>(value: N) -> String {
     let value = *value.borrow();
@@ -4465,15 +4475,15 @@ pub(crate) fn sift_down<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown
     let _smelt_tmp_8: bool = left < _smelt_tmp_7;
     let mut _smelt_tmp_9: bool = false;
     if _smelt_tmp_8 {
-    _smelt_tmp_10 = compare(&heap.borrow().get({ let smelt_normalized = left as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| Default::default()), &heap.borrow().get({ let smelt_normalized = index as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| Default::default()));
+    _smelt_tmp_10 = compare(&heap.borrow().get({ let smelt_normalized = left as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| smelt_missing()), &heap.borrow().get({ let smelt_normalized = index as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| smelt_missing()));
     _smelt_tmp_9 = _smelt_tmp_10 < 0.0;
     } else {
     _smelt_tmp_9 = false;
     }
     if _smelt_tmp_9 {
-    held = heap.borrow().get({ let smelt_normalized = left as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| Default::default());
-    { let smelt_assign_index = { let smelt_normalized = left as i64; usize::try_from(smelt_normalized).expect("negative index out of bounds") }; let smelt_assign_value = heap.borrow().get({ let smelt_normalized = index as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| Default::default()); if smelt_assign_index >= heap.len() { heap.borrow_mut().resize(smelt_assign_index.saturating_add(1), Default::default()); } heap.borrow_mut()[smelt_assign_index] = smelt_assign_value; }
-    { let smelt_assign_index = { let smelt_normalized = index as i64; usize::try_from(smelt_normalized).expect("negative index out of bounds") }; let smelt_assign_value = held; if smelt_assign_index >= heap.len() { heap.borrow_mut().resize(smelt_assign_index.saturating_add(1), Default::default()); } heap.borrow_mut()[smelt_assign_index] = smelt_assign_value; }
+    held = heap.borrow().get({ let smelt_normalized = left as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| smelt_missing());
+    { let smelt_assign_index = { let smelt_normalized = left as i64; usize::try_from(smelt_normalized).expect("negative index out of bounds") }; let smelt_assign_value = heap.borrow().get({ let smelt_normalized = index as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| smelt_missing()); if smelt_assign_index >= heap.len() { heap.borrow_mut().resize(smelt_assign_index.saturating_add(1), smelt_missing()); } heap.borrow_mut()[smelt_assign_index] = smelt_assign_value; }
+    { let smelt_assign_index = { let smelt_normalized = index as i64; usize::try_from(smelt_normalized).expect("negative index out of bounds") }; let smelt_assign_value = held; if smelt_assign_index >= heap.len() { heap.borrow_mut().resize(smelt_assign_index.saturating_add(1), smelt_missing()); } heap.borrow_mut()[smelt_assign_index] = smelt_assign_value; }
     }
     return;
 }

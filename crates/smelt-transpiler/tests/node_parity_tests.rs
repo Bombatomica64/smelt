@@ -917,6 +917,15 @@ fn element_read_misses() -> TestResult {
     verify_node_parity("element_read_misses")
 }
 
+/// A generic body reads a missing element as the `undefined` of whatever `T`
+/// is instantiated at: the number hole at `number` (as the typed `number[]`
+/// read), `undefined` at an optional and behind `unknown`; a hole compares
+/// `=== undefined` wherever it is read.
+#[test]
+fn generic_missing_element() -> TestResult {
+    verify_node_parity("generic_missing_element")
+}
+
 /// A regexp's absent values: a non-participating group is `undefined`,
 /// `indices` exists with the `d` flag, a missing property is `undefined`, and
 /// `RegExpMatchArray`/`RegExpExecArray` annotations name the match value.

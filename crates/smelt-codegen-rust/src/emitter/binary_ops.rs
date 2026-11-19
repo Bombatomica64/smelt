@@ -359,6 +359,10 @@ impl FunctionEmitter<'_> {
                 self.erased_nullish_scrutinee(rhs)?.delimited(),
                 nullish_pattern(lhs)
             ))
+        } else if let Some(hole_test) =
+            self.number_hole_nullish_expr(lhs, rhs, lhs_is_none, strict_nullish)?
+        {
+            hole_test
         } else if lhs_is_none || rhs_is_none {
             RustExpr::path("false")
         } else if lhs_is_erased || rhs_is_erased {
@@ -585,6 +589,43 @@ impl FunctionEmitter<'_> {
             (true, true) => option_text.postfix(".is_some()"),
             (true, false) => option_text.postfix(".is_none()"),
         })
+    }
+
+    /// Equality between a TypeScript `number` and `undefined` (or, loosely,
+    /// `null`): whether the number is the hole (`smelt_number_hole`).
+    ///
+    /// The number carrier spells `undefined` as the hole, the value an empty
+    /// or out-of-range `number[]` slot reads as (also through a generic `T`
+    /// instantiated at `number`). So `xs[9] === undefined` and `n == null` on
+    /// such a read are `true` as in Node, where folding to `false` answered as
+    /// if the slot held a number. `=== null` stays `false`: the hole is never
+    /// `null`, and a strict comparison only tests the hole against the
+    /// `undefined` literal itself. `None` when neither side is that shape.
+    fn number_hole_nullish_expr(
+        &self,
+        lhs: &Operand,
+        rhs: &Operand,
+        lhs_is_none: bool,
+        strict_nullish: bool,
+    ) -> Result<Option<RustExpr>, EmitError> {
+        if !self.indexes_utf16() {
+            return Ok(None);
+        }
+        let (number, nullish) = if lhs_is_none { (rhs, lhs) } else { (lhs, rhs) };
+        if !matches!(
+            self.mir.types.get(self.operand_ty(number)?),
+            Some(Type::Float)
+        ) || self.mir.types.get(self.operand_ty(nullish)?) != Some(&Type::None)
+        {
+            return Ok(None);
+        }
+        if strict_nullish && !matches!(nullish, Operand::Const(Constant::Undefined)) {
+            return Ok(None);
+        }
+        Ok(Some(RustExpr::atom(format!(
+            "smelt_is_number_hole({})",
+            self.operand_expr(number)?.delimited()
+        ))))
     }
 
     /// Equality between a typed optional and a `null` or `undefined` literal,

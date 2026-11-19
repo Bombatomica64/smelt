@@ -922,7 +922,11 @@ impl ModuleBuilder<'_> {
                         // A bare function slot had to be filled with a default
                         // callback the source never wrote, and `{}` could not
                         // build the record at all.
-                        let field_ty = self.ctx.krate.types.intern(Type::Optional(function_ty));
+                        let field_ty = self
+                            .ctx
+                            .krate
+                            .types
+                            .intern(Type::Optional(function_ty, smelt_hir::Absence::Undefined));
                         fields.push(Field {
                             name: self.property_key_symbol(&method.key)?,
                             ty: field_ty,
