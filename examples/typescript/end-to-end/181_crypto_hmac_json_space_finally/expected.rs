@@ -3674,9 +3674,10 @@ fn smelt_boxed_string_own_property(map: &SmeltObject, key: &str) -> bool { let S
 fn smelt_has_own_property(value: &SmeltUnknown, key: &(impl SmeltHostText + ?Sized)) -> bool { let key = key.host_text(); let key: &str = &key;
     match value {
         SmeltUnknown::Object(map) if smelt_host_buffer_marker(map).is_some() => smelt_host_buffer_element(map, key).is_some(),
-        SmeltUnknown::Object(map) => map.contains_key(key) || smelt_boxed_string_own_property(map, key),
+        SmeltUnknown::Object(map) => map.contains_key(key) || smelt_boxed_string_own_property(map, key) || (key == "prototype" && map.contains_key("__smelt_class_value")),
         SmeltUnknown::Array(values) => key == "length" || values.named_keys().contains(&key.to_owned()) || key.parse::<usize>().is_ok_and(|index| index < values.len() && !values.is_hole(index)),
         SmeltUnknown::String(text) => key == "length" || key.parse::<usize>().is_ok_and(|index| index < text.len()),
+        SmeltUnknown::Function(function) => key == "name" || key == "length" || !matches!(smelt_function_value_property(function, key), SmeltUnknown::Undefined),
         _ => false,
     }
 }
@@ -5627,7 +5628,7 @@ pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
     _smelt_tmp_28 = JsString::from(smelt_json_indent(&_smelt_tmp_27, &(JsString::from("--")).slice(0, 10).to_string_lossy()));
     let _ = { println!("{}", _smelt_tmp_28); };
     _smelt_tmp_30 = __smelt_fn_typed_6_0();
-    let _smelt_tmp_31 = SmeltFuture::from_future_primed(Box::pin(cleanup_after__module_main(::std::rc::Rc::new({ let _smelt_adapted_callback = _smelt_tmp_30.clone(); move || { let smelt_async_callback = _smelt_adapted_callback.clone(); { let smelt_async_source = (smelt_async_callback)(); SmeltFuture::from_future(Box::pin(async move { let smelt_async_output = smelt_async_source.await?; Ok::<_, Box<dyn std::error::Error>>(smelt_async_output) })) } } }))));
+    let _smelt_tmp_31 = SmeltFuture::from_future_primed(Box::pin(cleanup_after__module_main({ let smelt_identity_source = _smelt_tmp_30.clone(); let smelt_adapted_callable = ::std::rc::Rc::new({ let _smelt_adapted_callback = _smelt_tmp_30.clone(); move || { let smelt_async_callback = _smelt_adapted_callback.clone(); { let smelt_async_source = (smelt_async_callback)(); SmeltFuture::from_future(Box::pin(async move { let smelt_async_output = smelt_async_source.await?; Ok::<_, Box<dyn std::error::Error>>(smelt_async_output) })) } } }); smelt_link_function_identity(&smelt_adapted_callable, &smelt_identity_source); smelt_adapted_callable })));
     _smelt_tmp_32 = _smelt_tmp_31.await?;
     let _ = { println!("{}", _smelt_tmp_32); };
     _smelt_tmp_34 = ::std::rc::Rc::new(move || { SmeltFuture::from_future_primed(Box::pin(async move {

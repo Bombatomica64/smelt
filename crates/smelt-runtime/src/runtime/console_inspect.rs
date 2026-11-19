@@ -529,13 +529,19 @@ impl SmeltInspect for SmeltUnknown {
                     let entries = pairs.iter().map(|(key, value)| (key as &dyn SmeltInspect, Some(value as &dyn SmeltInspect))).collect::<Vec<_>>();
                     return smelt_inspect_collection(ctx, depth, "Map", &entries);
                 }
-                let pairs = object.iter().filter(|(key, _)| !key.eq_str("__smelt_call")).collect::<Vec<_>>();
+                //~ A class instance prints as Node prints it, `Name { own: .. }`:
+                //~ its class tag names the constructor, and its prototype
+                //~ members (`__smelt_method:`/`__smelt_proto:` entries) are not
+                //~ own properties. Any other internal marker (a host object, a
+                //~ hidden field) or an own function keeps the opaque rendering.
+                let constructor = match object.get("__smelt_class") { Some(Self::String(tag)) => tag.to_string(), _ => String::new() };
+                let pairs = object.iter().filter(|(key, _)| !key.eq_str("__smelt_call") && !(!constructor.is_empty() && (key.eq_str("__smelt_class") || key.eq_str_prefix("__smelt_method:") || key.eq_str_prefix("__smelt_proto:")))).collect::<Vec<_>>();
                 if pairs.iter().any(|(key, value)| key.eq_str_prefix("__smelt") || matches!(value, Self::Function(_))) {
                     return self.to_string();
                 }
                 let key_texts = pairs.iter().map(|(key, _)| key.to_string_lossy()).collect::<Vec<_>>();
                 let entries = pairs.iter().zip(&key_texts).map(|((_, value), key)| (key.as_str(), value as &dyn SmeltInspect)).collect::<Vec<_>>();
-                smelt_inspect_object(ctx, depth, "", &entries)
+                smelt_inspect_object(ctx, depth, &constructor, &entries)
             }
             Self::Symbol(_) | Self::Function(_) | Self::Promise(_) => self.to_string(),
         }

@@ -3667,9 +3667,10 @@ fn smelt_boxed_string_own_property(map: &SmeltObject, key: &str) -> bool { let S
 fn smelt_has_own_property(value: &SmeltUnknown, key: &(impl SmeltHostText + ?Sized)) -> bool { let key = key.host_text(); let key: &str = &key;
     match value {
         SmeltUnknown::Object(map) if smelt_host_buffer_marker(map).is_some() => smelt_host_buffer_element(map, key).is_some(),
-        SmeltUnknown::Object(map) => map.contains_key(key) || smelt_boxed_string_own_property(map, key),
+        SmeltUnknown::Object(map) => map.contains_key(key) || smelt_boxed_string_own_property(map, key) || (key == "prototype" && map.contains_key("__smelt_class_value")),
         SmeltUnknown::Array(values) => key == "length" || values.named_keys().contains(&key.to_owned()) || key.parse::<usize>().is_ok_and(|index| index < values.len() && !values.is_hole(index)),
         SmeltUnknown::String(text) => key == "length" || key.parse::<usize>().is_ok_and(|index| index < text.len()),
+        SmeltUnknown::Function(function) => key == "name" || key == "length" || !matches!(smelt_function_value_property(function, key), SmeltUnknown::Undefined),
         _ => false,
     }
 }
@@ -5019,13 +5020,14 @@ impl SmeltInspect for SmeltUnknown {
                     let entries = pairs.iter().map(|(key, value)| (key as &dyn SmeltInspect, Some(value as &dyn SmeltInspect))).collect::<Vec<_>>();
                     return smelt_inspect_collection(ctx, depth, "Map", &entries);
                 }
-                let pairs = object.iter().filter(|(key, _)| !key.eq_str("__smelt_call")).collect::<Vec<_>>();
+                let constructor = match object.get("__smelt_class") { Some(Self::String(tag)) => tag.to_string(), _ => String::new() };
+                let pairs = object.iter().filter(|(key, _)| !key.eq_str("__smelt_call") && !(!constructor.is_empty() && (key.eq_str("__smelt_class") || key.eq_str_prefix("__smelt_method:") || key.eq_str_prefix("__smelt_proto:")))).collect::<Vec<_>>();
                 if pairs.iter().any(|(key, value)| key.eq_str_prefix("__smelt") || matches!(value, Self::Function(_))) {
                     return self.to_string();
                 }
                 let key_texts = pairs.iter().map(|(key, _)| key.to_string_lossy()).collect::<Vec<_>>();
                 let entries = pairs.iter().zip(&key_texts).map(|((_, value), key)| (key.as_str(), value as &dyn SmeltInspect)).collect::<Vec<_>>();
-                smelt_inspect_object(ctx, depth, "", &entries)
+                smelt_inspect_object(ctx, depth, &constructor, &entries)
             }
             Self::Symbol(_) | Self::Function(_) | Self::Promise(_) => self.to_string(),
         }
