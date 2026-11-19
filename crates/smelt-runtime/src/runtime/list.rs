@@ -97,7 +97,7 @@ impl<T: Clone> SmeltList<T> {
     fn set_index(&self, index: usize, value: T, fill: T) { /*@if list_links*/smelt_list_sync(&self.values, false);/*@end*/let mut values = self.values.borrow_mut(); if index >= values.len() { values.resize(index.saturating_add(1), fill); } values[index] = value; /*@if list_links*/drop(values); smelt_list_mirror(&self.values, index);/*@end*/}
     // @smelt:if list_links
     //~ Append one element (JS `arr.push(v)`), keeping a linked `unknown[]`
-    //~ view in step by that one element (`smelt_list_link`).
+    //~ view in step by that one element (`smelt_list_sync`).
     fn push_item(&self, value: T) { smelt_list_sync(&self.values, false); self.values.borrow_mut().push(value); smelt_list_mirror(&self.values, usize::MAX); }
     // @smelt:end
     //~ Iterate a snapshot of the elements, so the buffer is not borrowed across the loop body.

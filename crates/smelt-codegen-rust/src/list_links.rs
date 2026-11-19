@@ -17,7 +17,7 @@
 //! The typed list keeps its `Vec<E>`, and the `unknown[]` value keeps the
 //! `Vec<SmeltUnknown>` every `unknown[]` operation already speaks. The
 //! conversion LINKS the two (`SmeltList::into_linked_unknown_list`, runtime
-//! item `smelt_list_link`): the erased list takes the typed list's identity,
+//! item `smelt_list_sync`): the erased list takes the typed list's identity,
 //! and every access to either buffer first pulls the other's elements across
 //! when the other side was written since they were last in step. That is the
 //! hand-written answer for "one array seen at two element types" when one of
@@ -41,6 +41,11 @@
 //! source did not erase. A program without such a conversion emits exactly
 //! what it emitted before: the link is a runtime item gated on
 //! [`program_links_lists`] (`list_links`).
+
+#![expect(
+    clippy::redundant_pub_crate,
+    reason = "link planning is shared by the runtime demand and the function emitter"
+)]
 
 use smelt_hir::{Type, TypeId};
 use smelt_mir::Mir;

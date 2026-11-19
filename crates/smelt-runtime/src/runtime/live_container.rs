@@ -299,7 +299,7 @@ impl SmeltArray {
 }
 // @smelt:item-end
 
-// @smelt:item smelt_list_link when unknown & list_links
+// @smelt:item smelt_list_sync when unknown & list_links
 //~ A typed list at an `unknown[]` slot (`fill(nums as unknown[])`,
 //~ `const all: unknown[] = nums`) is the SAME array there.
 //~
@@ -353,7 +353,7 @@ thread_local! {
 }
 
 /// Bring the buffer `values` up to date with the list it is linked to, and
-/// record a write when `write` (see `smelt_list_link`).
+/// record a write when `write` (see `smelt_list_sync`).
 #[inline]
 fn smelt_list_sync<T>(values: &::std::rc::Rc<::std::cell::RefCell<Vec<T>>>, write: bool) {
     if !SMELT_LIST_LINKED.with(::std::cell::Cell::get) { return; }
@@ -396,7 +396,7 @@ fn smelt_list_mirror_into<S: Clone, D>(source: &[S], target: &mut Vec<D>, index:
 
 impl<T: SmeltFromUnknown + Clone + 'static> SmeltList<T> {
     //~ This list at an `unknown[]` slot: an erased-element list with this
-    //~ list's identity, linked to it (see `smelt_list_link`). `erase` erases
+    //~ list's identity, linked to it (see `smelt_list_sync`). `erase` erases
     //~ one element.
     fn into_linked_unknown_list(self, erase: impl Fn(T) -> SmeltUnknown + 'static) -> SmeltList<SmeltUnknown> {
         let typed = self.storage();

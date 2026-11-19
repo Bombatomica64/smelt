@@ -240,7 +240,7 @@ declare_needs! {
     /// Live erased views of typed arrays (`SmeltLiveList`).
     LiveArrays,
     /// A typed list converted to an `unknown[]` slot, linked to it rather than
-    /// copied (`smelt_list_link`, `crate::list_links`).
+    /// copied (`smelt_list_sync`, `crate::list_links`).
     ListLinks,
     /// Typed deep equality of generated records (`SmeltDeepEq`,
     /// `crate::deep_equality`).

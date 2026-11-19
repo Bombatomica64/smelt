@@ -105,7 +105,7 @@ the object, never the view: the trait's erasure method hands out the concrete re
    * The generated `IntoSmeltUnknown` of a reference class now stamps the `__smelt_class` tag, as the inline
      erasure always did: a class erased through a view (or any generic path) answers `instanceof` and
      `constructor` as the class it was built as.
-2. **Typed lists at `unknown[]`** (`crate::list_links`, runtime item `smelt_list_link`). `unknown[]` is
+2. **Typed lists at `unknown[]`** (`crate::list_links`, runtime item `smelt_list_sync`). `unknown[]` is
    `SmeltList<SmeltUnknown>`, whose `Vec<SmeltUnknown>` cannot be the typed list's `Vec<E>`. The conversion
    LINKS two buffers: the erased list takes the typed list's id and a buffer of its elements erased, and a link
    table (keyed by buffer address, holding `Weak`s of both) keeps them in step:
