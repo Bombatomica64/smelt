@@ -256,6 +256,12 @@ pub(crate) fn flag_for(
         "live_containers" => Some(demand.has(Need::LiveContainers) && demand.has(Need::Unknown)),
         // Likewise for a typed array's live erased view.
         "live_arrays" => Some(demand.has(Need::LiveArrays) && demand.has(Need::Unknown)),
+        // A typed list linked to its `unknown[]` view (`crate::list_links`).
+        "list_links" => Some(
+            demand.has(Need::ListLinks)
+                && demand.has(Need::LiveArrays)
+                && demand.has(Need::Unknown),
+        ),
         "write_through" => Some(facts.erased_view_write_through && facts.reference_classes),
         // A live record's map-shaped views read and write the record itself
         // (`emitter::live_view`, `smelt-runtime/src/runtime/live_view.rs`).

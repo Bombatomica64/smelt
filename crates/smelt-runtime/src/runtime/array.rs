@@ -214,30 +214,30 @@ impl SmeltArray {
     //~ back was `into_vec()`, which copies.
     //~ Another handle on this array's shared buffer.
     //~ A live view has no erased buffer to share: it answers a detached snapshot.
-    fn storage(&self) -> ::std::rc::Rc<::std::cell::RefCell<Vec<SmeltUnknown>>> { /*@if live_arrays*/if let Some(live) = self.live_view() { return ::std::rc::Rc::new(::std::cell::RefCell::new(live.elements())); } /*@end*/::std::rc::Rc::clone(&self.values) }
+    fn storage(&self) -> ::std::rc::Rc<::std::cell::RefCell<Vec<SmeltUnknown>>> { /*@if list_links*/smelt_list_sync(&self.values, false);/*@end*//*@if live_arrays*/if let Some(live) = self.live_view() { return ::std::rc::Rc::new(::std::cell::RefCell::new(live.elements())); } /*@end*/::std::rc::Rc::clone(&self.values) }
     //~ Snapshot the elements. This COPIES: mutating the result does not write back.
-    fn into_vec(self) -> Vec<SmeltUnknown> { /*@if live_arrays*/if let Some(live) = self.live_view() { return live.elements(); } /*@end*/self.values.borrow().clone() }
+    fn into_vec(self) -> Vec<SmeltUnknown> { /*@if list_links*/smelt_list_sync(&self.values, false);/*@end*//*@if live_arrays*/if let Some(live) = self.live_view() { return live.elements(); } /*@end*/self.values.borrow().clone() }
     //~ Element count.
-    fn len(&self) -> usize { /*@if live_arrays*/if let Some(live) = self.live_view() { return live.element_count(); } /*@end*/self.values.borrow().len() }
+    fn len(&self) -> usize { /*@if list_links*/smelt_list_sync(&self.values, false);/*@end*//*@if live_arrays*/if let Some(live) = self.live_view() { return live.element_count(); } /*@end*/self.values.borrow().len() }
     //~ Whether the array holds no elements.
     fn is_empty(&self) -> bool { self.len() == 0 }
     //~ Read one element by index, cloned out of the shared buffer (JS `arr[i]`).
-    fn get(&self, index: usize) -> Option<SmeltUnknown> { /*@if live_arrays*/if let Some(live) = self.live_view() { return live.element(index); } /*@end*/self.values.borrow().get(index).cloned() }
+    fn get(&self, index: usize) -> Option<SmeltUnknown> { /*@if list_links*/smelt_list_sync(&self.values, false);/*@end*//*@if live_arrays*/if let Some(live) = self.live_view() { return live.element(index); } /*@end*/self.values.borrow().get(index).cloned() }
     //~ Iterate a snapshot of the elements, so the buffer is not borrowed across the loop body.
     fn iter(&self) -> ::std::vec::IntoIter<SmeltUnknown> { self.clone().into_vec().into_iter() }
     //~ Set the element at a numeric index, extending with `undefined` holes to match JS `arr[i] = v`.
-    fn set_index(&self, index: usize, value: SmeltUnknown) { /*@if live_arrays*/if let Some(live) = self.live_view_for(::std::slice::from_ref(&value)) { live.set_element(index, value); return; } /*@end*/let mut values = self.values.borrow_mut(); if index >= values.len() { values.resize(index.saturating_add(1), SmeltUnknown::Undefined); } values[index] = value; }
+    fn set_index(&self, index: usize, value: SmeltUnknown) { /*@if list_links*/smelt_list_sync(&self.values, true);/*@end*//*@if live_arrays*/if let Some(live) = self.live_view_for(::std::slice::from_ref(&value)) { live.set_element(index, value); return; } /*@end*/let mut values = self.values.borrow_mut(); if index >= values.len() { values.resize(index.saturating_add(1), SmeltUnknown::Undefined); } values[index] = value; }
     //~ Append one element (JS `arr.push(v)`), through the shared buffer.
-    fn push(&self, value: SmeltUnknown) { /*@if live_arrays*/if let Some(live) = self.live_view_for(::std::slice::from_ref(&value)) { let end = live.element_count(); live.splice_elements(end, 0, vec![value]); return; } /*@end*/self.values.borrow_mut().push(value); }
+    fn push(&self, value: SmeltUnknown) { /*@if list_links*/smelt_list_sync(&self.values, true);/*@end*//*@if live_arrays*/if let Some(live) = self.live_view_for(::std::slice::from_ref(&value)) { let end = live.element_count(); live.splice_elements(end, 0, vec![value]); return; } /*@end*/self.values.borrow_mut().push(value); }
     //~ Remove `delete` elements at `start` and insert `items` there (JS `splice`), answering the removed ones.
-    fn splice(&self, start: usize, delete: usize, items: Vec<SmeltUnknown>) -> Vec<SmeltUnknown> { /*@if live_arrays*/if let Some(live) = self.live_view_for(&items) { return live.splice_elements(start, delete, items); } /*@end*/let mut values = self.values.borrow_mut(); let start = start.min(values.len()); let end = start.saturating_add(delete).min(values.len()); values.splice(start..end, items).collect() }
+    fn splice(&self, start: usize, delete: usize, items: Vec<SmeltUnknown>) -> Vec<SmeltUnknown> { /*@if list_links*/smelt_list_sync(&self.values, true);/*@end*//*@if live_arrays*/if let Some(live) = self.live_view_for(&items) { return live.splice_elements(start, delete, items); } /*@end*/let mut values = self.values.borrow_mut(); let start = start.min(values.len()); let end = start.saturating_add(delete).min(values.len()); values.splice(start..end, items).collect() }
     //~ Set the element count (JS `arr.length = n`): truncate, or extend with `undefined` holes.
     fn set_len(&self, len: usize) { let current = self.len(); /*@if live_arrays*/if len > current && let Some(live) = self.live_view() { live.grow_with_holes(len); return; } /*@end*/if len < current { self.splice(len, current - len, Vec::new()); } else if len > current { self.splice(current, 0, vec![SmeltUnknown::Undefined; len - current]); } }
     //~ Whether the slot at `index` is a hole (JS `index in arr` is false): only a
     //~ live view of a typed list whose element type can hold one models holes.
     fn is_hole(&self, index: usize) -> bool { /*@if live_arrays*/if let Some(live) = self.live_view() { return live.is_hole(index); } /*@end*/let _ = index; false }
     //~ Replace every element in place, so aliases observe the new contents.
-    fn replace_all(&self, values: Vec<SmeltUnknown>) { /*@if live_arrays*/if let Some(live) = self.live_view_for(&values) { live.replace_elements(values); return; } /*@end*/*self.values.borrow_mut() = values; }
+    fn replace_all(&self, values: Vec<SmeltUnknown>) { /*@if list_links*/smelt_list_sync(&self.values, true);/*@end*//*@if live_arrays*/if let Some(live) = self.live_view_for(&values) { live.replace_elements(values); return; } /*@end*/*self.values.borrow_mut() = values; }
     //~ The named half of the array's property model. Kept as an insertion-ordered
     //~ `Vec` rather than a map because JavaScript enumerates an object's string
     //~ keys in insertion order and there are only ever a handful of them. These

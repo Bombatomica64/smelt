@@ -157,6 +157,7 @@ mod inherited_render;
 mod instance_of;
 mod json_decode;
 mod list;
+mod list_link;
 mod list_mutation;
 mod list_ordering;
 mod list_query;
