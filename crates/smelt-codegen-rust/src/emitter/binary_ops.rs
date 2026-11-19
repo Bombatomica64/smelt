@@ -1003,6 +1003,18 @@ impl FunctionEmitter<'_> {
         }))
     }
 
+    /// Whether `operand` is held as a `SmeltErasedFunction` (an erased-rest
+    /// callable, or a generic one the erased ABI renders so), whose identity
+    /// key is its inner callback.
+    fn renders_erased_function(&self, operand: &Operand) -> Result<bool, EmitError> {
+        let ty = self.operand_ty(operand)?;
+        Ok(matches!(
+            self.mir.types.get(ty),
+            Some(Type::Function(function)) if self.is_erased_unknown_rest_function(function)
+        ) || (matches!(self.mir.types.get(ty), Some(Type::Function(_)))
+            && self.rendered_type(ty)?.to_string() == "SmeltErasedFunction"))
+    }
+
     /// `===` of two function operands by their identity keys, when either one
     /// is held in a form `Rc::ptr_eq` cannot take: a borrowed `&dyn Fn`
     /// parameter, or a `SmeltErasedFunction` (an erased-rest callable).
@@ -1023,30 +1035,30 @@ impl FunctionEmitter<'_> {
                 Some(place) => self.is_function_parameter_place(place)?,
                 None => false,
             };
-            let is_erased_rest = matches!(
-                self.mir.types.get(self.operand_ty(operand)?),
-                Some(Type::Function(function)) if self.is_erased_unknown_rest_function(function)
-            );
-            Ok(is_borrowed || is_erased_rest)
+            Ok(is_borrowed || self.renders_erased_function(operand)?)
         };
         let both_functions = [lhs, rhs].iter().all(|operand| {
             self.operand_ty(operand)
                 .is_ok_and(|ty| matches!(self.mir.types.get(ty), Some(Type::Function(_))))
         });
-        if !both_functions || !(special(lhs)? || special(rhs)?) {
+        let with_runtime = self.context.demand().has(Need::Unknown);
+        // Two function values of DIFFERENT static types can still be one
+        // JavaScript function: an adapter between the two shares its
+        // source's identity (`function_adapter`, `erased_rest_function_value`),
+        // so with the identity registry they compare by identity rather than
+        // folding to `false`.
+        let distinct_types = self.operand_ty(lhs)? != self.operand_ty(rhs)?;
+        if !both_functions || !(special(lhs)? || special(rhs)? || (with_runtime && distinct_types))
+        {
             return Ok(None);
         }
-        let with_runtime = self.context.demand().has(Need::Unknown);
         let key = |operand: &Operand| -> Result<String, EmitError> {
             let text = self.operand_expr(operand)?;
             let is_borrowed = match operand.place() {
                 Some(place) => self.is_function_parameter_place(place)?,
                 None => false,
             };
-            let erased_rest = matches!(
-                self.mir.types.get(self.operand_ty(operand)?),
-                Some(Type::Function(function)) if self.is_erased_unknown_rest_function(function)
-            );
+            let erased_rest = self.renders_erased_function(operand)?;
             Ok(if is_borrowed {
                 format!(
                     "(({text}) as *const _ as *const () as usize)",
@@ -1556,6 +1568,15 @@ impl FunctionEmitter<'_> {
                     )?,
                 }
             }
+            // Two function types: one function seen through an adapter
+            // shares its identity, so the identity keys decide; without the
+            // identity registry two distinct types stay unequal.
+            (Some(Type::Function(_)), Some(Type::Function(_))) => {
+                match self.function_identity_key_equality(lhs, rhs)? {
+                    Some(by_key) => by_key,
+                    None => RustExpr::path("false"),
+                }
+            }
             _ if self.is_reference_type(lhs_ty) || self.is_reference_type(rhs_ty) => {
                 // A reference record compared with a dictionary (one that may
                 // be its adopted view, `SmeltRecord::smelt_adopt_typed`) is read
@@ -1714,6 +1735,10 @@ impl FunctionEmitter<'_> {
             (Some(Type::List(_)), Some(Type::List(_)))
             | (Some(Type::Dict(_, _)), Some(Type::Dict(_, _)))
             | (Some(Type::Set(_)), Some(Type::Set(_))) => false,
+            // Two function types are one JavaScript function when an adapter
+            // between them shares its source's identity
+            // (`function_identity_key_equality`).
+            (Some(Type::Function(_)), Some(Type::Function(_))) => false,
             (Some(Type::Tuple(left_items)), Some(Type::Tuple(right_items))) => {
                 left_items.len() != right_items.len()
                     || left_items

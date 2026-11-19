@@ -1406,6 +1406,24 @@ impl FunctionEmitter<'_> {
                 wide_erasure = wide_erasure.delimited()
             ))));
         }
+        // A typed callable adapted to another function type (a `void` return
+        // seen as `unknown`, a parameter widened) is the same JavaScript
+        // function too: `===`, own properties and whether it owns a
+        // `prototype` follow the source. Only a `'static` `Rc` handle can key
+        // the identity registry, so a source spelled with a lifetime keeps
+        // the adapter's own identity.
+        let source_rendered = self.rendered_type(self.place_ty(place)?)?.to_string();
+        if !source_is_erased
+            && uses_adapted_callback
+            && self.context.demand().has(Need::Unknown)
+            && source_rendered.starts_with("::std::rc::Rc<dyn Fn")
+            && !source_rendered.contains('\'')
+        {
+            return Ok(Some(RustExpr::atom(format!(
+                "{{ let smelt_identity_source = {function_text}.clone(); let smelt_adapted_callable = {adapter}; smelt_link_function_identity(&smelt_adapted_callable, &smelt_identity_source); smelt_adapted_callable }}",
+                adapter = adapter.delimited()
+            ))));
+        }
         // A narrowed erased function is the same JavaScript function: the
         // adapter shares its identity (see the rendered-text adapter above).
         if source_is_erased && uses_adapted_callback && self.context.demand().has(Need::Unknown) {

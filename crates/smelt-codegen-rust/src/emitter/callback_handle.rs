@@ -191,6 +191,23 @@ impl FunctionEmitter<'_> {
             return Ok(None);
         };
         let length = self.operand_function_length(operand)?;
+        // The erased callable is the same JavaScript function as the typed
+        // one it adapts: it shares its identity (`===`, own properties, a
+        // constructor's `prototype`), as the typed-to-typed adapter does
+        // (`function_adapter`). Only a held `'static` `Rc` keys the registry.
+        if let Operand::Copy(place) | Operand::Move(place) = operand
+            && self.context.demand().has(Need::Unknown)
+            && !self.is_function_parameter_place(place)?
+        {
+            let rendered = self.rendered_type(self.place_ty(place)?)?.to_string();
+            if rendered.starts_with("::std::rc::Rc<dyn Fn") && !rendered.contains('\'') {
+                return Ok(Some(RustExpr::atom(format!(
+                    "{{ let smelt_identity_source = {source}; let smelt_erased_callback = {callback}; smelt_link_function_identity(&smelt_erased_callback, &smelt_identity_source); SmeltErasedFunction {{ callback: smelt_erased_callback, length: {length}.0, object: None }} }}",
+                    source = self.place_expr(place)?.cloned_value().delimited(),
+                    callback = callback.delimited()
+                ))));
+            }
+        }
         Ok(Some(RustExpr::loose(format!(
             "SmeltErasedFunction {{ callback: {callback}, length: {length}.0, object: None }}",
             callback = callback.delimited()

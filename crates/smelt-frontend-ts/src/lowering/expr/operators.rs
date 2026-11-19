@@ -538,8 +538,12 @@ impl ModuleBuilder<'_> {
                     // A union of concrete members (`string | string[]` after a
                     // typeof guard Smelt's erased locals do not re-type) is a
                     // dynamic surface for `in` just like an erased union.
+                    // A function value answers `in` from its own
+                    // properties (`prototype` on a constructor, `name`,
+                    // `length`, expandos), which its erased form carries.
                     Some(
                         Type::TypeParam { .. }
+                            | Type::Function(_)
                             | Type::Class { .. }
                             | Type::List(_)
                             | Type::Tuple(_)

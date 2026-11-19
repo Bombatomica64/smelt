@@ -1,0 +1,8 @@
+true true 5
+true true true
+true false true true
+true true false
+true false
+P { x: 1 }
+[ P { x: 2 }, { y: 1 } ]
+number 5 s
