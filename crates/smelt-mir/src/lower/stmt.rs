@@ -742,9 +742,14 @@ impl LoweringCtx<'_> {
         })?;
 
         self.switch_to(body_mir);
+        // A non-empty tuple whose elements share one type is read by index
+        // like an array of those elements (codegen's homogeneous-tuple read,
+        // `emitter::place::homogeneous_tuple_item`); a heterogeneous or empty
+        // one needs a constant field read per position.
         if matches!(
             self.krate.types.get(iter_ty),
-            Some(smelt_hir::Type::Tuple(_))
+            Some(smelt_hir::Type::Tuple(items))
+                if !items.first().is_some_and(|first| items.iter().all(|item| item == first))
         ) {
             self.bind_tuple_element_at(iter_local, idx, item_local, iter_span)?;
         } else {
