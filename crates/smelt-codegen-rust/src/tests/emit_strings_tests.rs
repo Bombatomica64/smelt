@@ -432,6 +432,9 @@ export function pick(parts: string[], index: number): string | null {
 ",
     );
 
+    // Requirement changed (old -> new): `==` of two number reads that may hold
+    // the number hole compares holes as equal (`undefined == undefined`), so the
+    // plain `a == b` became the hole-aware form; a computed NaN still differs.
     assert_eq!(
         rust_fn(&source, "pick"),
         r#"fn pick(parts: SmeltList<JsString>, index: f64) -> Option<JsString> {
@@ -451,7 +454,7 @@ if _smelt_tmp_6 {
 _smelt_tmp_8 = p.index_of(&JsString::from("*"), 0).map_or(-1.0, |smelt_index| smelt_index as f64);
 _smelt_tmp_9 = p.len() as f64;
 _smelt_tmp_10 = _smelt_tmp_9 - 1.0;
-_smelt_tmp_7 = _smelt_tmp_8 == _smelt_tmp_10;
+_smelt_tmp_7 = { let smelt_lhs: f64 = _smelt_tmp_8; let smelt_rhs: f64 = _smelt_tmp_10; (smelt_lhs == smelt_rhs || (smelt_is_number_hole(smelt_lhs) && smelt_is_number_hole(smelt_rhs))) };
 } else {
 _smelt_tmp_7 = false;
 }

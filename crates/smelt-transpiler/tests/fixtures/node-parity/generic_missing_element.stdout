@@ -1,0 +1,7 @@
+3 10 30 undefined true
+[10,30,null] NaN undefined
+true undefined [null]
+2 undefined true [null,null]
+undefined true NaN
+undefined undefined 1 true
+undefined true undefined a

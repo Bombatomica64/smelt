@@ -10,6 +10,16 @@ const fn smelt_number_hole() -> f64 { f64::from_bits(SMELT_NUMBER_HOLE_BITS) }
 /// Whether `value` is a hole of a `number[]`.
 const fn smelt_is_number_hole(value: f64) -> bool { value.to_bits() == SMELT_NUMBER_HOLE_BITS }
 
+/// The value a JavaScript read that finds no slot yields (an out-of-range
+/// index, an `Array(n)` hole), in the carrier of a generic element `T`.
+fn smelt_missing<T: Default + 'static>() -> T {
+    let mut value = T::default();
+    if let Some(number) = (&mut value as &mut dyn ::std::any::Any).downcast_mut::<f64>() {
+        *number = smelt_number_hole();
+    }
+    value
+}
+
 /// `Number::toString(value, 10)`: JavaScript's number formatting.
 fn smelt_number_to_string<N: ::std::borrow::Borrow<f64>>(value: N) -> String {
     let value = *value.borrow();
@@ -971,7 +981,7 @@ impl<T: Clone + Default + 'static> Chain<T> {
     let smelt_capture_this = SmeltWeakReceiver::new(&*smelt_capture_this.borrow());
     move || {
     let _smelt_tmp_1: SmeltList<T> = Into::<SmeltList<_>>::into(((*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow().history).clone());
-    (*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow_mut().value = _smelt_tmp_1.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| Default::default());
+    (*smelt_capture_this.smelt_receiver_cell().borrow()).0.borrow_mut().value = _smelt_tmp_1.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| smelt_missing());
     ((*smelt_capture_this.smelt_receiver_cell().borrow())).clone()
     }
 });

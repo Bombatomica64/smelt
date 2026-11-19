@@ -681,7 +681,7 @@ loop {
 _smelt_tmp_2 = items.len();
 _smelt_tmp_3 = index < _smelt_tmp_2;
 if !(_smelt_tmp_3) { break; }
-_smelt_tmp_4 = items.borrow().get(index).cloned().unwrap_or_else(|| 0.0) >= 0.0;
+_smelt_tmp_4 = items.borrow().get(index).cloned().unwrap_or_else(|| smelt_number_hole()) >= 0.0;
 if _smelt_tmp_4 {
 return;
 } else {
@@ -740,10 +740,15 @@ function choose(flag: boolean): number {
 ",
     );
 
+    // Requirement changed (old -> new): the predeclared placeholder of a number
+    // local is the number hole, the `undefined` JavaScript gives an unassigned
+    // `number` binding (a literal `undefined` in a number slot is the hole), where
+    // it was `0.0`. The local is assigned on every path before it is read, so the
+    // placeholder is never observed either way.
     assert_eq!(
         rust_items(&source, &["fn choose"]),
         r"fn choose(flag: bool) -> f64 {
-let mut result: f64 = 0.0;
+let mut result: f64 = smelt_number_hole();
 if flag {
 result = 1.0;
 } else {
@@ -1321,7 +1326,7 @@ loop {
 _smelt_tmp_4 = items.len();
 _smelt_tmp_5 = _smelt_tmp_3 < _smelt_tmp_4;
 if !(_smelt_tmp_5) { break; }
-x = items.borrow().get(_smelt_tmp_3).cloned().unwrap_or_else(|| 0.0);
+x = items.borrow().get(_smelt_tmp_3).cloned().unwrap_or_else(|| smelt_number_hole());
 found = x;
 _smelt_tmp_3 = _smelt_tmp_3 + 1;
 }
@@ -1935,8 +1940,10 @@ export function copy(b: string[], n: number[], i: number): void {
         source.contains(".cloned().unwrap_or_else(|| JsString::new());"),
         "a concrete `string` slot keeps the total read:\n{source}"
     );
+    // The miss of a `number[]` is the number hole (`undefined` in a number
+    // slot), not a `0` the array never held.
     assert!(
-        source.contains(".cloned().unwrap_or_else(|| 0.0);"),
+        source.contains(".cloned().unwrap_or_else(|| smelt_number_hole());"),
         "a concrete `number` slot keeps the total read:\n{source}"
     );
     assert!(

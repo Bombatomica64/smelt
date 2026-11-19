@@ -468,8 +468,19 @@ impl FunctionEmitter<'_> {
             )));
         }
         let operand_expr = self.float_operand_expr(operand)?;
+        // A constant operand is an untyped float literal to rustc (`0.0`), whose
+        // methods cannot be resolved (E0689): it is called through `f64::`.
+        // Only constants take this spelling, so every other read keeps its
+        // method form.
+        let method = |name: &str| {
+            if matches!(operand, Operand::Const(_)) {
+                RustExpr::chain(format!("f64::{name}({})", operand_expr.delimited()))
+            } else {
+                operand_expr.postfix(format!(".{name}()"))
+            }
+        };
         Ok(match op {
-            smelt_hir::NumericPredicateOp::IsFinite => operand_expr.postfix(".is_finite()"),
+            smelt_hir::NumericPredicateOp::IsFinite => method("is_finite"),
             smelt_hir::NumericPredicateOp::IsInteger => RustExpr::loose(format!(
                 "{operand_expr}.fract() == 0.0",
                 operand_expr = operand_expr.tight()
@@ -481,7 +492,7 @@ impl FunctionEmitter<'_> {
                 "{{ let smelt_value: f64 = {operand_expr}; smelt_value.fract() == 0.0 && smelt_value.abs() <= 9007199254740991.0 }}",
                 operand_expr = operand_expr.delimited()
             )),
-            smelt_hir::NumericPredicateOp::IsNaN => operand_expr.postfix(".is_nan()"),
+            smelt_hir::NumericPredicateOp::IsNaN => method("is_nan"),
         })
     }
 

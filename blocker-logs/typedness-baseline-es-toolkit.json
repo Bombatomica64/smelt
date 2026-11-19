@@ -2,12 +2,12 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 14243,
-      "generic": 355,
-      "erased": 7041
+      "concrete": 14277,
+      "generic": 358,
+      "erased": 7038
     },
     "reads": {
-      "concrete": 367,
+      "concrete": 366,
       "generic": 51,
       "erased": 978
     },
@@ -173,7 +173,7 @@
     },
     "src/array/at.ts": {
       "values": {
-        "concrete": 13,
+        "concrete": 16,
         "generic": 2,
         "erased": 0
       },
@@ -615,7 +615,7 @@
     },
     "src/array/fill.ts": {
       "values": {
-        "concrete": 12,
+        "concrete": 13,
         "generic": 0,
         "erased": 5
       },
@@ -1924,7 +1924,7 @@
     },
     "src/array/toFilled.ts": {
       "values": {
-        "concrete": 12,
+        "concrete": 13,
         "generic": 0,
         "erased": 7
       },
@@ -3131,7 +3131,7 @@
     },
     "src/compat/_internal/decimalAdjust.ts": {
       "values": {
-        "concrete": 65,
+        "concrete": 69,
         "generic": 0,
         "erased": 0
       },
@@ -3709,7 +3709,7 @@
     },
     "src/compat/array/fill.ts": {
       "values": {
-        "concrete": 12,
+        "concrete": 13,
         "generic": 1,
         "erased": 7
       },
@@ -3743,7 +3743,7 @@
     },
     "src/compat/array/find.ts": {
       "values": {
-        "concrete": 15,
+        "concrete": 16,
         "generic": 0,
         "erased": 25
       },
@@ -3760,7 +3760,7 @@
     },
     "src/compat/array/findIndex.ts": {
       "values": {
-        "concrete": 23,
+        "concrete": 24,
         "generic": 0,
         "erased": 41
       },
@@ -3930,7 +3930,7 @@
     },
     "src/compat/array/forEach.ts": {
       "values": {
-        "concrete": 12,
+        "concrete": 13,
         "generic": 0,
         "erased": 18
       },
@@ -3947,7 +3947,7 @@
     },
     "src/compat/array/forEachRight.ts": {
       "values": {
-        "concrete": 11,
+        "concrete": 12,
         "generic": 0,
         "erased": 17
       },
@@ -4202,7 +4202,7 @@
     },
     "src/compat/array/nth.ts": {
       "values": {
-        "concrete": 8,
+        "concrete": 9,
         "generic": 4,
         "erased": 0
       },
@@ -5154,7 +5154,7 @@
     },
     "src/compat/function/debounce.ts": {
       "values": {
-        "concrete": 31,
+        "concrete": 30,
         "generic": 1,
         "erased": 21
       },
@@ -5188,7 +5188,7 @@
     },
     "src/compat/function/delay.ts": {
       "values": {
-        "concrete": 4,
+        "concrete": 7,
         "generic": 0,
         "erased": 5
       },
@@ -5324,7 +5324,7 @@
     },
     "src/compat/function/nthArg.ts": {
       "values": {
-        "concrete": 3,
+        "concrete": 4,
         "generic": 0,
         "erased": 3
       },
@@ -5443,7 +5443,7 @@
     },
     "src/compat/function/spread.ts": {
       "values": {
-        "concrete": 7,
+        "concrete": 8,
         "generic": 0,
         "erased": 10
       },
@@ -5460,7 +5460,7 @@
     },
     "src/compat/function/throttle.ts": {
       "values": {
-        "concrete": 5,
+        "concrete": 6,
         "generic": 1,
         "erased": 1
       },
@@ -5545,7 +5545,7 @@
     },
     "src/compat/math/ceil.ts": {
       "values": {
-        "concrete": 3,
+        "concrete": 4,
         "generic": 0,
         "erased": 0
       },
@@ -5596,7 +5596,7 @@
     },
     "src/compat/math/floor.ts": {
       "values": {
-        "concrete": 3,
+        "concrete": 4,
         "generic": 0,
         "erased": 0
       },
@@ -5749,7 +5749,7 @@
     },
     "src/compat/math/parseInt.ts": {
       "values": {
-        "concrete": 5,
+        "concrete": 6,
         "generic": 0,
         "erased": 1
       },
@@ -5800,7 +5800,7 @@
     },
     "src/compat/math/rangeRight.ts": {
       "values": {
-        "concrete": 26,
+        "concrete": 29,
         "generic": 0,
         "erased": 4
       },
@@ -5817,7 +5817,7 @@
     },
     "src/compat/math/round.ts": {
       "values": {
-        "concrete": 3,
+        "concrete": 4,
         "generic": 0,
         "erased": 0
       },
@@ -7619,7 +7619,7 @@
     },
     "src/compat/string/padEnd.ts": {
       "values": {
-        "concrete": 6,
+        "concrete": 7,
         "generic": 0,
         "erased": 0
       },
@@ -7636,7 +7636,7 @@
     },
     "src/compat/string/padStart.ts": {
       "values": {
-        "concrete": 6,
+        "concrete": 7,
         "generic": 0,
         "erased": 0
       },
@@ -7760,7 +7760,7 @@
         "erased": 30
       },
       "reads": {
-        "concrete": 26,
+        "concrete": 25,
         "generic": 0,
         "erased": 2
       },
@@ -8028,8 +8028,8 @@
     "src/compat/util/defaultTo.ts": {
       "values": {
         "concrete": 2,
-        "generic": 0,
-        "erased": 3
+        "generic": 3,
+        "erased": 0
       },
       "reads": {
         "concrete": 0,
@@ -8401,7 +8401,7 @@
     },
     "src/compat/util/toInteger.ts": {
       "values": {
-        "concrete": 5,
+        "concrete": 8,
         "generic": 0,
         "erased": 1
       },
@@ -8877,7 +8877,7 @@
     },
     "src/function/flow.ts": {
       "values": {
-        "concrete": 5,
+        "concrete": 8,
         "generic": 0,
         "erased": 9
       },
@@ -9778,7 +9778,7 @@
     },
     "src/math/round.ts": {
       "values": {
-        "concrete": 8,
+        "concrete": 9,
         "generic": 0,
         "erased": 2
       },
@@ -10883,7 +10883,7 @@
     },
     "src/predicate/isFunction.spec.ts": {
       "values": {
-        "concrete": 62,
+        "concrete": 60,
         "generic": 0,
         "erased": 21
       },

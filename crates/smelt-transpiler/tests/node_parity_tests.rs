@@ -190,6 +190,16 @@ fn generator_protocol() -> TestResult {
     verify_node_parity("generator_protocol")
 }
 
+/// An out-of-range number read is `undefined` (falsy, `NaN` in arithmetic,
+/// `null` in JSON) and `NaN` is falsy; a `T | null` holding `null` is never
+/// `=== undefined` and prints `null`; `localeCompare` uses the root collation;
+/// an ISO date-time without an offset is local time; an object-literal
+/// method passes a callback on; an optional interface method builds from `{}`.
+#[test]
+fn absence_collation_dates() -> TestResult {
+    verify_node_parity("absence_collation_dates")
+}
+
 /// bigint arithmetic, its tag behind `unknown`, 64-bit views and its catchable errors.
 #[test]
 fn bigint_boundaries() -> TestResult {
@@ -905,6 +915,15 @@ fn string_utf16_indices() -> TestResult {
 #[test]
 fn element_read_misses() -> TestResult {
     verify_node_parity("element_read_misses")
+}
+
+/// A generic body reads a missing element as the `undefined` of whatever `T`
+/// is instantiated at: the number hole at `number` (as the typed `number[]`
+/// read), `undefined` at an optional and behind `unknown`; a hole compares
+/// `=== undefined` wherever it is read.
+#[test]
+fn generic_missing_element() -> TestResult {
+    verify_node_parity("generic_missing_element")
 }
 
 /// A regexp's absent values: a non-participating group is `undefined`,

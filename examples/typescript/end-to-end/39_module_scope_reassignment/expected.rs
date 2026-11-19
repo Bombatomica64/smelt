@@ -15,6 +15,16 @@ const fn smelt_number_hole() -> f64 { f64::from_bits(SMELT_NUMBER_HOLE_BITS) }
 /// Whether `value` is a hole of a `number[]`.
 const fn smelt_is_number_hole(value: f64) -> bool { value.to_bits() == SMELT_NUMBER_HOLE_BITS }
 
+/// The value a JavaScript read that finds no slot yields (an out-of-range
+/// index, an `Array(n)` hole), in the carrier of a generic element `T`.
+fn smelt_missing<T: Default + 'static>() -> T {
+    let mut value = T::default();
+    if let Some(number) = (&mut value as &mut dyn ::std::any::Any).downcast_mut::<f64>() {
+        *number = smelt_number_hole();
+    }
+    value
+}
+
 /// `Number::toString(value, 10)`: JavaScript's number formatting.
 fn smelt_number_to_string<N: ::std::borrow::Borrow<f64>>(value: N) -> String {
     let value = *value.borrow();
@@ -830,7 +840,7 @@ fn main() {
     _smelt_tmp_18 = ((_smelt_tmp_17)()).clone();
     direct = _smelt_tmp_18.clone();
     _smelt_tmp_19 = annotated.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_20 = false;
+    _smelt_tmp_20 = smelt_is_number_hole(_smelt_tmp_19);
     let _smelt_tmp_21: f64 = if _smelt_tmp_20 { -1.0 } else { annotated.clone().expect("optional value was absent after narrowing") };
     let _ = { println!("{}", smelt_console_number(_smelt_tmp_21)); };
     let _ = { println!("{}", smelt_console_number(initialized)); };
@@ -886,7 +896,7 @@ pub(crate) fn inside_a_function() -> JsString {
     let mut seeded: f64 = 2.0;
     seeded = 8.0;
     let _smelt_tmp_2: f64 = local.clone().expect("optional value was absent after narrowing");
-    let _smelt_tmp_3: bool = false;
+    let _smelt_tmp_3: bool = smelt_is_number_hole(_smelt_tmp_2);
     let _smelt_tmp_4: f64 = if _smelt_tmp_3 { -1.0 } else { local.clone().expect("optional value was absent after narrowing") };
     _smelt_tmp_7 = JsString::new() + &JsString::from(smelt_number_to_string(_smelt_tmp_4));
     _smelt_tmp_8 = _smelt_tmp_7 + &JsString::from("/");

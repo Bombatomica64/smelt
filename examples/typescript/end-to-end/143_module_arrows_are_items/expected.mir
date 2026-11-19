@@ -120,29 +120,35 @@ fn join (FuncId(4)) -> String
     %1 param rest: List<String>
     %2 temp: Float
     %3 temp: Bool
-    %4 temp: String
-    %5 temp: String
-    %6 temp: String
-    %7 temp: List<String>
+    %4 temp: Bool
+    %5 temp: Bool
+    %6 temp: Bool
+    %7 temp: String
     %8 temp: String
     %9 temp: String
+    %10 temp: List<String>
+    %11 temp: String
+    %12 temp: String
   bb0:
     %2 = len copy %1
-    %3 = move %2 != 0.0
-    switch move %3 ? bb1 : bb2
+    %3 = copy %2 != 0.0
+    %4 = numeric_is_nan move %2
+    %5 = !move %4
+    %6 = move %3 && move %5
+    switch move %6 ? bb1 : bb2
   bb1:
-    %5 = "" + copy %0
-    %6 = move %5 + "/"
-    %7 = list_slice copy %1, 1.0, _
-    %8 = call fn4(copy %1[0.0], move %7) -> bb3
+    %8 = "" + copy %0
+    %9 = move %8 + "/"
+    %10 = list_slice copy %1, 1.0, _
+    %11 = call fn4(copy %1[0.0], move %10) -> bb3
   bb2:
-    %4 = copy %0
+    %7 = copy %0
     goto bb4
   bb3:
-    %4 = move %6 + move %8
+    %7 = move %9 + move %11
     goto bb4
   bb4:
-    return move %4
+    return move %7
 
 fn scan__module_main (FuncId(5)) -> Optional<String>
   locals

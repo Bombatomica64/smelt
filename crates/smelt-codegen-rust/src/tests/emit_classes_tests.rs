@@ -1645,10 +1645,15 @@ console.log(counter.step(true, 2));
 ",
     );
 
+    // Requirement changed (old -> new): the predeclared placeholder of a number
+    // local is the number hole, the `undefined` JavaScript gives an unassigned
+    // `number` binding (a literal `undefined` in a number slot is the hole), where
+    // it was `0.0`. The local is assigned on every path before it is read, so the
+    // placeholder is never observed either way.
     assert_eq!(
         rust_items(&source, &["fn step"]),
         r"fn step(&self, flag: bool, amount: f64) -> f64 {
-let mut next: f64 = 0.0;
+let mut next: f64 = smelt_number_hole();
 if flag {
 next = self.0.borrow().total.clone() + amount;
 } else {

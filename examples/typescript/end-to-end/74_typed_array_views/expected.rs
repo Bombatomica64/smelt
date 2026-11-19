@@ -10,6 +10,16 @@ const fn smelt_number_hole() -> f64 { f64::from_bits(SMELT_NUMBER_HOLE_BITS) }
 /// Whether `value` is a hole of a `number[]`.
 const fn smelt_is_number_hole(value: f64) -> bool { value.to_bits() == SMELT_NUMBER_HOLE_BITS }
 
+/// The value a JavaScript read that finds no slot yields (an out-of-range
+/// index, an `Array(n)` hole), in the carrier of a generic element `T`.
+fn smelt_missing<T: Default + 'static>() -> T {
+    let mut value = T::default();
+    if let Some(number) = (&mut value as &mut dyn ::std::any::Any).downcast_mut::<f64>() {
+        *number = smelt_number_hole();
+    }
+    value
+}
+
 /// `Number::toString(value, 10)`: JavaScript's number formatting.
 fn smelt_number_to_string<N: ::std::borrow::Borrow<f64>>(value: N) -> String {
     let value = *value.borrow();
@@ -3939,7 +3949,7 @@ impl IntoSmeltUnknown for bool {
 
 impl IntoSmeltUnknown for f64 {
     fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Number(self)
+        if smelt_is_number_hole(self) { SmeltUnknown::Undefined } else { SmeltUnknown::Number(self) }
     }
 }
 
@@ -5200,35 +5210,35 @@ fn main() {
     _smelt_tmp_38 = _smelt_tmp_37.byte_length();
     let _ = { println!("{} {} {}", smelt_console_number(_smelt_tmp_35), smelt_console_number(_smelt_tmp_36), smelt_console_number(_smelt_tmp_38)); };
     _smelt_tmp_40 = converted.clone().length();
-    let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_40), smelt_console_number(converted.get(0.0).unwrap_or(0.0))); };
+    let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_40), smelt_console_number(converted.get(0.0).unwrap_or_else(smelt_number_hole))); };
     _smelt_tmp_42 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![200.0]; smelt_list_items }));
     _smelt_tmp_43 = SmeltTypedArray::with_elements(SmeltTypedArrayKind::Int8, &_smelt_tmp_42.to_vec());
     _smelt_tmp_44 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![256.0]; smelt_list_items }));
     _smelt_tmp_45 = SmeltTypedArray::with_elements(SmeltTypedArrayKind::Uint8, &_smelt_tmp_44.to_vec());
     _smelt_tmp_46 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![300.0]; smelt_list_items }));
     _smelt_tmp_47 = SmeltTypedArray::with_elements(SmeltTypedArrayKind::Uint8Clamped, &_smelt_tmp_46.to_vec());
-    let _ = { println!("{} {} {}", smelt_console_number(_smelt_tmp_43.get(0.0).unwrap_or(0.0)), smelt_console_number(_smelt_tmp_45.get(0.0).unwrap_or(0.0)), smelt_console_number(_smelt_tmp_47.get(0.0).unwrap_or(0.0))); };
+    let _ = { println!("{} {} {}", smelt_console_number(_smelt_tmp_43.get(0.0).unwrap_or_else(smelt_number_hole)), smelt_console_number(_smelt_tmp_45.get(0.0).unwrap_or_else(smelt_number_hole)), smelt_console_number(_smelt_tmp_47.get(0.0).unwrap_or_else(smelt_number_hole))); };
     _smelt_tmp_49 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0]; smelt_list_items }));
     wide = SmeltTypedArray::with_elements(SmeltTypedArrayKind::Uint32, &_smelt_tmp_49.to_vec());
     _smelt_tmp_51 = wide.clone().length();
     _smelt_tmp_52 = wide.clone().byte_length();
-    let _ = { println!("{} {} {}", smelt_console_number(_smelt_tmp_51), smelt_console_number(_smelt_tmp_52), smelt_console_number(wide.get(1.0).unwrap_or(0.0))); };
+    let _ = { println!("{} {} {}", smelt_console_number(_smelt_tmp_51), smelt_console_number(_smelt_tmp_52), smelt_console_number(wide.get(1.0).unwrap_or_else(smelt_number_hole))); };
     from_elements.set_index(0.0, 9.0);
-    let _ = { println!("{} {}", smelt_console_number(from_elements.get(0.0).unwrap_or(0.0)), smelt_console_number(from_elements.get(3.0).unwrap_or(0.0))); };
+    let _ = { println!("{} {}", smelt_console_number(from_elements.get(0.0).unwrap_or_else(smelt_number_hole)), smelt_console_number(from_elements.get(3.0).unwrap_or_else(smelt_number_hole))); };
     shared = from_elements.clone().subarray((1.0) as i64, None);
     shared.set_index(0.0, 42.0);
     _smelt_tmp_56 = shared.clone().byte_offset();
-    let _ = { println!("{} {} {}", smelt_console_number(from_elements.get(1.0).unwrap_or(0.0)), smelt_console_number(shared.get(0.0).unwrap_or(0.0)), smelt_console_number(_smelt_tmp_56)); };
+    let _ = { println!("{} {} {}", smelt_console_number(from_elements.get(1.0).unwrap_or_else(smelt_number_hole)), smelt_console_number(shared.get(0.0).unwrap_or_else(smelt_number_hole)), smelt_console_number(_smelt_tmp_56)); };
     copied = from_elements.clone().slice((0.0) as i64, Some((2.0) as i64));
     copied.set_index(0.0, 0.0);
     _smelt_tmp_59 = copied.clone().length();
-    let _ = { println!("{} {} {}", smelt_console_number(from_elements.get(0.0).unwrap_or(0.0)), smelt_console_number(copied.get(0.0).unwrap_or(0.0)), smelt_console_number(_smelt_tmp_59)); };
+    let _ = { println!("{} {} {}", smelt_console_number(from_elements.get(0.0).unwrap_or_else(smelt_number_hole)), smelt_console_number(copied.get(0.0).unwrap_or_else(smelt_number_hole)), smelt_console_number(_smelt_tmp_59)); };
     target = SmeltTypedArray::with_length(SmeltTypedArrayKind::Uint8, ((4.0) as f64).max(0.0) as usize);
     _smelt_tmp_62 = from_elements.clone().subarray((0.0) as i64, Some((2.0) as i64));
     _smelt_tmp_63 = target.clone().set_from(&_smelt_tmp_62, ((1.0) as f64).max(0.0) as usize);
-    let _ = { println!("{} {} {}", smelt_console_number(target.get(0.0).unwrap_or(0.0)), smelt_console_number(target.get(1.0).unwrap_or(0.0)), smelt_console_number(target.get(2.0).unwrap_or(0.0))); };
+    let _ = { println!("{} {} {}", smelt_console_number(target.get(0.0).unwrap_or_else(smelt_number_hole)), smelt_console_number(target.get(1.0).unwrap_or_else(smelt_number_hole)), smelt_console_number(target.get(2.0).unwrap_or_else(smelt_number_hole))); };
     _smelt_tmp_65 = target.clone().fill(7.0, (2.0) as i64, None);
-    let _ = { println!("{} {} {}", smelt_console_number(target.get(1.0).unwrap_or(0.0)), smelt_console_number(target.get(2.0).unwrap_or(0.0)), smelt_console_number(target.get(3.0).unwrap_or(0.0))); };
+    let _ = { println!("{} {} {}", smelt_console_number(target.get(1.0).unwrap_or_else(smelt_number_hole)), smelt_console_number(target.get(2.0).unwrap_or_else(smelt_number_hole)), smelt_console_number(target.get(3.0).unwrap_or_else(smelt_number_hole))); };
     _smelt_tmp_67 = from_elements.clone().class_name() == "Uint8Array";
     _smelt_tmp_68 = from_elements.clone().class_name() == "Float64Array";
     let _ = { println!("{} {}", _smelt_tmp_67, _smelt_tmp_68); };
@@ -5250,7 +5260,7 @@ fn main() {
     _smelt_tmp_84 = _smelt_tmp_82.len();
     _smelt_tmp_85 = _smelt_tmp_83 < _smelt_tmp_84;
     if !(_smelt_tmp_85) { break; }
-    element = _smelt_tmp_82.borrow().get(_smelt_tmp_83).cloned().unwrap_or_else(|| 0.0);
+    element = _smelt_tmp_82.borrow().get(_smelt_tmp_83).cloned().unwrap_or_else(|| smelt_number_hole());
     _smelt_tmp_86 = { let smelt_push_item = element; collected.borrow_mut().push(smelt_push_item); collected.len() as f64 };
     _smelt_tmp_83 = _smelt_tmp_83 + 1;
     }
@@ -5337,6 +5347,6 @@ fn main() {
     let _ = { println!("{}", _smelt_tmp_152); };
     _smelt_tmp_154 = encoded.clone().subarray((1.0) as i64, None);
     _smelt_tmp_155 = _smelt_tmp_154.length();
-    let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_155), smelt_console_number(encoded.get(0.0).unwrap_or(0.0))); };
+    let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_155), smelt_console_number(encoded.get(0.0).unwrap_or_else(smelt_number_hole))); };
     return;
 }

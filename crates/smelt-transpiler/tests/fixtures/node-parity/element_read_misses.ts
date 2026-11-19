@@ -14,3 +14,13 @@ console.log(erased(u8[5]), erased(u8[1]), erased(xs[5]));
 const big = new BigInt64Array(1);
 const missing: bigint | undefined = big[3];
 console.log(missing, big[0]);
+// The same tests bound before printing: a miss is `undefined` in either spelling.
+const viewMiss = u8[5] === undefined;
+const listMiss = xs[5] === undefined;
+const viewHit = u8[1] !== undefined;
+console.log(viewMiss, listMiss, viewHit);
+// Two holes are `undefined === undefined`; a computed NaN still equals nothing.
+const allocated: number[] = Array(2);
+const empty: number[] = [];
+const notANumber = 0 / 0;
+console.log(allocated[0] === empty[5], allocated[0] === allocated[1], allocated[0] !== empty[5], notANumber === notANumber, notANumber === empty[3]);

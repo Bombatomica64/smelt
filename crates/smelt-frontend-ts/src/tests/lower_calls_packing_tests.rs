@@ -5344,7 +5344,15 @@ export function delay(wait = 0): number {
     let _module = module(&ctx, module_id)?;
 
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
-    ensure_signature(&ctx, "delay", "delay(wait: Float) -> Float")?;
+    // Corrected expectation. Old: `delay(wait: Float)`, the zero-default
+    // ABI, which relied on an omitted argument converting to `0`. New: the
+    // type is still inferred from the default (`number`), and `= 0` takes the
+    // ordinary defaulted ABI, because the `number` carrier spells `undefined`
+    // as the hole and JavaScript applies the default to `undefined`
+    // (`initializer_is_type_zero_default`; example
+    // `188_nested_function_parameter_defaults`, which printed `NaN` for an
+    // omitted `c = 0` through a function value under the old ABI).
+    ensure_signature(&ctx, "delay", "delay(wait: Optional<Float>) -> Float")?;
     ensure_exprs!(&ctx, BinOp);
     Ok(())
 }

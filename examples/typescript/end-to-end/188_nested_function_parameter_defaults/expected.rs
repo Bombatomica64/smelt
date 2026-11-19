@@ -15,6 +15,16 @@ const fn smelt_number_hole() -> f64 { f64::from_bits(SMELT_NUMBER_HOLE_BITS) }
 /// Whether `value` is a hole of a `number[]`.
 const fn smelt_is_number_hole(value: f64) -> bool { value.to_bits() == SMELT_NUMBER_HOLE_BITS }
 
+/// The value a JavaScript read that finds no slot yields (an out-of-range
+/// index, an `Array(n)` hole), in the carrier of a generic element `T`.
+fn smelt_missing<T: Default + 'static>() -> T {
+    let mut value = T::default();
+    if let Some(number) = (&mut value as &mut dyn ::std::any::Any).downcast_mut::<f64>() {
+        *number = smelt_number_hole();
+    }
+    value
+}
+
 /// `Number::toString(value, 10)`: JavaScript's number formatting.
 fn smelt_number_to_string<N: ::std::borrow::Borrow<f64>>(value: N) -> String {
     let value = *value.borrow();
@@ -790,20 +800,21 @@ pub(crate) fn block_nested(n: f64) -> f64 {
 }
 
 pub(crate) fn body_level(n: f64) -> f64 {
-    let _smelt_tmp_2 = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: Option<f64>, closure_arg_2: f64| {
-    let _smelt_tmp_4: f64 = closure_arg_0 * 2.0;
-    let b_1: f64 = closure_arg_1.clone().unwrap_or(_smelt_tmp_4);
-    let _smelt_tmp_6: f64 = closure_arg_0 + b_1;
-    let _smelt_tmp_7: f64 = _smelt_tmp_6 + closure_arg_2;
-    _smelt_tmp_7
+    let _smelt_tmp_2 = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: Option<f64>, closure_arg_2: Option<f64>| {
+    let _smelt_tmp_5: f64 = closure_arg_0 * 2.0;
+    let b_1: f64 = closure_arg_1.clone().unwrap_or(_smelt_tmp_5);
+    let c_1: f64 = closure_arg_2.clone().unwrap_or(0.0);
+    let _smelt_tmp_8: f64 = closure_arg_0 + b_1;
+    let _smelt_tmp_9: f64 = _smelt_tmp_8 + c_1;
+    _smelt_tmp_9
     });
     let inner = _smelt_tmp_2.clone();
-    let _smelt_tmp_3: f64 = (inner)(n, None, 0.0);
+    let _smelt_tmp_3: f64 = (inner)(n, None, None);
     let _smelt_tmp_4: f64 = _smelt_tmp_3 * 100.0;
-    let _smelt_tmp_5: f64 = (inner)(n, Some(1.0), 0.0);
+    let _smelt_tmp_5: f64 = (inner)(n, Some(1.0), None);
     let _smelt_tmp_6: f64 = _smelt_tmp_5 * 10.0;
     let _smelt_tmp_7: f64 = _smelt_tmp_4 + _smelt_tmp_6;
-    let _smelt_tmp_8: f64 = (inner)(n, Some(1.0), 1.0);
+    let _smelt_tmp_8: f64 = (inner)(n, Some(1.0), Some(1.0));
     let _smelt_tmp_9: f64 = _smelt_tmp_7 + _smelt_tmp_8;
     return _smelt_tmp_9;
 }

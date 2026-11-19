@@ -15,6 +15,16 @@ const fn smelt_number_hole() -> f64 { f64::from_bits(SMELT_NUMBER_HOLE_BITS) }
 /// Whether `value` is a hole of a `number[]`.
 const fn smelt_is_number_hole(value: f64) -> bool { value.to_bits() == SMELT_NUMBER_HOLE_BITS }
 
+/// The value a JavaScript read that finds no slot yields (an out-of-range
+/// index, an `Array(n)` hole), in the carrier of a generic element `T`.
+fn smelt_missing<T: Default + 'static>() -> T {
+    let mut value = T::default();
+    if let Some(number) = (&mut value as &mut dyn ::std::any::Any).downcast_mut::<f64>() {
+        *number = smelt_number_hole();
+    }
+    value
+}
+
 /// `Number::toString(value, 10)`: JavaScript's number formatting.
 fn smelt_number_to_string<N: ::std::borrow::Borrow<f64>>(value: N) -> String {
     let value = *value.borrow();
@@ -284,7 +294,7 @@ pub(crate) fn indexed_read(n: f64) -> f64 {
     let _smelt_tmp_7: f64 = i;
     i = _smelt_tmp_7 + 1.0;
     let _smelt_tmp_9: f64 = i;
-    let v: f64 = values.borrow().get({ let smelt_normalized = __smelt_update_tmp as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0) + values.borrow().get({ let smelt_normalized = _smelt_tmp_9 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0);
+    let v: f64 = values.borrow().get({ let smelt_normalized = __smelt_update_tmp as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| smelt_number_hole()) + values.borrow().get({ let smelt_normalized = _smelt_tmp_9 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| smelt_number_hole());
     let _smelt_tmp_11: f64 = v * 100.0;
     let _smelt_tmp_13: f64 = _smelt_tmp_11 + i;
     return _smelt_tmp_13;
@@ -296,8 +306,8 @@ pub(crate) fn later_element_read(n: f64) -> f64 {
     let _smelt_tmp_5: f64 = i;
     i = _smelt_tmp_5 + 1.0;
     let pair: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![__smelt_update_tmp, i]; smelt_list_items }));
-    let _smelt_tmp_9: f64 = pair.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0) * 100.0;
-    let _smelt_tmp_10: f64 = pair.borrow().get({ let smelt_normalized = 1.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0) * 10.0;
+    let _smelt_tmp_9: f64 = pair.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| smelt_number_hole()) * 100.0;
+    let _smelt_tmp_10: f64 = pair.borrow().get({ let smelt_normalized = 1.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| smelt_number_hole()) * 10.0;
     let _smelt_tmp_11: f64 = _smelt_tmp_9 + _smelt_tmp_10;
     let _smelt_tmp_13: f64 = _smelt_tmp_11 + i;
     return _smelt_tmp_13;

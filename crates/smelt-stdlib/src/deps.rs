@@ -57,6 +57,10 @@ pub enum BackendDependency {
     /// `hmac` for generated `crypto.subtle.sign`/`verify` over an HMAC
     /// `CryptoKey`.
     Hmac,
+    /// `icu_collator` (ICU4X) for generated `String.prototype.localeCompare`:
+    /// the CLDR root collation JavaScript's default locale sorts by, accents
+    /// and case included.
+    IcuCollator,
     /// `base64` for generated `btoa` / `atob`.
     ///
     /// The two globals are one dependency because they are the two directions
@@ -197,7 +201,7 @@ pub const GENAWAITER: CrateRequirement = CrateRequirement::plain("genawaiter", "
 
 impl BackendDependency {
     /// Every backend dependency, in the order a generated manifest lists them.
-    pub const ALL: [Self; 19] = [
+    pub const ALL: [Self; 20] = [
         Self::Reqwest,
         Self::SerdeJson,
         Self::Regex,
@@ -217,6 +221,7 @@ impl BackendDependency {
         Self::Rusqlite,
         Self::BigInt,
         Self::IndexMap,
+        Self::IcuCollator,
     ];
 
     /// The crates this dependency brings into a generated manifest.
@@ -257,6 +262,11 @@ impl BackendDependency {
             Self::Regress => {
                 const CRATES: &[CrateRequirement] =
                     &[CrateRequirement::with("regress", "0.10", &["utf16"])];
+                CRATES
+            }
+            Self::IcuCollator => {
+                const CRATES: &[CrateRequirement] =
+                    &[CrateRequirement::plain("icu_collator", "~2.3")];
                 CRATES
             }
             Self::Rand => {

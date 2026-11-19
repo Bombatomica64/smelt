@@ -14,36 +14,20 @@
 //~ `Array.prototype.sort` comparators rely on. V8 answers `-1`/`0`/`1`, so this
 //~ does too.
 //~
-//~ # What is modeled
-//~
-//~ The two levels of the Unicode root collation that observably differ from a
-//~ raw scalar comparison:
-//~
-//~ * **primary** — case-folded scalars, so `"a".localeCompare("B")` is negative
-//~   the way ICU orders it, where the scalar comparison `"a" < "B"` is not;
-//~ * **tertiary** — strings equal at the primary level break the tie with
-//~   lowercase before uppercase (the DUCET tertiary weights), so
-//~   `"a".localeCompare("A")` is negative.
-//~
-//~ Strings that differ in neither fall back to scalar order.
-//~
-//~ # What is NOT modeled
-//~
-//~ Locale arguments, `Intl.Collator` options (`sensitivity`, `numeric`,
-//~ `caseFirst`), the secondary (accent) level, and the full DUCET weighting of
-//~ punctuation and symbols — ICU sorts those before digits and letters, while
-//~ scalar order interleaves them. All of those need real CLDR collation tables;
-//~ a program that depends on them needs an `Intl` implementation, not this.
+//~ The order is the CLDR root collation, which JavaScript's default locale
+//~ (`en-US` in Node) uses untailored: ICU4X's `icu_collator`, the collator
+//~ Node's own ICU implements. All three levels apply — base letters, then
+//~ accents (`"a" < "ä" < "z"`), then case (`"a" < "A"`) — and punctuation
+//~ and digits order as ICU orders them. One collator per thread is built from
+//~ the compiled-in data on first use. `locales` and `Intl.Collator` options are
+//~ not modelled.
 fn smelt_locale_compare(left: &(impl SmeltHostText + ?Sized), right: &(impl SmeltHostText + ?Sized)) -> f64 { let left = left.host_text(); let left: &str = &left; let right = right.host_text(); let right: &str = &right;
-    let primary = left
-        .chars()
-        .flat_map(char::to_lowercase)
-        .cmp(right.chars().flat_map(char::to_lowercase));
-    let ordering = primary.then_with(|| {
-        left.chars()
-            .map(|ch| (ch.is_uppercase(), ch))
-            .cmp(right.chars().map(|ch| (ch.is_uppercase(), ch)))
-    });
+    thread_local! {
+        //~ The root collator, `None` only if the compiled-in data could not
+        //~ load, in which case the order falls back to scalar order.
+        static SMELT_COLLATOR: Option<icu_collator::CollatorBorrowed<'static>> = icu_collator::Collator::try_new(icu_collator::CollatorPreferences::default(), icu_collator::options::CollatorOptions::default()).ok();
+    }
+    let ordering = SMELT_COLLATOR.with(|collator| collator.as_ref().map_or_else(|| left.cmp(right), |collator| collator.compare(left, right)));
     match ordering {
         ::std::cmp::Ordering::Less => -1.0,
         ::std::cmp::Ordering::Greater => 1.0,
@@ -95,5 +79,15 @@ mod strings_tests {
     fn lowercase_ascii_is_alphabetical() {
         assert!(smelt_locale_compare("a", "b") < 0.0);
         assert!(smelt_locale_compare("c", "b") > 0.0);
+    }
+
+    /// An accent sorts after its base letter and before the next letter, as
+    /// the root collation (and Node) orders it; a raw comparison put every
+    /// accented letter after `z`.
+    #[test]
+    fn accents_sort_beside_their_base_letter() {
+        assert!(smelt_locale_compare("ä", "z") < 0.0, "ä before z");
+        assert!(smelt_locale_compare("a", "ä") < 0.0, "a before ä");
+        assert!(smelt_locale_compare("résumé", "resume") > 0.0, "the accent breaks the tie");
     }
 }

@@ -15,6 +15,16 @@ const fn smelt_number_hole() -> f64 { f64::from_bits(SMELT_NUMBER_HOLE_BITS) }
 /// Whether `value` is a hole of a `number[]`.
 const fn smelt_is_number_hole(value: f64) -> bool { value.to_bits() == SMELT_NUMBER_HOLE_BITS }
 
+/// The value a JavaScript read that finds no slot yields (an out-of-range
+/// index, an `Array(n)` hole), in the carrier of a generic element `T`.
+fn smelt_missing<T: Default + 'static>() -> T {
+    let mut value = T::default();
+    if let Some(number) = (&mut value as &mut dyn ::std::any::Any).downcast_mut::<f64>() {
+        *number = smelt_number_hole();
+    }
+    value
+}
+
 /// `Number::toString(value, 10)`: JavaScript's number formatting.
 fn smelt_number_to_string<N: ::std::borrow::Borrow<f64>>(value: N) -> String {
     let value = *value.borrow();
@@ -3884,7 +3894,7 @@ impl IntoSmeltUnknown for bool {
 
 impl IntoSmeltUnknown for f64 {
     fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Number(self)
+        if smelt_is_number_hole(self) { SmeltUnknown::Undefined } else { SmeltUnknown::Number(self) }
     }
 }
 
@@ -4934,7 +4944,7 @@ fn main() {
     numbers = Into::<SmeltList<_>>::into(_smelt_tmp_8);
     _smelt_tmp_9 = numbers.len() as f64;
     _smelt_tmp_10 = Into::<SmeltList<_>>::into(numbers.borrow().get({ let smelt_normalized = 2.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| SmeltList::new(Vec::<f64>::new())));
-    _smelt_tmp_11 = _smelt_tmp_10.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| 0.0) + 1.0;
+    _smelt_tmp_11 = _smelt_tmp_10.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| smelt_number_hole()) + 1.0;
     let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_9), smelt_console_number(_smelt_tmp_11)); };
     _smelt_tmp_13 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("a"), JsString::from("b"), JsString::from("c")]; smelt_list_items }));
     let _smelt_tmp_14: SmeltList<SmeltList<JsString>> = chunk(_smelt_tmp_13, 2.0);
@@ -5063,7 +5073,7 @@ pub(crate) fn keep<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 's
     _smelt_tmp_6 = items.len();
     _smelt_tmp_7 = _smelt_tmp_5 < _smelt_tmp_6;
     if !(_smelt_tmp_7) { break; }
-    item = items.borrow().get(_smelt_tmp_5).cloned().unwrap_or_else(|| Default::default());
+    item = items.borrow().get(_smelt_tmp_5).cloned().unwrap_or_else(|| smelt_missing());
     _smelt_tmp_8 = pred(&item);
     if _smelt_tmp_8 {
     _smelt_tmp_9 = { let smelt_push_item = item; kept.borrow_mut().push(smelt_push_item); kept.len() as f64 };

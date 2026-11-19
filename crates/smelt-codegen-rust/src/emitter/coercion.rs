@@ -345,6 +345,16 @@ impl FunctionEmitter<'_> {
         {
             return Ok(RustExpr::chain("Some(())"));
         }
+        // `undefined` in a JavaScript `number` slot (a tuple or list literal's
+        // element, an argument) is the number hole, the same value a missing
+        // element of a `number[]` reads as (`element_missing_value`), so the
+        // two compare equal and print as `undefined`.
+        if matches!(operand, Operand::Const(Constant::Undefined))
+            && self.indexes_utf16()
+            && matches!(self.mir.types.get(target), Some(Type::Float))
+        {
+            return Ok(RustExpr::chain("smelt_number_hole()"));
+        }
         if matches!(
             operand,
             Operand::Const(Constant::None | Constant::Undefined)

@@ -359,6 +359,10 @@ impl FunctionEmitter<'_> {
                 self.erased_nullish_scrutinee(rhs)?.delimited(),
                 nullish_pattern(lhs)
             ))
+        } else if let Some(hole_test) =
+            self.number_hole_nullish_expr(lhs, rhs, lhs_is_none, strict_nullish)?
+        {
+            hole_test
         } else if lhs_is_none || rhs_is_none {
             RustExpr::path("false")
         } else if lhs_is_erased || rhs_is_erased {
@@ -585,6 +589,43 @@ impl FunctionEmitter<'_> {
             (true, true) => option_text.postfix(".is_some()"),
             (true, false) => option_text.postfix(".is_none()"),
         })
+    }
+
+    /// Equality between a TypeScript `number` and `undefined` (or, loosely,
+    /// `null`): whether the number is the hole (`smelt_number_hole`).
+    ///
+    /// The number carrier spells `undefined` as the hole, the value an empty
+    /// or out-of-range `number[]` slot reads as (also through a generic `T`
+    /// instantiated at `number`). So `xs[9] === undefined` and `n == null` on
+    /// such a read are `true` as in Node, where folding to `false` answered as
+    /// if the slot held a number. `=== null` stays `false`: the hole is never
+    /// `null`, and a strict comparison only tests the hole against the
+    /// `undefined` literal itself. `None` when neither side is that shape.
+    fn number_hole_nullish_expr(
+        &self,
+        lhs: &Operand,
+        rhs: &Operand,
+        lhs_is_none: bool,
+        strict_nullish: bool,
+    ) -> Result<Option<RustExpr>, EmitError> {
+        if !self.indexes_utf16() {
+            return Ok(None);
+        }
+        let (number, nullish) = if lhs_is_none { (rhs, lhs) } else { (lhs, rhs) };
+        if !matches!(
+            self.mir.types.get(self.operand_ty(number)?),
+            Some(Type::Float)
+        ) || self.mir.types.get(self.operand_ty(nullish)?) != Some(&Type::None)
+        {
+            return Ok(None);
+        }
+        if strict_nullish && !matches!(nullish, Operand::Const(Constant::Undefined)) {
+            return Ok(None);
+        }
+        Ok(Some(RustExpr::atom(format!(
+            "smelt_is_number_hole({})",
+            self.operand_expr(number)?.delimited()
+        ))))
     }
 
     /// Equality between a typed optional and a `null` or `undefined` literal,
@@ -2088,6 +2129,50 @@ impl FunctionEmitter<'_> {
         ))))
     }
 
+    /// Equality of two JavaScript numbers that may hold the number hole.
+    ///
+    /// IEEE equality, except that two number holes (`smelt_number_hole`, the
+    /// `undefined` a missing element of a `number[]` reads as) are equal, as
+    /// `undefined === undefined` and `undefined == undefined` are. A hole is
+    /// one signalling-NaN bit pattern arithmetic never produces, so a computed
+    /// `NaN` still equals nothing, itself included. A constant is never a hole,
+    /// so a comparison with one keeps the plain `==` of the later rules.
+    fn number_hole_equality_expr(
+        &self,
+        op: smelt_hir::BinOp,
+        lhs: &Operand,
+        rhs: &Operand,
+    ) -> Result<Option<RustExpr>, EmitError> {
+        let lhs_ty = self.operand_ty(lhs)?;
+        let rhs_ty = self.operand_ty(rhs)?;
+        let negated = if matches!(op, smelt_hir::BinOp::Eq | smelt_hir::BinOp::JsStrictEq) {
+            false
+        } else if matches!(
+            op,
+            smelt_hir::BinOp::NotEq | smelt_hir::BinOp::JsStrictNotEq
+        ) {
+            true
+        } else {
+            return Ok(None);
+        };
+        if self.indexes_utf16()
+            && matches!(self.mir.types.get(lhs_ty), Some(Type::Float))
+            && matches!(self.mir.types.get(rhs_ty), Some(Type::Float))
+            && !matches!(lhs, Operand::Const(_))
+            && !matches!(rhs, Operand::Const(_))
+        {
+            let lhs_text = self.float_operand_expr(lhs)?;
+            let rhs_text = self.float_operand_expr(rhs)?;
+            return Ok(Some(RustExpr::atom(format!(
+                "{{ let smelt_lhs: f64 = {lhs_text}; let smelt_rhs: f64 = {rhs_text}; {not}(smelt_lhs == smelt_rhs || (smelt_is_number_hole(smelt_lhs) && smelt_is_number_hole(smelt_rhs))) }}",
+                not = if negated { "!" } else { "" },
+                lhs_text = lhs_text.delimited(),
+                rhs_text = rhs_text.delimited()
+            ))));
+        }
+        Ok(None)
+    }
+
     /// A binary operator, trying each operand-shaped rule before the plain Rust form.
     pub(super) fn binary_expr(
         &self,
@@ -2096,6 +2181,9 @@ impl FunctionEmitter<'_> {
         rhs: &Operand,
         dest_ty: TypeId,
     ) -> Result<RustExpr, EmitError> {
+        if let Some(text) = self.number_hole_equality_expr(op, lhs, rhs)? {
+            return Ok(text);
+        }
         if let Some(text) = self.js_dynamic_addition_expr(op, lhs, rhs, dest_ty)? {
             return Ok(text);
         }
