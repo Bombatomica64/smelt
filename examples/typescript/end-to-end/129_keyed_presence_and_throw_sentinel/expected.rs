@@ -3710,9 +3710,10 @@ fn smelt_boxed_string_own_property(map: &SmeltObject, key: &str) -> bool { let S
 fn smelt_has_own_property(value: &SmeltUnknown, key: &(impl SmeltHostText + ?Sized)) -> bool { let key = key.host_text(); let key: &str = &key;
     match value {
         SmeltUnknown::Object(map) if smelt_host_buffer_marker(map).is_some() => smelt_host_buffer_element(map, key).is_some(),
-        SmeltUnknown::Object(map) => map.contains_key(key) || smelt_boxed_string_own_property(map, key),
+        SmeltUnknown::Object(map) => map.contains_key(key) || smelt_boxed_string_own_property(map, key) || (key == "prototype" && map.contains_key("__smelt_class_value")),
         SmeltUnknown::Array(values) => key == "length" || values.named_keys().contains(&key.to_owned()) || key.parse::<usize>().is_ok_and(|index| index < values.len() && !values.is_hole(index)),
         SmeltUnknown::String(text) => key == "length" || key.parse::<usize>().is_ok_and(|index| index < text.len()),
+        SmeltUnknown::Function(function) => key == "name" || key == "length" || !matches!(smelt_function_value_property(function, key), SmeltUnknown::Undefined),
         _ => false,
     }
 }
