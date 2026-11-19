@@ -345,6 +345,15 @@ return;
     );
 }
 
+/// A `string[]` returned at `unknown[]` is the same array there.
+///
+/// Old requirement: the conversion rebuilt the list element by element under
+/// the source's id (`SmeltList::with_id(.., map(..))`), a copy, so a write
+/// through the returned `unknown[]` was lost to `values`. New requirement
+/// (`docs/design/record-identity.md`, step 2): the two are linked
+/// (`into_linked_unknown_list`), each element still erased by the same
+/// adapter, so JavaScript's one array holds; the element type of both sides is
+/// unchanged. The `unknown_list_views` Node-parity fixture checks the behavior.
 #[test]
 fn emits_list_operand_item_coercion() {
     let source = source_for(
@@ -357,7 +366,7 @@ function widen(values: string[]): unknown[] {
     assert_eq!(
         rust_items(&source, &["fn widen"]),
         r"fn widen(values: SmeltList<JsString>) -> SmeltList<SmeltUnknown> {
-return { let smelt_l: SmeltList<_> = values.clone().into(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|smelt_value| SmeltUnknown::String(smelt_value.into())).collect::<Vec<_>>()) };
+return { let smelt_l: SmeltList<_> = values.clone().into(); smelt_l.into_linked_unknown_list(|smelt_value| SmeltUnknown::String(smelt_value.into())) };
 }"
     );
 }

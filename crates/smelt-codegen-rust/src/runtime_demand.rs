@@ -239,6 +239,9 @@ declare_needs! {
     LiveContainers,
     /// Live erased views of typed arrays (`SmeltLiveList`).
     LiveArrays,
+    /// A typed list converted to an `unknown[]` slot, linked to it rather than
+    /// copied (`smelt_list_sync`, `crate::list_links`).
+    ListLinks,
     /// Typed deep equality of generated records (`SmeltDeepEq`,
     /// `crate::deep_equality`).
     DeepEq,
@@ -565,6 +568,14 @@ impl RuntimeDemand {
         // object's field cannot hold through the erased carrier's checked
         // extraction (`smelt_view_store`).
         if crate::structural_views::StructuralViews::plan(mir).has_converted_fields() {
+            demand.add(Need::Unknown);
+        }
+        // A typed list handed to an `unknown[]` slot shares its elements
+        // through a link (`crate::list_links`), which reads and writes them
+        // through the erased carrier and the live view's element rules.
+        if crate::list_links::program_links_lists(mir) {
+            demand.add(Need::ListLinks);
+            demand.add(Need::LiveArrays);
             demand.add(Need::Unknown);
         }
         let reachable = ReachableTypes::of(mir);

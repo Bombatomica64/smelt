@@ -105,11 +105,22 @@ the object, never the view: the trait's erasure method hands out the concrete re
    * The generated `IntoSmeltUnknown` of a reference class now stamps the `__smelt_class` tag, as the inline
      erasure always did: a class erased through a view (or any generic path) answers `instanceof` and
      `constructor` as the class it was built as.
-2. **Typed lists at `unknown[]`.** `SmeltList<SmeltUnknown>` built from a typed `SmeltList<E>` shares the typed
-   list through the existing live-array protocol (`SmeltLiveList`, used today by `SmeltUnknown::Array` views of
-   typed lists): reads convert each element out, writes convert each element in (a value the element type
-   cannot hold is converted to it, as for a write through a widened view). No new erasure: the slot is
-   `unknown[]` in the source.
+2. **Typed lists at `unknown[]`** (`crate::list_links`, runtime item `smelt_list_sync`). `unknown[]` is
+   `SmeltList<SmeltUnknown>`, whose `Vec<SmeltUnknown>` cannot be the typed list's `Vec<E>`. The conversion
+   LINKS two buffers: the erased list takes the typed list's id and a buffer of its elements erased, and a link
+   table (keyed by buffer address, holding `Weak`s of both) keeps them in step:
+   * an index store or a push through either side (`set_index`, `push_item`, which a linking program's
+     emitter uses) mirrors that one element to the other side, O(1);
+   * any other mutation (`borrow_mut`: `splice`, `sort`, `length = n`, ...) marks its side written, and the
+     other side's next access pulls the whole buffer across, O(n) once per such mutation;
+   * a value the typed element cannot hold (a string written into a `number[]` through `unknown[]`, which
+     TypeScript accepts) detaches the link, as a live erased array detaches; each side then keeps what it
+     holds. A slot left empty reads as the typed list's hole;
+   * a second conversion of the same typed list hands out the same erased buffer.
+   No new erasure: the slot is `unknown[]` in the source. A program without such a conversion is
+   byte-identical (`list_links` gates every runtime line and the emitter's `set_index`/`push_item` spelling).
+   Measured on the boundary input, a 20000-element loop alternating `xs[i] = ..` through the view with a read
+   of the typed list: 21.8 s with whole-buffer pulls only, 0.04 s with the element mirror (debug build).
 3. **Accessor-backed and host properties.** A view accessor answered by a getter/setter pair (a class `get v()`,
    `RegExp.lastIndex`) instead of a lent field, with the converting guards #524 introduced.
 4. **Namespace objects.** A module namespace as a value is a generated struct whose accessors read the module's

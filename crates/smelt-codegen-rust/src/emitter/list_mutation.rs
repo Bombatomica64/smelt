@@ -205,11 +205,7 @@ impl FunctionEmitter<'_> {
             // handle. A syntactic "does the item mention this local" test cannot
             // see that, so there is no cheap condition to gate this on: aliasing
             // is a runtime property. One `let` removes the whole class.
-            let push_expr = format!(
-                "let smelt_push_item = {item_text}; {list_mut}.push(smelt_push_item);",
-                item_text = item_text.delimited(),
-                list_mut = list_mut.tight()
-            );
+            let push_expr = self.push_statement(&list_text, &list_mut, &item_text);
             let smelt_value_text = self.erased_array_writeback_value(&list_text, list_ty)?;
             return Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
                 "{{ {push_expr} let smelt_result = {result}; let smelt_value = {smelt_value_text}; let mut smelt_base = {base_text}.clone(); match &mut smelt_base {{ SmeltUnknown::Object(smelt_map) => {{ smelt_map.insert(\"{field_name}\".to_owned(), smelt_value); }}, other => {{ let smelt_map = SmeltObject::new(Vec::from([(\"{field_name}\".to_owned(), smelt_value)])); *other = SmeltUnknown::Object(smelt_map); }} }} smelt_result }}", smelt_value_text = smelt_value_text.delimited(), base_text = base_text.tight()
@@ -245,11 +241,7 @@ impl FunctionEmitter<'_> {
             // handle. A syntactic "does the item mention this local" test cannot
             // see that, so there is no cheap condition to gate this on: aliasing
             // is a runtime property. One `let` removes the whole class.
-            let push_expr = format!(
-                "let smelt_push_item = {item_text}; {list_mut}.push(smelt_push_item);",
-                item_text = item_text.delimited(),
-                list_mut = list_mut.tight()
-            );
+            let push_expr = self.push_statement(&list_text, &list_mut, &item_text);
             return Ok(RustExpr::atom(format!(
                 "{{ {push_expr} let smelt_result = {result}; {base_text}.insert({key_text}, {list_text}.clone()); smelt_result }}",
                 base_text = base_text.tight(),
@@ -277,11 +269,7 @@ impl FunctionEmitter<'_> {
         // see that. Aliasing is a runtime property; one `let` removes the whole
         // class.
         let list_mut = list_write_expr(&list_text);
-        let push_expr = format!(
-            "let smelt_push_item = {item_text}; {list_mut}.push(smelt_push_item);",
-            item_text = item_text.delimited(),
-            list_mut = list_mut.tight()
-        );
+        let push_expr = self.push_statement(&list_text, &list_mut, &item_text);
         if returns_length {
             Ok(RustExpr::atom(format!(
                 "{{ {push_expr} {list_text}.len() as f64 }}",

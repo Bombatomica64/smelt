@@ -445,6 +445,19 @@ impl FunctionEmitter<'_> {
                 // a READ borrow of the same shared cell whose guard is still
                 // live when the write takes its `borrow_mut()`, panicking
                 // "already borrowed". A `let` ends the read guard first.
+                // A program that links typed lists to `unknown[]` views
+                // (`crate::list_links`) stores through `set_index`, which
+                // keeps a linked view in step by the one element written.
+                if self.context.demand().has(Need::ListLinks) {
+                    out.push_str(&format!(
+                        "    {{ let smelt_assign_index = {index_text}; let smelt_assign_value = {rendered_value}; {base_read}.set_index(smelt_assign_index, smelt_assign_value, {default_value}); }}\n",
+                        index_text = index_text.delimited(),
+                        rendered_value = rendered_value.delimited(),
+                        base_read = base_read.tight(),
+                        default_value = default_value.delimited()
+                    ));
+                    return Ok(());
+                }
                 out.push_str(&format!(
                     "    {{ let smelt_assign_index = {index_text}; let smelt_assign_value = {rendered_value}; if smelt_assign_index >= {base_read}.len() {{ {base_mut}.resize(smelt_assign_index.saturating_add(1), {default_value}); }} {base_mut}[smelt_assign_index] = smelt_assign_value; }}\n", index_text = index_text.delimited(), rendered_value = rendered_value.delimited(), base_read = base_read.tight(), base_mut = base_mut.tight(), default_value = default_value.delimited()
                 ));
