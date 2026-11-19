@@ -256,10 +256,10 @@ impl FunctionEmitter<'_> {
         } else {
             let held =
                 crate::structural_views::view_source_fields(self.mir, *from).unwrap_or_default();
-            let wanted = crate::structural_views::is_viewable_shape(self.mir, *to)
+            let declared = crate::structural_views::is_viewable_shape(self.mir, *to)
                 .map(|shape| crate::classes::effective_interface_fields(self.mir, shape))
                 .unwrap_or_default();
-            if wanted
+            if declared
                 .iter()
                 .all(|wanted| held.iter().any(|field| field.name == wanted.name))
             {
