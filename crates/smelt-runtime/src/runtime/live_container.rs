@@ -357,7 +357,7 @@ thread_local! {
 #[inline]
 fn smelt_list_sync<T>(values: &::std::rc::Rc<::std::cell::RefCell<Vec<T>>>, write: bool) {
     if !SMELT_LIST_LINKED.with(::std::cell::Cell::get) { return; }
-    let address = ::std::rc::Rc::as_ptr(values) as *const () as usize;
+    let address = ::std::rc::Rc::as_ptr(values).cast::<()>() as usize;
     let Some((state, side, other, pull)) = SMELT_LIST_LINKS.with(|links| links.borrow().get(&address).map(|end| (::std::rc::Rc::clone(&end.state), end.side, end.other, ::std::rc::Rc::clone(&end.pull)))) else { return };
     let last = state.get();
     if last != 0 && last != side {
@@ -374,7 +374,7 @@ fn smelt_list_sync<T>(values: &::std::rc::Rc<::std::cell::RefCell<Vec<T>>>, writ
 /// the buffer it is linked to, after an index store or a push through it.
 fn smelt_list_mirror<T>(values: &::std::rc::Rc<::std::cell::RefCell<Vec<T>>>, index: usize) {
     if !SMELT_LIST_LINKED.with(::std::cell::Cell::get) { return; }
-    let address = ::std::rc::Rc::as_ptr(values) as *const () as usize;
+    let address = ::std::rc::Rc::as_ptr(values).cast::<()>() as usize;
     let Some((state, side, other, mirror)) = SMELT_LIST_LINKS.with(|links| links.borrow().get(&address).map(|end| (::std::rc::Rc::clone(&end.state), end.side, end.other, ::std::rc::Rc::clone(&end.mirror)))) else { return };
     match mirror(index) {
         0 => {}
@@ -400,11 +400,11 @@ impl<T: SmeltFromUnknown + Clone + 'static> SmeltList<T> {
     //~ one element.
     fn into_linked_unknown_list(self, erase: impl Fn(T) -> SmeltUnknown + 'static) -> SmeltList<SmeltUnknown> {
         let typed = self.storage();
-        let typed_address = ::std::rc::Rc::as_ptr(&typed) as *const () as usize;
+        let typed_address = ::std::rc::Rc::as_ptr(&typed).cast::<()>() as usize;
         if let Some(existing) = SMELT_LIST_LINKS.with(|links| links.borrow().get(&typed_address).and_then(|end| end.erased.upgrade())) { return SmeltList::with_storage(self.id(), existing); }
         let erase = ::std::rc::Rc::new(erase);
         let erased = ::std::rc::Rc::new(::std::cell::RefCell::new(typed.borrow().iter().cloned().map(|value| smelt_list_slot_unknown(value, &*erase)).collect::<Vec<_>>()));
-        let erased_address = ::std::rc::Rc::as_ptr(&erased) as *const () as usize;
+        let erased_address = ::std::rc::Rc::as_ptr(&erased).cast::<()>() as usize;
         let (typed_weak, erased_weak) = (::std::rc::Rc::downgrade(&typed), ::std::rc::Rc::downgrade(&erased));
         let alive: ::std::rc::Rc<dyn Fn() -> bool> = { let (typed_weak, erased_weak) = (typed_weak.clone(), erased_weak.clone()); ::std::rc::Rc::new(move || typed_weak.strong_count() > 0 || erased_weak.strong_count() > 0) };
         //~ One erased element at the typed element type, `None` when it does not round-trip.
@@ -415,14 +415,14 @@ impl<T: SmeltFromUnknown + Clone + 'static> SmeltList<T> {
             let mut values = Vec::with_capacity(source.len());
             for value in source.iter() { match narrow(value.clone()) { Some(held) => values.push(held), None => return 2 } }
             drop(source);
-            match typed.try_borrow_mut() { Ok(mut target) => { *target = values; 0 } Err(_) => 1 }
+            typed.try_borrow_mut().map_or(1, |mut target| { *target = values; 0 })
         }) };
         let pull_erased: ::std::rc::Rc<dyn Fn() -> u8> = { let erase = ::std::rc::Rc::clone(&erase); ::std::rc::Rc::new(move || {
             let (Some(typed), Some(erased)) = (typed_weak.upgrade(), erased_weak.upgrade()) else { return 2 };
             let Ok(source) = typed.try_borrow() else { return 1 };
             let values = source.iter().cloned().map(|value| smelt_list_slot_unknown(value, &*erase)).collect::<Vec<_>>();
             drop(source);
-            match erased.try_borrow_mut() { Ok(mut target) => { *target = values; 0 } Err(_) => 1 }
+            erased.try_borrow_mut().map_or(1, |mut target| { *target = values; 0 })
         }) };
         let mirror_typed: ::std::rc::Rc<dyn Fn(usize) -> u8> = { let (typed_weak, erased_weak, erase) = (::std::rc::Rc::downgrade(&typed), ::std::rc::Rc::downgrade(&erased), ::std::rc::Rc::clone(&erase)); ::std::rc::Rc::new(move |index| {
             let (Some(typed), Some(erased)) = (typed_weak.upgrade(), erased_weak.upgrade()) else { return 2 };
