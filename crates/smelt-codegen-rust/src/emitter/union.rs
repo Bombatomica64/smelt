@@ -249,15 +249,48 @@ impl FunctionEmitter<'_> {
         concrete.then_some(items)
     }
 
+    /// Whether a union may hold the type parameter `name` as a generic arm:
+    /// it is one `crate::generic_lifting::liftable_type_params` lifts.
+    fn is_union_arm_param(&self, name: Symbol) -> bool {
+        if self.context.union_arm_params.borrow().is_none() {
+            let lifted = self
+                .mir
+                .functions
+                .iter()
+                .filter(|function| {
+                    crate::generic_lifting::may_declare_own_generics(self.mir, function)
+                })
+                .flat_map(|function| {
+                    crate::generic_lifting::liftable_type_params(
+                        self.mir,
+                        function,
+                        &self.context.owned_callback_params,
+                        &self.context.bound_traits,
+                        self.context.type_param_elision(),
+                        &self.context.erased_arguments,
+                    )
+                })
+                .collect();
+            *self.context.union_arm_params.borrow_mut() = Some(lifted);
+        }
+        self.context
+            .union_arm_params
+            .borrow()
+            .as_ref()
+            .is_some_and(|params| params.contains(&name))
+    }
+
     /// Determine whether a union member can be stored without runtime erasure.
     fn union_member_is_concrete(&self, ty: TypeId) -> bool {
         match self.mir.types.get(ty) {
             Some(Type::Unknown | Type::IndexedAccess { .. } | Type::Never) | None => false,
-            // A type parameter is an arm like any other: the union is a
-            // generic enum over it (`SmeltUnionN<T>`), which a lifted generic
-            // function spells with its own `T` and an erased-ABI one with the
-            // erased carrier (`docs/design/record-identity.md`, generic unions).
-            Some(Type::TypeParam { .. }) => true,
+            // A type parameter of a function that lifts it to a Rust generic
+            // is an arm like any other: the union is a generic enum over it
+            // (`SmeltUnionN<T>`), which the function spells with its own `T`
+            // and a call site at its bindings (`call_result_at`). A parameter
+            // that stays erased keeps the union erased, as before
+            // (`docs/design/record-identity.md`, generic unions).
+            Some(Type::TypeParam { name }) => self.is_union_arm_param(*name),
             // A union nested under a container arm (`number | (number |
             // number[])[]`, the element type of `[1, [2, [3]]]`) is stored as
             // its own generated enum when that union is concrete too. A bare
@@ -498,6 +531,21 @@ impl FunctionEmitter<'_> {
                 )
             }));
         }
+        // A value no arm names, injected into a generic union whose
+        // type-parameter arm this position renders as the erased carrier (an
+        // erased-ABI callee's `T | (..) => T` parameter, `SmeltUnionN<
+        // SmeltUnknown>`): the value is that `T`, erased into its arm, exactly
+        // as it was erased whole when the union itself rendered erased.
+        if let Some(index) = members.iter().position(|member| {
+            matches!(self.mir.types.get(*member), Some(Type::TypeParam { name }) if !scope.spells(*name))
+        }) {
+            let erased = self.erase_rendered(value_text, source)?;
+            return Ok(Some(RustExpr::opaque(format!(
+                "{}::M{index}({erased})",
+                union_name(target),
+                erased = erased.delimited()
+            ))));
+        }
         Ok(None)
     }
 
@@ -683,22 +731,21 @@ impl FunctionEmitter<'_> {
             let target_name = union_name(target);
             let mut arms = Vec::new();
             for (source_index, declared_member) in source_members.iter().enumerate() {
-                // A callee's type-parameter arm, at the bindings of the call
-                // whose result this is (`call_result_at`).
-                let bound = match self.mir.types.get(*declared_member) {
-                    Some(Type::TypeParam { name }) => self
-                        .context
-                        .union_return_bindings
-                        .borrow()
-                        .as_ref()
-                        .and_then(|bindings| match bindings.get(*name) {
-                            Some(crate::generic_bindings::TypeParamBinding::Concrete(bound)) => {
-                                Some(bound)
-                            }
-                            _ => None,
-                        }),
-                    _ => None,
-                };
+                // A callee's arm at the bindings of the call whose result this
+                // is (`call_result_at`): its type parameters, bare or inside
+                // the arm (`Some<a>` of `Option<a>`), are the bound types.
+                let bound = self
+                    .context
+                    .union_return_bindings
+                    .borrow()
+                    .as_ref()
+                    .and_then(|bindings| {
+                        crate::generic_bindings::substituted_type_id_interning(
+                            self.mir,
+                            *declared_member,
+                            bindings,
+                        )
+                    });
                 let member = &bound.unwrap_or(*declared_member);
                 if let Some(target_index) = target_members
                     .iter()

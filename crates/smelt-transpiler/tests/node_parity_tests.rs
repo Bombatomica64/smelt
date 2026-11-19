@@ -1990,3 +1990,12 @@ fn unknown_list_views() -> TestResult {
 fn function_identity_and_inspection() -> TestResult {
     verify_node_parity("function_identity_and_inspection")
 }
+
+/// A generic function returning a union over its own type parameter keeps
+/// the arm it returns (`pick(true, 5, "s")` is the number 5) and each call
+/// converts the generic enum at its own instantiation
+/// (`docs/design/record-identity.md`, generic unions).
+#[test]
+fn generic_union_returns() -> TestResult {
+    verify_node_parity("generic_union_returns")
+}

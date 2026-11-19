@@ -3,13 +3,13 @@
   "total": {
     "values": {
       "concrete": 14277,
-      "generic": 358,
-      "erased": 7038
+      "generic": 366,
+      "erased": 7030
     },
     "reads": {
       "concrete": 366,
-      "generic": 51,
-      "erased": 978
+      "generic": 52,
+      "erased": 977
     },
     "calls": {
       "concrete": 2194,
@@ -1075,13 +1075,13 @@
     "src/array/intersectionBy.ts": {
       "values": {
         "concrete": 6,
-        "generic": 0,
-        "erased": 8
+        "generic": 4,
+        "erased": 4
       },
       "reads": {
         "concrete": 0,
-        "generic": 0,
-        "erased": 1
+        "generic": 1,
+        "erased": 0
       },
       "calls": {
         "concrete": 0,
@@ -1925,8 +1925,8 @@
     "src/array/toFilled.ts": {
       "values": {
         "concrete": 13,
-        "generic": 0,
-        "erased": 7
+        "generic": 4,
+        "erased": 3
       },
       "reads": {
         "concrete": 0,

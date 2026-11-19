@@ -140,6 +140,20 @@ the object, never the view: the trait's erasure method hands out the concrete re
      `in` receiver).
    * An erased class instance prints as Node prints it (`P { x: 1 }`). Its `__smelt_class` tag names the
      constructor, and its prototype entries are not own properties.
+6. **Generic unions** (a function returning a union over its own type parameter).
+   * A conditional with a type-parameter arm joins to the union of its arms (`c ? a : b` over `T` and
+     `string` is `T | string`; over `A` and `B` it is `A | B`). Before, it joined to the other arm and converted
+     the `T` arm into it (`pick(true, 5, "s")` gave `"5"`). Two refinements keep the join as precise as a hand
+     port: a parameter constrained to exactly the other arm joins to that arm (`K extends PropertyKey`), and a
+     conditional asserted straight to one of its parameter arms (`(cb ? cb(s) : s) as Result`) joins to it.
+   * A union arm that is a type parameter some function lifts to a Rust generic
+     (`generic_lifting::liftable_type_params`) makes the union a generic enum, `SmeltUnionN<T>`. A union whose
+     parameter stays erased keeps rendering erased, so erased-ABI code is unchanged.
+   * A call site that monomorphizes such a callee keeps the callee's generic enum as the call's type
+     (`SmeltUnion4<f64>`), and converts the result arm by arm with the call's bindings (`call_result_at`):
+     the `T` arm meets the destination arm for the bound type.
+   * Measured against main: no erased count rises in any of the six corpora. es-toolkit falls by 8 values and
+     1 read, and its avoidable SmeltUnknown falls.
 
 Each step ships as its own PR with a Node-parity fixture, its stated requirements and a planted defect the
 fixture detects.
@@ -158,12 +172,6 @@ types; no value is erased by a conversion; the SmeltUnknown and typedness ratche
 
 ## 7. Known gaps
 
-* **Generic unions.** `c ? a : b` with `a: T` and `b: string` joins to `String` and converts the `T` arm
-  (`pick(true, 5, "s")` gives `"5"`, so `typeof` is `string`). Joining to `T | string` is correct, but with
-  an erased-generic `T` that union renders as `SmeltUnknown`. Measured: radash `src/array.ts` erased values
-  309 → 311, date-fns `locale/_lib/buildMatchPatternFn` 13 → 14. Per the ratchet rule it is not shipped;
-  it needs generic functions returning unions to monomorphise (a generated `enum` over `T` and `string`), which
-  is the remaining "generic union monomorphisation" item.
 * **Construct-or-call unions.** `(new () => T) | (() => T)` lowers to `fn() -> T`, so a class stored in such a
   slot is an adapter closure (`ms[0] === P` is false) and `new` through it is a call. It needs a two-armed
   callable (`enum { Construct(..), Call(..) }`) chosen per slot.
