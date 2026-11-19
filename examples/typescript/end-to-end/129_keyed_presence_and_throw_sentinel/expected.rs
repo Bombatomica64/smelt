@@ -4833,6 +4833,7 @@ impl IntoSmeltUnknown for UnsupportedPathError {
         ("stack".to_owned(), __smelt_inner.stack.clone().map_or(SmeltUnknown::Undefined, |smelt_value| SmeltUnknown::String(smelt_value.into()))),
         ("cause".to_owned(), (__smelt_inner.cause.clone()).into_smelt_unknown()),
         ]);
+        __smelt_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("UnsupportedPathError".into())));
         smelt_finish_reference_view(__smelt_id, __smelt_view, __smelt_entries)
     }
 }
@@ -4892,6 +4893,7 @@ impl IntoSmeltUnknown for TrieNode {
         ("children".to_owned(), SmeltUnknown::Object(SmeltObject::new(__smelt_inner.children.clone().into_iter().map(|(smelt_key, smelt_value)| (smelt_key, (smelt_value).into_smelt_unknown())).collect()))),
         ("terminal".to_owned(), SmeltUnknown::Bool(__smelt_inner.terminal.clone())),
         ]);
+        __smelt_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("TrieNode".into())));
         __smelt_entries.extend(__smelt_proto);
         smelt_finish_reference_view(__smelt_id, __smelt_view, __smelt_entries)
     }
@@ -4951,6 +4953,7 @@ impl IntoSmeltUnknown for Router {
         ("routes".to_owned(), SmeltUnknown::Object(SmeltObject::new(__smelt_inner.routes.clone().into_iter().map(|(smelt_key, smelt_value)| (smelt_key, SmeltUnknown::Object(SmeltObject::new(smelt_value.into_iter().map(|(smelt_key, smelt_value)| (smelt_key, SmeltUnknown::Array(smelt_value.into_iter().map(|smelt_value| SmeltUnknown::String(smelt_value.into())).collect()))).collect())))).collect()))),
         ("log".to_owned(), SmeltUnknown::Array(__smelt_inner.log.clone().into_iter().map(|smelt_value| SmeltUnknown::String(smelt_value.into())).collect())),
         ]);
+        __smelt_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("Router".into())));
         __smelt_entries.extend(__smelt_proto);
         smelt_finish_reference_view(__smelt_id, __smelt_view, __smelt_entries)
     }

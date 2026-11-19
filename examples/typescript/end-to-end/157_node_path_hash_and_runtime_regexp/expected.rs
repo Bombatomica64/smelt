@@ -5344,6 +5344,7 @@ impl IntoSmeltUnknown for UnsupportedPathError {
         ("stack".to_owned(), __smelt_inner.stack.clone().map_or(SmeltUnknown::Undefined, |smelt_value| SmeltUnknown::String(smelt_value.into()))),
         ("cause".to_owned(), (__smelt_inner.cause.clone()).into_smelt_unknown()),
         ]);
+        __smelt_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("UnsupportedPathError".into())));
         smelt_finish_reference_view(__smelt_id, __smelt_view, __smelt_entries)
     }
 }

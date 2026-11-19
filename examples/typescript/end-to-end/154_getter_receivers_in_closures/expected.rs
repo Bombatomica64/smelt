@@ -4641,6 +4641,7 @@ impl IntoSmeltUnknown for Context {
         let mut __smelt_entries: Vec<(String, SmeltUnknown)> = Vec::from([
         ("reads".to_owned(), SmeltUnknown::Number(__smelt_inner.reads.clone() as f64)),
         ]);
+        __smelt_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("Context".into())));
         __smelt_entries.extend(__smelt_proto);
         smelt_finish_reference_view(__smelt_id, __smelt_view, __smelt_entries)
     }

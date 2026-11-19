@@ -4987,6 +4987,7 @@ impl IntoSmeltUnknown for Table {
         let mut __smelt_entries: Vec<(String, SmeltUnknown)> = Vec::from([
         ("methods".to_owned(), SmeltUnknown::Array(__smelt_inner.methods.clone().into_iter().map(|smelt_value| SmeltUnknown::Object(SmeltObject::new(smelt_value.into_iter().map(|(smelt_key, smelt_value)| (smelt_key, (smelt_value).into_smelt_unknown())).collect()))).collect())),
         ]);
+        __smelt_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("Table".into())));
         __smelt_entries.extend(__smelt_proto);
         smelt_finish_reference_view(__smelt_id, __smelt_view, __smelt_entries)
     }

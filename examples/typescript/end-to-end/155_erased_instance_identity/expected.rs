@@ -4657,6 +4657,7 @@ impl IntoSmeltUnknown for Context {
         ("headers".to_owned(), SmeltUnknown::Array(__smelt_inner.headers.clone().into_iter().map(|smelt_value| SmeltUnknown::String(smelt_value.into())).collect())),
         ("count".to_owned(), SmeltUnknown::Number(__smelt_inner.count.clone() as f64)),
         ]);
+        __smelt_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("Context".into())));
         __smelt_entries.extend(__smelt_proto);
         smelt_finish_reference_view(__smelt_id, __smelt_view, __smelt_entries)
     }
@@ -4715,6 +4716,7 @@ impl IntoSmeltUnknown for Point {
         ("x".to_owned(), SmeltUnknown::Number(__smelt_inner.x.clone() as f64)),
         ("y".to_owned(), SmeltUnknown::Number(__smelt_inner.y.clone() as f64)),
         ]);
+        __smelt_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("Point".into())));
         smelt_finish_reference_view(__smelt_id, __smelt_view, __smelt_entries)
     }
 }
