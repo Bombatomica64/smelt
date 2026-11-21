@@ -441,7 +441,7 @@ impl SmeltInspect for ::num_bigint::BigInt {
 }
 // @smelt:item-end
 
-// @smelt:item impl_SmeltInspect_for_SmeltRecord when unknown
+// @smelt:item impl_SmeltInspect_for_SmeltRecord when record
 
 impl<V: SmeltInspect + Clone> SmeltInspect for SmeltRecord<JsString, V> {
     fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String { smelt_inspect_record_with(self, ctx, depth, &V::smelt_inspect) }
@@ -455,6 +455,9 @@ fn smelt_inspect_record_with<V: SmeltInspect + Clone>(record: &SmeltRecord<JsStr
     let entries = values.iter().zip(&key_texts).map(|(value, key)| (key.as_str(), value as &dyn SmeltInspect)).collect::<Vec<_>>();
     smelt_inspect_object(ctx, depth, "", &entries)
 }
+// @smelt:item-end
+
+// @smelt:item impl_SmeltInspect_for_erased_containers when unknown
 
 impl<K: SmeltInspect + SmeltJsKeyEq + Clone, V: SmeltInspect + Clone> SmeltInspect for SmeltJsMap<K, V> {
     fn smelt_inspect(&self, ctx: &mut SmeltInspectContext, depth: usize) -> String { smelt_inspect_map_with(self, ctx, depth, &K::smelt_inspect, &V::smelt_inspect) }

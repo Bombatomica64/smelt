@@ -1,0 +1,7 @@
+{ a: 2 }
+null
+s1 null
+4 null
+true null
+[ 3 ] null
+[ { a: 1 }, null ]
