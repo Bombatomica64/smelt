@@ -604,10 +604,17 @@ export function useBoth(): number[] {
     assert!(!body.contains("both(xs, ys)"), "{body}");
 }
 
+/// A union return mentioning a lifted `T` is a generic enum.
+///
+/// Old requirement: a union mentioning `T` erased to the tagged carrier, so
+/// `maybe` took the erased ABI and the call copied `xs` into erased elements.
+/// New requirement (`docs/design/record-identity.md`, generic unions): `T`
+/// lifts, the union is `SmeltUnion3<T>`, and the call converts the result arm
+/// by arm at its bindings (`T = f64`), matching arms by their substituted
+/// types rather than by member order. Behaviour is pinned by the
+/// `generic_union_returns` Node-parity fixture.
 #[test]
-fn generic_free_function_demotes_on_union_return() {
-    // A union mentioning `T` erases to the tagged carrier and its member order is not a sound
-    // correspondence, so nothing about this shape monomorphizes.
+fn generic_free_function_keeps_a_union_return_generic() {
     let source = source_for(
         r"
 export function maybe<T>(xs: T[]): T[] | string {
@@ -622,11 +629,11 @@ export function useMaybe(): number[] | string {
 
     assert_eq!(
         rust_items(&source, &["sig maybe", "fn use_maybe"]),
-        r"fn maybe(xs: SmeltList<SmeltUnknown>) -> SmeltUnknown
+        r"fn maybe<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(xs: SmeltList<T>) -> SmeltUnion3<T>
 
 fn use_maybe() -> SmeltUnion7 {
 let xs: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0]; smelt_list_items }));
-let _smelt_tmp_2: SmeltUnion7 = SmeltUnion7::from_smelt_unknown((maybe({ let smelt_l: SmeltList<_> = xs.clone().into(); SmeltList::with_id(smelt_l.id(), smelt_l.into_iter().map(|smelt_value| SmeltUnknown::Number(smelt_value as f64)).collect::<Vec<_>>()) })).into_smelt_unknown());
+let _smelt_tmp_2: SmeltUnion7 = match maybe(xs) { SmeltUnion3::M0(value) => SmeltUnion7::M1(value), SmeltUnion3::M1(value) => SmeltUnion7::M0(value) };
 return _smelt_tmp_2;
 }"
     );
@@ -1287,10 +1294,15 @@ export function make<T>(x: T): (v: T) => boolean {
     );
 }
 
+/// A signature's parameters and return are decided together.
+///
+/// Old requirement: a union return mentioning `T` rendered `SmeltUnknown`, so
+/// the parameters and body landed on the erased ABI with it. New requirement
+/// (`docs/design/record-identity.md`, generic unions): the union is the
+/// generic enum `SmeltUnion4<T>`, so `T` lifts and the parameters, locals and
+/// return stay typed together.
 #[test]
-fn an_erased_union_return_demotes_the_parameters_with_it() {
-    // A signature's parameters and return are decided together: a union return mentioning `T`
-    // renders `SmeltUnknown`, so the parameters and body land on the erased ABI with it.
+fn a_union_return_keeps_the_parameters_generic_with_it() {
     let source = source_for(
         r"
 export function run<T>(items: T[], cb: (v: number) => number): T | number {
@@ -1310,15 +1322,15 @@ export function use0(): number {
 
     assert_eq!(
         rust_items(&source, &["fn run"]),
-        r"fn run(items: SmeltList<SmeltUnknown>, cb: &dyn Fn(f64) -> f64) -> SmeltUnknown {
-let out: SmeltUnknown;
+        r"fn run<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static>(items: SmeltList<T>, cb: &dyn Fn(f64) -> f64) -> SmeltUnion4<T> {
+let out: T;
 let touched: f64 = cb(1.0);
 let _smelt_tmp_5: bool = touched < 0.0;
 if _smelt_tmp_5 {
-return items.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().map(|smelt_value| (smelt_value).into_smelt_unknown()).unwrap_or(SmeltUnknown::Undefined);
+return SmeltUnion4::M0(items.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| smelt_missing()));
 } else {
-out = items.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| SmeltUnknown::Undefined);
-return out;
+out = items.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| smelt_missing());
+return SmeltUnion4::M0(out);
 }
 }"
     );

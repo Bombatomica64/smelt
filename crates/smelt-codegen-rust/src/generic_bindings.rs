@@ -109,6 +109,21 @@ impl CalleeTypeParamBindings {
         self.bindings.insert(name, binding);
     }
 
+    /// Declare each of `names` the map does not hold yet as `Erased`.
+    ///
+    /// A call that monomorphizes a callee binds only the parameters the callee
+    /// lifts; one it does not lift is rendered as the erased carrier in the
+    /// emitted signature, and a type that mentions it at the call site (a
+    /// generic union over a lifted and an erased parameter) renders it so too,
+    /// rather than reading as a parameter the matcher never saw.
+    pub(crate) fn declare_erased(&mut self, names: impl IntoIterator<Item = Symbol>) {
+        for name in names {
+            self.bindings
+                .entry(name)
+                .or_insert(TypeParamBinding::Erased);
+        }
+    }
+
     /// Return the collected binding for `name`.
     pub(crate) fn get(&self, name: Symbol) -> Option<TypeParamBinding> {
         self.bindings.get(&name).copied()

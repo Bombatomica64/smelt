@@ -374,8 +374,43 @@ impl FunctionEmitter<'_> {
             self.sampled_call_monomorphization(callee, args).as_ref(),
         );
         call_text = self.wrap_native_async_call_expr(callee, call_text)?;
+        self.call_result_at(&call_text, callee, args, dest_ty)
+    }
+
+    /// The value `call_text` of the call `callee(args)` at the destination
+    /// type `dest_ty`, converted from the type the emitted call really
+    /// evaluates to ([`Self::call_emitted_source_ty`]).
+    ///
+    /// A generic callee returning its own generic union (`pick<T>(..): T |
+    /// string`, `SmeltUnionN<T>`) evaluates to that enum at the call's
+    /// bindings; while the result converts, the bindings are in scope so the
+    /// `T` arm meets the destination's arm for the bound type.
+    pub(super) fn call_result_at(
+        &self,
+        call_text: &RustExpr,
+        callee: &Callee,
+        args: &[Operand],
+        dest_ty: TypeId,
+    ) -> Result<RustExpr, EmitError> {
         let source_ty = self.call_emitted_source_ty(callee, args, dest_ty)?;
-        self.rendered_at_type(&call_text, source_ty, dest_ty, &self.render_scope())
+        let bindings = if let Callee::Static(func) = callee
+            && self.generic_union_return(source_ty)
+        {
+            let function = self
+                .mir
+                .functions
+                .get(id_index(func.0, "function index does not fit usize")?)
+                .ok_or_else(|| EmitError::new("call references an unknown function"))?;
+            self.static_call_monomorphization(function, args)?
+                .filter(|pinned| pinned.return_ty == source_ty)
+                .map(|pinned| pinned.bindings)
+        } else {
+            None
+        };
+        let previous = self.context.union_return_bindings.replace(bindings);
+        let converted = self.rendered_at_type(call_text, source_ty, dest_ty, &self.render_scope());
+        self.context.union_return_bindings.replace(previous);
+        converted
     }
 
     /// Returns the Rust type a call *actually* evaluates to in the emitted code.
@@ -491,8 +526,7 @@ impl FunctionEmitter<'_> {
         // declared type here makes the coercion a no-op whenever the destination
         // is erased, so the concrete value is bound to an erased local and the
         // argument is what rustc reports as mismatched (E0308).
-        let source_ty = self.call_emitted_source_ty(callee, args, dest_ty)?;
-        self.rendered_at_type(&call_text, source_ty, dest_ty, &self.render_scope())
+        self.call_result_at(&call_text, callee, args, dest_ty)
     }
 
     /// Bind every argument that reads through a `RefCell` borrow to a local.

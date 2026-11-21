@@ -65,6 +65,15 @@ impl FunctionEmitter<'_> {
                     .types
                     .lookup(&Type::TypeParam { name: *param })
                     .ok_or_else(|| EmitError::new("union type parameter is not interned"))?;
+                // A union gathers its parameters from its arms, which may
+                // come from a scope a call site's bindings do not describe
+                // (a callback slot of a generic record bound at its own
+                // arguments): such a parameter is no binding of this
+                // substitution, and renders as the erased carrier, as an
+                // unbound parameter does.
+                if substitution.resolve(*param).is_err() {
+                    return Ok(RustType::from("SmeltUnknown".to_owned()));
+                }
                 self.rust_type(param_ty, false, substitution)
             })
             .collect::<Result<Vec<_>, EmitError>>()?;
@@ -240,13 +249,63 @@ impl FunctionEmitter<'_> {
         concrete.then_some(items)
     }
 
+    /// The union arm `member` at the bindings of the call whose result is
+    /// being converted (`call_result_at`): its type parameters, bare or
+    /// inside the arm (`Some<a>` of `Option<a>`), are the bound types.
+    /// `member` itself outside such a conversion.
+    fn call_bound_member(&self, member: TypeId) -> TypeId {
+        self.context
+            .union_return_bindings
+            .borrow()
+            .as_ref()
+            .and_then(|bindings| {
+                crate::generic_bindings::substituted_type_id_interning(self.mir, member, bindings)
+            })
+            .unwrap_or(member)
+    }
+
+    /// Whether a union may hold the type parameter `name` as a generic arm:
+    /// it is one `crate::generic_lifting::liftable_type_params` lifts.
+    fn is_union_arm_param(&self, name: Symbol) -> bool {
+        if self.context.union_arm_params.borrow().is_none() {
+            let lifted = self
+                .mir
+                .functions
+                .iter()
+                .filter(|function| {
+                    crate::generic_lifting::may_declare_own_generics(self.mir, function)
+                })
+                .flat_map(|function| {
+                    crate::generic_lifting::liftable_type_params(
+                        self.mir,
+                        function,
+                        &self.context.owned_callback_params,
+                        &self.context.bound_traits,
+                        self.context.type_param_elision(),
+                        &self.context.erased_arguments,
+                    )
+                })
+                .collect();
+            *self.context.union_arm_params.borrow_mut() = Some(lifted);
+        }
+        self.context
+            .union_arm_params
+            .borrow()
+            .as_ref()
+            .is_some_and(|params| params.contains(&name))
+    }
+
     /// Determine whether a union member can be stored without runtime erasure.
     fn union_member_is_concrete(&self, ty: TypeId) -> bool {
         match self.mir.types.get(ty) {
-            Some(
-                Type::Unknown | Type::IndexedAccess { .. } | Type::Never | Type::TypeParam { .. },
-            )
-            | None => false,
+            Some(Type::Unknown | Type::IndexedAccess { .. } | Type::Never) | None => false,
+            // A type parameter of a function that lifts it to a Rust generic
+            // is an arm like any other: the union is a generic enum over it
+            // (`SmeltUnionN<T>`), which the function spells with its own `T`
+            // and a call site at its bindings (`call_result_at`). A parameter
+            // that stays erased keeps the union erased, as before
+            // (`docs/design/record-identity.md`, generic unions).
+            Some(Type::TypeParam { name }) => self.is_union_arm_param(*name),
             // A union nested under a container arm (`number | (number |
             // number[])[]`, the element type of `[1, [2, [3]]]`) is stored as
             // its own generated enum when that union is concrete too. A bare
@@ -487,6 +546,21 @@ impl FunctionEmitter<'_> {
                 )
             }));
         }
+        // A value no arm names, injected into a generic union whose
+        // type-parameter arm this position renders as the erased carrier (an
+        // erased-ABI callee's `T | (..) => T` parameter, `SmeltUnionN<
+        // SmeltUnknown>`): the value is that `T`, erased into its arm, exactly
+        // as it was erased whole when the union itself rendered erased.
+        if let Some(index) = members.iter().position(|member| {
+            matches!(self.mir.types.get(*member), Some(Type::TypeParam { name }) if !scope.spells(*name))
+        }) {
+            let erased = self.erase_rendered(value_text, source)?;
+            return Ok(Some(RustExpr::opaque(format!(
+                "{}::M{index}({erased})",
+                union_name(target),
+                erased = erased.delimited()
+            ))));
+        }
         Ok(None)
     }
 
@@ -671,7 +745,8 @@ impl FunctionEmitter<'_> {
         if let Some(target_members) = self.concrete_union_members(target) {
             let target_name = union_name(target);
             let mut arms = Vec::new();
-            for (source_index, member) in source_members.iter().enumerate() {
+            for (source_index, declared_member) in source_members.iter().enumerate() {
+                let member = &self.call_bound_member(*declared_member);
                 if let Some(target_index) = target_members
                     .iter()
                     .position(|target_member| target_member == member)
@@ -733,11 +808,30 @@ impl FunctionEmitter<'_> {
                 value_text = value_text.delimited()
             ))));
         }
-        let Some(index) = source_members.iter().position(|member| *member == target) else {
+        // Every arm that is the target: itself, or a callee arm at the
+        // bindings of the call whose result this is (`run<T>(..): T | number`
+        // at `T = number` gives two `f64` arms).
+        let matching = source_members
+            .iter()
+            .enumerate()
+            .filter(|(_, member)| self.call_bound_member(**member) == target)
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        if matching.is_empty() {
             return Ok(None);
+        }
+        let arms = matching
+            .iter()
+            .map(|index| format!("{source_name}::M{index}(value) => value"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let fallback = if matching.len() == source_members.len() {
+            String::new()
+        } else {
+            ", _ => unreachable!(\"union guard selected an excluded member\")".to_owned()
         };
         Ok(Some(RustExpr::atom(format!(
-            "match {value_text} {{ {source_name}::M{index}(value) => value, _ => unreachable!(\"union guard selected an excluded member\") }}",
+            "match {value_text} {{ {arms}{fallback} }}",
             value_text = value_text.delimited()
         ))))
     }

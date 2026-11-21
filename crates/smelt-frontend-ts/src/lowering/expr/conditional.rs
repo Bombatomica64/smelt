@@ -241,6 +241,75 @@ impl ModuleBuilder<'_> {
         )
     }
 
+    /// The join of two conditional arms of which one is a type parameter
+    /// not constrained to a string, and the other a different type.
+    ///
+    /// - The hint, when it is one of the two arms and a type parameter: the
+    ///   conditional is asserted or assigned straight to it
+    ///   (`(cb ? cb(s) : s) as Result`), so the other arm converts into it.
+    /// - The other arm, when the parameter's constraint is exactly that arm
+    ///   (`K extends PropertyKey` against a `PropertyKey`): the parameter is
+    ///   a subtype of it.
+    /// - Otherwise the union of the two (TypeScript's type of `c ? a : b`),
+    ///   or the hint when it is a union holding both arms. With a lifted
+    ///   parameter that union is a generic enum (`crate::emitter::union` in
+    ///   the Rust backend); with an erased one it stays erased.
+    ///
+    /// `None` when neither arm is such a type parameter.
+    fn type_param_arm_join(
+        &mut self,
+        then_ty: smelt_hir::TypeId,
+        else_ty: smelt_hir::TypeId,
+        type_hint: Option<smelt_hir::TypeId>,
+    ) -> Option<smelt_hir::TypeId> {
+        let types = &self.ctx.krate.types;
+        let unconstrained_param = |ty: smelt_hir::TypeId| {
+            matches!(types.get(ty), Some(Type::TypeParam { .. }))
+                && !matches!(
+                    types.get(self.type_param_constraint_or_self(ty)),
+                    Some(Type::String)
+                )
+        };
+        if then_ty == else_ty || !(unconstrained_param(then_ty) || unconstrained_param(else_ty)) {
+            return None;
+        }
+        // A parameter bounded by exactly the other arm's type (`K extends
+        // PropertyKey` against a `PropertyKey` arm) is a subtype of it: the
+        // join is that arm, as a hand port would type `toKey ? toKey(x) : x`.
+        let bounded_by = |param: smelt_hir::TypeId, other: smelt_hir::TypeId| {
+            matches!(types.get(param), Some(Type::TypeParam { .. }))
+                && self.type_param_constraint_or_self(param) == other
+        };
+        // The conditional is asserted or assigned straight to one of its own
+        // type-parameter arms (`(cb ? cb(s) : s) as Result`): the join is that
+        // parameter, and the other arm converts into it as the assertion asks.
+        if let Some(hint) = type_hint
+            && (hint == then_ty || hint == else_ty)
+            && matches!(types.get(hint), Some(Type::TypeParam { .. }))
+        {
+            return Some(hint);
+        }
+        if bounded_by(then_ty, else_ty) {
+            return Some(else_ty);
+        }
+        if bounded_by(else_ty, then_ty) {
+            return Some(then_ty);
+        }
+        if let Some(hint) = type_hint
+            && let Some(Type::Union(items)) = types.get(hint)
+            && items.contains(&then_ty)
+            && items.contains(&else_ty)
+        {
+            return Some(hint);
+        }
+        Some(
+            self.ctx
+                .krate
+                .types
+                .intern(Type::Union(vec![then_ty, else_ty])),
+        )
+    }
+
     /// The type of a ternary `c ? a : b` whose arms lowered to `then_expr`
     /// and `else_expr`: the conditional expression's own join, in value and
     /// argument position alike.
@@ -302,7 +371,10 @@ impl ModuleBuilder<'_> {
             ),
             (Some(Type::TypeParam { .. }), Some(Type::TypeParam { .. }))
         ) {
-            then_ty
+            // Two distinct type parameters (`left ? a : b` over `A`, `B`) are
+            // two arms: `A | B`, not `A` with `b` converted into it.
+            self.type_param_arm_join(then_ty, else_ty, type_hint)
+                .unwrap_or(then_ty)
         } else if self.date_runtime_float_matches_type_param(then_ty, else_ty) {
             else_ty
         } else if self.date_runtime_float_matches_type_param(else_ty, then_ty) {
@@ -380,6 +452,13 @@ impl ModuleBuilder<'_> {
                 .krate
                 .types
                 .intern(Type::Union(vec![then_ty, else_ty]))
+        } else if let Some(joined) = self.type_param_arm_join(then_ty, else_ty, type_hint) {
+            // An arm of an unconstrained type parameter is ANY type, not a
+            // string: `c ? a : b` with `a: T`, `b: string` is `T | string`,
+            // so `pick(true, 5, "s")` keeps the number. The string test below
+            // counts a bare type parameter as string-compatible (for `+`),
+            // which joined the two to `String` and converted the `T` arm.
+            joined
         } else if self.is_string_compatible_type(then_ty)
             && (self.is_string_compatible_type(else_ty)
                 || self.union_has_string_compatible_member(else_ty))

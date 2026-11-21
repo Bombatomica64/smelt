@@ -208,13 +208,7 @@ impl FunctionEmitter<'_> {
             let value_text = if matches!(self.mir.types.get(local.ty), Some(Type::Function(_))) {
                 RustExpr::path("__smelt_value")
             } else {
-                let source_ty = self.call_emitted_source_ty(callee, args, local.ty)?;
-                self.rendered_at_type(
-                    &RustExpr::path("__smelt_value"),
-                    source_ty,
-                    local.ty,
-                    &self.render_scope(),
-                )?
+                self.call_result_at(&RustExpr::path("__smelt_value"), callee, args, local.ty)?
             };
             if hoist_dest {
                 out.push_str(&format!(
