@@ -97,7 +97,31 @@ impl ModuleBuilder<'_> {
         statements: &[Statement<'_>],
         body: &mut Body,
     ) -> Result<(), SmeltError> {
-        self.predeclare_forward_referenced_locals_where(statements, body, false, |_, _| true)
+        self.predeclare_forward_referenced_locals_where(statements, body, false, None, |_, _| true)
+    }
+
+    /// Reserve, in a NESTED block (a block statement or a loop body), the
+    /// `let`/`const` bindings that a closure earlier in the same block reads
+    /// (`const read = () => later; let later = 1`). JavaScript binds them for
+    /// the whole block, so the closure's read names the block's binding, which
+    /// is in its temporal dead zone until the declaration runs (MIR's
+    /// definite-assignment pass raises the `ReferenceError`). Only genuine
+    /// forward reads are reserved here, and a reservation shadows a binding of
+    /// the same name from an enclosing scope, as the block's own binding does;
+    /// the caller closes the block's lexical scope.
+    pub(in crate::lowering) fn predeclare_block_forward_reads(
+        &mut self,
+        statements: &[Statement<'_>],
+        body: &mut Body,
+        block: smelt_hir::BlockId,
+    ) -> Result<(), SmeltError> {
+        self.predeclare_forward_referenced_locals_where(
+            statements,
+            body,
+            false,
+            Some(block),
+            |_, _| true,
+        )
     }
 
     /// [`Self::predeclare_forward_referenced_locals`] over the declarations
@@ -113,6 +137,7 @@ impl ModuleBuilder<'_> {
         statements: &[Statement<'_>],
         body: &mut Body,
         self_binding_only: bool,
+        nested_block: Option<smelt_hir::BlockId>,
         lowers_as_local: impl Fn(&Self, &Statement<'_>) -> bool,
     ) -> Result<(), SmeltError> {
         let first_reads = self.first_capture_read_indices(statements);
@@ -139,13 +164,14 @@ impl ModuleBuilder<'_> {
                 // read, where the reservation is what makes the program lower at
                 // all.
                 let is_deferred_self_binding = is_const
+                    && nested_block.is_none()
                     && self.initializer_needs_deferred_self_binding(
                         initializer,
                         binding.name.as_str(),
                     );
                 let direct_arrow = match initializer {
                     Expression::ArrowFunctionExpression(arrow)
-                        if is_const && !self_binding_only =>
+                        if is_const && !self_binding_only && nested_block.is_none() =>
                     {
                         Some(arrow)
                     }
@@ -160,7 +186,7 @@ impl ModuleBuilder<'_> {
                 if direct_arrow.is_none() && !is_deferred_self_binding && !read_earlier {
                     continue;
                 }
-                if self.scope.is_bound(binding.name.as_str()) {
+                if nested_block.is_none() && self.scope.is_bound(binding.name.as_str()) {
                     continue;
                 }
                 let annotated_ty = declarator
@@ -189,18 +215,38 @@ impl ModuleBuilder<'_> {
                             }))
                         })
                 } else {
-                    annotated_ty.unwrap_or_else(|| {
-                        self.erase_with(ErasureReason::MissingAnnotation, binding.name.as_str())
-                    })
+                    // An unannotated binding has the type the checker infers
+                    // for its declaration (`let later = i + 1` is a `number`);
+                    // only a binding the checker cannot answer for is erased.
+                    annotated_ty
+                        .or_else(|| self.checker_binding_type(binding.span.start, binding.span.end))
+                        .unwrap_or_else(|| {
+                            self.erase_with(ErasureReason::MissingAnnotation, binding.name.as_str())
+                        })
                 };
                 let symbol = self.intern_source_name(binding.name.as_str());
                 let local = body.push_local(LocalDecl {
                     name: Some(symbol),
                     ty,
-                    mutable: !is_const,
+                    // A block-entry binding is assigned once by its declaration.
+                    mutable: !is_const || nested_block.is_some(),
                     span: self.span(binding.span.start, binding.span.end),
                 });
                 self.scope.bind(binding.name.as_str().to_owned(), local);
+                if let Some(block) = nested_block {
+                    // The block's binding exists from the block's entry, unassigned.
+                    let pat = body.push_pattern(Pattern::Binding(local));
+                    body.push_stmt_to_block(
+                        block,
+                        Stmt::Let {
+                            pat,
+                            ty,
+                            value: None,
+                        },
+                    );
+                    body.unassigned_lets.push(local);
+                    self.mark_block_entry_local(local);
+                }
                 if read_earlier {
                     // The declaration must write into THIS slot: a second local
                     // would leave the earlier capture reading a slot nothing
@@ -710,15 +756,27 @@ impl ModuleBuilder<'_> {
                             )
                         })?
                         .ty;
-                    let pat = body.push_pattern(Pattern::Binding(local));
-                    body.push_stmt_to_block(
-                        block,
-                        Stmt::Let {
-                            pat,
+                    if self.is_block_entry_local(local) {
+                        // Declared at its block's entry: the declaration
+                        // initializes that binding.
+                        let span = self.span(declarator.span.start, declarator.span.end);
+                        let target = body.push_expr(smelt_hir::Expr {
+                            kind: smelt_hir::ExprKind::Local(local),
                             ty,
-                            value: Some(value),
-                        },
-                    );
+                            span,
+                        });
+                        body.push_stmt_to_block(block, Stmt::Assign { target, value });
+                    } else {
+                        let pat = body.push_pattern(Pattern::Binding(local));
+                        body.push_stmt_to_block(
+                            block,
+                            Stmt::Let {
+                                pat,
+                                ty,
+                                value: Some(value),
+                            },
+                        );
+                    }
                 }
                 (_, value) => {
                     self.binding_declaration(

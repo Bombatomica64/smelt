@@ -80,6 +80,7 @@ pub const ORDER: &[Entry] = &[
     Entry::Item("impl_SmeltRecord_JsString_V"),
     Entry::Item("SmeltObjectKey"),
     Entry::Item("impl_SmeltObject"),
+    Entry::Item("impl_Drop_for_erased_containers"),
     Entry::Item("SMELT_LIVE_HOOK"),
     Entry::Item("SmeltLiveList"),
     Entry::Item("smelt_list_sync"),

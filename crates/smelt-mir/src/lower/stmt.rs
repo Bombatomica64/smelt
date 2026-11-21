@@ -211,6 +211,22 @@ impl LoweringCtx<'_> {
                 // see the `Undefined` tag, not `Null`. Typed targets coerce both
                 // constants to the same `default_value`, so this only changes the
                 // erased case, where `Undefined` is the JS-correct sentinel.
+                // A binding declared in its temporal dead zone at its block's
+                // entry (`Body::unassigned_lets`) starts a new, unassigned
+                // binding; its declaration later assigns it, and a closure read
+                // before that is checked (`passes::unbound_bindings`).
+                if value.is_none() && self.hir_body_declares_unassigned(hir_local) {
+                    let declared_at = self.block()?.span;
+                    if self.source_language(declared_at) == smelt_hir::Language::TypeScript
+                        && self.in_loop()
+                        && self.is_captured_by_closure(hir_local)
+                    {
+                        self.block_mut()?
+                            .statements
+                            .push(Statement::StorageLive(dest));
+                    }
+                    return Ok(());
+                }
                 let lowered_value = match value {
                     Some(expr) => {
                         let lowered = self.lower_expr(*expr)?;

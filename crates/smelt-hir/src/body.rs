@@ -33,6 +33,12 @@ pub struct Body {
     kind: BodyKind,
     /// ID of the root block.
     pub root: BlockId,
+    /// Locals whose value-less `Stmt::Let` declares the binding UNASSIGNED
+    /// rather than `undefined`: a JavaScript `let`/`const` a closure reads
+    /// before its declaration, created when its block is entered (in its
+    /// temporal dead zone) and first assigned by the declaration itself.
+    #[serde(default)]
+    pub unassigned_lets: Vec<LocalId>,
 }
 
 impl Body {
@@ -54,6 +60,7 @@ impl Body {
             patterns: Vec::new(),
             kind: BodyKind::Sync,
             root: BlockId(0),
+            unassigned_lets: Vec::new(),
         }
     }
 

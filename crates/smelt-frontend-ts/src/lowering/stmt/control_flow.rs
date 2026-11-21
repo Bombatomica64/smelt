@@ -528,6 +528,7 @@ impl ModuleBuilder<'_> {
                 loop_body,
             )?;
             if let Statement::BlockStatement(block_stmt) = &for_stmt.body {
+                this.predeclare_block_forward_reads(&block_stmt.body, body, loop_body)?;
                 for nested_statement in &block_stmt.body {
                     this.statement_in_block(nested_statement, body, loop_body)?;
                 }
@@ -788,6 +789,7 @@ impl ModuleBuilder<'_> {
                 loop_body,
             )?;
             if let Statement::BlockStatement(block_stmt) = &for_stmt.body {
+                this.predeclare_block_forward_reads(&block_stmt.body, body, loop_body)?;
                 for nested_statement in &block_stmt.body {
                     this.statement_in_block(nested_statement, body, loop_body)?;
                 }

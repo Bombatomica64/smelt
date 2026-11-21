@@ -766,9 +766,13 @@ impl ModuleBuilder<'_> {
                 // not just from its textual position, so it lowers before the
                 // first sibling that mentions it (`lowering::hoisting`).
                 let saved = self.scope.snapshot_bindings();
-                let lowered = crate::lowering::hoisting::hoisted_statements(&block_stmt.body)
-                    .into_iter()
-                    .try_for_each(|child| self.statement_in_block(child, body, block));
+                let lowered = self
+                    .predeclare_block_forward_reads(&block_stmt.body, body, block)
+                    .and_then(|()| {
+                        crate::lowering::hoisting::hoisted_statements(&block_stmt.body)
+                            .into_iter()
+                            .try_for_each(|child| self.statement_in_block(child, body, block))
+                    });
                 // Its `let`/`const` bindings end with it, like any block's.
                 self.scope
                     .close_lexical_block(&saved, &Self::lexically_declared_names(&block_stmt.body));
@@ -807,6 +811,7 @@ impl ModuleBuilder<'_> {
             let loop_body = body.push_block(this.statement_span(loop_statement));
             this.binding_declaration(binding, Some(value), annotated_ty, mutable, body, loop_body)?;
             if let Statement::BlockStatement(block_stmt) = loop_statement {
+                this.predeclare_block_forward_reads(&block_stmt.body, body, loop_body)?;
                 for nested_statement in &block_stmt.body {
                     this.statement_in_block(nested_statement, body, loop_body)?;
                 }
@@ -1064,6 +1069,7 @@ impl ModuleBuilder<'_> {
         });
         let loop_body = body.push_block(self.statement_span(&while_stmt.body));
         if let Statement::BlockStatement(block_stmt) = &while_stmt.body {
+            self.predeclare_block_forward_reads(&block_stmt.body, body, loop_body)?;
             for statement in &block_stmt.body {
                 self.statement_in_block(statement, body, loop_body)?;
             }

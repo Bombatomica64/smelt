@@ -125,6 +125,12 @@ pub(in crate::lowering) struct FnCtx {
     /// behind by a declaration that failed to lower cannot be taken by a
     /// same-named declaration in a sibling body.
     forward_referenced_locals: HashSet<String>,
+    /// Reserved locals a nested block already declared (unassigned) at its
+    /// entry: JavaScript creates a block's bindings when the block is
+    /// entered, so a closure created before the declaration captures the
+    /// binding of THIS entry (a fresh one per loop iteration). Their source
+    /// declaration assigns instead of declaring again.
+    block_entry_locals: HashSet<smelt_hir::LocalId>,
     /// Whether a `return` in this body ends a test that planned its assertions.
     pub(in crate::lowering) verifies_assertion_plan: bool,
     /// The receiver local of a constructor body.
@@ -173,6 +179,7 @@ impl FnCtx {
             update_mode: UpdateMode::Immediate,
             preserve_receiver,
             forward_referenced_locals: HashSet::new(),
+            block_entry_locals: HashSet::new(),
             verifies_assertion_plan: false,
             constructor_this: None,
         }
@@ -302,6 +309,17 @@ impl ModuleBuilder<'_> {
             UpdateMode::Immediate => Vec::new(),
         };
         (result, deferred)
+    }
+
+    /// Record that a nested block declared `local` at its entry
+    /// (`FnCtx::block_entry_locals`).
+    pub(in crate::lowering) fn mark_block_entry_local(&mut self, local: smelt_hir::LocalId) {
+        self.fn_ctx.block_entry_locals.insert(local);
+    }
+
+    /// Whether a nested block declared `local` at its entry.
+    pub(in crate::lowering) fn is_block_entry_local(&self, local: smelt_hir::LocalId) -> bool {
+        self.fn_ctx.block_entry_locals.contains(&local)
     }
 
     /// Reserve the local of `name` for its later declaration in this body; see
