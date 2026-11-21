@@ -349,8 +349,10 @@ impl FunctionEmitter<'_> {
                 ".clone().map(|smelt_function| {coerced_call})",
                 coerced_call = coerced_call.delimited()
             ));
+            // `o.m?.()` is still a member call: the present function runs
+            // with `o` as its `this`.
             if dest_is_optional {
-                return Ok(map_expr);
+                return self.with_member_call_receiver(callee, map_expr);
             }
             // The destination is not an `Option` (an erased
             // `SmeltUnknown` seam): an absent callee lowers to
@@ -362,10 +364,11 @@ impl FunctionEmitter<'_> {
                 dest_ty,
                 &self.render_scope(),
             )?;
-            return Ok(map_expr.postfix(format!(
+            let call_text = map_expr.postfix(format!(
                 ".unwrap_or({undefined_text})",
                 undefined_text = undefined_text.delimited()
-            )));
+            ));
+            return self.with_member_call_receiver(callee, call_text);
         }
         // A callable-object record IS callable: its synthetic
         // `__smelt_call` slot holds the underlying function. Falling

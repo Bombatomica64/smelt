@@ -717,14 +717,10 @@ impl FunctionEmitter<'_> {
             | Rvalue::OptionalIndex {
                 receiver: Operand::Copy(place) | Operand::Move(place),
                 ..
-            } => {
-                let receiver = Operand::Copy(place.clone());
-                let erased = self.operand_ty(&receiver).is_ok_and(|ty| {
-                    self.has_dynamic_shape(ty)
-                        || matches!(self.mir.types.get(ty), Some(Type::Optional(inner, _)) if self.has_dynamic_shape(*inner))
-                });
-                erased.then_some(receiver)
-            }
+            // An optional member read is a member read whatever its receiver's
+            // type: `o?.m()` runs `m` with `o` as its `this` (only when `o` is
+            // present), a typed `o` included.
+            } => Some(Operand::Copy(place.clone())),
             _ => None,
         }
     }
@@ -746,10 +742,29 @@ impl FunctionEmitter<'_> {
         let Some(receiver) = self.member_read_receiver(slot) else {
             return Ok(None);
         };
+        // A typed receiver (`o?.m()` on an interface value) erases through
+        // its own `IntoSmeltUnknown` view, as a typed member call's lazy
+        // receiver does (see `lazy_receiver_erasure`).
+        let receiver_ty = self.operand_ty(&receiver)?;
+        let erased_receiver = self.has_dynamic_shape(receiver_ty)
+            || matches!(self.mir.types.get(receiver_ty), Some(Type::Optional(inner, _)) if self.has_dynamic_shape(*inner));
+        let erased = if erased_receiver {
+            self.erase(&receiver)?
+        } else {
+            let lazy = self.lazy_receiver_erasure(
+                &RustExpr::path("smelt_bound_receiver").cloned_value(),
+                receiver_ty,
+            )?;
+            RustExpr::atom(format!(
+                "{{ let smelt_bound_receiver = {}.clone(); {} }}",
+                self.operand_expr(&receiver)?.tight(),
+                lazy.delimited()
+            ))
+        };
         Ok(Some(format!(
             "    {} = {};\n",
             self.receiver_snapshot_name(slot)?,
-            self.erase(&receiver)?.delimited()
+            erased.delimited()
         )))
     }
 }

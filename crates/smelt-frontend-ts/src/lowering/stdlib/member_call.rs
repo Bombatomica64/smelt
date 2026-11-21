@@ -1465,7 +1465,20 @@ impl ModuleBuilder<'_> {
         // unaffected by it.
         let span = self.span(call.span.start, call.span.end);
         let callee = self.bind_member_call_receiver(callee, member, body, span);
+        // An optional chain through a field that may hold no function
+        // (`o.m?.()`, `o?.m()` with `m?: () => R`) calls the function only
+        // when it is present and is `undefined` otherwise, so the callee stays
+        // the `Option` of the function and the call's type is `R | undefined`.
+        // Asserting it to the bare function type instead called a default
+        // callback for an absent member, and the cast temporary hid the member
+        // read the emitter installs the receiver (`this`) from.
+        let optional_callee = (call.optional || Self::static_chain_has_optional_link(member))
+            && matches!(
+                self.ctx.krate.types.get(callee_ty),
+                Some(Type::Optional(inner, _)) if *inner == function_ty
+            );
         let callable = if callee_ty == function_ty
+            || optional_callee
             || self.callable_interface_known_only_by_predeclaration(callee_ty)
         {
             // A callable interface this module only knows through its
@@ -1496,14 +1509,39 @@ impl ModuleBuilder<'_> {
         }
         let call_span = self.span(call.span.start, call.span.end);
         let args = self.pack_value_call_arguments(&function, args, &[], call_span, body);
+        let ty = if optional_callee {
+            self.optional_chain_result_type(function.return_ty)
+        } else {
+            function.return_ty
+        };
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::ClosureCall {
                 callee: callable,
                 args,
             },
-            ty: function.return_ty,
+            ty,
             span,
         })))
+    }
+
+    /// Whether `member` or a member link it is read through is optional
+    /// (`a?.m`, `a?.b.m`): an absent link ends the whole chain.
+    fn static_chain_has_optional_link(member: &oxc::ast::ast::StaticMemberExpression<'_>) -> bool {
+        let mut current = member;
+        loop {
+            if current.optional {
+                return true;
+            }
+            match &current.object {
+                Expression::StaticMemberExpression(object) => current = object,
+                Expression::ComputedMemberExpression(object) => return object.optional,
+                Expression::CallExpression(call) => {
+                    return call.optional
+                        || matches!(&call.callee, Expression::StaticMemberExpression(callee) if Self::static_chain_has_optional_link(callee));
+                }
+                _ => return false,
+            }
+        }
     }
 
     /// Lower `receiver.#field(args)` where `#field` holds a FUNCTION.

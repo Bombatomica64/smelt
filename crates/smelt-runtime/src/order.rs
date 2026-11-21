@@ -268,5 +268,6 @@ pub const CONSOLE_INSPECT: &[Entry] = &[
     Entry::Item("impl_SmeltInspect_for_SmeltPrimSet"),
     Entry::Item("impl_SmeltInspect_for_BigInt"),
     Entry::Item("impl_SmeltInspect_for_SmeltRecord"),
+    Entry::Item("impl_SmeltInspect_for_erased_containers"),
     Entry::Item("impl_SmeltInspect_for_SmeltMatch"),
 ];

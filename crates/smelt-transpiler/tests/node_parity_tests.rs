@@ -221,6 +221,22 @@ fn console_inspect_shapes() -> TestResult {
     verify_node_parity("console_inspect_shapes")
 }
 
+/// `console.log` of a nullable string-keyed record (an anonymous object type of
+/// one value type) in a program with no erased value prints it as Node does:
+/// its inspect impl is gated on the record, not on the erased carrier.
+#[test]
+fn nullable_record_inspect() -> TestResult {
+    verify_node_parity("nullable_record_inspect")
+}
+
+/// `o.m?.()` and `f()?.m?.()` through a field that may hold no function run the
+/// present function with the object as `this` and are `undefined` (typed
+/// `R | undefined`) when the field or the link is absent.
+#[test]
+fn optional_call_receiver() -> TestResult {
+    verify_node_parity("optional_call_receiver")
+}
+
 /// `.match`/`.search` on an `any` receiver are resolved by its run-time value:
 /// a string answers `String.prototype`, an object its own member, and a value
 /// without one throws a catchable `TypeError`; a match array prints with its
