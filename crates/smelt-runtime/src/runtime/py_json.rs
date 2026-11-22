@@ -12,7 +12,7 @@
 // erased carrier, which holds every number as an `f64`.
 
 // @smelt:item smelt_py_json_loads when py_json_loads
-/// One JSON value as CPython's scanner reads it; an integer keeps its digits.
+/// One JSON value as `CPython`'s scanner reads it; an integer keeps its digits.
 #[allow(dead_code)]
 enum SmeltPyJsonValue {
     /// `null`.
@@ -26,9 +26,9 @@ enum SmeltPyJsonValue {
     /// A string.
     Str(String),
     /// An array.
-    Array(Vec<SmeltPyJsonValue>),
+    Array(Vec<Self>),
     /// An object's members, in document order (duplicates included).
-    Object(Vec<(String, SmeltPyJsonValue)>),
+    Object(Vec<(String, Self)>),
 }
 
 /// A destination type `json.loads` can decode into.
@@ -78,7 +78,7 @@ impl<T: SmeltPyJsonDecode> SmeltPyJsonDecode for Option<T> {
 }
 impl<T: SmeltPyJsonDecode> SmeltPyJsonDecode for SmeltList<T> {
     fn py_json_decode(value: SmeltPyJsonValue) -> Result<Self, Box<dyn ::std::error::Error>> {
-        match value { SmeltPyJsonValue::Array(items) => items.into_iter().map(T::py_json_decode).collect::<Result<Vec<_>, _>>().map(SmeltList::from), _ => Err(smelt_py_json_shape_error("a list")) }
+        match value { SmeltPyJsonValue::Array(items) => items.into_iter().map(T::py_json_decode).collect::<Result<Vec<_>, _>>().map(Self::from), _ => Err(smelt_py_json_shape_error("a list")) }
     }
 }
 // @smelt:if record
@@ -147,7 +147,7 @@ fn smelt_py_json_decode_error(chars: &[char], message: &str, at: usize) -> Box<d
     SmeltPyException::new(&["JSONDecodeError", "ValueError", "Exception", "BaseException"], vec![SmeltPyException::arg(&text)]).into_error()
 }
 
-/// A scan failure: CPython's message and the position it names.
+/// A scan failure: `CPython`'s message and the position it names.
 type SmeltPyJsonFailure = (&'static str, usize);
 
 /// The scanner over the document's code points (`scan_once` and friends).
@@ -195,21 +195,22 @@ impl SmeltPyJsonReader<'_> {
             Some('1'..='9') => { while digit(end) { end += 1; } }
             _ => return None,
         }
-        let mut is_float = false;
-        if self.chars.get(end) == Some(&'.') && digit(end + 1) {
+        let has_fraction = self.chars.get(end) == Some(&'.') && digit(end + 1);
+        if has_fraction {
             end += 1;
             while digit(end) { end += 1; }
-            is_float = true;
         }
+        let mut has_exponent = false;
         if matches!(self.chars.get(end), Some('e' | 'E')) {
             let mut exponent = end + 1;
             if matches!(self.chars.get(exponent), Some('+' | '-')) { exponent += 1; }
-            if digit(exponent) {
+            has_exponent = digit(exponent);
+            if has_exponent {
                 while digit(exponent) { exponent += 1; }
                 end = exponent;
-                is_float = true;
             }
         }
+        let is_float = has_fraction || has_exponent;
         let text: String = self.chars[at..end].iter().collect();
         Some((if is_float { SmeltPyJsonValue::Float(text.parse().ok()?) } else { SmeltPyJsonValue::Int(text) }, end))
     }
@@ -321,7 +322,7 @@ impl SmeltPyJsonReader<'_> {
 // @smelt:item smelt_py_json_indent when py_json_indent
 /// `json.dumps(value, indent=indent)`'s layout over the default compact text
 /// (`", "` and `": "` separators): every item on its own line, one `indent`
-/// deeper than its container, `,` ending a line (CPython switches the item
+/// deeper than its container, `,` ending a line (`CPython` switches the item
 /// separator to `","` once `indent` is given), `": "` after a key, and an
 /// empty `[]`/`{}` kept whole. Unlike JavaScript, an empty `indent` (or
 /// `indent=0`) still breaks lines. Strings are copied untouched.

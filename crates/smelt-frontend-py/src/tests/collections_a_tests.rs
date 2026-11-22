@@ -193,12 +193,16 @@ fn unsupported_json_dumps_forms_reject() -> TestResult {
         py!(r"
 import json
 values: list[int] = [1, 2]
-text: str = json.dumps(values, indent=2)
+text: str = json.dumps(values, sort_keys=True)
 "),
         &mut ctx,
     )?;
+    // `indent=` is supported (`json_indent_and_exact_loads`); a keyword the
+    // lowering does not model is still refused.
     ensure(
-        first_error(&keyword)?.message.contains("exactly one value"),
+        first_error(&keyword)?
+            .message
+            .contains("the `indent` keyword"),
         "expected json.dumps keyword diagnostic",
     )?;
 

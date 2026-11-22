@@ -145,7 +145,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// `json.dumps(..., indent=x)`'s indent as the `str` one level indents
-    /// by, as CPython's encoder reads it: `None` is the one-line form, an
+    /// by, as `CPython`'s encoder reads it: `None` is the one-line form, an
     /// `int` is that many spaces (`" " * n`, empty when `n <= 0`, which still
     /// breaks lines), a `str` is used as given.
     fn json_indent_text(

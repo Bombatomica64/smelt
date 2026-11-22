@@ -407,11 +407,11 @@ impl FunctionEmitter<'_> {
                 let target = dest_ty
                     .ok_or_else(|| EmitError::new("json.loads() needs a typed destination"))?;
                 let rust_ty = self.rendered_type(target)?;
-                let text = self.operand_borrow_expr(text)?;
+                let text_expr = self.operand_borrow_expr(text)?;
                 (
                     RenderedCall::propagating(RustExpr::atom(format!(
                         "smelt_py_json_loads::<{rust_ty}>(&{text})",
-                        text = text.tight()
+                        text = text_expr.tight()
                     ))),
                     target,
                 )

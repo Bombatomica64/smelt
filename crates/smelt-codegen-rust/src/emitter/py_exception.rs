@@ -50,9 +50,9 @@ impl FunctionEmitter<'_> {
         let text = self.operand_borrow_expr(value)?;
         let dumped = format!("smelt_py_json_dumps(&{text})", text = text.tight());
         Ok(RustExpr::atom(match indent {
-            Some(indent) => format!(
+            Some(indent_operand) => format!(
                 "smelt_py_json_indent(&{dumped}, &{indent})",
-                indent = self.operand_borrow_expr(indent)?.tight()
+                indent = self.operand_borrow_expr(indent_operand)?.tight()
             ),
             None => dumped,
         }))
