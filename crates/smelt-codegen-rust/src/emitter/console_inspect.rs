@@ -432,6 +432,24 @@ pub(crate) fn emit_console_inspect_support(
 }
 
 impl FunctionEmitter<'_> {
+    /// Whether `ty` is a concrete union the emitter gives a `SmeltPyRepr`
+    /// impl (`emit_union_definitions`): every member has Python text and one
+    /// of them is Python's own `int` or `str`, so the union only occurs in a
+    /// Python crate, where `SmeltPyInt`/`SmeltPyStr` demand the trait.
+    pub(crate) fn union_has_py_repr(&self, ty: TypeId) -> bool {
+        let Some(Type::Union(members)) = self.mir.types.get(ty) else {
+            return false;
+        };
+        self.concrete_union_members(ty).is_some()
+            && members.iter().any(|member| {
+                matches!(self.mir.types.get(*member), Some(Type::PyInt | Type::PyStr))
+            })
+            && members.iter().all(|member| {
+                !matches!(self.mir.types.get(*member), Some(Type::Union(_)))
+                    && self.type_has_py_repr(*member)
+            })
+    }
+
     /// Whether a value of type `ty` has a `SmeltPyRepr` impl
     /// (`runtime/py_repr.rs`): Python's scalars, `None`, and lists, tuples,
     /// hash-map dicts and primitive sets of such values.
@@ -460,6 +478,7 @@ impl FunctionEmitter<'_> {
             Some(Type::Set(item)) => {
                 self.set_container_name(*item) == "SmeltPrimSet" && self.type_has_py_repr(*item)
             }
+            Some(Type::Union(_)) => self.union_has_py_repr(ty),
             Some(Type::Class { name, .. })
                 if py_text_protocol::class_has_python_repr(self.mir, *name) =>
             {
@@ -566,6 +585,17 @@ impl FunctionEmitter<'_> {
         } else if self.is_py_exception_type(ty) || self.is_py_exception_args_type(ty) {
             // `print(e)` writes `str(e)`, the exception's `Display`.
             Ok(("{}", self.operand_expr(operand)?.into_string()))
+        } else if absent == AbsentSpelling::None && self.union_has_py_repr(ty) {
+            // A Python union of printable members (`int | float`, the result
+            // of a mixed `max`) writes its live member's `str`, never the
+            // erased carrier's JavaScript spelling (`4.0`, not `4`).
+            Ok((
+                "{}",
+                format!(
+                    "SmeltPyRepr::py_str(&{})",
+                    self.operand_expr(operand)?.tight()
+                ),
+            ))
         } else if absent == AbsentSpelling::None
             && matches!(
                 self.mir.types.get(ty),

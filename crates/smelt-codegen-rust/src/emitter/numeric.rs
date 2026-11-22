@@ -306,6 +306,11 @@ impl FunctionEmitter<'_> {
         if self.is_py_int_type(dest_ty) {
             return self.py_int_extrema_expr(op, args, spread, dest_ty);
         }
+        if spread.is_none()
+            && let Some(extrema) = self.py_number_union_extrema_expr(op, args, dest_ty)?
+        {
+            return Ok(extrema);
+        }
         for arg in args {
             if self.operand_ty(arg)? != dest_ty
                 || !matches!(self.mir.types.get(dest_ty), Some(Type::Int | Type::Float))

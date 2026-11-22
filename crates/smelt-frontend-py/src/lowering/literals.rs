@@ -872,6 +872,21 @@ impl ModuleBuilder<'_> {
             (Some(Type::PyInt | Type::Float), Some(Type::PyInt | Type::Float))
         );
         let both_int = matches!(operand_kinds, (Some(Type::PyInt), Some(Type::PyInt)));
+        // An `int | float` operand (a `min`/`max` of mixed arguments, a
+        // function annotated `-> int | float`) needs the operation run per
+        // member, which the HIR has no member test for yet: refuse it here
+        // rather than emit Rust that narrows to one member.
+        let numeric_union = |kind: &Option<Type>| {
+            matches!(kind, Some(Type::Union(members)) if members.iter().any(|member| {
+                matches!(self.ctx.krate.types.get(*member), Some(Type::PyInt | Type::Float))
+            }))
+        };
+        if numeric_union(&operand_kinds.0) || numeric_union(&operand_kinds.1) {
+            return Err(SmeltError::unsupported(
+                span,
+                "arithmetic on an `int | float` value is not supported yet",
+            ));
+        }
         let any_float = matches!(operand_kinds, (Some(Type::Float), _) | (_, Some(Type::Float)));
         if op == PythonArithmetic::Plain(BinOp::Mul)
             && let Some(repeat) = self.sequence_repeat(&operand_kinds, lhs, rhs, span, body)

@@ -283,6 +283,10 @@ const MODULES: &[RuntimeModule] = &[
         source: include_str!("runtime/py_format.rs"),
     },
     RuntimeModule {
+        name: "py_sort",
+        source: include_str!("runtime/py_sort.rs"),
+    },
+    RuntimeModule {
         name: "py_str",
         source: include_str!("runtime/py_str.rs"),
     },

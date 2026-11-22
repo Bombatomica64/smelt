@@ -698,7 +698,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Apply Optional vs Union logic — mirrors `ts_type_to_hir`'s union branch.
-    fn union_from_types(
+    pub(super) fn union_from_types(
         &mut self,
         mut types: Vec<TypeId>,
         span: Span,

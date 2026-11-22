@@ -1,0 +1,15 @@
+nan = float("nan")
+print(max(3, 2.5))
+print(min(3, 2.5))
+print(max(1.5, 2))
+print(min(2, 7.0, 1))
+a = 4
+b = 4.0
+print(max(a, b), max(b, a), min(a, b), min(b, a))
+print(max(nan, 1), max(1, nan), min(nan, 1), min(1, nan))
+print(max(10**30, 1e30), min(10**30, 1e30))
+print(max(2**53 + 1, float(2**53)))
+x = max(a, 2.5)
+print(x, str(x), repr(min(a, 2.5)), f"{x}")
+print(max(1, 2), max(1.0, 2.0))
+print([max(1, 0.5), min(2.5, 3)], (max(0.5, 7),))

@@ -116,7 +116,15 @@ class Serializer:
         if isinstance(value, int):
             return unit_type("int"), {"kind": "int", "value": str(value)}
         if isinstance(value, float):
-            return unit_type("float"), {"kind": "float", "value": value}
+            # JSON cannot spell a NaN or an infinity: they travel by name
+            # (`ieee_float` in manifest.rs reads them back).
+            if value != value:
+                encoded: object = "nan"
+            elif value in (float("inf"), float("-inf")):
+                encoded = "inf" if value > 0 else "-inf"
+            else:
+                encoded = value
+            return unit_type("float"), {"kind": "float", "value": encoded}
         if isinstance(value, str):
             return unit_type("string"), {"kind": "string", "value": value}
         if isinstance(value, bytes):

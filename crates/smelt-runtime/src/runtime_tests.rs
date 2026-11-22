@@ -1856,4 +1856,41 @@ mod py_text_family {
         assert!(smelt_py_format_str("a", ",").is_err());
         assert_eq!(smelt_py_format_str("hi", "*^7.1").ok().as_deref(), Some("***h***"));
     }
+
+    /// On a total order `smelt_py_sort` is a stable ascending sort: for
+    /// lists that merge and gallop (runs, duplicates, reversed stretches) it
+    /// leaves what Rust's stable sort leaves, tags of equal keys included,
+    /// in both directions.
+    #[test]
+    fn py_sort_is_a_stable_sort_on_a_total_order() {
+        let mut state: u64 = 7;
+        for len in [0_usize, 1, 2, 3, 63, 64, 65, 200, 1000, 4000] {
+            for shape in 0..4_u64 {
+                let items: Vec<(u64, usize)> = (0..len)
+                    .map(|index| {
+                        state = state.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+                        let noise = (state >> 33) % 100;
+                        let key = match shape {
+                            0 => noise % 10,
+                            1 => index as u64 / 50 + noise % 2,
+                            2 => (len - index) as u64 / 30,
+                            _ => noise,
+                        };
+                        (key, index)
+                    })
+                    .collect();
+                for reverse in [false, true] {
+                    let mut ours = items.clone();
+                    smelt_py_sort(&mut ours, reverse, |left, right| left.0 < right.0);
+                    let mut expected = items.clone();
+                    if reverse {
+                        expected.sort_by_key(|item| ::std::cmp::Reverse(item.0));
+                    } else {
+                        expected.sort_by_key(|item| item.0);
+                    }
+                    assert_eq!(ours, expected, "len {len} shape {shape} reverse {reverse}");
+                }
+            }
+        }
+    }
 }

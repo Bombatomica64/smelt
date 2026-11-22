@@ -867,10 +867,23 @@ impl FunctionEmitter<'_> {
                 &result_text,
             );
         }
-        if key.is_some() || reverse {
-            let (prefix, closure) = self.list_sort_by(key, reverse, element_ty)?;
+        // A Python sort with a key or over partially ordered items (floats)
+        // runs `CPython`'s algorithm, so a NaN lands where `CPython` puts it.
+        if key.is_some()
+            || (!returns_list
+                && crate::runtime_demand::py_order_is_partial(&self.mir.types, element_ty))
+        {
+            let target = format!("&mut {}", list_mut.tight());
+            let (prefix, call) = self.py_sort_call(&target, key, reverse, element_ty)?;
             return Ok(RustExpr::atom(format!(
-                "{{ {prefix}{list_mut}.sort_by({closure}); {result_text} }}",
+                "{{ {prefix}{call}; {result_text} }}",
+                result_text = result_text.delimited()
+            )));
+        }
+        if reverse {
+            let closure = self.list_sort_by_reversed(element_ty)?;
+            return Ok(RustExpr::atom(format!(
+                "{{ {list_mut}.sort_by({closure}); {result_text} }}",
                 list_mut = list_mut.tight(),
                 result_text = result_text.delimited()
             )));
@@ -896,11 +909,6 @@ impl FunctionEmitter<'_> {
                     result_text = result_text.delimited()
                 )))
             }
-            Some(Type::Float) => Ok(RustExpr::atom(format!(
-                "{{ {list_mut}.sort_by(|smelt_left, smelt_right| smelt_left.partial_cmp(smelt_right).expect(\"list sort incomparable float\")); {result_text} }}",
-                list_mut = list_mut.tight(),
-                result_text = result_text.delimited()
-            ))),
             _ => Err(EmitError::new(
                 "list sort supports bool, int, float, string, and erased items",
             )),

@@ -438,6 +438,54 @@ pub struct ValueGraph {
     pub nodes: Vec<GraphValue>,
 }
 
+/// Serde form of a [`GraphValueKind::Float`]: a finite number is a JSON
+/// number, a NaN or an infinity (which JSON cannot spell) is the string
+/// `"nan"`, `"inf"` or `"-inf"`, the spelling Python's `repr` uses.
+mod ieee_float {
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    /// One float as the guest writes it: a JSON number or a non-finite name.
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Wire {
+        /// A finite value.
+        Number(f64),
+        /// `"nan"`, `"inf"` or `"-inf"`.
+        Name(String),
+    }
+
+    /// Writes a finite value as a number and a non-finite one as its name.
+    #[expect(
+        clippy::trivially_copy_pass_by_ref,
+        clippy::type_complexity,
+        reason = "serde's `with` attribute fixes this signature"
+    )]
+    pub(super) fn serialize<S: Serializer>(value: &f64, serializer: S) -> Result<S::Ok, S::Error> {
+        if value.is_nan() {
+            serializer.serialize_str("nan")
+        } else if value.is_infinite() {
+            serializer.serialize_str(if *value > 0.0 { "inf" } else { "-inf" })
+        } else {
+            serializer.serialize_f64(*value)
+        }
+    }
+
+    /// Reads a number, or one of the three non-finite names.
+    pub(super) fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<f64, D::Error> {
+        match Wire::deserialize(deserializer)? {
+            Wire::Number(value) => Ok(value),
+            Wire::Name(name) => match name.as_str() {
+                "nan" => Ok(f64::NAN),
+                "inf" => Ok(f64::INFINITY),
+                "-inf" => Ok(f64::NEG_INFINITY),
+                other => Err(serde::de::Error::custom(format!(
+                    "`{other}` is not a float"
+                ))),
+            },
+        }
+    }
+}
+
 /// One identity-bearing serialized value.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GraphValue {
@@ -459,8 +507,10 @@ pub enum GraphValueKind {
     Bool(bool),
     /// Integer encoded in decimal to preserve arbitrary precision.
     Int(String),
-    /// IEEE-754 number.
-    Float(f64),
+    /// IEEE-754 number. JSON has no spelling for a NaN or an infinity, so
+    /// those travel as the strings `"nan"`, `"inf"` and `"-inf"`
+    /// ([`ieee_float`]): a module-level `float("nan")` is a value like any other.
+    Float(#[serde(with = "ieee_float")] f64),
     /// UTF-8 string.
     String(String),
     /// Raw bytes.
@@ -857,6 +907,24 @@ mod tests {
             effects: Vec::new(),
             required_adapters: Vec::new(),
         }
+    }
+
+    /// A NaN or an infinity survives the manifest's JSON by name.
+    #[test]
+    fn non_finite_floats_round_trip_as_names() -> Result<(), String> {
+        for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY, -0.5_f64] {
+            let json = serde_json::to_string(&GraphValueKind::Float(value))
+                .map_err(|error| error.to_string())?;
+            let back: GraphValueKind =
+                serde_json::from_str(&json).map_err(|error| error.to_string())?;
+            let GraphValueKind::Float(read) = back else {
+                return Err(format!("{json} did not read back as a float"));
+            };
+            if read.to_bits() != value.to_bits() && !(read.is_nan() && value.is_nan()) {
+                return Err(format!("{value} came back as {read} through {json}"));
+            }
+        }
+        Ok(())
     }
 
     #[test]
