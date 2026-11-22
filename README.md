@@ -105,9 +105,9 @@ calls get a concrete Rust type, a real Rust generic, or an erased type
 | examples, 180 programs ([`typedness-baseline.json`](blocker-logs/typedness-baseline.json)) | values | 8853 | 193 | 56 | 0.6% |
 |  | reads | 981 | 50 | 20 | 1.9% |
 |  | calls | 2480 | 16 | 2 | 0.1% |
-| es-toolkit, 744 programs ([`typedness-baseline-es-toolkit.json`](blocker-logs/typedness-baseline-es-toolkit.json)) | values | 14282 | 366 | 7027 | 32.4% |
+| es-toolkit, 744 programs ([`typedness-baseline-es-toolkit.json`](blocker-logs/typedness-baseline-es-toolkit.json)) | values | 14361 | 366 | 6944 | 32.0% |
 |  | reads | 366 | 52 | 977 | 70.0% |
-|  | calls | 2194 | 63 | 1179 | 34.3% |
+|  | calls | 2197 | 63 | 1176 | 34.2% |
 | remeda, 390 programs ([`typedness-baseline-remeda.json`](blocker-logs/typedness-baseline-remeda.json)) | values | 13667 | 268 | 9187 | 39.7% |
 |  | reads | 345 | 29 | 800 | 68.1% |
 |  | calls | 1733 | 51 | 2655 | 59.8% |
@@ -130,7 +130,7 @@ narrowing guards) or avoidable erasure (everything else). Methodology:
 | Corpus (baseline file) | Files | Runtime prelude | Legitimate boundary | Avoidable erasure | Gate |
 | --- | ---: | ---: | ---: | ---: | --- |
 | examples ([`smelt-unknown-baseline.json`](blocker-logs/smelt-unknown-baseline.json)) | 177 | 132058 | 6990 | 0 | blocking, must stay 0 |
-| es-toolkit ([`smelt-unknown-baseline-es-toolkit.json`](blocker-logs/smelt-unknown-baseline-es-toolkit.json)) | 744 | 2484 | 34577 | 12715 | blocking, may only fall |
+| es-toolkit ([`smelt-unknown-baseline-es-toolkit.json`](blocker-logs/smelt-unknown-baseline-es-toolkit.json)) | 744 | 2484 | 34678 | 12648 | blocking, may only fall |
 | remeda ([`smelt-unknown-baseline-remeda.json`](blocker-logs/smelt-unknown-baseline-remeda.json)) | 391 | 1506 | 62265 | 20086 | advisory |
 | hono ([`smelt-unknown-baseline-hono.json`](blocker-logs/smelt-unknown-baseline-hono.json)) | 78 | 7445 | 78054 | 10078 | advisory |
 <!-- results:unknown:end -->

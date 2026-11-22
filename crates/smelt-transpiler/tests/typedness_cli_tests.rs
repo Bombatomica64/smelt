@@ -45,6 +45,17 @@ fn count(record: &serde_json::Value, kind: &str, class: &str) -> u64 {
     record[kind][class].as_u64().unwrap_or(u64::MAX)
 }
 
+/// An unannotated `function` expression takes the checker's inferred return,
+/// as an unannotated arrow does, so a call of it is concrete (the return was
+/// erased before, which made `add(2, 3)` an erased call).
+#[test]
+fn unannotated_function_expression_return_is_concrete() -> TestResult {
+    let record = measure(
+        "const add = function (x: number, y: number) {\n  return x + y;\n};\nconst total: number = add(2, 3);\nconsole.log(total);\n",
+    )?;
+    ensure(count(&record, "calls", "erased") == 0, record.to_string())
+}
+
 /// A fully annotated program has no erased value, read or call.
 #[test]
 fn concrete_program_is_fully_typed() -> TestResult {

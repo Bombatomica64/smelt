@@ -2,9 +2,9 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 14282,
+      "concrete": 14361,
       "generic": 366,
-      "erased": 7027
+      "erased": 6944
     },
     "reads": {
       "concrete": 366,
@@ -12,9 +12,9 @@
       "erased": 977
     },
     "calls": {
-      "concrete": 2194,
+      "concrete": 2197,
       "generic": 63,
-      "erased": 1179
+      "erased": 1176
     }
   },
   "programs": {
@@ -8860,9 +8860,9 @@
     },
     "src/function/flow.spec.ts": {
       "values": {
-        "concrete": 56,
+        "concrete": 90,
         "generic": 4,
-        "erased": 94
+        "erased": 59
       },
       "reads": {
         "concrete": 0,
@@ -8870,9 +8870,9 @@
         "erased": 3
       },
       "calls": {
-        "concrete": 1,
+        "concrete": 2,
         "generic": 2,
-        "erased": 16
+        "erased": 15
       }
     },
     "src/function/flow.ts": {
@@ -8894,9 +8894,9 @@
     },
     "src/function/flowRight.spec.ts": {
       "values": {
-        "concrete": 41,
+        "concrete": 63,
         "generic": 4,
-        "erased": 66
+        "erased": 44
       },
       "reads": {
         "concrete": 0,
@@ -8979,9 +8979,9 @@
     },
     "src/function/memoize.spec.ts": {
       "values": {
-        "concrete": 96,
+        "concrete": 99,
         "generic": 13,
-        "erased": 57
+        "erased": 54
       },
       "reads": {
         "concrete": 4,
@@ -9115,9 +9115,9 @@
     },
     "src/function/partial.spec.ts": {
       "values": {
-        "concrete": 95,
+        "concrete": 102,
         "generic": 4,
-        "erased": 117
+        "erased": 108
       },
       "reads": {
         "concrete": 0,
@@ -9149,9 +9149,9 @@
     },
     "src/function/partialRight.spec.ts": {
       "values": {
-        "concrete": 59,
+        "concrete": 68,
         "generic": 4,
-        "erased": 117
+        "erased": 106
       },
       "reads": {
         "concrete": 0,
@@ -9159,9 +9159,9 @@
         "erased": 2
       },
       "calls": {
-        "concrete": 0,
+        "concrete": 2,
         "generic": 2,
-        "erased": 32
+        "erased": 30
       }
     },
     "src/function/partialRight.ts": {
@@ -9285,9 +9285,9 @@
     },
     "src/function/throttle.spec.ts": {
       "values": {
-        "concrete": 195,
+        "concrete": 196,
         "generic": 0,
-        "erased": 71
+        "erased": 70
       },
       "reads": {
         "concrete": 0,
@@ -10883,9 +10883,9 @@
     },
     "src/predicate/isFunction.spec.ts": {
       "values": {
-        "concrete": 60,
+        "concrete": 62,
         "generic": 0,
-        "erased": 21
+        "erased": 19
       },
       "reads": {
         "concrete": 0,
@@ -11223,7 +11223,7 @@
     },
     "src/predicate/isPlainObject.spec.ts": {
       "values": {
-        "concrete": 147,
+        "concrete": 148,
         "generic": 0,
         "erased": 31
       },
