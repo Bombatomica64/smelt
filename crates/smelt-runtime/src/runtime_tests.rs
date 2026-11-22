@@ -1884,7 +1884,7 @@ mod py_text_family {
                     smelt_py_sort(&mut ours, reverse, |left, right| left.0 < right.0);
                     let mut expected = items.clone();
                     if reverse {
-                        expected.sort_by(|left, right| right.0.cmp(&left.0));
+                        expected.sort_by_key(|item| ::std::cmp::Reverse(item.0));
                     } else {
                         expected.sort_by_key(|item| item.0);
                     }

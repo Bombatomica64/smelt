@@ -1173,8 +1173,11 @@ impl RuntimeDemand {
         }
         // A Python sort with a key, or over items Python orders only
         // partially (floats), runs `CPython`'s own algorithm (`py_sort.rs`).
-        if let Statement::Assign { dest, value } = statement
-            && python_sort_follows_cpython(mir, locals, *dest, value)
+        if let Statement::Assign {
+            dest: sort_dest,
+            value: sort_value,
+        } = statement
+            && python_sort_follows_cpython(mir, locals, *sort_dest, sort_value)
         {
             self.add(Need::PySort);
         }
@@ -1268,12 +1271,20 @@ impl RuntimeDemand {
         let Terminator::Call {
             callee,
             args,
+            dest,
             unwind,
             ..
         } = terminator
         else {
             return;
         };
+        // A sort whose key can raise is a call: it needs `py_sort.rs` as the
+        // statement form does.
+        if let Callee::Op(op, _) = callee
+            && python_sort_follows_cpython(mir, locals, *dest, op)
+        {
+            self.add(Need::PySort);
+        }
         if let Callee::Indirect(operand) = callee
             && operand_may_read_prototype_method(mir, locals, operand)
         {
@@ -1577,7 +1588,12 @@ fn class_method_read_as_value(mir: &Mir, locals: &[LocalDecl], place: &Place) ->
 /// `sorted(..)` or a Python `list.sort(..)` (no JavaScript comparator, no list
 /// result) that has a key or sorts items [`py_order_is_partial`]. An operand
 /// of unknown type counts, since the item is only emitted on demand.
-fn python_sort_follows_cpython(mir: &Mir, locals: &[LocalDecl], dest: LocalId, value: &Rvalue) -> bool {
+fn python_sort_follows_cpython(
+    mir: &Mir,
+    locals: &[LocalDecl],
+    dest: LocalId,
+    value: &Rvalue,
+) -> bool {
     let item_is_partial = |list: &Operand| {
         let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = list else {
             return true;
@@ -1587,24 +1603,30 @@ fn python_sort_follows_cpython(mir: &Mir, locals: &[LocalDecl], dest: LocalId, v
             _ => true,
         }
     };
-    match value {
-        Rvalue::ListSorted { list, key, .. } => key.is_some() || item_is_partial(list),
-        Rvalue::ListSort { list, comparator: None, key, .. } => {
-            let returns_list = local_type(locals, dest)
-                .is_some_and(|ty| matches!(mir.types.get(ty), Some(Type::List(_))));
-            key.is_some() || (!returns_list && item_is_partial(list))
-        }
-        _ => false,
+    if let Rvalue::ListSorted { list, key, .. } = value {
+        return key.is_some() || item_is_partial(list);
     }
+    let Rvalue::ListSort {
+        list,
+        comparator: None,
+        key,
+        ..
+    } = value
+    else {
+        return false;
+    };
+    let returns_list =
+        local_type(locals, dest).is_some_and(|ty| matches!(mir.types.get(ty), Some(Type::List(_))));
+    key.is_some() || (!returns_list && item_is_partial(list))
 }
 
 /// Whether Python's `<` orders values of type `ty` only partially: a `float`
 /// (every comparison with a NaN is false), or a tuple holding one.
 pub(crate) fn py_order_is_partial(types: &smelt_hir::TypeInterner, ty: smelt_hir::TypeId) -> bool {
-    match types.get(ty) {
-        Some(Type::Float) => true,
-        Some(Type::Tuple(items)) => items.iter().any(|item| py_order_is_partial(types, *item)),
-        _ => false,
+    if let Some(Type::Tuple(items)) = types.get(ty) {
+        items.iter().any(|item| py_order_is_partial(types, *item))
+    } else {
+        matches!(types.get(ty), Some(Type::Float))
     }
 }
 

@@ -32,8 +32,10 @@ impl FunctionEmitter<'_> {
         // sorts. The copy is of the backing `Vec`: cloning the `SmeltList` handle
         // shares the array, and `sorted` must leave its input alone.
         let list_text = list_read_expr(&self.operand_borrow_expr(list)?);
-        if key.is_some() || crate::runtime_demand::py_order_is_partial(&self.mir.types, element_ty) {
-            let (prefix, call) = self.py_sort_call("&mut smelt_sorted", key, reverse, element_ty)?;
+        if key.is_some() || crate::runtime_demand::py_order_is_partial(&self.mir.types, element_ty)
+        {
+            let (prefix, call) =
+                self.py_sort_call("&mut smelt_sorted", key, reverse, element_ty)?;
             return Ok(RustExpr::atom(format!(
                 "{{ {prefix}let mut smelt_sorted = {list_text}.clone(); {call}; smelt_sorted }}",
                 list_text = list_text.tight()
@@ -97,15 +99,23 @@ impl FunctionEmitter<'_> {
         let less = "|smelt_left, smelt_right| smelt_left < smelt_right";
         let Some(key_operand) = key else {
             if !self.py_orders_natively(element_ty) {
-                return Err(EmitError::new("sort supports bool, int, float, string and tuple items"));
+                return Err(EmitError::new(
+                    "sort supports bool, int, float, string and tuple items",
+                ));
             }
-            return Ok((String::new(), format!("smelt_py_sort({target}, {reverse}, {less})")));
+            return Ok((
+                String::new(),
+                format!("smelt_py_sort({target}, {reverse}, {less})"),
+            ));
         };
-        let Some(Type::Function(function_ty)) = self.mir.types.get(self.operand_ty(key_operand)?) else {
+        let Some(Type::Function(function_ty)) = self.mir.types.get(self.operand_ty(key_operand)?)
+        else {
             return Err(EmitError::new("sort key must be a closure"));
         };
         if !self.py_orders_natively(function_ty.return_ty) {
-            return Err(EmitError::new("sort key must return bool, int, float, string or a tuple of them"));
+            return Err(EmitError::new(
+                "sort key must return bool, int, float, string or a tuple of them",
+            ));
         }
         let unwrap_throw = if function_ty.may_throw {
             ".unwrap_or_else(|error: Box<dyn ::std::error::Error>| smelt_panic_throw(error))"
@@ -136,7 +146,9 @@ impl FunctionEmitter<'_> {
     /// `PartialOrd`: a `bool`, `int`, `float`, `str`, or a tuple of them.
     fn py_orders_natively(&self, ty: TypeId) -> bool {
         match self.mir.types.get(ty) {
-            Some(Type::Bool | Type::Int | Type::PyInt | Type::Float | Type::String | Type::PyStr) => true,
+            Some(
+                Type::Bool | Type::Int | Type::PyInt | Type::Float | Type::String | Type::PyStr,
+            ) => true,
             Some(Type::Tuple(items)) => items.iter().all(|item| self.py_orders_natively(*item)),
             _ => false,
         }
@@ -153,7 +165,9 @@ impl FunctionEmitter<'_> {
             _ => false,
         };
         if !totally_ordered {
-            return Err(EmitError::new("a reversed sort without a key needs totally ordered items"));
+            return Err(EmitError::new(
+                "a reversed sort without a key needs totally ordered items",
+            ));
         }
         Ok("|smelt_left, smelt_right| smelt_right.cmp(smelt_left)".to_owned())
     }

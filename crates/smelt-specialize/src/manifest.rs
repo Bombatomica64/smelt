@@ -455,6 +455,11 @@ mod ieee_float {
     }
 
     /// Writes a finite value as a number and a non-finite one as its name.
+    #[expect(
+        clippy::trivially_copy_pass_by_ref,
+        clippy::type_complexity,
+        reason = "serde's `with` attribute fixes this signature"
+    )]
     pub(super) fn serialize<S: Serializer>(value: &f64, serializer: S) -> Result<S::Ok, S::Error> {
         if value.is_nan() {
             serializer.serialize_str("nan")
@@ -473,7 +478,9 @@ mod ieee_float {
                 "nan" => Ok(f64::NAN),
                 "inf" => Ok(f64::INFINITY),
                 "-inf" => Ok(f64::NEG_INFINITY),
-                other => Err(serde::de::Error::custom(format!("`{other}` is not a float"))),
+                other => Err(serde::de::Error::custom(format!(
+                    "`{other}` is not a float"
+                ))),
             },
         }
     }
@@ -905,9 +912,11 @@ mod tests {
     /// A NaN or an infinity survives the manifest's JSON by name.
     #[test]
     fn non_finite_floats_round_trip_as_names() -> Result<(), String> {
-        for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY, -0.5] {
-            let json = serde_json::to_string(&GraphValueKind::Float(value)).map_err(|error| error.to_string())?;
-            let back: GraphValueKind = serde_json::from_str(&json).map_err(|error| error.to_string())?;
+        for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY, -0.5_f64] {
+            let json = serde_json::to_string(&GraphValueKind::Float(value))
+                .map_err(|error| error.to_string())?;
+            let back: GraphValueKind =
+                serde_json::from_str(&json).map_err(|error| error.to_string())?;
             let GraphValueKind::Float(read) = back else {
                 return Err(format!("{json} did not read back as a float"));
             };

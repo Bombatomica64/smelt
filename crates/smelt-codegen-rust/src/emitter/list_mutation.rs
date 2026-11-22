@@ -869,7 +869,10 @@ impl FunctionEmitter<'_> {
         }
         // A Python sort with a key or over partially ordered items (floats)
         // runs `CPython`'s algorithm, so a NaN lands where `CPython` puts it.
-        if key.is_some() || (!returns_list && crate::runtime_demand::py_order_is_partial(&self.mir.types, element_ty)) {
+        if key.is_some()
+            || (!returns_list
+                && crate::runtime_demand::py_order_is_partial(&self.mir.types, element_ty))
+        {
             let target = format!("&mut {}", list_mut.tight());
             let (prefix, call) = self.py_sort_call(&target, key, reverse, element_ty)?;
             return Ok(RustExpr::atom(format!(

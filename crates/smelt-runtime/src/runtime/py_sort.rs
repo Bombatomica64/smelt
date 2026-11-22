@@ -150,6 +150,7 @@ impl<T: Clone> SmeltPySortState<'_, T> {
     /// `merge_lo`: merge the adjacent runs `a` (`len_a` items from `base_a`,
     /// the shorter) and `b` that follows it, left to right, with `a` copied
     /// aside.
+    #[allow(clippy::too_many_lines, reason = "one port of `merge_lo`, step for step")]
     fn merge_lo(&mut self, items: &mut [T], base_a: usize, mut len_a: usize, mut len_b: usize) {
         let aside: Vec<T> = items[base_a..base_a + len_a].to_vec();
         let mut dest = base_a;
@@ -268,7 +269,7 @@ impl<T: Clone> SmeltPySortState<'_, T> {
     /// and the shorter `b` that follows it, right to left, with `b` copied
     /// aside. Positions are signed: a cursor steps one before its run's start
     /// as the run empties.
-    #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
+    #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss, clippy::too_many_lines, reason = "one port of `merge_hi`, step for step")]
     fn merge_hi(&mut self, items: &mut [T], base_a: usize, mut len_a: usize, mut len_b: usize) {
         let base_b = base_a + len_a;
         let aside: Vec<T> = items[base_b..base_b + len_b].to_vec();
@@ -390,7 +391,7 @@ impl<T: Clone> SmeltPySortState<'_, T> {
 }
 
 /// `merge_compute_minrun`: the run length every short run is extended to.
-fn smelt_py_sort_minrun(mut len: usize) -> usize {
+const fn smelt_py_sort_minrun(mut len: usize) -> usize {
     let mut extra = 0;
     while len >= SMELT_PY_SORT_MAX_MINRUN {
         extra |= len & 1;
@@ -399,22 +400,23 @@ fn smelt_py_sort_minrun(mut len: usize) -> usize {
     len + extra
 }
 
-/// `powerloop`: the powersort power of the boundary between the run of `n1`
-/// items at `s1` and the `n2` items after it, in a list of `n` items.
-fn smelt_py_sort_powerloop(s1: usize, n1: usize, n2: usize, n: usize) -> u32 {
+/// `powerloop`: the powersort power of the boundary between the run of
+/// `left` items at `start` and the `right` items after it, in a list of
+/// `total` items.
+const fn smelt_py_sort_powerloop(start: usize, left: usize, right: usize, total: usize) -> u32 {
     let mut result = 0;
-    let mut a = 2 * s1 + n1;
-    let mut b = a + n1 + n2;
+    let mut low = 2 * start + left;
+    let mut high = low + left + right;
     loop {
         result += 1;
-        if a >= n {
-            a -= n;
-            b -= n;
-        } else if b >= n {
+        if low >= total {
+            low -= total;
+            high -= total;
+        } else if high >= total {
             break;
         }
-        a <<= 1;
-        b <<= 1;
+        low <<= 1;
+        high <<= 1;
     }
     result
 }
@@ -474,7 +476,7 @@ fn smelt_py_sort_binarysort<T>(lt: &mut dyn FnMut(&T, &T) -> bool, items: &mut [
     for next in sorted.max(1)..items.len() {
         let (mut low, mut high) = (0, next);
         while low < high {
-            let middle = (low + high) >> 1;
+            let middle = usize::midpoint(low, high);
             if lt(&items[next], &items[middle]) {
                 high = middle;
             } else {
@@ -489,13 +491,13 @@ fn smelt_py_sort_binarysort<T>(lt: &mut dyn FnMut(&T, &T) -> bool, items: &mut [
 /// equal to it, searching outward from `hint`.
 #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
 fn smelt_py_sort_gallop_left<T>(lt: &mut dyn FnMut(&T, &T) -> bool, key: &T, items: &[T], hint: usize) -> usize {
-    let n = items.len() as isize;
+    let len = items.len() as isize;
     let hint = hint as isize;
     let at = |index: isize| &items[index as usize];
     let mut last_ofs: isize = 0;
     let mut ofs: isize = 1;
     if lt(at(hint), key) {
-        let max_ofs = n - hint;
+        let max_ofs = len - hint;
         while ofs < max_ofs {
             if lt(at(hint + ofs), key) {
                 last_ofs = ofs;
@@ -537,7 +539,7 @@ fn smelt_py_sort_gallop_left<T>(lt: &mut dyn FnMut(&T, &T) -> bool, key: &T, ite
 /// equal to it, searching outward from `hint`.
 #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
 fn smelt_py_sort_gallop_right<T>(lt: &mut dyn FnMut(&T, &T) -> bool, key: &T, items: &[T], hint: usize) -> usize {
-    let n = items.len() as isize;
+    let len = items.len() as isize;
     let hint = hint as isize;
     let at = |index: isize| &items[index as usize];
     let mut last_ofs: isize = 0;
@@ -557,7 +559,7 @@ fn smelt_py_sort_gallop_right<T>(lt: &mut dyn FnMut(&T, &T) -> bool, key: &T, it
         last_ofs = hint - ofs;
         ofs = hint - k;
     } else {
-        let max_ofs = n - hint;
+        let max_ofs = len - hint;
         while ofs < max_ofs {
             if lt(key, at(hint + ofs)) {
                 break;

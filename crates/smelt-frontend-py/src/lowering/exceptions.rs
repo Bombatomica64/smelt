@@ -216,8 +216,8 @@ impl ModuleBuilder<'_> {
             Some(Type::Optional(item, _) | Type::List(item)) => self.has_python_text(*item),
             // A union of such members writes its live member's text (the
             // emitter's `union_has_py_repr` holds the same condition).
-            Some(Type::Union(members)) => {
-                let members = members.clone();
+            Some(Type::Union(union_members)) => {
+                let members = union_members.clone();
                 members.iter().any(|member| matches!(self.ctx.krate.types.get(*member), Some(Type::PyInt | Type::PyStr)))
                     && members.iter().all(|member| {
                         !matches!(self.ctx.krate.types.get(*member), Some(Type::Union(_))) && self.has_python_text(*member)

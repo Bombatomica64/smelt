@@ -441,9 +441,12 @@ impl FunctionEmitter<'_> {
             return false;
         };
         self.concrete_union_members(ty).is_some()
-            && members.iter().any(|member| matches!(self.mir.types.get(*member), Some(Type::PyInt | Type::PyStr)))
+            && members.iter().any(|member| {
+                matches!(self.mir.types.get(*member), Some(Type::PyInt | Type::PyStr))
+            })
             && members.iter().all(|member| {
-                !matches!(self.mir.types.get(*member), Some(Type::Union(_))) && self.type_has_py_repr(*member)
+                !matches!(self.mir.types.get(*member), Some(Type::Union(_)))
+                    && self.type_has_py_repr(*member)
             })
     }
 
