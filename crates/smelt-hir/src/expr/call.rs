@@ -32,6 +32,12 @@ pub struct ClosureExpr {
     /// User-written arrows like `(x) => func1(x)` keep `None` and retain fresh
     /// identity, matching JavaScript semantics.
     pub function_item: Option<ItemId>,
+    /// JavaScript `Function.prototype.name` this closure value reports, set by
+    /// the frontend (a declaration's own name, the binding or property name the
+    /// spec's `NamedEvaluation` gives an anonymous function). `None` is the empty
+    /// name, except that a function-item wrapper (`function_item`) reports its
+    /// item's name, which MIR lowering fills in.
+    pub name: Option<Symbol>,
     /// Where this closure's `this` comes from (see [`ClosureThis`]).
     pub this_binding: ClosureThis,
     /// Source span covering the closure expression.

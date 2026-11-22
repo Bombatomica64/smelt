@@ -651,6 +651,7 @@ impl ModuleBuilder<'_> {
                 return_ty: unknown_ty,
                 captures: Vec::new(),
                 body: body_id,
+                name: None,
                 function_item: None,
                 this_binding: smelt_hir::ClosureThis::Own,
                 span,

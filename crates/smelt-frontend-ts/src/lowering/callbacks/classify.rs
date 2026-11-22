@@ -106,6 +106,7 @@ impl ModuleBuilder<'_> {
                 // callback-reference path. Tag it with the source item so all
                 // references to this named function share one cached runtime
                 // wrapper and compare equal under JavaScript `===`.
+                name: None,
                 function_item: Some(item),
                 this_binding: smelt_hir::ClosureThis::Forwarded,
                 span,

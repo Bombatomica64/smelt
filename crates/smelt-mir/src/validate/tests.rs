@@ -99,6 +99,7 @@ fn closure(
         is_generator: false,
         is_async: false,
         function_item_key: None,
+        name: None,
         this_binding: smelt_hir::ClosureThis::Own,
         language: smelt_hir::Language::TypeScript,
     }

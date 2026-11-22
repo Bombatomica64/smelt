@@ -83,6 +83,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             any_written_bindings: HashSet::new(),
             any_written_returns: HashSet::new(),
             unchecked_params: HashSet::new(),
+            function_names: HashMap::new(),
             test_counts_assertions: false,
             defining_local_functions: Vec::new(),
             unknown_index_access,

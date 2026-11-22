@@ -500,6 +500,7 @@ impl RuntimeDemand {
             | Rvalue::OptionalField { .. }
             | Rvalue::OptionalIndex { .. }
             | Rvalue::Len { .. }
+            | Rvalue::FunctionName { .. }
             | Rvalue::NumericAbs { .. }
             | Rvalue::NumericHypot { .. }
             | Rvalue::NumericPredicate { .. }

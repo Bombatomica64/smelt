@@ -10,6 +10,7 @@ mod body_arena;
 mod checker_types;
 mod conditional_base;
 mod erasure;
+mod function_names;
 mod function_statics;
 mod hoisting;
 mod int32;
@@ -1055,6 +1056,9 @@ struct ModuleBuilder<'ctx> {
     /// Span starts of the parameters of functions defined in an object
     /// literal cast `as any`, which accept any value; see `unchecked_params`.
     unchecked_params: HashSet<u32>,
+    /// Function span start to the `Function.prototype.name` that function
+    /// reports; see `function_names`.
+    function_names: HashMap<u32, String>,
     /// Names of the local `function` declarations whose OWN body is currently
     /// being lowered, innermost last.
     ///

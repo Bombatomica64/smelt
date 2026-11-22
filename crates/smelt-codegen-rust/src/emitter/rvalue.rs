@@ -363,6 +363,7 @@ impl FunctionEmitter<'_> {
             Rvalue::Struct { class, fields } => self.struct_literal_expr(*class, fields, dest_ty),
             Rvalue::ExternalClassInstance { class, args } => self.external_class_instance_at_dest_expr(*class, args, dest_ty),
             Rvalue::Len { operand } => self.len_expr(operand, dest_ty),
+            Rvalue::FunctionName { operand } => self.function_name_expr(operand, dest_ty),
             Rvalue::NumericAbs { operand } => self.numeric_abs_expr(operand),
             Rvalue::NumericRound { op, operand } => self.numeric_round_expr(*op, operand, dest_ty),
             Rvalue::NumericExtrema { op, args, spread } => {

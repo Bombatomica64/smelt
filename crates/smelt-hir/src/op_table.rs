@@ -332,6 +332,12 @@ macro_rules! op_group_transcribed {
                 operand: one @RECV,
             }
                 => (format!("len {operand}"));
+            /// Read JavaScript `Function.prototype.name` off a function value.
+            FunctionName {
+                /// The function whose name is read.
+                operand: one @RECV,
+            }
+                => (format!("function_name {operand}"));
             /// Compute the absolute value of an integer or floating-point number.
             NumericAbs {
                 /// The numeric value.

@@ -819,6 +819,23 @@ impl ModuleBuilder<'_> {
                 span: self.span(member.span.start, member.span.end),
             }));
         }
+        // `Function.prototype.name`: the name fixed when the function value was
+        // created (`ClosureExpr::name`), a string on every function.
+        if member.property.name == "name"
+            && !optional_access
+            && !is_assignment_target
+            && matches!(
+                self.ctx.krate.types.get(access_receiver_ty),
+                Some(Type::Function(_))
+            )
+        {
+            let ty = self.ctx.krate.types.intern(Type::String);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::FunctionName { operand: receiver },
+                ty,
+                span: self.span(member.span.start, member.span.end),
+            }));
+        }
         if let Some(read) = self.iterator_result_member(
             receiver,
             receiver_ty,
@@ -1048,6 +1065,7 @@ impl ModuleBuilder<'_> {
                 return_ty: bool_ty,
                 captures: Vec::new(),
                 body: body_id,
+                name: None,
                 function_item: None,
                 this_binding: smelt_hir::ClosureThis::Own,
                 span,
@@ -1280,6 +1298,7 @@ impl ModuleBuilder<'_> {
                 return_ty,
                 captures: Vec::new(),
                 body,
+                name: None,
                 function_item: None,
                 this_binding: smelt_hir::ClosureThis::Own,
                 span,
@@ -1557,6 +1576,7 @@ impl ModuleBuilder<'_> {
                 return_ty: bool_ty,
                 captures: Vec::new(),
                 body: body_id,
+                name: None,
                 function_item: None,
                 this_binding: smelt_hir::ClosureThis::Own,
                 span,

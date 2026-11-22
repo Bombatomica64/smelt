@@ -64,6 +64,22 @@ use super::context::{LoweringCtx, LoweringShared};
 use super::{LowerError, closure_id_index, local_index, u32_from_usize, usize_from_u32};
 
 impl LoweringCtx<'_> {
+    /// The `Function.prototype.name` a function item reports when used as a
+    /// value: its declared name, a method's property name, a constructor's
+    /// class name.
+    fn function_item_name(&self, item: smelt_hir::ItemId) -> Option<smelt_hir::Symbol> {
+        let index = usize::try_from(item.0).ok()?;
+        let smelt_hir::Item::Function(function) = self.krate.items.get(index)? else {
+            return None;
+        };
+        Some(match function.owner {
+            smelt_hir::FunctionOwner::Module => function.name,
+            smelt_hir::FunctionOwner::ClassMethod { method, .. }
+            | smelt_hir::FunctionOwner::ClassStaticMethod { method, .. } => method,
+            smelt_hir::FunctionOwner::Constructor { class } => class,
+        })
+    }
+
     /// Lower an `ExprKind::Closure` into a MIR closure entry and `Rvalue::Closure`.
     ///
     /// This recursively lowers the closure body in a nested [`LoweringCtx`],
@@ -190,6 +206,11 @@ impl LoweringCtx<'_> {
                 Some(Type::Function(function_ty)) if function_ty.is_async
             ),
             function_item_key,
+            name: closure.name.or_else(|| {
+                closure
+                    .function_item
+                    .and_then(|item| self.function_item_name(item))
+            }),
             this_binding: closure.this_binding,
             language: function.language,
         });

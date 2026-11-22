@@ -637,6 +637,7 @@ impl ModuleBuilder<'_> {
                     return_ty,
                     captures,
                     body: body_id,
+                    name: this.closure_name_at(function.span.start),
                     function_item: None,
                     this_binding: smelt_hir::ClosureThis::Own,
                     span: this.span(function.span.start, function.span.end),
