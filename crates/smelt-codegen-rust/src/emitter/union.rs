@@ -862,6 +862,70 @@ impl FunctionEmitter<'_> {
         })
     }
 
+    /// Renders [`Rvalue::UnionArmTest`]: whether a concrete union value holds
+    /// one of `arms` (`matches!(x, SmeltUnion3::M0(_) | SmeltUnion3::M2(_))`),
+    /// or, for an optional, whether it is absent (`None` among `arms`) or
+    /// present with a passing payload.
+    pub(super) fn union_arm_test_expr(
+        &self,
+        value: &Operand,
+        arms: &[TypeId],
+    ) -> Result<RustExpr, EmitError> {
+        let value_ty = self.operand_ty(value)?;
+        // `matches!` with `_` payloads and `is_some`/`as_ref` only borrow.
+        let text = self.operand_borrow_expr(value)?;
+        let none_passes = arms
+            .iter()
+            .any(|arm| matches!(self.mir.types.get(*arm), Some(Type::None)));
+        let (payload_ty, optional) = match self.mir.types.get(value_ty) {
+            Some(Type::Optional(inner, _)) => (*inner, true),
+            _ => (value_ty, false),
+        };
+        let payload_check = |payload: &RustExpr| -> Result<String, EmitError> {
+            if arms.contains(&payload_ty) {
+                return Ok("true".to_owned());
+            }
+            let members = self.concrete_union_members(payload_ty).ok_or_else(|| {
+                EmitError::new("a union arm test needs a concrete union or an optional")
+            })?;
+            let union_enum_name = union_name(payload_ty);
+            let patterns = members
+                .iter()
+                .enumerate()
+                .filter(|(_, member)| arms.contains(member))
+                .map(|(index, _)| format!("{union_enum_name}::M{index}(_)"))
+                .collect::<Vec<_>>();
+            Ok(if patterns.is_empty() {
+                "false".to_owned()
+            } else {
+                format!(
+                    "matches!({}, {})",
+                    payload.delimited(),
+                    patterns.join(" | ")
+                )
+            })
+        };
+        if !optional {
+            return Ok(RustExpr::atom(payload_check(&text)?));
+        }
+        let present = payload_check(&RustExpr::path("smelt_value"))?;
+        let check = match (none_passes, present.as_str()) {
+            (true, "true") => "true".to_owned(),
+            (false, "true") => format!("{}.is_some()", text.tight()),
+            (true, "false") => format!("{}.is_none()", text.tight()),
+            (false, "false") => "false".to_owned(),
+            (true, _) => format!(
+                "{}.as_ref().is_none_or(|smelt_value| {present})",
+                text.tight()
+            ),
+            (false, _) => format!(
+                "{}.as_ref().is_some_and(|smelt_value| {present})",
+                text.tight()
+            ),
+        };
+        Ok(RustExpr::atom(check))
+    }
+
     /// Emit an `instanceof` discriminant test for concrete class union arms.
     pub(super) fn concrete_union_class_check(
         &self,

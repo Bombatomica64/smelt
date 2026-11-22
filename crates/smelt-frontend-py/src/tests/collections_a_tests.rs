@@ -705,3 +705,34 @@ fn percent_mapping_misuse_rejects() -> TestResult {
     }
     Ok(())
 }
+
+/// `isinstance` refuses what it cannot type: a union with a `None` member
+/// (erased today, so no member test exists) and a target that is neither a
+/// builtin type nor a class.
+#[test]
+fn isinstance_unsupported_forms_reject() -> TestResult {
+    for (source, expected) in [
+        (
+            py!(r#"
+def f(x: int | str | None) -> bool:
+    return isinstance(x, int)
+"#),
+            "union with a `None` member",
+        ),
+        (
+            py!(r#"
+def f(x: int) -> bool:
+    return isinstance(x, bytes)
+"#),
+            "isinstance() of `bytes`",
+        ),
+    ] {
+        let mut ctx = HirCtx::new();
+        let errors = lower_errors(source, &mut ctx)?;
+        ensure(
+            first_error(&errors)?.message.contains(expected),
+            format!("expected an isinstance diagnostic containing {expected:?}"),
+        )?;
+    }
+    Ok(())
+}

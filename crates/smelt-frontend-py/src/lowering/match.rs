@@ -208,9 +208,11 @@ impl ModuleBuilder<'_> {
             .first()
             .map_or_else(|| Span::new(self.file_id, 0, 0), |s| self.span(s.range()));
         let block = body.push_block(span);
-        for stmt in stmts {
-            self.statement_in_block(stmt, body, block)?;
-        }
-        Ok(block)
+        self.with_narrowings(&[], |this| {
+            for stmt in stmts {
+                this.statement_in_block(stmt, body, block)?;
+            }
+            Ok(block)
+        })
     }
 }

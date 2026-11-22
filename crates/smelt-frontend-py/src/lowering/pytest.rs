@@ -363,6 +363,8 @@ impl ModuleBuilder<'_> {
             }
 
             // Lower the body statements.
+            let param_names = func.parameters.iter().map(|param| param.name().as_str()).collect::<Vec<_>>();
+            this.scope.single_binding = Self::single_binding_names(&param_names, &func.body);
             let body_error = func
                 .body
                 .iter()

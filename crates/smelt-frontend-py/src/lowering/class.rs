@@ -2076,6 +2076,8 @@ impl ModuleBuilder<'_> {
                     span: this.span(p.range),
                 });
             }
+            let param_names = func.parameters.iter().map(|param| param.name().as_str()).collect::<Vec<_>>();
+            this.scope.single_binding = Self::single_binding_names(&param_names, &func.body);
             for stmt in &func.body {
                 this.statement(stmt, &mut fn_body)?;
             }
