@@ -363,16 +363,16 @@ the library gates run on it.
 | --- | ---: |
 | Functions | 80.07% |
 | Lines | 82.76% |
-| Regions | 75.87% |
-| Branches | 70.61% |
+| Regions | 75.88% |
+| Branches | 70.62% |
 
 ### Per Crate
 
 | Crate | Functions | Lines | Branches |
 | --- | ---: | ---: | ---: |
-| `smelt-codegen-rust` | 91.52% | 86.43% | 73.74% |
+| `smelt-codegen-rust` | 91.52% | 86.44% | 73.76% |
 | `smelt-frontend-py` | 87.21% | 80.62% | 72.41% |
-| `smelt-frontend-ts` | 90.71% | 84.40% | 73.00% |
+| `smelt-frontend-ts` | 90.71% | 84.40% | 73.01% |
 | `smelt-hir` | 85.88% | 80.08% | 72.81% |
 | `smelt-mir` | 92.80% | 92.04% | 78.42% |
 | `smelt-py-types` | 84.62% | 92.86% | 68.97% |
@@ -383,6 +383,7 @@ the library gates run on it.
 | `smelt-ts-model` | 91.67% | 93.27% | 50.00% |
 | `smelt-ts-types` | 86.05% | 90.62% | 84.72% |
 <!-- COVERAGE:END -->
+
 
 
 
