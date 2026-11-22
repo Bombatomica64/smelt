@@ -695,3 +695,77 @@ missing: bool = 4 not in values
     )?;
     Ok(())
 }
+
+/// `min(xs, key=f)` keeps the extrema op and carries the key closure, a
+/// builtin key (`len`) is a closure too, and the result is the item type.
+#[test]
+fn extrema_with_key_lowers_to_keyed_list_extrema() -> TestResult {
+    let source = py!(r"
+def neg(x: int) -> int:
+    return -x
+
+def run() -> None:
+    values: list[int] = [2, 1]
+    low: int = min(values, key=neg)
+    words: list[str] = ['a', 'bb']
+    long: str = max(words, key=len)
+");
+    let mut ctx = HirCtx::new();
+    lower_module(source, &mut ctx)?;
+    let keyed = ctx
+        .krate
+        .bodies
+        .iter()
+        .flat_map(|body| body.exprs.iter().map(move |expr| (body, expr)))
+        .filter(|(body, expr)| {
+            matches!(&expr.kind, ExprKind::PythonListExtrema { key: Some(key), .. }
+                if matches!(body.exprs.get(usize::try_from(key.0).unwrap_or(usize::MAX)).map(|key_expr| &key_expr.kind), Some(ExprKind::Closure(_))))
+        })
+        .map(|(_, expr)| ctx.krate.types.get(expr.ty).cloned())
+        .collect::<Vec<_>>();
+    ensure_eq(
+        &keyed,
+        &vec![Some(Type::PyInt), Some(Type::PyStr)],
+        "keyed extrema item types",
+    )
+}
+
+/// The keywords `min`/`max` do not support yet are refused clearly, and a
+/// program function named like a builtin is called as the program's.
+#[test]
+fn extrema_key_misuse_rejects() -> TestResult {
+    for (call, expected) in [
+        ("min(values, default=0)", "support only the key keyword"),
+        (
+            "min(1, 2, key=abs)",
+            "keyword arguments only with one iterable",
+        ),
+    ] {
+        let source =
+            format!("def run() -> None:\n    values: list[int] = [2, 1]\n    low: int = {call}\n");
+        let mut ctx = HirCtx::new();
+        let errors = lower_errors(&source, &mut ctx)?;
+        ensure(
+            errors.iter().any(|error| error.message.contains(expected)),
+            format!("{call}: expected `{expected}`, got {errors:?}"),
+        )?;
+    }
+    let shadowed = py!(r"
+def len(x: int) -> int:
+    return x
+
+def run() -> None:
+    values: list[int] = [2, 1]
+    low: int = min(values, key=len)
+");
+    let mut ctx = HirCtx::new();
+    lower_module(shadowed, &mut ctx)?;
+    ensure(
+        ctx.krate.bodies.iter().any(|body| {
+            body.exprs
+                .iter()
+                .any(|expr| matches!(expr.kind, ExprKind::PythonListExtrema { key: Some(_), .. }))
+        }),
+        "a program `len` is a callback through its function item",
+    )
+}

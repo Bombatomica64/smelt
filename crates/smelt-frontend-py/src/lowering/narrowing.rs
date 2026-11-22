@@ -1,4 +1,4 @@
-// `isinstance` and the flow narrowing it proves.
+// `isinstance`, `is None`, and the flow narrowing they prove.
 // Included into lowering.rs via include!, so this file uses plain comments.
 //
 // `isinstance(x, T)` is answered from `x`'s static type wherever that decides
@@ -346,7 +346,34 @@ impl ModuleBuilder<'_> {
                 facts
             }
             Expr::Call(call) => self.isinstance_facts(call, body).unwrap_or_default(),
+            Expr::Compare(compare) => self.none_test_facts(compare, body).unwrap_or_default(),
             _ => NarrowingFacts::default(),
+        }
+    }
+
+    /// The facts of `name is None` / `name is not None` (either operand
+    /// order) on a single-binding local of an optional type: where the local
+    /// is not `None` it holds the optional's payload. The `None` side records
+    /// nothing, since a read there has no payload to project.
+    fn none_test_facts(&self, compare: &ruff_python_ast::ExprCompare, body: &Body) -> Option<NarrowingFacts> {
+        let ([op], [right]) = (compare.ops.as_ref(), compare.comparators()) else {
+            return None;
+        };
+        let ((Expr::Name(name), Expr::NoneLiteral(_)) | (Expr::NoneLiteral(_), Expr::Name(name))) = (compare.first_operand(), right) else {
+            return None;
+        };
+        if !self.scope.single_binding.contains(name.id.as_str()) {
+            return None;
+        }
+        let local = *self.scope.locals.get(name.id.as_str())?;
+        let &Type::Optional(inner, _) = self.ctx.krate.types.get(Self::local_ty(body, local))? else {
+            return None;
+        };
+        let present = vec![(local, inner)];
+        match op {
+            CmpOp::Is => Some(NarrowingFacts { then_facts: Vec::new(), else_facts: present }),
+            CmpOp::IsNot => Some(NarrowingFacts { then_facts: present, else_facts: Vec::new() }),
+            _ => None,
         }
     }
 
@@ -412,10 +439,12 @@ impl ModuleBuilder<'_> {
     }
 
     /// The narrowed type a read of `local` takes, if any: a fact that is
-    /// still a union of several members leaves the read at its own type.
-    fn readable_narrowing(&self, local: smelt_hir::LocalId) -> Option<TypeId> {
+    /// still a union of several members leaves the read at its own type,
+    /// unless that union is the whole payload of the local's optional.
+    fn readable_narrowing(&self, local: smelt_hir::LocalId, body: &Body) -> Option<TypeId> {
         let narrowed = *self.scope.narrowed.get(&local)?;
-        (!matches!(self.ctx.krate.types.get(narrowed), Some(Type::Union(_)))).then_some(narrowed)
+        let payload = matches!(self.ctx.krate.types.get(Self::local_ty(body, local)), Some(&Type::Optional(inner, _)) if inner == narrowed);
+        (payload || !matches!(self.ctx.krate.types.get(narrowed), Some(Type::Union(_)))).then_some(narrowed)
     }
 
     /// A read of a narrowed local: the local at its optional's payload type

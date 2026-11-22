@@ -736,3 +736,50 @@ def f(x: int) -> bool:
     }
     Ok(())
 }
+
+/// A literal `None` argument takes the optional parameter's type (as the
+/// `None` of an omitted defaulted argument does), and a read after
+/// `if x is None: return` is the payload: `x * 2` multiplies a `PyInt`.
+#[test]
+fn none_argument_and_is_none_narrowing() -> TestResult {
+    let source = py!(r"
+def f(x: int | None = None) -> int:
+    if x is None:
+        return -1
+    return x * 2
+
+def run() -> int:
+    return f(None)
+");
+    let mut ctx = HirCtx::new();
+    lower_module(source, &mut ctx)?;
+    let optional_int = |ty| matches!(ctx.krate.types.get(ty), Some(Type::Optional(inner, _)) if ctx.krate.types.get(*inner) == Some(&Type::PyInt));
+    let typed_none_arg = ctx.krate.bodies.iter().any(|body| {
+        body.exprs.iter().any(|expr| match &expr.kind {
+            ExprKind::Call { args, .. } => args.iter().any(|arg| {
+                body.exprs
+                    .get(usize::try_from(arg.0).unwrap_or(usize::MAX))
+                    .is_some_and(|arg_expr| {
+                        matches!(arg_expr.kind, ExprKind::Literal(Literal::None))
+                            && optional_int(arg_expr.ty)
+                    })
+            }),
+            _ => false,
+        })
+    });
+    ensure(
+        typed_none_arg,
+        "`f(None)` passes a `None` typed `int | None`",
+    )?;
+    let narrowed_read = ctx.krate.bodies.iter().any(|body| {
+        body.exprs.iter().any(|expr| {
+            matches!(expr.kind, ExprKind::Local(_))
+                && ctx.krate.types.get(expr.ty) == Some(&Type::PyInt)
+                && body.locals.iter().any(|local| optional_int(local.ty))
+        })
+    });
+    ensure(
+        narrowed_read,
+        "the read after `if x is None: return` is the `int` payload",
+    )
+}

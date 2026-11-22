@@ -752,8 +752,10 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let cond = self.expression(&if_expr.test, body)?;
-        let then_expr = self.expression(&if_expr.body, body)?;
-        let else_expr = self.expression(&if_expr.orelse, body)?;
+        // Each branch reads what the test proves, as an `if` statement's do.
+        let facts = self.narrowing_facts(&if_expr.test, body);
+        let then_expr = self.with_narrowings(&facts.then_facts, |this| this.expression(&if_expr.body, body))?;
+        let else_expr = self.with_narrowings(&facts.else_facts, |this| this.expression(&if_expr.orelse, body))?;
         let ty = Self::expr_ty(body, then_expr);
         if Self::expr_ty(body, else_expr) != ty {
             return Err(SmeltError::unsupported(
@@ -1442,8 +1444,16 @@ impl ModuleBuilder<'_> {
             ));
         };
         let mut acc = self.expression(first, body)?;
+        // Each operand runs only when the ones before it did not decide the
+        // result, so it reads what they proved: their true side for `and`
+        // (`x is not None and len(x) > 0`), their false side for `or`.
+        let mut proven = Vec::new();
+        let mut previous = first;
         for value in rest {
-            let rhs = self.expression(value, body)?;
+            let facts = self.narrowing_facts(previous, body);
+            proven.extend(if b.op == BoolOp::And { facts.then_facts } else { facts.else_facts });
+            previous = value;
+            let rhs = self.with_narrowings(&proven, |this| this.expression(value, body))?;
             let span = Span::new(
                 self.file_id,
                 Self::expr_span(body, acc).start,

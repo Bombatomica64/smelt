@@ -123,12 +123,20 @@ impl FunctionEmitter<'_> {
             ""
         };
         let param_ty = function_ty.params.first().copied().unwrap_or(element_ty);
-        let item_arg = self.rendered_at_type(
-            &RustExpr::path("smelt_item").cloned_value(),
-            element_ty,
-            param_ty,
-            &self.render_scope(),
-        )?;
+        // `smelt_item` is `&T`: a closure whose ABI takes the item by shared
+        // reference gets it as is, any other its own copy at the parameter's type.
+        let item_arg = if param_ty == element_ty
+            && self.callback_param_is_shared_reference(function_ty, 0, param_ty)
+        {
+            RustExpr::path("smelt_item")
+        } else {
+            self.rendered_at_type(
+                &RustExpr::path("smelt_item").cloned_value(),
+                element_ty,
+                param_ty,
+                &self.render_scope(),
+            )?
+        };
         let closure_expr = match self.closure_operand_expr_for_declared_type(key_operand) {
             Ok(closure_expr) => closure_expr,
             Err(_) => self.operand_expr(key_operand)?,

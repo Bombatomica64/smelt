@@ -224,11 +224,22 @@ impl FunctionEmitter<'_> {
     /// less (greater), so the first of equal items wins and a NaN compares as
     /// `CPython` compares it; an empty list raises `ValueError` with
     /// `CPython`'s message.
+    ///
+    /// With a key, the items are copied out of the list first (the key may
+    /// touch the list), the key runs once per item in list order, and the
+    /// running extremum is replaced only when an item's key compares strictly
+    /// less (greater) than the best key so far, as `CPython`'s `min_max`
+    /// does. A raising key re-raises through the panic route a raising
+    /// `sorted` key uses ([`Self::py_sort_call`]).
     fn python_list_extrema_call(
         &self,
         op: smelt_hir::NumericExtremaOp,
         list: &Operand,
+        key: Option<&Operand>,
     ) -> Result<(RenderedCall, TypeId), EmitError> {
+        if let Some(key_operand) = key {
+            return self.python_list_extrema_by_key(op, list, key_operand);
+        }
         let list_ty = self.operand_ty(list)?;
         let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
             return Err(EmitError::new("a Python min()/max() needs a list"));
@@ -244,6 +255,61 @@ impl FunctionEmitter<'_> {
                 list_text = list_text.tight()
             ))),
             *item_ty,
+        ))
+    }
+
+    /// Renders `min(xs, key=f)` / `max(xs, key=f)`; see
+    /// [`Self::python_list_extrema_call`].
+    fn python_list_extrema_by_key(
+        &self,
+        op: smelt_hir::NumericExtremaOp,
+        list: &Operand,
+        key: &Operand,
+    ) -> Result<(RenderedCall, TypeId), EmitError> {
+        let list_ty = self.operand_ty(list)?;
+        let Some(&Type::List(item_ty)) = self.mir.types.get(list_ty) else {
+            return Err(EmitError::new("a Python min()/max() needs a list"));
+        };
+        let Some(Type::Function(function_ty)) = self.mir.types.get(self.operand_ty(key)?) else {
+            return Err(EmitError::new("a min()/max() key must be a closure"));
+        };
+        let (comparison, name) = match op {
+            smelt_hir::NumericExtremaOp::Min => ("<", "min"),
+            smelt_hir::NumericExtremaOp::Max => (">", "max"),
+        };
+        let unwrap_throw = if function_ty.may_throw {
+            ".unwrap_or_else(|error: Box<dyn ::std::error::Error>| smelt_panic_throw(error))"
+        } else {
+            ""
+        };
+        let param_ty = function_ty.params.first().copied().unwrap_or(item_ty);
+        // A closure whose ABI takes the item by shared reference borrows the
+        // owned item; any other gets its own copy at the parameter's type.
+        let item_arg = if param_ty == item_ty
+            && self.callback_param_is_shared_reference(function_ty, 0, param_ty)
+        {
+            RustExpr::atom("&smelt_item")
+        } else {
+            self.rendered_at_type(
+                &RustExpr::path("smelt_item").cloned_value(),
+                item_ty,
+                param_ty,
+                &self.render_scope(),
+            )?
+        };
+        let closure_expr = match self.closure_operand_expr_for_declared_type(key) {
+            Ok(closure_expr) => closure_expr,
+            Err(_) => self.operand_expr(key)?,
+        };
+        let list_text = super::list_read_expr(&self.operand_borrow_expr(list)?);
+        Ok((
+            RenderedCall::propagating(RustExpr::atom(format!(
+                "{{ let mut smelt_extrema_key = {closure}; let smelt_items = {list_text}.clone(); let mut smelt_best = None; for smelt_item in smelt_items {{ let smelt_item_key = (smelt_extrema_key)({item_arg}){unwrap_throw}; match &smelt_best {{ Some((smelt_best_key, _)) if !(smelt_item_key {comparison} *smelt_best_key) => {{}} _ => smelt_best = Some((smelt_item_key, smelt_item)), }} }} smelt_best.map(|(_, smelt_item)| smelt_item).ok_or_else(|| smelt_py_value_error(\"{name}() iterable argument is empty\")) }}",
+                closure = closure_expr.delimited(),
+                list_text = list_text.tight(),
+                item_arg = item_arg.delimited(),
+            ))),
+            item_ty,
         ))
     }
 
@@ -487,9 +553,11 @@ impl FunctionEmitter<'_> {
                     target,
                 )
             }
-            Rvalue::PythonListExtrema { op: extremum, list } => {
-                self.python_list_extrema_call(*extremum, list)?
-            }
+            Rvalue::PythonListExtrema {
+                op: extremum,
+                list,
+                key,
+            } => self.python_list_extrema_call(*extremum, list, key.as_ref())?,
             Rvalue::Base64Transcode { op, .. } => {
                 let value = args.first().ok_or_else(|| {
                     EmitError::new("a base64 transcoder takes one string argument")

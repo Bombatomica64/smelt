@@ -695,6 +695,13 @@ impl ModuleBuilder<'_> {
                 return_ty: closure.return_ty,
             });
         }
+        if let Some(lambda) = self.builtin_callback_lambda(arg, expected_param_tys.len()) {
+            let closure = self.lambda_closure(&lambda, expected_param_tys, None, body)?;
+            return Ok(ClosureCallback {
+                expr: closure.expr,
+                return_ty: closure.return_ty,
+            });
+        }
         let mut expr = self.expression(arg, body)?;
         let index = usize::try_from(expr.0).unwrap_or(usize::MAX);
         if let ExprKind::Item(item) = body.exprs[index].kind {
@@ -718,6 +725,32 @@ impl ModuleBuilder<'_> {
             expr,
             return_ty: function.return_ty,
         })
+    }
+
+    /// A builtin function named as a callback (`sorted(xs, key=len)`), as the
+    /// lambda that calls it with the callback's parameters: `len` becomes
+    /// `lambda a: len(a)`, so the call lowers through the same builtin rules
+    /// (and the same refusals) as a written call, typed by the values the
+    /// callback receives. The synthesized nodes take `arg`'s source range, so
+    /// a diagnostic points at the name. `None` when `arg` is not a name of a
+    /// Python builtin, or the program binds that name.
+    fn builtin_callback_lambda(&self, arg: &Expr, arity: usize) -> Option<ruff_python_ast::ExprLambda> {
+        let Expr::Name(name) = arg else {
+            return None;
+        };
+        let spelled = name.id.as_str();
+        if self.program_binds_name(spelled) || !ruff_python_stdlib::builtins::is_python_builtin(spelled, ruff_python_ast::PythonVersion::default().minor, false) {
+            return None;
+        }
+        let params = (0..arity).map(|position| format!("__smelt_builtin_arg_{position}")).collect::<Vec<_>>();
+        let source = format!("lambda {list}: {spelled}({list})", list = params.join(", "));
+        let parsed = ruff_python_parser::parse_expression(&source).ok()?;
+        let mut expr = *parsed.into_syntax().body;
+        ruff_python_ast::relocate::relocate_expr(&mut expr, name.range);
+        match expr {
+            Expr::Lambda(lambda) => Some(lambda),
+            _ => None,
+        }
     }
 
     /// Wrap a module-level function used as a value (`sorted(xs, key=neg)`) in

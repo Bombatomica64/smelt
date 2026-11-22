@@ -280,7 +280,7 @@ impl ModuleBuilder<'_> {
         let span = self.span(range);
 
         if let Some(&local) = self.scope.locals.get(name) {
-            if let Some(narrowed) = self.readable_narrowing(local) {
+            if let Some(narrowed) = self.readable_narrowing(local, body) {
                 return Ok(self.narrowed_local_read(local, narrowed, span, body));
             }
             let ty = Self::local_ty(body, local);

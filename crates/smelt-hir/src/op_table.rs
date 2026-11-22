@@ -2677,15 +2677,25 @@ macro_rules! op_group_transcribed {
             /// other iterable is projected to one first): the FIRST item no
             /// other item is less (greater) than by `<` (`>`), exactly the
             /// comparisons `CPython` makes, and `ValueError` on an empty list.
+            /// With `key=`, the key runs once per item in list order and the
+            /// items' keys are compared instead.
             PythonListExtrema {
                 /// Which extremum.
                 op: [$crate::NumericExtremaOp],
                 /// The list of comparable items.
                 list: one,
+                /// Optional key closure for `min(values, key=...)`: maps one
+                /// item to the comparable value.
+                key: opt @CALLED,
             }
                 fallible(true)
                 call("@python_list_extrema".to_owned())
-                => (format!("python_list_{op} {list}"));
+                => (
+                    {
+                        let key_text = if key.is_some() { " <key>" } else { "" };
+                        format!("python_list_{op} {list}{key_text}")
+                    }
+                );
             /// Python's `xs[start:end:step]` on a `list` or `str` with an explicit
             /// step: the positions `slice.indices` picks, in step order. A zero
             /// step raises `ValueError`.

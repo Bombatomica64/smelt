@@ -357,24 +357,30 @@ impl ModuleBuilder<'_> {
             .map(|arg| self.expression(arg, body))
             .collect::<Result<Vec<_>, _>>()?;
         // `min(iterable)` / `max(iterable)`: one positional iterable argument
-        // compares its items (raising `ValueError` when it is empty).
-        if let [iterable] = args.as_slice()
-            && call.arguments.keywords.is_empty()
-        {
+        // compares its items (raising `ValueError` when it is empty), or with
+        // `key=` the keys the callback maps them to.
+        if let [iterable] = args.as_slice() {
             let list = self.order_free_iterable_as_list(*iterable, span, body);
             if let Some(Type::List(item_ty)) = self.ctx.krate.types.get(Self::expr_ty(body, list)).cloned() {
-                if !self.is_python_orderable(item_ty) {
+                let key = self.extrema_key_argument(&call.arguments.keywords, item_ty, body)?;
+                if key.is_none() && !self.is_python_orderable(item_ty) {
                     return Err(SmeltError::unsupported(
                         span,
                         "Python min() and max() of an iterable require bool, int, float or str items",
                     ));
                 }
                 return Ok(body.push_expr(HirExpr {
-                    kind: ExprKind::PythonListExtrema { op, list },
+                    kind: ExprKind::PythonListExtrema { op, list, key },
                     ty: item_ty,
                     span,
                 }));
             }
+        }
+        if let Some(keyword) = call.arguments.keywords.first() {
+            return Err(SmeltError::unsupported(
+                self.span(keyword.range),
+                "Python min() and max() take keyword arguments only with one iterable argument",
+            ));
         }
         let int_ty = self.intern_type(Type::PyInt);
         let float_ty = self.intern_type(Type::Float);
@@ -403,6 +409,44 @@ impl ModuleBuilder<'_> {
             ty,
             span,
         }))
+    }
+
+    /// The `key=` callback of `min(iterable, key=...)` / `max(...)`, lowered
+    /// as `sorted`'s key is (a lambda or a function, called with one item);
+    /// `key=None` is no key. Its result must be Python-orderable, since the
+    /// keys are compared with `<` / `>`.
+    ///
+    /// # Errors
+    ///
+    /// Any keyword but `key` (`default=` is not supported yet), or a key whose
+    /// result Python cannot order.
+    fn extrema_key_argument(
+        &mut self,
+        keywords: &[ruff_python_ast::Keyword],
+        item_ty: TypeId,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let mut key = None;
+        for keyword in keywords {
+            if keyword.arg.as_ref().map(ruff_python_ast::Identifier::as_str) != Some("key") {
+                return Err(SmeltError::unsupported(
+                    self.span(keyword.range),
+                    "Python min() and max() support only the key keyword argument",
+                ));
+            }
+            if matches!(&keyword.value, Expr::NoneLiteral(_)) {
+                continue;
+            }
+            let callback = self.python_callback_argument(&keyword.value, &[item_ty], body)?;
+            if !self.is_python_orderable(callback.return_ty) {
+                return Err(SmeltError::unsupported(
+                    self.span(keyword.range),
+                    "a min() or max() key must return bool, int, float, str or a tuple of them",
+                ));
+            }
+            key = Some(callback.expr);
+        }
+        Ok(key)
     }
 
     /// Lower direct Python string case methods.
