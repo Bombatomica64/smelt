@@ -488,7 +488,7 @@ impl RuntimeDemand {
             Rvalue::PyFormat { .. } => {
                 self.add(Need::PyFormat);
             }
-            Rvalue::PyListPopAt { .. } => {
+            Rvalue::PyListPopAt { .. } | Rvalue::PyListDeleteAt { .. } => {
                 self.add(Need::PyException);
             }
             Rvalue::JsonParse { .. } => {

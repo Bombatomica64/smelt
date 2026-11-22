@@ -244,16 +244,12 @@ impl ModuleBuilder<'_> {
                     .iter()
                     .map(|e| self.expression(e, body))
                     .collect::<Result<_, _>>()?;
-                // Infer element type from hint or first element.
-                let ty = type_hint.unwrap_or_else(|| {
-                    if let Some(first_id) = elts.first().copied() {
-                        let elem_ty = Self::expr_ty(body, first_id);
-                        self.intern_type(Type::List(elem_ty))
-                    } else {
-                        let none = self.intern_type(Type::None);
-                        self.intern_type(Type::List(none))
-                    }
-                });
+                let ty = if let Some(hint) = type_hint {
+                    hint
+                } else {
+                    let elem_ty = self.literal_elements_type(body, &elts, l.range)?;
+                    self.intern_type(Type::List(elem_ty))
+                };
                 Ok(body.push_expr(HirExpr {
                     kind: ExprKind::ListLit(elts),
                     ty,
@@ -283,15 +279,15 @@ impl ModuleBuilder<'_> {
                     .iter()
                     .map(|e| self.expression(e, body))
                     .collect::<Result<_, _>>()?;
-                let ty = type_hint.unwrap_or_else(|| {
-                    if let Some(first_id) = elts.first().copied() {
-                        let elem_ty = Self::expr_ty(body, first_id);
-                        self.intern_type(Type::Set(elem_ty))
-                    } else {
-                        let none = self.intern_type(Type::None);
-                        self.intern_type(Type::Set(none))
-                    }
-                });
+                let ty = if let Some(hint) = type_hint {
+                    hint
+                } else {
+                    let elem_ty = self.literal_elements_type(body, &elts, s.range)?;
+                    self.intern_type(Type::Set(elem_ty))
+                };
+                if let Some(&Type::Set(elem_ty)) = self.ctx.krate.types.get(ty) {
+                    self.reject_hashed_union(elem_ty, s.range, "set item")?;
+                }
                 Ok(body.push_expr(HirExpr {
                     kind: ExprKind::SetLit(elts),
                     ty,
@@ -312,16 +308,20 @@ impl ModuleBuilder<'_> {
                     let val = self.expression(&item.value, body)?;
                     entries.push((key, val));
                 }
-                let ty = type_hint.unwrap_or_else(|| {
-                    if let Some((k_id, v_id)) = entries.first().copied() {
-                        let k_ty = Self::expr_ty(body, k_id);
-                        let v_ty = Self::expr_ty(body, v_id);
-                        self.intern_type(Type::Dict(k_ty, v_ty))
-                    } else {
-                        let none = self.intern_type(Type::None);
-                        self.intern_type(Type::Dict(none, none))
-                    }
-                });
+                let ty = if let Some(hint) = type_hint {
+                    hint
+                } else {
+                    let keys: Vec<_> = entries.iter().map(|&(key, _)| key).collect();
+                    let values: Vec<_> = entries.iter().map(|&(_, value)| value).collect();
+                    let k_ty = self.literal_elements_type(body, &keys, d.range)?;
+                    let v_ty = self.literal_elements_type(body, &values, d.range)?;
+                    self.intern_type(Type::Dict(k_ty, v_ty))
+                };
+                if !entries.is_empty()
+                    && let Some(&Type::Dict(k_ty, _)) = self.ctx.krate.types.get(ty)
+                {
+                    self.reject_hashed_union(k_ty, d.range, "dict key")?;
+                }
                 Ok(body.push_expr(HirExpr {
                     kind: ExprKind::DictLit(entries),
                     ty,
@@ -354,6 +354,102 @@ impl ModuleBuilder<'_> {
                 format!("unsupported expression: {}", expr_kind_name(expr)),
             )),
         }
+    }
+
+    /// The element type of an unannotated list, set or dict literal: the union
+    /// of its items' types, the type `ty` infers (`[1, [2, 3]]` is
+    /// `list[int | list[int]]`, `[1, 2.5]` is `list[int | float]`). Items of one
+    /// type keep that type; an empty literal holds `None` until a hint says
+    /// otherwise. Taking only the first item's type would make every later item
+    /// of another type either fail to compile or be silently converted (`2.5`
+    /// truncated to `2`).
+    ///
+    /// An unannotated empty item (`[]`, `{}`, `set()` spelled as a literal) has
+    /// a placeholder `None` element, not a known one: beside a sibling of the
+    /// same collection kind it takes that sibling's type, as `ty` joins
+    /// `[[1], []]` to `list[list[int]]`, and its expression is retyped to match.
+    fn literal_elements_type(
+        &mut self,
+        body: &mut Body,
+        elts: &[smelt_hir::ExprId],
+        range: TextRange,
+    ) -> Result<TypeId, SmeltError> {
+        let mut types: Vec<TypeId> = Vec::new();
+        let mut placeholders: Vec<smelt_hir::ExprId> = Vec::new();
+        for &elt in elts {
+            if self.is_empty_collection_placeholder(body, elt) {
+                placeholders.push(elt);
+                continue;
+            }
+            let ty = Self::expr_ty(body, elt);
+            if !types.contains(&ty) {
+                types.push(ty);
+            }
+        }
+        for placeholder in placeholders {
+            let own_ty = Self::expr_ty(body, placeholder);
+            let sibling = types.iter().copied().find(|&ty| self.same_collection_kind(ty, own_ty));
+            match sibling {
+                Some(sibling_ty) => {
+                    let index = usize::try_from(placeholder.0).unwrap_or(usize::MAX);
+                    body.exprs[index].ty = sibling_ty;
+                }
+                None if !types.contains(&own_ty) => types.push(own_ty),
+                None => {}
+            }
+        }
+        match types.as_slice() {
+            [] => Ok(self.intern_type(Type::None)),
+            [only] => Ok(*only),
+            _ => {
+                let span = self.span(range);
+                self.union_from_types(types, span)
+            }
+        }
+    }
+
+    /// Whether `expr` is an empty list, set or dict literal whose element type
+    /// is still the `None` placeholder (no hint reached it).
+    fn is_empty_collection_placeholder(&self, body: &Body, expr: smelt_hir::ExprId) -> bool {
+        let index = usize::try_from(expr.0).unwrap_or(usize::MAX);
+        let empty = match &body.exprs[index].kind {
+            ExprKind::ListLit(items) | ExprKind::SetLit(items) => items.is_empty(),
+            ExprKind::DictLit(entries) => entries.is_empty(),
+            _ => false,
+        };
+        let types = &self.ctx.krate.types;
+        let is_none = |ty: TypeId| types.get(ty) == Some(&Type::None);
+        empty
+            && match types.get(body.exprs[index].ty) {
+                Some(&Type::List(item) | &Type::Set(item)) => is_none(item),
+                Some(&Type::Dict(key, value)) => is_none(key) && is_none(value),
+                _ => false,
+            }
+    }
+
+    /// Whether `left` and `right` are both lists, both sets or both dicts.
+    fn same_collection_kind(&self, left: TypeId, right: TypeId) -> bool {
+        let types = &self.ctx.krate.types;
+        matches!(
+            (types.get(left), types.get(right)),
+            (Some(Type::List(_)), Some(Type::List(_)))
+                | (Some(Type::Set(_)), Some(Type::Set(_)))
+                | (Some(Type::Dict(..)), Some(Type::Dict(..)))
+        )
+    }
+
+    /// Refuse a set item or dict key type that is a union of several types
+    /// (`{1, "a"}`, inferred or from a hint such as `ty`'s `set[int | str]`): the generated union enum has no `Hash`/`Eq`, and `CPython`
+    /// equates across numeric types (`{1, 1.0}` holds one item), which a
+    /// per-arm comparison would not reproduce.
+    fn reject_hashed_union(&self, ty: TypeId, range: TextRange, role: &str) -> Result<(), SmeltError> {
+        if matches!(self.ctx.krate.types.get(ty), Some(Type::Union(_))) {
+            return Err(SmeltError::unsupported(
+                self.span(range),
+                format!("a {role} must have one type; this literal mixes item types (annotate or convert the items)"),
+            ));
+        }
+        Ok(())
     }
 
     /// Lower a Python `lambda` expression as a first-class closure value.

@@ -167,6 +167,23 @@ impl FunctionEmitter<'_> {
         ))
     }
 
+    /// Renders Python's `del xs[i]`: removes the item at `i` (negative from
+    /// the end) in place, or raises `CPython`'s `IndexError("list assignment
+    /// index out of range")` when `i` is outside the list, an empty list
+    /// included.
+    fn python_list_delete_at_expr(
+        &self,
+        list: &Operand,
+        index: &Operand,
+    ) -> Result<RustExpr, EmitError> {
+        let list_text = self.operand_borrow_expr(list)?;
+        Ok(RustExpr::atom(format!(
+            "{{ let smelt_index: i64 = {index}; let mut smelt_items = {list_text}.borrow_mut(); let smelt_len = i64::try_from(smelt_items.len()).unwrap_or(i64::MAX); let smelt_at = if smelt_index < 0 {{ smelt_index.saturating_add(smelt_len) }} else {{ smelt_index }}; usize::try_from(smelt_at).ok().filter(|smelt_at| *smelt_at < smelt_items.len()).map(|smelt_at| {{ smelt_items.remove(smelt_at); }}).ok_or_else(|| smelt_py_index_error(\"list assignment index out of range\")) }}",
+            index = self.operand_expr(index)?.delimited(),
+            list_text = list_text.tight()
+        )))
+    }
+
     /// Renders Python's `xs[i]` on a list or a string: a negative index counts
     /// from the end (a string's in code points), and an index past either end
     /// raises `IndexError`.
@@ -393,6 +410,10 @@ impl FunctionEmitter<'_> {
             Rvalue::DictPopItem { dict } => self.python_dict_popitem_call(dict)?,
             Rvalue::ListPop { list, .. } => self.python_list_pop_call(list)?,
             Rvalue::PyListPopAt { list, index } => self.python_list_pop_at_call(list, index)?,
+            Rvalue::PyListDeleteAt { list, index } => (
+                RenderedCall::propagating(self.python_list_delete_at_expr(list, index)?),
+                self.type_id(Type::None)?,
+            ),
             Rvalue::PyFormat { value, spec } => self.py_format_call(value, spec)?,
             Rvalue::ErasedPatternCall {
                 method,

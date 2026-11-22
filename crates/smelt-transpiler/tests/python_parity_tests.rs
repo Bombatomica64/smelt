@@ -428,3 +428,32 @@ fn ascii_conversion() -> TestResult {
 fn del_slice() -> TestResult {
     verify_python_parity("del_slice")
 }
+
+/// An unannotated list or dict literal whose items have different types is
+/// typed as the union of their types, as `ty` infers it: `[1, [2, 3]]` is a
+/// `list[int | list[int]]` and `[1, 2.5]` keeps `2.5` a float (it used to be
+/// truncated to `2` under the first item's `int`). Requirements: `CPython`'s
+/// output, and every item keeps its own type inside the union.
+#[test]
+fn list_literal_mixed_types() -> TestResult {
+    verify_python_parity("list_literal_mixed_types")
+}
+
+/// `del xs[i]` removes one item in place (negative from the end), seen through
+/// aliases and a caller's list; an index outside the list, an empty list
+/// included, raises `IndexError("list assignment index out of range")`.
+/// Requirements: `CPython`'s output, and the list keeps its element type.
+#[test]
+fn del_list_index() -> TestResult {
+    verify_python_parity("del_list_index")
+}
+
+/// `%(key)s` conversions read their value from the mapping operand, evaluated
+/// once before formatting: a dict literal's values keep their own types (so
+/// `%(n)d` formats an `int`), a `dict[str, V]` value raises `KeyError` for a
+/// missing key, flags and widths apply as for positional conversions.
+/// Requirements: `CPython`'s output.
+#[test]
+fn percent_mapping_keys() -> TestResult {
+    verify_python_parity("percent_mapping_keys")
+}
