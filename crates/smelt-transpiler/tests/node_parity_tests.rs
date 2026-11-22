@@ -2073,3 +2073,14 @@ fn generic_union_returns() -> TestResult {
 fn function_expression_inferred_return() -> TestResult {
     verify_node_parity("function_expression_inferred_return")
 }
+
+/// A rest-parameter function stored in a fixed-arity function slot receives
+/// the slot's arguments as JavaScript binds `...args`: `sum` in a
+/// `(a: number) => number` slot gets the list `[a]`, a `() => number` slot
+/// an empty list, and a list-typed slot parameter is one element of the
+/// rest list rather than spread into it. The slot keeps its typed
+/// signature; only `describe(...values: unknown[])` holds erased elements.
+#[test]
+fn rest_parameter_fixed_slot() -> TestResult {
+    verify_node_parity("rest_parameter_fixed_slot")
+}

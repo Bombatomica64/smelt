@@ -1430,9 +1430,17 @@ impl FunctionEmitter<'_> {
         }
         // A narrowed erased function is the same JavaScript function: the
         // adapter shares its identity (see the rendered-text adapter above).
+        //
+        // Dynamic boundary: the source is a `SmeltErasedFunction`, a callable
+        // whose parameter and return types were erased before it reached this
+        // slot (a function typed `any` or `(...args: unknown[]) => unknown`),
+        // so the adapter's argument vector and result are erased whatever the
+        // slot's own types are. `smelt-unknown-report` recognises the line by
+        // `boundary::ERASED_CALLABLE_NARROWING`, which this spelling writes.
         if source_is_erased && uses_adapted_callback && self.context.demand().has(Need::Unknown) {
             return Ok(Some(RustExpr::atom(format!(
-                "{{ let smelt_identity_source = ({function_text}).callback.clone(); let smelt_narrowed_callable = {adapter}; smelt_link_function_identity(&smelt_narrowed_callable, &smelt_identity_source); smelt_narrowed_callable }}",
+                "{{ let smelt_identity_source = ({function_text}){marker}{adapter}; smelt_link_function_identity(&smelt_narrowed_callable, &smelt_identity_source); smelt_narrowed_callable }}",
+                marker = smelt_stdlib::runtime_symbols::boundary::ERASED_CALLABLE_NARROWING,
                 adapter = adapter.delimited()
             ))));
         }
@@ -1461,10 +1469,15 @@ impl FunctionEmitter<'_> {
         // nested slot's declaration, see `function_shape_adapter`); the type
         // the argument is converted to is `source_param`.
         let abi_param = source.params.get(index).copied().unwrap_or(source_param);
+        // A SOURCE rest parameter collects every target argument from its
+        // position on, as JavaScript binds `...args`, whatever the two arities:
+        // a one-argument slot `(a: number) => number` holding `sum(...xs)` hands
+        // `sum` the list `[a]`, not `a` itself as the list (which spreads a
+        // non-iterable). Only a target rest parameter at the same position
+        // already IS that list, and forwards unchanged below.
         if source.rest == Some(index)
-            && target_function.params.len() > source.params.len()
+            && target_function.rest != Some(index)
             && let Some(Type::List(source_item)) = self.mir.types.get(source_param)
-            && target_function.params.get(index).is_some()
         {
             let mut text = String::from("{ let mut smelt_forwarded_args = Vec::new(); ");
             for (target_index, target_param) in
@@ -1485,7 +1498,9 @@ impl FunctionEmitter<'_> {
                 } else {
                     RustExpr::path(format!("smelt_arg{target_index}"))
                 };
-                if target_index > index
+                // A trailing target REST list spreads into the source's rest
+                // list; any other list-typed target parameter is one element.
+                if target_function.rest == Some(target_index)
                     && let Some(Type::List(target_item)) = self.mir.types.get(*target_param)
                 {
                     let item_text = if matches!(
@@ -1518,6 +1533,11 @@ impl FunctionEmitter<'_> {
                         item_text = item_text.delimited()
                     ));
                 }
+            }
+            // A slot with no argument from this position on hands over an
+            // empty list, whose vector is never pushed to.
+            if target_function.params.len() <= index {
+                text = String::from("{ let smelt_forwarded_args = Vec::new(); ");
             }
             text.push_str("Into::<SmeltList<_>>::into(smelt_forwarded_args) }");
             return Ok(text);
