@@ -446,6 +446,12 @@ fn type_literal_methods() -> TestResult {
     verify_node_parity("type_literal_methods")
 }
 
+/// An optional call of an absent callee evaluates none of its arguments.
+#[test]
+fn optional_call_short_circuit() -> TestResult {
+    verify_node_parity("optional_call_short_circuit")
+}
+
 /// A union of present types and a nullish arm is the optional of the present
 /// union.
 #[test]

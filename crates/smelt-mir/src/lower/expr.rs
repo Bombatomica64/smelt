@@ -681,6 +681,12 @@ impl LoweringCtx<'_> {
                 )?
             }
             ExprKind::ClosureCall { callee, args } => {
+                if let Some(result) =
+                    self.lower_optional_closure_call(*callee, args, expr.ty, expr.span)?
+                {
+                    self.exprs.insert(expr_id, result.clone());
+                    return Ok(result);
+                }
                 let callee_ty = self.hir_expr(*callee)?.ty;
                 let callee_operand = self.lower_expr(*callee)?;
                 let lowered_args = args
