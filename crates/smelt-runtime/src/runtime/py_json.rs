@@ -76,11 +76,13 @@ impl<T: SmeltPyJsonDecode> SmeltPyJsonDecode for Option<T> {
         match value { SmeltPyJsonValue::Null => Ok(None), other => T::py_json_decode(other).map(Some) }
     }
 }
+// @smelt:if smelt_list
 impl<T: SmeltPyJsonDecode> SmeltPyJsonDecode for SmeltList<T> {
     fn py_json_decode(value: SmeltPyJsonValue) -> Result<Self, Box<dyn ::std::error::Error>> {
         match value { SmeltPyJsonValue::Array(items) => items.into_iter().map(T::py_json_decode).collect::<Result<Vec<_>, _>>().map(Self::from), _ => Err(smelt_py_json_shape_error("a list")) }
     }
 }
+// @smelt:end
 // @smelt:if record
 impl<V: SmeltPyJsonDecode> SmeltPyJsonDecode for SmeltRecord<String, V> {
     fn py_json_decode(value: SmeltPyJsonValue) -> Result<Self, Box<dyn ::std::error::Error>> {

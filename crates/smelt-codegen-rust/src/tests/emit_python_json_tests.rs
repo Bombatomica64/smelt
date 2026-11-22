@@ -128,13 +128,20 @@ def run() -> None:
     // declared target, so it is a typed entry boundary: the call decodes the
     // parsed value strictly into `T` (`emitter::json_decode`, adapted from
     // Bun's `--aot` entry checks) instead of coercing it leniently. Python's
-    // `json.loads` keeps the dynamic parse and the ordinary coercion.
+    // `json.loads` decodes straight into its annotated type
+    // (`smelt_py_json_loads::<T>`, `runtime/py_json.rs`). It used to keep
+    // the dynamic `smelt_json_parse` and coerce, which read every number as
+    // an `f64` and lost an `int`'s digits past 2**53.
     assert!(
         ts_source.contains(": SmeltList<f64> = smelt_json_decode_"),
         "{ts_source}"
     );
     assert!(ts_source.contains("smelt_json_parse(text)?"), "{ts_source}");
-    assert!(py_source.contains("smelt_json_parse(&"), "{py_source}");
+    assert!(
+        py_source.contains("smelt_py_json_loads::<SmeltList<SmeltPyInt>>(&"),
+        "{py_source}"
+    );
+    assert!(!py_source.contains("smelt_json_parse("), "{py_source}");
     assert!(!ts_source.contains("JSON parse failed"), "{ts_source}");
     assert!(!py_source.contains("JSON parse failed"), "{py_source}");
     assert!(
