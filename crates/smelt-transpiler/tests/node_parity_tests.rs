@@ -439,6 +439,13 @@ fn all_settled_entries() -> TestResult {
     verify_node_parity("all_settled_entries")
 }
 
+/// A method declared in an inline type literal is a member of its struct:
+/// `x.get()` calls the value's own function, never a dictionary lookup.
+#[test]
+fn type_literal_methods() -> TestResult {
+    verify_node_parity("type_literal_methods")
+}
+
 /// A union of present types and a nullish arm is the optional of the present
 /// union.
 #[test]
