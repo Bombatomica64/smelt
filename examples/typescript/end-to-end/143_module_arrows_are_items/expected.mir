@@ -306,10 +306,10 @@ fn bump (FuncId(6)) -> Float
     %1 temp: Float
     %2 temp: Float
   bb0:
-    %1 = call fn2(copy %0.field31, 2.0) -> bb1
+    %1 = call fn2(copy %0.field35, 2.0) -> bb1
   bb1:
-    %0.field31 = move %1
-    %2 = call fn2(copy %0.field31) -> bb2
+    %0.field35 = move %1
+    %2 = call fn2(copy %0.field35) -> bb2
   bb2:
     return move %2
 
@@ -322,7 +322,7 @@ fn __smelt_get_label (FuncId(7)) -> String
     %4 temp: List<String>
     %5 temp: String
   bb0:
-    %1 = primitive_cast_string copy %0.field31
+    %1 = primitive_cast_string copy %0.field35
     %2 = call fn3(4.0) -> bb1
   bb1:
     %3 = primitive_cast_string move %2
@@ -337,7 +337,7 @@ fn reply (FuncId(8)) -> Response | Future<Response>
     %1 temp: String
     %2 temp: Response
   bb0:
-    %1 = "ok:" + copy %0.field31
+    %1 = "ok:" + copy %0.field35
     %2 = call fn1(move %1, 201.0) -> bb1
   bb1:
     return move %2
@@ -347,7 +347,7 @@ fn new (FuncId(9)) -> Counter
     %0 user this: Counter
   bb0:
     %0 = struct0 {}
-    %0.field31 = 0.0
+    %0.field35 = 0.0
     return move %0
 
 async fn main (FuncId(10)) -> None throws

@@ -24,11 +24,11 @@ fn describe (FuncId(1)) -> String
     switch move %1 ? bb2 : bb3
   bb2:
     %2 = unknown_cast copy %0 as t2
-    %3 = "raw " + copy %2.field22
+    %3 = "raw " + copy %2.field23
     return move %3
   bb3:
     %4 = unknown_cast copy %0 as t1
-    %5 = "req " + copy %4.field21
+    %5 = "req " + copy %4.field22
     return move %5
 
 fn describe_arrow (FuncId(2)) -> String
@@ -45,11 +45,11 @@ fn describe_arrow (FuncId(2)) -> String
     switch move %1 ? bb2 : bb3
   bb2:
     %2 = unknown_cast copy %0 as t1
-    %3 = "req " + copy %2.field21
+    %3 = "req " + copy %2.field22
     return move %3
   bb3:
     %4 = unknown_cast copy %0 as t2
-    %5 = "raw " + copy %4.field22
+    %5 = "raw " + copy %4.field23
     return move %5
 
 fn early_return (FuncId(3)) -> String
@@ -69,11 +69,11 @@ fn early_return (FuncId(3)) -> String
     switch move %2 ? bb2 : bb3
   bb2:
     %3 = unknown_cast copy %0 as t1
-    %4 = "req " + copy %3.field21
+    %4 = "req " + copy %3.field22
     return move %4
   bb3:
     %5 = unknown_cast copy %0 as t2
-    %6 = copy %5.field22 + 1.0
+    %6 = copy %5.field23 + 1.0
     %7 = "raw " + move %6
     return move %7
 
@@ -154,11 +154,11 @@ fn describe_method (FuncId(6)) -> String
     switch move %2 ? bb2 : bb3
   bb2:
     %3 = unknown_cast copy %1 as t2
-    %4 = "m-raw " + copy %3.field22
+    %4 = "m-raw " + copy %3.field23
     return move %4
   bb3:
     %5 = unknown_cast copy %1 as t1
-    %6 = "m-req " + copy %5.field21
+    %6 = "m-req " + copy %5.field22
     return move %6
 
 fn describe_local (FuncId(7)) -> String
@@ -178,11 +178,11 @@ fn describe_local (FuncId(7)) -> String
     switch move %3 ? bb1 : bb2
   bb1:
     %4 = unknown_cast copy %0 as t2
-    %5 = "l-raw " + copy %4.field22
+    %5 = "l-raw " + copy %4.field23
     return move %5
   bb2:
     %6 = unknown_cast copy %0 as t1
-    %7 = "l-req " + copy %6.field21
+    %7 = "l-req " + copy %6.field22
     return move %7
 
 fn assert_raw (FuncId(8)) -> None throws
@@ -211,7 +211,7 @@ fn asserted (FuncId(9)) -> Float throws
     %1 = call fn8(copy %0) -> bb1
   bb1:
     %2 = unknown_cast copy %0 as t2
-    %3 = copy %2.field22 * 2.0
+    %3 = copy %2.field23 * 2.0
     return move %3
 
 fn is_req__module_main (FuncId(10)) -> Bool
@@ -246,11 +246,11 @@ fn label (FuncId(12)) -> String
     switch move %2 ? bb2 : bb3
   bb2:
     %3 = unknown_cast copy %1 as t2
-    %4 = "this-raw " + copy %3.field22
+    %4 = "this-raw " + copy %3.field23
     return move %4
   bb3:
     %5 = unknown_cast copy %1 as t1
-    %6 = "this-req " + copy %5.field21
+    %6 = "this-req " + copy %5.field22
     return move %6
 
 fn new (FuncId(13)) -> Checker
