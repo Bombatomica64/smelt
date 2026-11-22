@@ -1,0 +1,7 @@
+[3, 2, 1] [1, 2, 3]
+[3, 2, 1]
+['apple', 'fig', 'kiwi']
+['kiwi', 'fig', 'apple']
+[4.0, 2.0, 0.5]
+ZeroDivisionError: zero has no inverse
+[-3, -2, -1] ['i', 'g', 'e']

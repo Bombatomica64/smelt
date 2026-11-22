@@ -695,13 +695,10 @@ impl ModuleBuilder<'_> {
                 return_ty: closure.return_ty,
             });
         }
-        let expr = self.expression(arg, body)?;
+        let mut expr = self.expression(arg, body)?;
         let index = usize::try_from(expr.0).unwrap_or(usize::MAX);
-        if matches!(body.exprs[index].kind, ExprKind::Item(_)) {
-            return Err(SmeltError::unsupported(
-                self.span(arg.range()),
-                "callback arguments must be lambdas or callable values, not module functions",
-            ));
+        if let ExprKind::Item(item) = body.exprs[index].kind {
+            expr = self.function_item_closure(item, expr, self.span(arg.range()), body)?;
         }
         let Some(Type::Function(function)) =
             self.ctx.krate.types.get(Self::expr_ty(body, expr)).cloned()
@@ -721,6 +718,75 @@ impl ModuleBuilder<'_> {
             expr,
             return_ty: function.return_ty,
         })
+    }
+
+    /// Wrap a module-level function used as a value (`sorted(xs, key=neg)`) in
+    /// a closure that forwards its parameters to the function: `neg` becomes
+    /// `lambda x: neg(x)` with `neg`'s own parameter and return types. The
+    /// function item itself is only ever a callee, so a value position needs
+    /// this forwarding closure, as a lambda argument already is one. A
+    /// function with a `*args`/`**kwargs` tail is refused: the callback caller
+    /// passes positional values only, and their packing is not modelled here.
+    fn function_item_closure(
+        &mut self,
+        item: ItemId,
+        item_expr: smelt_hir::ExprId,
+        span: Span,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let item_ty = Self::expr_ty(body, item_expr);
+        let Some(Type::Function(function)) = self.ctx.krate.types.get(item_ty).cloned() else {
+            return Err(SmeltError::unsupported(span, "only a function can be passed as a callback"));
+        };
+        if function.rest.is_some() || function.is_async {
+            return Err(SmeltError::unsupported(
+                span,
+                "a callback function with a `*args` tail or an `async def` is not supported",
+            ));
+        }
+        let mut closure_body = Body::new(None, span);
+        let mut params = Vec::new();
+        let mut args = Vec::new();
+        for (position, &param_ty) in function.params.iter().enumerate() {
+            let name = self.intern_name(&format!("__callback_param_{position}"));
+            let local = closure_body.push_local(LocalDecl { name: Some(name), ty: param_ty, mutable: false, span });
+            closure_body.params.push(local);
+            params.push(Param { name, local, ty: param_ty, span });
+            args.push(closure_body.push_expr(HirExpr { kind: ExprKind::Local(local), ty: param_ty, span }));
+        }
+        let callee = closure_body.push_expr(HirExpr { kind: ExprKind::Item(item), ty: item_ty, span });
+        let call = closure_body.push_expr(HirExpr {
+            kind: ExprKind::Call { callee, args },
+            ty: function.return_ty,
+            span,
+        });
+        closure_body.blocks[0].tail = Some(call);
+        let body_id = self.ctx.krate.push_body(closure_body);
+        let closure_ty = self.intern_type(Type::Function(FunctionType {
+            params: function.params.clone(),
+            rest: None,
+            required_params: None,
+            mutable_params: Vec::new(),
+            return_ty: function.return_ty,
+            is_async: false,
+            may_throw: function.may_throw,
+        }));
+        Ok(body.push_expr(HirExpr {
+            kind: ExprKind::Closure(smelt_hir::ClosureExpr {
+                params,
+                rest: None,
+                required_params: None,
+                return_ty: function.return_ty,
+                captures: Vec::new(),
+                body: body_id,
+                name: None,
+                function_item: None,
+                this_binding: smelt_hir::ClosureThis::Own,
+                span,
+            }),
+            ty: closure_ty,
+            span,
+        }))
     }
 
     /// Lower `set(value)` for the currently supported direct container inputs.

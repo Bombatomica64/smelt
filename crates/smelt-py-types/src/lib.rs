@@ -92,6 +92,9 @@ pub struct ResolvedModuleTypes {
     return_types: HashMap<u32, String>,
     /// Parameter start offset → resolved parameter type spelling.
     param_types: HashMap<u32, String>,
+    /// Module-level `NAME = value` statement start offset → resolved type
+    /// spelling of `value`.
+    module_bindings: HashMap<u32, String>,
 }
 
 impl ResolvedModuleTypes {
@@ -115,6 +118,16 @@ impl ResolvedModuleTypes {
     #[must_use]
     pub fn param_type_at(&self, offset: u32) -> Option<&str> {
         self.param_types.get(&offset).map(String::as_str)
+    }
+
+    /// Return the resolved type spelling of the value of the module-level
+    /// `NAME = value` assignment whose statement starts at byte `offset`
+    /// (`x = float(text)` is `float`), if `ty` resolved one.
+    ///
+    /// `offset` is a plain `u32` byte offset; see [`Self::return_type_at`].
+    #[must_use]
+    pub fn module_binding_type_at(&self, offset: u32) -> Option<&str> {
+        self.module_bindings.get(&offset).map(String::as_str)
     }
 }
 
@@ -177,6 +190,7 @@ pub fn resolve_module_types(source: &str, module_stem: &str) -> Result<ResolvedM
         resolved: ResolvedModuleTypes::default(),
     };
     collector.collect_stmts(&parsed.syntax().body);
+    collector.collect_module_bindings(&parsed.syntax().body);
 
     let resolved = collector.resolved;
     drop(guard);
@@ -223,6 +237,26 @@ struct TypeCollector<'a, 'db> {
 }
 
 impl TypeCollector<'_, '_> {
+    /// Record the value type of every top-level single-name assignment, so
+    /// the frontend can type a module global whose value is not a literal.
+    fn collect_module_bindings(&mut self, stmts: &[Stmt]) {
+        for stmt in stmts {
+            let Stmt::Assign(assign) = stmt else {
+                continue;
+            };
+            if !matches!(assign.targets.as_slice(), [ruff_python_ast::Expr::Name(_)]) {
+                continue;
+            }
+            if let Some(ty) = assign.value.inferred_type(self.model)
+                && let Some(spelling) = displayable_type(self.db, self.environment, ty)
+            {
+                self.resolved
+                    .module_bindings
+                    .insert(stmt.start().to_u32(), spelling);
+            }
+        }
+    }
+
     /// Record every function/method reachable from `stmts`, descending into
     /// nested function, class, and control-flow blocks.
     fn collect_stmts(&mut self, stmts: &[Stmt]) {
@@ -455,11 +489,17 @@ fn normalize_spelling(spelling: &str) -> Option<String> {
     {
         return None;
     }
+    // `ty` marks an instance of exactly `float` or `complex` with a trailing
+    // `*` (`float*`), telling it apart from the `float` annotation, which
+    // also admits an `int`. The frontend's `float` is that exact type.
+    let exact = trimmed
+        .replace("float*", "float")
+        .replace("complex*", "complex");
     // Widen literal spellings to their underlying primitive.
-    if let Some(widened) = widen_literal(trimmed) {
+    if let Some(widened) = widen_literal(&exact) {
         return Some(widened);
     }
-    Some(trimmed.to_owned())
+    Some(exact)
 }
 
 /// Widen a `Literal[...]` (or `bool` literal) spelling to its primitive type.
@@ -549,5 +589,33 @@ mod tests {
             normalize_spelling("str | None"),
             Some("str | None".to_owned())
         );
+    }
+
+    /// `ty`'s exact-`float` marker (`float*`) reads as the frontend's `float`.
+    #[test]
+    fn exact_float_marker_is_float() {
+        assert_eq!(normalize_spelling("float*"), Some("float".to_owned()));
+        assert_eq!(
+            normalize_spelling("list[float*]"),
+            Some("list[float]".to_owned())
+        );
+    }
+
+    /// A top-level `NAME = call(...)` records the call's value type.
+    #[test]
+    fn resolves_module_binding_type() -> Result<()> {
+        let src = "x = float(\"2.5\")\nlabel = str(3)\n";
+        let resolved = resolve_module_types(src, "m")?;
+        let parsed = ruff_python_parser::parse_module(src)?;
+        let body = &parsed.syntax().body;
+        assert_eq!(
+            resolved.module_binding_type_at(body[0].start().to_u32()),
+            Some("float")
+        );
+        assert_eq!(
+            resolved.module_binding_type_at(body[1].start().to_u32()),
+            Some("str")
+        );
+        Ok(())
     }
 }

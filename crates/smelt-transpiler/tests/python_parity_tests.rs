@@ -457,3 +457,24 @@ fn del_list_index() -> TestResult {
 fn percent_mapping_keys() -> TestResult {
     verify_python_parity("percent_mapping_keys")
 }
+
+/// A module-level function passed directly as a callback (`sorted(xs,
+/// key=neg)`, `xs.sort(key=f)`, `map(f, xs)`) behaves like the lambda
+/// `lambda x: neg(x)`: it is wrapped in a forwarding closure with the
+/// function's own parameter and return types, and an exception it raises
+/// propagates out of the sort. Requirements: `CPython`'s output, and the
+/// callback keeps the function's concrete signature (no erased callable).
+#[test]
+fn callback_named_function() -> TestResult {
+    verify_python_parity("callback_named_function")
+}
+
+/// An unannotated module-level `NAME = value` whose value is not a literal
+/// (`x = float("2.5")`, `items = list(range(3))`, `n = helper()`) is a module
+/// global typed by `ty`'s inference of the value: every function reads it, and
+/// one declaring `global x` writes it. Requirements: `CPython`'s output, and
+/// the global keeps the concrete inferred type (`f64`, `SmeltList<SmeltPyInt>`).
+#[test]
+fn module_global_inferred() -> TestResult {
+    verify_python_parity("module_global_inferred")
+}
