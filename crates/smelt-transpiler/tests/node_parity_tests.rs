@@ -452,6 +452,13 @@ fn optional_call_short_circuit() -> TestResult {
     verify_node_parity("optional_call_short_circuit")
 }
 
+/// A `Number.*` predicate passed as a callback takes the callback slot's
+/// parameter type and, like the direct call, never coerces it.
+#[test]
+fn number_predicate_callbacks() -> TestResult {
+    verify_node_parity("number_predicate_callbacks")
+}
+
 /// A union of present types and a nullish arm is the optional of the present
 /// union.
 #[test]

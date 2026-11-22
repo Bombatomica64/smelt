@@ -329,6 +329,16 @@ impl ModuleBuilder<'_> {
             Argument::NewExpression(new_expr) => {
                 self.new_expression_with_hint(new_expr, body, type_hint)
             }
+            // `count(values, Number.isNaN)` with `test: (value: unknown) =>
+            // boolean`: the predicate takes the slot's parameter type.
+            Argument::StaticMemberExpression(member) => {
+                if let Some(predicate) =
+                    self.number_predicate_member_with_hint(member, type_hint, body)
+                {
+                    return Ok(predicate);
+                }
+                self.argument(argument, body)
+            }
             _ => self.argument(argument, body),
         }
     }

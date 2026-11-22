@@ -493,6 +493,17 @@ impl ModuleBuilder<'_> {
                         body,
                     )?;
                 }
+                // `xs.map(Number.isNaN)`: the predicate takes the element type.
+                Expression::StaticMemberExpression(member) => {
+                    let Some(predicate) = self.number_predicate_member_expression(
+                        member,
+                        expected_param_tys.first().copied(),
+                        body,
+                    ) else {
+                        return Ok(None);
+                    };
+                    break predicate;
+                }
                 _ => return Ok(None),
             }
         };
