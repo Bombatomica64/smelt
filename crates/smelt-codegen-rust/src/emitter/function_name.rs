@@ -176,11 +176,11 @@ impl FunctionEmitter<'_> {
             let field_ty = self.mir.types.get(field.ty);
             let read = match (self.symbol_source_name(field.name)?, field_ty) {
                 ("name", Some(Type::String)) => Some(match operand {
-                    Some(operand) => self.function_name_expr(operand, field.ty)?,
+                    Some(function_value) => self.function_name_expr(function_value, field.ty)?,
                     None => RustExpr::js_string_literal(""),
                 }),
                 ("length", Some(Type::Float | Type::Int)) => Some(match operand {
-                    Some(operand) => self.len_expr(operand, field.ty)?,
+                    Some(function_value) => self.len_expr(function_value, field.ty)?,
                     None if matches!(field_ty, Some(Type::Float)) => {
                         RustExpr::atom(format!("{signature_length}.0"))
                     }
@@ -190,9 +190,9 @@ impl FunctionEmitter<'_> {
             };
             let accessor = crate::accessor_prelude::is_accessor_field(self.mir, *class, field.name);
             let value = match read {
-                Some(read) if accessor => crate::accessor_prelude::constant_expr(&read),
-                Some(read) => {
-                    self.record_field_value_at_slot_abi(read.into_string(), target, &field)?
+                Some(own) if accessor => crate::accessor_prelude::constant_expr(&own),
+                Some(own) => {
+                    self.record_field_value_at_slot_abi(own.into_string(), target, &field)?
                 }
                 // An optional member the function does not own reads `undefined`.
                 None if matches!(field_ty, Some(Type::Optional(..))) => {

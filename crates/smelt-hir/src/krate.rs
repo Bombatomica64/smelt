@@ -68,7 +68,7 @@ pub struct Crate {
     /// symbol is not that name (a module-private `const f = () => ..` lifted to
     /// a crate-unique `f__module_<id>` item reports `"f"`).
     #[serde(default)]
-    pub function_js_names: Vec<(ItemId, crate::Symbol)>,
+    pub function_js_names: Vec<(ItemId, Symbol)>,
 }
 
 impl Crate {
