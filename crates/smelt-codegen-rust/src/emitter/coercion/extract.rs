@@ -146,7 +146,21 @@ impl FunctionEmitter<'_> {
             // `purryFromLazy` handed every `lazy` through this path, so
             // `pipe` ran a no-op evaluator and every lazy pipe came back
             // empty).
-            let function_arm = if let Some(fields) = self.callable_object_record_keys(target)? {
+            //
+            // A plain record is the same case without the call slot: a
+            // function is an object, and TypeScript accepts one at a record
+            // type whose members it owns (`name`, `length`) or that are
+            // optional, so the record is rebuilt from the function's own
+            // property reads and the adapter judges what is missing.
+            let function_arm = if let Some((has_call, fields)) = self
+                .record_data_keys(target)?
+                .filter(|(has_call, fields)| *has_call || !fields.is_empty())
+            {
+                let call_entry = if has_call {
+                    format!("(JsString::from(\"{SMELT_CALL}\"), smelt_function_value.clone()), ")
+                } else {
+                    String::new()
+                };
                 let entries = fields
                     .iter()
                     .map(|key| {
@@ -157,7 +171,7 @@ impl FunctionEmitter<'_> {
                     .collect::<Vec<_>>()
                     .join(", ");
                 self.carrier_format(self.carrier()?, format_args!(
-                    " smelt_function_value @ SmeltUnknown::Function(_) => {{ let smelt_record_map = SmeltRecord::from_iter([(JsString::from(\"{SMELT_CALL}\"), smelt_function_value.clone()), {entries}].into_iter().filter(|(_, smelt_value)| !matches!(smelt_value, SmeltUnknown::Undefined))); {adapter} }},", adapter = adapter.delimited()
+                    " smelt_function_value @ SmeltUnknown::Function(_) => {{ let smelt_record_map = SmeltRecord::from_iter([{call_entry}{entries}].into_iter().filter(|(_, smelt_value)| !matches!(smelt_value, SmeltUnknown::Undefined))); {adapter} }},", adapter = adapter.delimited()
                 ))
             } else {
                 String::new()
@@ -173,13 +187,10 @@ impl FunctionEmitter<'_> {
         Ok(None)
     }
 
-    /// The source keys of a callable-object struct's data fields (every
-    /// field but `__smelt_call`), or `None` when `target` is not a class or
-    /// interface with a `__smelt_call` slot.
-    fn callable_object_record_keys(
-        &self,
-        target: TypeId,
-    ) -> Result<Option<Vec<String>>, EmitError> {
+    /// The source keys of a record's data fields (every field but
+    /// `__smelt_call`) and whether it has that call slot (a callable-object
+    /// struct), or `None` when `target` is not a class or interface.
+    fn record_data_keys(&self, target: TypeId) -> Result<Option<(bool, Vec<String>)>, EmitError> {
         let Some(Type::Class { name, .. }) = self.mir.types.get(target) else {
             return Ok(None);
         };
@@ -200,7 +211,7 @@ impl FunctionEmitter<'_> {
                 keys.push(key.to_owned());
             }
         }
-        Ok(has_call.then_some(keys))
+        Ok(Some((has_call, keys)))
     }
 
     /// Rebuilds generated record `target` from erased `text` through its own

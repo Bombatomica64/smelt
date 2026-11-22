@@ -305,6 +305,14 @@ fn function_name_typed_only() -> TestResult {
     verify_node_parity("function_name_typed_only")
 }
 
+/// A function used at an object type (`const n: Named = hello`, an argument,
+/// `unknown` cast back to the record) is the record of its own `name` and
+/// `length`, and an optional member it lacks reads `undefined`.
+#[test]
+fn function_at_object_type() -> TestResult {
+    verify_node_parity("function_at_object_type")
+}
+
 /// A function keeps one identity across its representations: erased into
 /// `unknown`, read at a typed slot, stored in a list, a `Set` or a `Map`, and
 /// found again with `===`, `indexOf`, `includes`, `has` and `get`.

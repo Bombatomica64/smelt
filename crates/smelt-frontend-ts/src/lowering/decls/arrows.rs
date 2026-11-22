@@ -416,6 +416,7 @@ impl ModuleBuilder<'_> {
             self.ctx.krate.push_item(function_item)
         };
         self.items.insert(name_text.to_owned(), item);
+        self.record_function_js_name(item, name_text);
         if let Some(rest) = rest {
             self.functions.set_rest(name_text.to_owned(), rest);
             self.publish_export(|ctx| &mut ctx.function_rests, name_text.to_owned(), rest);
