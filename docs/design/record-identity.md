@@ -175,8 +175,11 @@ types; no value is erased by a conversion; the SmeltUnknown and typedness ratche
 * **Construct-or-call unions.** `(new () => T) | (() => T)` lowers to `fn() -> T`, so a class stored in such a
   slot is an adapter closure (`ms[0] === P` is false) and `new` through it is a call. It needs a two-armed
   callable (`enum { Construct(..), Call(..) }`) chosen per slot.
-* **Function at an object-type slot** (`const n: Named = hello`, `{ name; length }`) gives the type's
-  default. It needs the record's `SmeltFromUnknown` to read properties off an erased function.
+* **Function at an object-type slot** (`const n: Named = hello`, `{ name; length }`): the record is built
+  from the function's own `name` (`Function.prototype.name`, carried from the frontend's NamedEvaluation) and
+  `length`, typed and through `unknown`. What is left is identity: `n === hello` is `false`, because the record
+  is a by-value copy. Keeping it needs the target to be a view whose source is the function, or an identity
+  field on the record.
 * **Accessor-backed and host properties** (`get`/`set` class properties, `RegExp.lastIndex`) and
   **namespace objects** (`import * as NS` as a value is not modelled at all) are steps 3 and 4.
 * **`unknown[]` export identity**: not attempted. The list link (step 2) keeps identity at no erased cost
