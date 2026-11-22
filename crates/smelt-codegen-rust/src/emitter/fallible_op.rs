@@ -230,6 +230,39 @@ impl FunctionEmitter<'_> {
         ))
     }
 
+    /// Renders Python's `del xs[start:end:step]`: the positions
+    /// `smelt_py_slice_positions` picks (`slice.indices`, then its `range`;
+    /// a zero step is its `ValueError`) are removed from the shared list in
+    /// place, so every alias sees the shorter list.
+    fn python_slice_delete_expr(
+        &self,
+        list: &Operand,
+        start: Option<&Operand>,
+        end: Option<&Operand>,
+        step: Option<&Operand>,
+    ) -> Result<RustExpr, EmitError> {
+        let bound = |operand: Option<&Operand>| -> Result<String, EmitError> {
+            Ok(match operand {
+                Some(operand) => format!(
+                    "Some({} as i64)",
+                    self.operand_expr(operand)?.as_cast_operand()
+                ),
+                None => "None".to_owned(),
+            })
+        };
+        let step_text = match step {
+            Some(step) => format!("{} as i64", self.operand_expr(step)?.as_cast_operand()),
+            None => "1_i64".to_owned(),
+        };
+        let list_text = self.operand_borrow_expr(list)?;
+        Ok(RustExpr::atom(format!(
+            "{{ let smelt_list = &{list_text}; let smelt_len = smelt_list.borrow().len(); smelt_py_slice_positions(smelt_len, {start}, {end}, {step_text}).map(|smelt_at| {{ let mut smelt_drop = vec![false; smelt_len]; for smelt_index in smelt_at {{ smelt_drop[smelt_index] = true; }} let mut smelt_position = 0_usize; smelt_list.borrow_mut().retain(|_| {{ let smelt_keep = !smelt_drop[smelt_position]; smelt_position += 1; smelt_keep }}); }}) }}",
+            list_text = list_text.tight(),
+            start = bound(start)?,
+            end = bound(end)?,
+        )))
+    }
+
     /// Renders Python's `xs[start:end:step]` on a list or a string: the
     /// elements (code points) at the positions `smelt_py_slice_positions`
     /// picks.
@@ -401,6 +434,20 @@ impl FunctionEmitter<'_> {
                 end,
                 step,
             } => self.python_step_slice_call(sequence, start.as_ref(), end.as_ref(), step)?,
+            Rvalue::PythonSliceDelete {
+                list,
+                start,
+                end,
+                step,
+            } => (
+                RenderedCall::propagating(self.python_slice_delete_expr(
+                    list,
+                    start.as_ref(),
+                    end.as_ref(),
+                    step.as_ref(),
+                )?),
+                self.type_id(Type::None)?,
+            ),
             Rvalue::PyJsonLoads { text } => {
                 // The destination's own static type picks the decoder
                 // (`SmeltPyJsonDecode`), so an `int` stays exact.

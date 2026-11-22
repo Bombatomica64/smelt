@@ -453,6 +453,7 @@ impl RuntimeDemand {
                 self.add(Need::PyException);
             }
             Rvalue::PythonStepSlice { .. }
+            | Rvalue::PythonSliceDelete { .. }
             | Rvalue::PythonListExtrema { .. }
             | Rvalue::ListIndex { .. }
             | Rvalue::ListRemove { .. } => {
