@@ -152,10 +152,13 @@ impl FunctionEmitter<'_> {
             // type whose members it owns (`name`, `length`) or that are
             // optional, so the record is rebuilt from the function's own
             // property reads and the adapter judges what is missing.
-            let function_arm = if let Some((has_call, fields)) = self
-                .record_data_keys(target)?
-                .filter(|(has_call, fields)| *has_call || !fields.is_empty())
-            {
+            let function_arm = if let Some((has_call, fields)) =
+                self.record_data_keys(target)?.filter(|(has_call, fields)| {
+                    *has_call
+                        || fields
+                            .iter()
+                            .any(|key| matches!(key.as_str(), "name" | "length"))
+                }) {
                 let call_entry = if has_call {
                     format!("(JsString::from(\"{SMELT_CALL}\"), smelt_function_value.clone()), ")
                 } else {
@@ -189,7 +192,10 @@ impl FunctionEmitter<'_> {
 
     /// The source keys of a record's data fields (every field but
     /// `__smelt_call`) and whether it has that call slot (a callable-object
-    /// struct), or `None` when `target` is not a class or interface.
+    /// struct), or `None` when `target` is not a class or interface, or is a
+    /// plain record no function can be: one with a required member other
+    /// than the `name` and `length` every function owns (TypeScript rejects a
+    /// function there, so such a conversion never sees one).
     fn record_data_keys(&self, target: TypeId) -> Result<Option<(bool, Vec<String>)>, EmitError> {
         let Some(Type::Class { name, .. }) = self.mir.types.get(target) else {
             return Ok(None);
@@ -202,16 +208,19 @@ impl FunctionEmitter<'_> {
             return Ok(None);
         };
         let mut has_call = false;
+        let mut function_fits = true;
         let mut keys = Vec::new();
         for field in &fields {
             let key = self.symbol_source_name(field.name)?;
             if key == SMELT_CALL {
                 has_call = true;
             } else {
+                function_fits &= matches!(key, "name" | "length")
+                    || matches!(self.mir.types.get(field.ty), Some(Type::Optional(..)));
                 keys.push(key.to_owned());
             }
         }
-        Ok(Some((has_call, keys)))
+        Ok((has_call || function_fits).then_some((has_call, keys)))
     }
 
     /// Rebuilds generated record `target` from erased `text` through its own
