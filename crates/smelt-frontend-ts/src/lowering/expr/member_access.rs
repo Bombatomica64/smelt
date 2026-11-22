@@ -641,7 +641,7 @@ impl ModuleBuilder<'_> {
         if let Some(expr) = self.number_static_constant(member, body) {
             return Ok(expr);
         }
-        if let Some(expr) = self.number_predicate_member_expression(member, body) {
+        if let Some(expr) = self.number_predicate_member_expression(member, None, body) {
             return Ok(expr);
         }
         if let Some(expr) = self.array_is_array_member_expression(member, body) {
@@ -1418,6 +1418,38 @@ impl ModuleBuilder<'_> {
         }))
     }
 
+    /// [`Self::number_predicate_member_expression`] where a value of
+    /// `type_hint` is expected: a function type (or a callable read of one)
+    /// gives the predicate its first parameter's type. `None` when there is no
+    /// function hint or `member` names no `Number.*` predicate.
+    pub(in crate::lowering) fn number_predicate_member_with_hint(
+        &mut self,
+        member: &oxc::ast::ast::StaticMemberExpression<'_>,
+        type_hint: Option<smelt_hir::TypeId>,
+        outer_body: &mut Body,
+    ) -> Option<smelt_hir::ExprId> {
+        let hint = type_hint?;
+        // Only a `Number.*` predicate reads the hint: resolving a callable
+        // hint for any other member could record an erasure it never uses.
+        let Expression::Identifier(object) = &member.object else {
+            return None;
+        };
+        if !self.names_host(object.name.as_str(), "Number")
+            || !matches!(
+                member.property.name.as_str(),
+                "isFinite" | "isInteger" | "isSafeInteger" | "isNaN"
+            )
+        {
+            return None;
+        }
+        let function_ty = self.function_member_type(hint).unwrap_or(hint);
+        let Some(Type::Function(function)) = self.ctx.krate.types.get(function_ty) else {
+            return None;
+        };
+        let param_hint = function.params.first().copied()?;
+        self.number_predicate_member_expression(member, Some(param_hint), outer_body)
+    }
+
     /// Lower a `Number.isNaN` / `Number.isFinite` / `Number.isInteger` member
     /// reference (used as a value, not called) to a first-class predicate closure.
     ///
@@ -1426,9 +1458,19 @@ impl ModuleBuilder<'_> {
     /// handled by `number_predicate_call`; a bare member reference must become a
     /// callable `(value) => <NumericPredicate>(value)` value instead of resolving
     /// `Number` as an ordinary (unresolved) identifier and reading a field on it.
+    ///
+    /// `param_hint` is the parameter type the context expects the predicate to
+    /// take (the element type of `xs.map(Number.isNaN)`, the parameter of a
+    /// callback slot). The `Number.*` predicates never coerce, so the closure
+    /// takes that type as it is and tests the value at it, as the direct call
+    /// does: over `unknown[]`, `"NaN"` and `undefined` answer `false`. A
+    /// `number` parameter made the call site convert each element first and
+    /// answer for the converted value. With no usable hint the parameter stays
+    /// `number` (`Number.isSafeInteger`: the erased value it tests at run time).
     pub(in crate::lowering) fn number_predicate_member_expression(
         &mut self,
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
+        param_hint: Option<smelt_hir::TypeId>,
         outer_body: &mut Body,
     ) -> Option<smelt_hir::ExprId> {
         let Expression::Identifier(object) = &member.object else {
@@ -1450,7 +1492,16 @@ impl ModuleBuilder<'_> {
         // parameter `number` would coerce at the call site and make
         // `['1'].every(Number.isSafeInteger)` answer `true`, the same defect the
         // direct-call path avoids.
-        let number_ty = if matches!(op, NumericPredicateOp::IsSafeInteger) {
+        // A type parameter or `never` is no value type the predicate can test.
+        let param_hint = param_hint.filter(|hint| {
+            !matches!(
+                self.ctx.krate.types.get(*hint),
+                Some(Type::TypeParam { .. } | Type::Never)
+            )
+        });
+        let number_ty = if let Some(hint) = param_hint {
+            hint
+        } else if matches!(op, NumericPredicateOp::IsSafeInteger) {
             self.erase_at(
                 ErasureReason::RuntimeNarrowing,
                 span,

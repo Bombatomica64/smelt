@@ -479,7 +479,14 @@ impl ModuleBuilder<'_> {
                 self.await_expression(await_expr, type_hint, body)
             }
             Expression::UpdateExpression(update) => self.update_expression(update, body),
-            Expression::StaticMemberExpression(member) => self.static_member(member, body),
+            Expression::StaticMemberExpression(member) => {
+                if let Some(predicate) =
+                    self.number_predicate_member_with_hint(member, type_hint, body)
+                {
+                    return Ok(predicate);
+                }
+                self.static_member(member, body)
+            }
             Expression::ComputedMemberExpression(member) => {
                 if type_hint.is_some_and(|hint| {
                     matches!(
