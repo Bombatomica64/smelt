@@ -503,6 +503,18 @@ impl LoweringCtx<'_> {
                 self.write_back_mutation_receiver(writeback)?;
                 popped
             }
+            // `del xs[i]`: a fallible in-place removal, lowered as `xs.pop(i)` is.
+            ExprKind::PyListDeleteAt { list, index } => {
+                let index_operand = self.lower_expr(*index)?;
+                let (list_operand, writeback) = self.lower_mutation_receiver(*list)?;
+                let value = Rvalue::PyListDeleteAt {
+                    list: list_operand,
+                    index: index_operand,
+                };
+                let deleted = self.finish_op(&expr, value)?;
+                self.write_back_mutation_receiver(writeback)?;
+                deleted
+            }
             ExprKind::PyFormat { value, spec } => {
                 let formatted = self.lower_expr(*value)?;
                 self.finish_op(

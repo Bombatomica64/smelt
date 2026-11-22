@@ -519,8 +519,9 @@ impl ModuleBuilder<'_> {
     /// a width unless `-`; `%c` takes a code point or a one-character `str`;
     /// `%%` is a `%`. A tuple right operand supplies one value per
     /// conversion, any other value is the single argument. A count that does
-    /// not match, a `%(name)s` mapping key, a `*` width and a template that is
-    /// not a literal are refused (the first raises `TypeError` in `CPython`).
+    /// not match, a `*` width and a template that is not a literal are refused
+    /// (the first raises `TypeError` in `CPython`). A `%(key)s` conversion reads
+    /// its value from the mapping operand ([`Self::percent_mapping_source`]).
     fn percent_format_expression(
         &mut self,
         template: &str,
@@ -538,11 +539,21 @@ impl ModuleBuilder<'_> {
         let mut next_value = values.iter();
         let mut chars = template.chars().peekable();
         let unsupported = |message: &str| SmeltError::unsupported(span, format!("`%` formatting: {message}"));
+        // Set at the first `%(key)` conversion: the block binding the right
+        // operand, and where each key's value lives.
+        let mut mapping: Option<(smelt_hir::BlockId, PercentMapping)> = None;
+        let mut positional_used = false;
         while let Some(ch) = chars.next() {
             if ch != '%' {
                 literal.push(ch);
                 continue;
             }
+            let mapping_key = if chars.peek() == Some(&'(') {
+                chars.next();
+                Some(Self::percent_mapping_key(&mut chars).ok_or_else(|| unsupported("incomplete format key (ValueError in CPython)"))?)
+            } else {
+                None
+            };
             let mut flags = String::new();
             while let Some(&flag) = chars.peek().filter(|flag| "-+ #0".contains(**flag)) {
                 flags.push(flag);
@@ -573,13 +584,30 @@ impl ModuleBuilder<'_> {
                 literal.push('%');
                 continue;
             }
-            if matches!(conversion, '(' | '*') || chars.peek() == Some(&'*') {
-                return Err(unsupported("mapping keys and `*` widths are not supported"));
+            if conversion == '*' || chars.peek() == Some(&'*') {
+                return Err(unsupported("`*` widths are not supported"));
             }
-            let Some(value_ast) = next_value.next() else {
-                return Err(unsupported("not enough arguments for the template (TypeError in CPython)"));
+            let value = if let Some(key) = mapping_key {
+                if positional_used {
+                    return Err(unsupported("a `%(key)` conversion after a positional one (TypeError in CPython)"));
+                }
+                let (block, source) = match mapping.take() {
+                    Some(bound) => bound,
+                    None => self.percent_mapping_source(args, span, body)?,
+                };
+                let value = self.percent_mapping_value(&source, &key, span, body)?;
+                mapping = Some((block, source));
+                value
+            } else {
+                if mapping.is_some() {
+                    return Err(unsupported("a positional conversion with a mapping argument (TypeError in CPython)"));
+                }
+                positional_used = true;
+                let Some(value_ast) = next_value.next() else {
+                    return Err(unsupported("not enough arguments for the template (TypeError in CPython)"));
+                };
+                self.expression(value_ast, body)?
             };
-            let value = self.expression(value_ast, body)?;
             let value_ty = self.ctx.krate.types.get(Self::expr_ty(body, value)).cloned();
             let left = flags.contains('-');
             let precision_text = precision.as_ref().map(|digits| format!(".{digits}")).unwrap_or_default();
@@ -648,7 +676,7 @@ impl ModuleBuilder<'_> {
             }
             pieces.push(formatted);
         }
-        if next_value.next().is_some() {
+        if mapping.is_none() && next_value.next().is_some() {
             return Err(unsupported("not all arguments converted (TypeError in CPython)"));
         }
         if !literal.is_empty() || pieces.is_empty() {
@@ -656,8 +684,135 @@ impl ModuleBuilder<'_> {
         }
         let mut piece_iter = pieces.into_iter();
         let first = piece_iter.next().ok_or_else(|| unsupported("an empty template"))?;
-        Ok(piece_iter.fold(first, |acc, piece| {
+        let text = piece_iter.fold(first, |acc, piece| {
             body.push_expr(HirExpr { kind: ExprKind::BinOp { op: BinOp::Add, lhs: acc, rhs: piece }, ty: str_ty, span })
-        }))
+        });
+        let Some((block, _)) = mapping else {
+            return Ok(text);
+        };
+        // The right operand is evaluated once, before any formatting.
+        let block_idx = usize::try_from(block.0).map_err(|error| SmeltError::unsupported(span, error.to_string()))?;
+        body.blocks[block_idx].tail = Some(text);
+        Ok(body.push_expr(HirExpr { kind: ExprKind::Block(block), ty: str_ty, span }))
     }
+
+    /// The key of a `%(key)s` conversion, read after its `(`: the text up to
+    /// the matching `)`, nested parentheses included as `CPython` counts them.
+    /// `None` when the template ends first.
+    fn percent_mapping_key(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) -> Option<String> {
+        let mut depth = 1_usize;
+        let mut key = String::new();
+        for ch in chars.by_ref() {
+            match ch {
+                '(' => depth = depth.saturating_add(1),
+                ')' => {
+                    depth = depth.saturating_sub(1);
+                    if depth == 0 {
+                        return Some(key);
+                    }
+                }
+                _ => {}
+            }
+            key.push(ch);
+        }
+        None
+    }
+
+    /// Bind the right operand of a `%(key)` template once, in a new block.
+    ///
+    /// A dict literal whose keys are all string literals binds each value to
+    /// its own local, in source order, so each value keeps its own type (`{"n":
+    /// 3, "s": "a"}` formats `n` as an `int`, not as an `int | str`); a repeated
+    /// key keeps the last value, as the dict would. Any other right operand
+    /// must be a `dict[str, V]`, bound to one local and read per key.
+    fn percent_mapping_source(
+        &mut self,
+        args: &Expr,
+        span: Span,
+        body: &mut Body,
+    ) -> Result<(smelt_hir::BlockId, PercentMapping), SmeltError> {
+        let block = body.push_block(span);
+        let literal_keys = match args {
+            Expr::Dict(dict) => dict
+                .items
+                .iter()
+                .map(|item| match &item.key {
+                    Some(Expr::StringLiteral(key)) => Some((key.value.to_str().to_owned(), &item.value)),
+                    _ => None,
+                })
+                .collect::<Option<Vec<_>>>(),
+            _ => None,
+        };
+        if let Some(entries) = literal_keys {
+            let mut values: Vec<(String, smelt_hir::LocalId, TypeId)> = Vec::new();
+            for (key, value_ast) in entries {
+                let value = self.expression(value_ast, body)?;
+                let ty = Self::expr_ty(body, value);
+                let local = body.push_local(self.synthetic_local("__smelt_format_value", ty, false, span));
+                let pat = body.push_pattern(HirPattern::Binding(local));
+                body.push_stmt_to_block(block, HirStmt::Let { pat, ty, value: Some(value) });
+                values.retain(|(known, _, _)| *known != key);
+                values.push((key, local, ty));
+            }
+            return Ok((block, PercentMapping::Literal(values)));
+        }
+        let dict = self.expression(args, body)?;
+        let dict_ty = Self::expr_ty(body, dict);
+        let value_ty = match self.ctx.krate.types.get(dict_ty) {
+            Some(&Type::Dict(key_ty, value_ty)) if self.ctx.krate.types.get(key_ty) == Some(&Type::PyStr) => value_ty,
+            _ => {
+                return Err(SmeltError::unsupported(
+                    span,
+                    "`%` formatting: a `%(key)` template needs a dict with str keys (TypeError in CPython)",
+                ));
+            }
+        };
+        let local = body.push_local(self.synthetic_local("__smelt_format_mapping", dict_ty, false, span));
+        let pat = body.push_pattern(HirPattern::Binding(local));
+        body.push_stmt_to_block(block, HirStmt::Let { pat, ty: dict_ty, value: Some(dict) });
+        Ok((block, PercentMapping::Dict { local, dict_ty, value_ty }))
+    }
+
+    /// The value a `%(key)` conversion formats: the bound literal value, or a
+    /// read of the bound dict that raises `KeyError` for a missing key.
+    fn percent_mapping_value(
+        &mut self,
+        source: &PercentMapping,
+        key: &str,
+        span: Span,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        match source {
+            PercentMapping::Literal(values) => {
+                let Some(&(_, local, ty)) = values.iter().find(|(known, _, _)| known == key) else {
+                    return Err(SmeltError::unsupported(
+                        span,
+                        format!("`%` formatting: key {key:?} is not in the dict (KeyError in CPython)"),
+                    ));
+                };
+                Ok(body.push_expr(HirExpr { kind: ExprKind::Local(local), ty, span }))
+            }
+            &PercentMapping::Dict { local, dict_ty, value_ty } => {
+                let str_ty = self.intern_type(Type::PyStr);
+                let dict = body.push_expr(HirExpr { kind: ExprKind::Local(local), ty: dict_ty, span });
+                let key_expr = body.push_expr(HirExpr { kind: ExprKind::Literal(Literal::String(key.to_owned())), ty: str_ty, span });
+                Ok(body.push_expr(HirExpr { kind: ExprKind::PythonDictRead { dict, key: key_expr }, ty: value_ty, span }))
+            }
+        }
+    }
+}
+
+/// Where the values of a `%(key)s` template come from.
+enum PercentMapping {
+    /// A dict literal's values, each bound to its own local: `(key, local, type)`.
+    Literal(Vec<(String, smelt_hir::LocalId, TypeId)>),
+    /// A `dict[str, V]` value bound to one local.
+    Dict {
+        /// The bound dict.
+        local: smelt_hir::LocalId,
+        /// The dict's type.
+        dict_ty: TypeId,
+        /// Its value type `V`.
+        value_ty: TypeId,
+    },
 }

@@ -525,18 +525,57 @@ def drop(scores: dict[str, int]) -> None:
     )
 }
 
+/// `del receiver[key]` on a receiver that is neither a dict nor a list is refused.
+///
+/// Old requirement: `del values[0]` on a `list[int]` was refused ("requires a
+/// dict receiver"), because no helper raised `CPython`'s "list assignment index
+/// out of range". New requirement: a list receiver lowers to `PyListDeleteAt`
+/// (`del_list_index` parity fixture checks the behaviour against `python3`),
+/// and only other receivers, such as a `str` (a `TypeError` in `CPython`),
+/// are still refused.
 #[test]
 fn del_non_dict_subscript_is_rejected() -> TestResult {
-    let source = py!(r"
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(
+        py!(r"
 def drop(values: list[int]) -> None:
     del values[0]
+"),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let drop_id = module
+        .items
+        .first()
+        .copied()
+        .ok_or_else(|| "expected drop function".to_owned())?;
+    let Item::Function(drop) = item(&ctx, drop_id)? else {
+        return Err("expected function item for drop".to_owned());
+    };
+    let drop_body = body(
+        &ctx,
+        drop.body.ok_or_else(|| "expected drop body".to_owned())?,
+    )?;
+    ensure(
+        drop_body
+            .exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::PyListDeleteAt { .. })),
+        "expected `del list[i]` to lower to PyListDeleteAt",
+    )?;
+    let source = py!(r"
+def drop(text: str) -> None:
+    del text[0]
 ");
-    let mut ctx = HirCtx::new();
-    let errors = lower_errors(source, &mut ctx)?;
+    let mut str_ctx = HirCtx::new();
+    let errors = lower_errors(source, &mut str_ctx)?;
     let first = first_error(&errors)?;
     ensure(
-        first.message.contains("requires a dict receiver"),
-        format!("expected dict-receiver rejection, got {:?}", first.message),
+        first.message.contains("requires a dict or list receiver"),
+        format!(
+            "expected dict-or-list-receiver rejection, got {:?}",
+            first.message
+        ),
     )
 }
 
@@ -619,6 +658,49 @@ def combine(values: list[int], a: int, b: int, c: int, d: int, e: int, f: int) -
         ensure(
             render()? == first,
             "capture order changed between lowerings",
+        )?;
+    }
+    Ok(())
+}
+
+/// A set item or dict key literal mixing item types is refused before codegen:
+/// the union enum has no `Hash`/`Eq`, and `CPython` equates `1` with `1.0`.
+/// A list or dict value mixing types is typed as the union instead
+/// (`list_literal_mixed_types` parity fixture).
+#[test]
+fn mixed_hashed_literals_reject() -> TestResult {
+    for source in [
+        py!(r#"items = {1, "a"}"#),
+        py!(r#"table = {1: "a", "b": "c"}"#),
+    ] {
+        let mut ctx = HirCtx::new();
+        let errors = lower_errors(source, &mut ctx)?;
+        ensure(
+            first_error(&errors)?.message.contains("must have one type"),
+            "expected a mixed hashed literal diagnostic",
+        )?;
+    }
+    Ok(())
+}
+
+/// `%(key)s` templates refuse what `CPython` raises for: a positional
+/// conversion beside a keyed one, a key the dict literal lacks, and a mapping
+/// operand that is not a `dict[str, V]`.
+#[test]
+fn percent_mapping_misuse_rejects() -> TestResult {
+    for (source, expected) in [
+        (
+            py!(r#"text = "%(a)s %s" % {"a": 1}"#),
+            "positional conversion with a mapping",
+        ),
+        (py!(r#"text = "%(b)s" % {"a": 1}"#), "is not in the dict"),
+        (py!(r#"text = "%(a)s" % (1,)"#), "dict with str keys"),
+    ] {
+        let mut ctx = HirCtx::new();
+        let errors = lower_errors(source, &mut ctx)?;
+        ensure(
+            first_error(&errors)?.message.contains(expected),
+            format!("expected a `%` mapping diagnostic containing {expected:?}"),
         )?;
     }
     Ok(())

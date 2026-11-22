@@ -3033,6 +3033,19 @@ macro_rules! op_group_custom {
                 fallible(true)
                 call("@py_list_pop_at".to_owned())
                 => (format!("py_list_pop_at {list}, {index}"));
+            /// Python's `del xs[i]`: remove the item at `i` (negative from the
+            /// end); an `i` out of range raises `IndexError("list assignment
+            /// index out of range")`.
+            PyListDeleteAt {
+                /// List value to mutate.
+                list: one @RECV_MUT,
+                /// The position, a machine integer.
+                index: one,
+            }
+                mutates(Some(list))
+                fallible(true)
+                call("@py_list_delete_at".to_owned())
+                => (format!("py_list_delete_at {list}, {index}"));
             /// Remove and return the first item from a list.
             ListShift {
                 /// List value to mutate.

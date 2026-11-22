@@ -1,0 +1,9 @@
+[1, 3, 4, 5]
+[1, 3, 4]
+[3, 4] [3, 4]
+IndexError: list assignment index out of range
+IndexError: list assignment index out of range
+IndexError: list assignment index out of range
+IndexError: list assignment index out of range
+[[1]]
+[4]

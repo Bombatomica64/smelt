@@ -274,10 +274,28 @@ impl ModuleBuilder<'_> {
             }
             let dict = self.expression(&sub.value, body)?;
             let dict_ty = Self::expr_ty(body, dict);
+            if matches!(self.ctx.krate.types.get(dict_ty), Some(Type::List(_))) {
+                // `del xs[i]` removes one item in place, `IndexError` past either end.
+                let index = self.expression(&sub.slice, body)?;
+                if !matches!(self.ctx.krate.types.get(Self::expr_ty(body, index)), Some(Type::PyInt)) {
+                    return Err(SmeltError::unsupported(self.span(sub.range), "`del list[i]` index must be an int"));
+                }
+                // A position past a machine word is out of range, which the
+                // saturated bound reports as `IndexError` like any other.
+                let position = self.py_int_as_clamped_bound(index, body);
+                let none_ty = self.intern_type(Type::None);
+                let delete = body.push_expr(HirExpr {
+                    kind: ExprKind::PyListDeleteAt { list: dict, index: position },
+                    ty: none_ty,
+                    span: self.span(sub.range),
+                });
+                body.push_stmt_to_block(block, HirStmt::Expr(delete));
+                continue;
+            }
             let Some(&Type::Dict(key_ty, _)) = self.ctx.krate.types.get(dict_ty) else {
                 return Err(SmeltError::unsupported(
                     self.span(sub.range),
-                    "`del receiver[key]` requires a dict receiver",
+                    "`del receiver[key]` requires a dict or list receiver",
                 ));
             };
             let key = self.expression(&sub.slice, body)?;

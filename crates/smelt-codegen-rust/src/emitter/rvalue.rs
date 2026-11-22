@@ -224,6 +224,7 @@ impl FunctionEmitter<'_> {
             | Rvalue::BigIntCall { .. }
             | Rvalue::UrlNew { .. }
             | Rvalue::PyListPopAt { .. }
+            | Rvalue::PyListDeleteAt { .. }
             | Rvalue::PyFormat { .. }
             | Rvalue::JsonParse { .. } => Err(EmitError::new(
                 "internal: a fallible operation reached the assignment path",
