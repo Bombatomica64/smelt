@@ -214,6 +214,15 @@ impl ModuleBuilder<'_> {
         match self.ctx.krate.types.get(ty) {
             Some(Type::PyInt | Type::Float | Type::Bool | Type::PyStr | Type::None) => true,
             Some(Type::Optional(item, _) | Type::List(item)) => self.has_python_text(*item),
+            // A union of such members writes its live member's text (the
+            // emitter's `union_has_py_repr` holds the same condition).
+            Some(Type::Union(members)) => {
+                let members = members.clone();
+                members.iter().any(|member| matches!(self.ctx.krate.types.get(*member), Some(Type::PyInt | Type::PyStr)))
+                    && members.iter().all(|member| {
+                        !matches!(self.ctx.krate.types.get(*member), Some(Type::Union(_))) && self.has_python_text(*member)
+                    })
+            }
             // The runtime writes a tuple's `repr` for one to six elements.
             Some(Type::Tuple(items)) => {
                 (1..=6).contains(&items.len()) && items.iter().all(|item| self.has_python_text(*item))

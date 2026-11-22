@@ -354,6 +354,74 @@ impl FunctionEmitter<'_> {
         Ok(Some(RustExpr::loose(text)))
     }
 
+    /// Python's `min(a, b, ...)` / `max(a, b, ...)` over a mix of `int`s and
+    /// `float`s, at the `int | float` union the frontend gives the result:
+    /// `None` when `dest_ty` is not that union.
+    ///
+    /// `CPython` returns one of the arguments unchanged, so `max(3, 2.5)` is
+    /// the `int` `3`. It keeps the first argument and replaces it with each
+    /// later one that compares strictly greater (`max`) or less (`min`), so
+    /// the first of equal values wins (`max(1, 1.0)` is `1`) and a NaN
+    /// compares as `CPython` compares it (`max(nan, 1)` is `nan`,
+    /// `max(1, nan)` is `1`). An `int` meets a `float` by exact value
+    /// (`SmeltPyInt::cmp_f64`), never through a lossy conversion.
+    pub(super) fn py_number_union_extrema_expr(
+        &self,
+        op: smelt_hir::NumericExtremaOp,
+        args: &[Operand],
+        dest_ty: TypeId,
+    ) -> Result<Option<RustExpr>, EmitError> {
+        let Some(Type::Union(members)) = self.mir.types.get(dest_ty) else {
+            return Ok(None);
+        };
+        let arm_of = |wanted: fn(&Type) -> bool| {
+            members
+                .iter()
+                .position(|member| self.mir.types.get(*member).is_some_and(wanted))
+        };
+        let (Some(int_arm), Some(float_arm), 2) = (
+            arm_of(|ty| matches!(ty, Type::PyInt)),
+            arm_of(|ty| matches!(ty, Type::Float)),
+            members.len(),
+        ) else {
+            return Ok(None);
+        };
+        let Some((first, rest)) = args.split_first() else {
+            return Err(EmitError::new("min()/max() needs a first argument"));
+        };
+        let union = self.union_rust_type(dest_ty)?;
+        let ordering = match op {
+            smelt_hir::NumericExtremaOp::Min => "Less",
+            smelt_hir::NumericExtremaOp::Max => "Greater",
+        };
+        let reversed = match op {
+            smelt_hir::NumericExtremaOp::Min => "Greater",
+            smelt_hir::NumericExtremaOp::Max => "Less",
+        };
+        let int = format!("{union}::M{int_arm}");
+        let float = format!("{union}::M{float_arm}");
+        // `smelt_beats(item, best)`: `item` replaces `best`.
+        let beats = format!(
+            "let smelt_beats = |smelt_item: &{union}, smelt_best: &{union}| -> bool {{ match (smelt_item, smelt_best) {{ \
+             ({int}(a), {int}(b)) => a.cmp(b) == ::std::cmp::Ordering::{ordering}, \
+             ({float}(a), {float}(b)) => a.partial_cmp(b) == Some(::std::cmp::Ordering::{ordering}), \
+             ({int}(a), {float}(b)) => a.cmp_f64(*b) == Some(::std::cmp::Ordering::{ordering}), \
+             ({float}(a), {int}(b)) => b.cmp_f64(*a) == Some(::std::cmp::Ordering::{reversed}) }} }};"
+        );
+        let mut text = format!(
+            "{{ {beats} let mut smelt_best: {union} = {};",
+            self.value_at_type(first, dest_ty)?.delimited()
+        );
+        for arg in rest {
+            text.push_str(&format!(
+                " let smelt_item: {union} = {}; if smelt_beats(&smelt_item, &smelt_best) {{ smelt_best = smelt_item; }}",
+                self.value_at_type(arg, dest_ty)?.delimited()
+            ));
+        }
+        text.push_str(" smelt_best }");
+        Ok(Some(RustExpr::atom(text)))
+    }
+
     /// Python's `min(a, b, ...)` / `max(a, b, ...)` over `int`s, optionally
     /// followed by a spread list: a fold with `Ord::min`/`Ord::max`, exact at
     /// every magnitude. Equal `int`s are indistinguishable, so which of them

@@ -184,6 +184,8 @@ declare_needs! {
     PyStrMethods,
     /// Python's format-spec mini-language (`py_format.rs`).
     PyFormat,
+    /// `CPython`'s `list.sort` algorithm (`py_sort.rs`).
+    PySort,
     /// `SmeltBinding`, the storage of a source binding that can be read
     /// before its first assignment.
     Binding,
@@ -1169,6 +1171,13 @@ impl RuntimeDemand {
                 self.add(Need::ClassPrototypeMethods);
             }
         }
+        // A Python sort with a key, or over items Python orders only
+        // partially (floats), runs `CPython`'s own algorithm (`py_sort.rs`).
+        if let Statement::Assign { dest, value } = statement
+            && python_sort_follows_cpython(mir, locals, *dest, value)
+        {
+            self.add(Need::PySort);
+        }
         // A `JSON.stringify` typed `string | undefined` answers through the
         // helper that maps a value with no JSON text to `undefined`.
         if let Statement::Assign {
@@ -1561,6 +1570,42 @@ fn class_method_read_as_value(mir: &Mir, locals: &[LocalDecl], place: &Place) ->
             .and_then(|base_name| crate::classes::find_class(mir, base_name));
     }
     false
+}
+
+/// Whether `value`, assigned to `dest`, is a Python sort the emitter writes
+/// with `smelt_py_sort`/`smelt_py_sort_by_key` (`emitter::list_ordering`): a
+/// `sorted(..)` or a Python `list.sort(..)` (no JavaScript comparator, no list
+/// result) that has a key or sorts items [`py_order_is_partial`]. An operand
+/// of unknown type counts, since the item is only emitted on demand.
+fn python_sort_follows_cpython(mir: &Mir, locals: &[LocalDecl], dest: LocalId, value: &Rvalue) -> bool {
+    let item_is_partial = |list: &Operand| {
+        let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = list else {
+            return true;
+        };
+        match local_type(locals, *local).and_then(|ty| mir.types.get(ty)) {
+            Some(Type::List(item)) => py_order_is_partial(&mir.types, *item),
+            _ => true,
+        }
+    };
+    match value {
+        Rvalue::ListSorted { list, key, .. } => key.is_some() || item_is_partial(list),
+        Rvalue::ListSort { list, comparator: None, key, .. } => {
+            let returns_list = local_type(locals, dest)
+                .is_some_and(|ty| matches!(mir.types.get(ty), Some(Type::List(_))));
+            key.is_some() || (!returns_list && item_is_partial(list))
+        }
+        _ => false,
+    }
+}
+
+/// Whether Python's `<` orders values of type `ty` only partially: a `float`
+/// (every comparison with a NaN is false), or a tuple holding one.
+pub(crate) fn py_order_is_partial(types: &smelt_hir::TypeInterner, ty: smelt_hir::TypeId) -> bool {
+    match types.get(ty) {
+        Some(Type::Float) => true,
+        Some(Type::Tuple(items)) => items.iter().any(|item| py_order_is_partial(types, *item)),
+        _ => false,
+    }
 }
 
 /// The declared type of `local` in `locals`.

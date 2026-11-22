@@ -361,3 +361,26 @@ fn dataclass_repr() -> TestResult {
 fn comprehension_targets_and_tuple_order() -> TestResult {
     verify_python_parity("comprehension_targets_and_tuple_order")
 }
+
+/// `min`/`max` of several arguments mixing `int` and `float` return one of
+/// the arguments unchanged: `max(3, 2.5)` is the `int` `3`, the first of equal
+/// values wins (`max(4, 4.0)` is `4`), an `int` meets a `float` by exact value
+/// (`max(10**30, 1e30)` is the float), and a NaN compares as `CPython`
+/// compares it. A module-level NaN reaches the program intact. Requirements:
+/// `CPython`'s output, and the result is the `int | float` union
+/// (`SmeltPyInt` or `f64`), printed through its live member's `str`/`repr`.
+#[test]
+fn min_max_mixed_numbers() -> TestResult {
+    verify_python_parity("min_max_mixed_numbers")
+}
+
+/// `sorted` and `list.sort` over floats holding NaNs leave the order
+/// `CPython`'s `listsort` leaves (every comparison with a NaN is false, so the
+/// order is the algorithm's), in both directions and with a key, for lists
+/// long enough to merge and gallop; a key runs once per item, in list order,
+/// and a raising key leaves the list untouched. Requirements: `CPython`'s
+/// output, never a panic, and the lists keep their `SmeltList<f64>` type.
+#[test]
+fn sort_nan_cpython_order() -> TestResult {
+    verify_python_parity("sort_nan_cpython_order")
+}

@@ -2401,6 +2401,21 @@ pub(crate) fn emit_union_definitions(
             "        self.clone().into_smelt_unknown() == other.clone().into_smelt_unknown()\n",
         );
         output.push_str("    }\n}\n");
+        // A Python union of members with Python text writes its live member's
+        // `str`/`repr` (`print(max(4, 2.5))` is `4`, `max(4.0, 2)` is `4.0`).
+        if emitter.union_has_py_repr(type_id) {
+            output.push_str(&format!("impl{impl_generics} SmeltPyRepr for {target} {{\n"));
+            for method in ["py_repr", "py_str"] {
+                output.push_str(&format!("    fn {method}(&self) -> String {{\n        match self {{\n"));
+                for member_index in 0..members.len() {
+                    output.push_str(&format!(
+                        "            Self::M{member_index}(value) => SmeltPyRepr::{method}(value),\n"
+                    ));
+                }
+                output.push_str("        }\n    }\n");
+            }
+            output.push_str("}\n");
+        }
         // `SmeltFromUnknown` is the trait form of the inherent
         // `from_smelt_unknown` emitted just above. Without it a union cannot be
         // used as a generic argument, because every lifted type parameter is

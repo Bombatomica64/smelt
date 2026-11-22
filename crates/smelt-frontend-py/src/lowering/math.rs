@@ -376,15 +376,24 @@ impl ModuleBuilder<'_> {
                 }));
             }
         }
-        let ty = Self::expr_ty(body, args[0]);
-        if !matches!(self.ctx.krate.types.get(ty), Some(Type::PyInt | Type::Float))
-            || args.iter().any(|arg| Self::expr_ty(body, *arg) != ty)
-        {
+        let int_ty = self.intern_type(Type::PyInt);
+        let float_ty = self.intern_type(Type::Float);
+        let arg_tys: Vec<TypeId> = args.iter().map(|arg| Self::expr_ty(body, *arg)).collect();
+        if arg_tys.iter().any(|ty| *ty != int_ty && *ty != float_ty) {
             return Err(SmeltError::unsupported(
                 span,
-                "Python min() and max() require all-int or all-float arguments",
+                "Python min() and max() of several arguments require int or float arguments",
             ));
         }
+        // `min`/`max` return one of their arguments unchanged, so an `int`
+        // argument stays an `int` even next to a `float` (`max(3, 2.5)` is
+        // `3`): mixed arguments give `int | float`, whose members the emitter
+        // compares by exact value.
+        let ty = if arg_tys.iter().all(|ty| *ty == arg_tys[0]) {
+            arg_tys[0]
+        } else {
+            self.union_from_types(vec![int_ty, float_ty], span)?
+        };
         Ok(body.push_expr(HirExpr {
             kind: ExprKind::NumericExtrema {
                 op,

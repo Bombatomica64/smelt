@@ -4,16 +4,13 @@ use super::*;
 use crate::rust::RustExpr;
 
 impl FunctionEmitter<'_> {
-    /// Converts a list sorted-copy operation to Rust text.
+    /// Converts a Python `sorted(..)` to Rust text.
     ///
-    /// Integer, boolean, and string lists use Rust's total `Ord` sort. Floating
-    /// lists use `partial_cmp` and panic on unordered values such as `NaN`
-    /// until Python-compatible edge semantics are modeled explicitly.
-    /// Converts a list sorted-copy operation to Rust text.
-    ///
-    /// Integer, boolean, and string lists use Rust's total `Ord` sort. Floating
-    /// lists use `partial_cmp` and panic on unordered values such as `NaN`
-    /// until Python-compatible edge semantics are modeled explicitly.
+    /// A key, or items Python orders only partially (floats, where every
+    /// comparison with a NaN is false), run `CPython`'s own algorithm
+    /// ([`Self::py_sort_call`]); a key-free sort over a total order (`bool`,
+    /// `int`, `str` and tuples of them) has one stable answer, which Rust's
+    /// stable sort gives.
     pub(super) fn list_sorted_expr(
         &self,
         list: &Operand,
@@ -35,10 +32,17 @@ impl FunctionEmitter<'_> {
         // sorts. The copy is of the backing `Vec`: cloning the `SmeltList` handle
         // shares the array, and `sorted` must leave its input alone.
         let list_text = list_read_expr(&self.operand_borrow_expr(list)?);
-        if key.is_some() || reverse {
-            let (prefix, closure) = self.list_sort_by(key, reverse, element_ty)?;
+        if key.is_some() || crate::runtime_demand::py_order_is_partial(&self.mir.types, element_ty) {
+            let (prefix, call) = self.py_sort_call("&mut smelt_sorted", key, reverse, element_ty)?;
             return Ok(RustExpr::atom(format!(
-                "{{ {prefix}let mut smelt_sorted = {list_text}.clone(); smelt_sorted.sort_by({closure}); smelt_sorted }}",
+                "{{ {prefix}let mut smelt_sorted = {list_text}.clone(); {call}; smelt_sorted }}",
+                list_text = list_text.tight()
+            )));
+        }
+        if reverse {
+            let closure = self.list_sort_by_reversed(element_ty)?;
+            return Ok(RustExpr::atom(format!(
+                "{{ let mut smelt_sorted = {list_text}.clone(); smelt_sorted.sort_by({closure}); smelt_sorted }}",
                 list_text = list_text.tight()
             )));
         }
@@ -49,10 +53,6 @@ impl FunctionEmitter<'_> {
                     list_text = list_text.tight()
                 )))
             }
-            Some(Type::Float) => Ok(RustExpr::atom(format!(
-                "{{ let mut smelt_sorted = {list_text}.clone(); smelt_sorted.sort_by(|smelt_left, smelt_right| smelt_left.partial_cmp(smelt_right).expect(\"sorted incomparable float\")); smelt_sorted }}",
-                list_text = list_text.tight()
-            ))),
             // Python's tuples order lexicographically, as Rust's do: `Ord`
             // when no item is a float, `PartialOrd` otherwise.
             Some(Type::Tuple(_)) if self.tuple_is_totally_ordered(element_ty) => {
@@ -61,10 +61,6 @@ impl FunctionEmitter<'_> {
                     list_text = list_text.tight()
                 )))
             }
-            Some(Type::Tuple(_)) => Ok(RustExpr::atom(format!(
-                "{{ let mut smelt_sorted = {list_text}.clone(); smelt_sorted.sort_by(|smelt_left, smelt_right| smelt_left.partial_cmp(smelt_right).unwrap_or(::std::cmp::Ordering::Equal)); smelt_sorted }}",
-                list_text = list_text.tight()
-            ))),
             _ => Err(EmitError::new(
                 "sorted() supports bool, int, float, and string lists",
             )),
@@ -83,107 +79,83 @@ impl FunctionEmitter<'_> {
         }
     }
 
-    /// Build the prefix bindings and `sort_by` comparison closure for Python
-    /// `key`/`reverse` sorting.
-    ///
-    /// When `key` is present it is bound once as `smelt_sort_key` and applied to
-    /// both compared items, producing owned key values. Otherwise the list items
-    /// compare directly through their references. `reverse` swaps the comparison
-    /// operands rather than reversing the result, so equal items keep their
-    /// original order to match Python's stable descending sort. Floating keys use
-    /// `partial_cmp` and panic on unordered values such as `NaN`.
-    pub(super) fn list_sort_by(
+    /// The call that sorts the `Vec` that `target` (a `&mut` expression)
+    /// reaches as `CPython`'s `list.sort(key=.., reverse=..)` does, with the
+    /// binding it needs first: `smelt_py_sort` comparing items with Python's
+    /// `<`, or with a key `smelt_py_sort_by_key`, which calls the key once
+    /// per item, in list order, before comparing (`runtime/py_sort.rs`). A
+    /// raising key re-raises through the panic route a raising callback of a
+    /// builtin uses. `<` is the items' (keys') `PartialOrd`, which is Python's
+    /// for numbers, strings, booleans and tuples of them.
+    pub(super) fn py_sort_call(
         &self,
+        target: &str,
         key: Option<&Operand>,
         reverse: bool,
         element_ty: TypeId,
     ) -> Result<(String, String), EmitError> {
-        if let Some(key_operand) = key {
-            let Some(Type::Function(function_ty)) =
-                self.mir.types.get(self.operand_ty(key_operand)?)
-            else {
-                return Err(EmitError::new("sort key must be a closure"));
-            };
-            let return_ty = function_ty.return_ty;
-            let unwrap_throw = if function_ty.may_throw {
-                ".unwrap_or_else(|error: Box<dyn ::std::error::Error>| smelt_panic_throw(error))"
-            } else {
-                ""
-            };
-            let param_ty = function_ty.params.first().copied().unwrap_or(element_ty);
-            let left_arg = self.rendered_at_type(
-                &RustExpr::path("smelt_left").cloned_value(),
-                element_ty,
-                param_ty,
-                &self.render_scope(),
-            )?;
-            let right_arg = self.rendered_at_type(
-                &RustExpr::path("smelt_right").cloned_value(),
-                element_ty,
-                param_ty,
-                &self.render_scope(),
-            )?;
-            let closure_expr = match self.closure_operand_expr_for_declared_type(key_operand) {
-                Ok(closure_expr) => closure_expr,
-                Err(_) => self.operand_expr(key_operand)?,
-            };
-            let (first, second) = if reverse {
-                ("smelt_right_key", "smelt_left_key")
-            } else {
-                ("smelt_left_key", "smelt_right_key")
-            };
-            let comparison = match self.mir.types.get(return_ty) {
-                Some(Type::Float) => format!(
-                    "{first}.partial_cmp(&{second}).expect(\"sort key incomparable float\")"
-                ),
-                Some(Type::Bool | Type::Int | Type::PyInt | Type::String | Type::PyStr) => {
-                    format!("{first}.cmp(&{second})")
-                }
-                _ => {
-                    return Err(EmitError::new(
-                        "sort key must return bool, int, float, or string",
-                    ));
-                }
-            };
-            let prefix = format!(
-                "let mut smelt_sort_key = {closure_expr}; ",
-                closure_expr = closure_expr.delimited()
-            );
-            let closure = format!(
-                "|smelt_left, smelt_right| {{ let smelt_left_key = (smelt_sort_key)({left_arg}){unwrap_throw}; let smelt_right_key = (smelt_sort_key)({right_arg}){unwrap_throw}; {comparison} }}",
-                left_arg = left_arg.delimited(),
-                right_arg = right_arg.delimited()
-            );
-            return Ok((prefix, closure));
-        }
-        let (first, second) = if reverse {
-            ("smelt_right", "smelt_left")
-        } else {
-            ("smelt_left", "smelt_right")
+        let less = "|smelt_left, smelt_right| smelt_left < smelt_right";
+        let Some(key_operand) = key else {
+            if !self.py_orders_natively(element_ty) {
+                return Err(EmitError::new("sort supports bool, int, float, string and tuple items"));
+            }
+            return Ok((String::new(), format!("smelt_py_sort({target}, {reverse}, {less})")));
         };
-        let comparison = match self.mir.types.get(element_ty) {
-            Some(Type::Float) => {
-                format!("{first}.partial_cmp({second}).expect(\"sort incomparable float\")")
-            }
-            Some(Type::Bool | Type::Int | Type::PyInt | Type::String | Type::PyStr) => {
-                format!("{first}.cmp({second})")
-            }
-            Some(Type::Tuple(_)) if self.tuple_is_totally_ordered(element_ty) => {
-                format!("{first}.cmp({second})")
-            }
-            Some(Type::Tuple(_)) => {
-                format!("{first}.partial_cmp({second}).unwrap_or(::std::cmp::Ordering::Equal)")
-            }
-            _ => {
-                return Err(EmitError::new(
-                    "sort supports bool, int, float, string and tuple items",
-                ));
-            }
+        let Some(Type::Function(function_ty)) = self.mir.types.get(self.operand_ty(key_operand)?) else {
+            return Err(EmitError::new("sort key must be a closure"));
+        };
+        if !self.py_orders_natively(function_ty.return_ty) {
+            return Err(EmitError::new("sort key must return bool, int, float, string or a tuple of them"));
+        }
+        let unwrap_throw = if function_ty.may_throw {
+            ".unwrap_or_else(|error: Box<dyn ::std::error::Error>| smelt_panic_throw(error))"
+        } else {
+            ""
+        };
+        let param_ty = function_ty.params.first().copied().unwrap_or(element_ty);
+        let item_arg = self.rendered_at_type(
+            &RustExpr::path("smelt_item").cloned_value(),
+            element_ty,
+            param_ty,
+            &self.render_scope(),
+        )?;
+        let closure_expr = match self.closure_operand_expr_for_declared_type(key_operand) {
+            Ok(closure_expr) => closure_expr,
+            Err(_) => self.operand_expr(key_operand)?,
         };
         Ok((
-            String::new(),
-            format!("|smelt_left, smelt_right| {comparison}"),
+            format!("let mut smelt_sort_key = {}; ", closure_expr.delimited()),
+            format!(
+                "smelt_py_sort_by_key({target}, {reverse}, |smelt_item| (smelt_sort_key)({item_arg}){unwrap_throw}, {less})",
+                item_arg = item_arg.delimited()
+            ),
         ))
+    }
+
+    /// Whether Python's `<` on values of type `ty` is the Rust type's
+    /// `PartialOrd`: a `bool`, `int`, `float`, `str`, or a tuple of them.
+    fn py_orders_natively(&self, ty: TypeId) -> bool {
+        match self.mir.types.get(ty) {
+            Some(Type::Bool | Type::Int | Type::PyInt | Type::Float | Type::String | Type::PyStr) => true,
+            Some(Type::Tuple(items)) => items.iter().all(|item| self.py_orders_natively(*item)),
+            _ => false,
+        }
+    }
+
+    /// The `sort_by` closure of a key-free `reverse=True` sort over a total
+    /// order: the comparison operands swap rather than the result reversing,
+    /// so equal items keep their original order, as Python's stable
+    /// descending sort keeps them.
+    pub(super) fn list_sort_by_reversed(&self, element_ty: TypeId) -> Result<String, EmitError> {
+        let totally_ordered = match self.mir.types.get(element_ty) {
+            Some(Type::Bool | Type::Int | Type::PyInt | Type::String | Type::PyStr) => true,
+            Some(Type::Tuple(_)) => self.tuple_is_totally_ordered(element_ty),
+            _ => false,
+        };
+        if !totally_ordered {
+            return Err(EmitError::new("a reversed sort without a key needs totally ordered items"));
+        }
+        Ok("|smelt_left, smelt_right| smelt_right.cmp(smelt_left)".to_owned())
     }
 
     /// Converts a reversed-copy list operation to Rust text.

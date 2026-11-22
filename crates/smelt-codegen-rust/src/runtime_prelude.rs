@@ -345,6 +345,7 @@ fn need_of_flag(name: &str) -> Option<Need> {
         "py_int" => Need::PyInt,
         "py_str_methods" => Need::PyStrMethods,
         "py_format" => Need::PyFormat,
+        "py_sort" => Need::PySort,
         "binding" => Need::Binding,
         "binding_tdz" => Need::BindingTdz,
         "binding_py" => Need::BindingPy,
