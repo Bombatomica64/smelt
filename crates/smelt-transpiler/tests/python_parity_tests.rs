@@ -384,3 +384,17 @@ fn min_max_mixed_numbers() -> TestResult {
 fn sort_nan_cpython_order() -> TestResult {
     verify_python_parity("sort_nan_cpython_order")
 }
+
+/// `json.dumps(indent=..)` lays the text out as `CPython`'s encoder does (an
+/// `int` is that many spaces, `0` or a negative still breaks lines, a `str`
+/// is used as given, empty containers stay `[]`/`{}`, strings are copied
+/// untouched), and `json.loads` decodes at the annotated type: an `int`
+/// stays exact past 64 bits, `NaN`/`Infinity` are floats, a later duplicate
+/// key wins, and a malformed document raises `json.JSONDecodeError` (a
+/// `ValueError`) with `CPython`'s message and position. Requirements:
+/// `CPython`'s output, and the decoded values keep their static types
+/// (`SmeltPyInt`, `SmeltList<SmeltPyInt>`, ...), never the erased carrier.
+#[test]
+fn json_indent_and_exact_loads() -> TestResult {
+    verify_python_parity("json_indent_and_exact_loads")
+}

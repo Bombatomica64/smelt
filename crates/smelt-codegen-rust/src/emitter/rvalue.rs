@@ -192,7 +192,9 @@ impl FunctionEmitter<'_> {
             Rvalue::PyExceptionNew { classes, args } => self.py_exception_new_expr(classes, args),
             Rvalue::PyStr { value: text_of } => self.py_text_expr(text_of, "py_str"),
             Rvalue::PyRepr { value: text_of } => self.py_text_expr(text_of, "py_repr"),
-            Rvalue::PyJsonDumps { value: json_value } => self.py_json_dumps_expr(json_value),
+            Rvalue::PyJsonDumps { value: json_value, indent } => {
+                self.py_json_dumps_expr(json_value, indent.as_ref())
+            }
             Rvalue::PyExceptionArgs { exception } => {
                 let exception_text = self.operand_expr(exception)?;
                 Ok(exception_text.postfix(".args()"))
@@ -207,6 +209,7 @@ impl FunctionEmitter<'_> {
             | Rvalue::DictPopItem { .. }
             | Rvalue::PythonSequenceRead { .. }
             | Rvalue::PythonStepSlice { .. }
+            | Rvalue::PyJsonLoads { .. }
             | Rvalue::PythonListExtrema { .. }
             | Rvalue::ListIndex { .. }
             | Rvalue::ErasedPatternCall { .. }

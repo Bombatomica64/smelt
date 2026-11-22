@@ -431,8 +431,17 @@ impl RuntimeDemand {
             Rvalue::PyStr { .. } => {
                 self.add(Need::PyRepr);
             }
-            Rvalue::PyRepr { .. } | Rvalue::PyJsonDumps { .. } => {
+            Rvalue::PyRepr { .. } => {
                 self.add(Need::PyRepr);
+            }
+            Rvalue::PyJsonDumps { indent, .. } => {
+                self.add(Need::PyRepr);
+                if indent.is_some() {
+                    self.add(Need::PyJsonIndent);
+                }
+            }
+            Rvalue::PyJsonLoads { .. } => {
+                self.add(Need::PyJsonLoads);
             }
             Rvalue::PyExceptionArgs { .. } => {
                 self.add(Need::PyException);

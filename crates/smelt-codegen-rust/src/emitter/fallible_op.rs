@@ -401,6 +401,21 @@ impl FunctionEmitter<'_> {
                 end,
                 step,
             } => self.python_step_slice_call(sequence, start.as_ref(), end.as_ref(), step)?,
+            Rvalue::PyJsonLoads { text } => {
+                // The destination's own static type picks the decoder
+                // (`SmeltPyJsonDecode`), so an `int` stays exact.
+                let target = dest_ty
+                    .ok_or_else(|| EmitError::new("json.loads() needs a typed destination"))?;
+                let rust_ty = self.rendered_type(target)?;
+                let text = self.operand_borrow_expr(text)?;
+                (
+                    RenderedCall::propagating(RustExpr::atom(format!(
+                        "smelt_py_json_loads::<{rust_ty}>(&{text})",
+                        text = text.tight()
+                    ))),
+                    target,
+                )
+            }
             Rvalue::PythonListExtrema { op: extremum, list } => {
                 self.python_list_extrema_call(*extremum, list)?
             }

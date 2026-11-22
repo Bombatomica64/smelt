@@ -32,6 +32,8 @@ pub const ORDER: &[Entry] = &[
     Entry::Item("smelt_py_str_title"),
     Entry::Item("SmeltPyFormatSpec"),
     Entry::Item("smelt_py_sort"),
+    Entry::Item("smelt_py_json_loads"),
+    Entry::Item("smelt_py_json_indent"),
     Entry::Item("smelt_string_to_number"),
     Entry::Item("smelt_parse_int"),
     Entry::Item("JsString"),

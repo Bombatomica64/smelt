@@ -186,6 +186,10 @@ declare_needs! {
     PyFormat,
     /// `CPython`'s `list.sort` algorithm (`py_sort.rs`).
     PySort,
+    /// Python's typed `json.loads` (`py_json.rs`).
+    PyJsonLoads,
+    /// `json.dumps(indent=..)`'s layout (`py_json.rs`).
+    PyJsonIndent,
     /// `SmeltBinding`, the storage of a source binding that can be read
     /// before its first assignment.
     Binding,
@@ -355,6 +359,7 @@ const REQUIRES: &[(Need, &[Need])] = &[
     // An `int` raises Python's arithmetic errors and prints through `repr`.
     (Need::PyInt, &[Need::PyException, Need::PyRepr]),
     (Need::PyStrMethods, &[Need::PyException]),
+    (Need::PyJsonLoads, &[Need::PyException, Need::PyInt]),
     // `format` of an `int` reads a `SmeltPyInt`, of a `float` its `repr`.
     (
         Need::PyFormat,

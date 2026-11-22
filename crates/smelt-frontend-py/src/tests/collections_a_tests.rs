@@ -95,8 +95,13 @@ text: str = json.dumps(values)
     )
 }
 
+/// `json.loads` lowers to the typed `PyJsonLoads`, which decodes at the
+/// annotated type, and never to JavaScript's `JsonParse`. The old requirement
+/// (`JsonParse`) parsed into the erased carrier, whose numbers are `f64`, so a
+/// JSON integer past 2**53 lost digits where `CPython` keeps every one
+/// (`json_indent_and_exact_loads` in the Python parity suite).
 #[test]
-fn json_loads_lowers_to_parse() -> TestResult {
+fn json_loads_lowers_to_typed_decode() -> TestResult {
     let source = py!(r#"
 import json
 text: str = "[1,2]"
@@ -108,8 +113,11 @@ values: list[int] = json.loads(text)
     let code = module_code(&ctx, module)?;
     ensure(
         code.exprs()
-            .any(|expr| matches!(expr.kind, ExprKind::JsonParse { .. })),
-        "expected json.loads lowering",
+            .any(|expr| matches!(expr.kind, ExprKind::PyJsonLoads { .. }))
+            && !code
+                .exprs()
+                .any(|expr| matches!(expr.kind, ExprKind::JsonParse { .. })),
+        "expected json.loads to lower to PyJsonLoads, not JsonParse",
     )
 }
 
