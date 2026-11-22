@@ -1831,6 +1831,47 @@ impl SmeltObject {
     fn keys(&self) -> Vec<JsString> { self.store.borrow().entries().iter().map(|entry| entry.key.clone()).collect() }
     fn values(&self) -> Vec<SmeltUnknown> { self.store.borrow().entries().iter().map(|entry| entry.value.clone()).collect() }
 }
+impl Drop for SmeltArray {
+    fn drop(&mut self) {
+        if ::std::rc::Rc::strong_count(&self.values) != 1 { return; }
+        let Ok(mut values) = self.values.try_borrow_mut() else { return };
+        if !values.iter().any(SmeltUnknown::smelt_is_erased_container) { return; }
+        let pending = ::std::mem::take(&mut *values);
+        drop(values);
+        smelt_drop_erased_values(pending);
+    }
+}
+
+impl Drop for SmeltObject {
+    fn drop(&mut self) {
+        if let Some(pending) = smelt_take_object_values(self) { smelt_drop_erased_values(pending); }
+    }
+}
+
+impl SmeltUnknown {
+    const fn smelt_is_erased_container(&self) -> bool { matches!(self, Self::Array(_) | Self::Object(_)) }
+}
+
+fn smelt_take_object_values(object: &SmeltObject) -> Option<Vec<SmeltUnknown>> {
+    if ::std::rc::Rc::strong_count(&object.store) != 1 { return None; }
+    let mut store = object.store.try_borrow_mut().ok()?;
+    if !store.entries.iter().any(|entry| entry.value.smelt_is_erased_container()) { return None; }
+    Some(::std::mem::take(&mut store.entries).into_iter().map(|entry| entry.value).collect())
+}
+
+fn smelt_drop_erased_values(mut pending: Vec<SmeltUnknown>) {
+    while let Some(value) = pending.pop() {
+        match value {
+            SmeltUnknown::Array(array) => {
+                if ::std::rc::Rc::strong_count(&array.values) == 1 && let Ok(mut values) = array.values.try_borrow_mut() { pending.append(&mut values); }
+            }
+            SmeltUnknown::Object(object) => {
+                if let Some(mut values) = smelt_take_object_values(&object) { pending.append(&mut values); }
+            }
+            _ => {}
+        }
+    }
+}
 /// The marker-object key of the hook an erased `Map`/`Set` answers its live operations through.
 const SMELT_LIVE_HOOK: &str = "__smelt_method:__smelt_live";
 

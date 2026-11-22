@@ -1,0 +1,9 @@
+10,21,32
+ReferenceError true
+0
+ReferenceError true
+7
+ReferenceError inner
+outer
+w:0
+w:1

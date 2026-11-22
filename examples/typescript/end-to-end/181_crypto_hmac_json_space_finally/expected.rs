@@ -1944,6 +1944,47 @@ impl SmeltObject {
     fn lazy_with_id<K: Into<JsString>>(id: usize, build: impl FnOnce() -> Vec<(K, SmeltUnknown)> + 'static) -> Self { Self { id, store: ::std::rc::Rc::new(SmeltStoreCell::lazy(SmeltFieldStore::default(), Box::new(move || build().into_iter().map(|(key, value)| (key.into(), value)).collect()), |store, entries| { for (key, value) in entries { store.insert(key, value); } })) } }
 }
 
+impl Drop for SmeltArray {
+    fn drop(&mut self) {
+        if ::std::rc::Rc::strong_count(&self.values) != 1 { return; }
+        let Ok(mut values) = self.values.try_borrow_mut() else { return };
+        if !values.iter().any(SmeltUnknown::smelt_is_erased_container) { return; }
+        let pending = ::std::mem::take(&mut *values);
+        drop(values);
+        smelt_drop_erased_values(pending);
+    }
+}
+
+impl Drop for SmeltObject {
+    fn drop(&mut self) {
+        if let Some(pending) = smelt_take_object_values(self) { smelt_drop_erased_values(pending); }
+    }
+}
+
+impl SmeltUnknown {
+    const fn smelt_is_erased_container(&self) -> bool { matches!(self, Self::Array(_) | Self::Object(_)) }
+}
+
+fn smelt_take_object_values(object: &SmeltObject) -> Option<Vec<SmeltUnknown>> {
+    if ::std::rc::Rc::strong_count(&object.store) != 1 { return None; }
+    let mut store = object.store.cell.try_borrow_mut().ok()?;
+    if !store.entries.iter().any(|entry| entry.value.smelt_is_erased_container()) { return None; }
+    Some(::std::mem::take(&mut store.entries).into_iter().map(|entry| entry.value).collect())
+}
+
+fn smelt_drop_erased_values(mut pending: Vec<SmeltUnknown>) {
+    while let Some(value) = pending.pop() {
+        match value {
+            SmeltUnknown::Array(array) => {
+                if ::std::rc::Rc::strong_count(&array.values) == 1 && let Ok(mut values) = array.values.try_borrow_mut() { pending.append(&mut values); }
+            }
+            SmeltUnknown::Object(object) => {
+                if let Some(mut values) = smelt_take_object_values(&object) { pending.append(&mut values); }
+            }
+            _ => {}
+        }
+    }
+}
 /// The typed list behind a live erased array, seen element by element as erased values.
 trait SmeltLiveList {
     fn element_count(&self) -> usize;

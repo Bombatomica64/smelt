@@ -92,6 +92,23 @@ fn temporal_dead_zone() -> TestResult {
     verify_node_parity("temporal_dead_zone")
 }
 
+/// A closure in a loop body or a bare block that reads a `let`/`const`
+/// declared later in the same block reads that block's binding: the value of
+/// this iteration once declared, a catchable `ReferenceError` when called
+/// early, and never an outer binding of the same name.
+#[test]
+fn block_temporal_dead_zone() -> TestResult {
+    verify_node_parity("block_temporal_dead_zone")
+}
+
+/// `JSON.parse` of 200 000 nested arrays/objects, and dropping the result, do
+/// not overflow the stack: the parse follows nesting on a heap stack and the
+/// drop releases nested erased containers from a heap worklist.
+#[test]
+fn deep_json_values() -> TestResult {
+    verify_node_parity("deep_json_values")
+}
+
 /// Shapes that contain themselves by value (mutual and self recursion through
 /// optional fields, union arms, generic nodes, a by-value generic wrapper, a
 /// class with an optional parameter property) compile as reference handles and

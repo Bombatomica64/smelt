@@ -1808,6 +1808,47 @@ impl SmeltObject {
     fn keys(&self) -> Vec<JsString> { self.store.borrow().entries().iter().map(|entry| entry.key.clone()).collect() }
     fn values(&self) -> Vec<SmeltUnknown> { self.store.borrow().entries().iter().map(|entry| entry.value.clone()).collect() }
 }
+impl Drop for SmeltArray {
+    fn drop(&mut self) {
+        if ::std::rc::Rc::strong_count(&self.values) != 1 { return; }
+        let Ok(mut values) = self.values.try_borrow_mut() else { return };
+        if !values.iter().any(SmeltUnknown::smelt_is_erased_container) { return; }
+        let pending = ::std::mem::take(&mut *values);
+        drop(values);
+        smelt_drop_erased_values(pending);
+    }
+}
+
+impl Drop for SmeltObject {
+    fn drop(&mut self) {
+        if let Some(pending) = smelt_take_object_values(self) { smelt_drop_erased_values(pending); }
+    }
+}
+
+impl SmeltUnknown {
+    const fn smelt_is_erased_container(&self) -> bool { matches!(self, Self::Array(_) | Self::Object(_)) }
+}
+
+fn smelt_take_object_values(object: &SmeltObject) -> Option<Vec<SmeltUnknown>> {
+    if ::std::rc::Rc::strong_count(&object.store) != 1 { return None; }
+    let mut store = object.store.try_borrow_mut().ok()?;
+    if !store.entries.iter().any(|entry| entry.value.smelt_is_erased_container()) { return None; }
+    Some(::std::mem::take(&mut store.entries).into_iter().map(|entry| entry.value).collect())
+}
+
+fn smelt_drop_erased_values(mut pending: Vec<SmeltUnknown>) {
+    while let Some(value) = pending.pop() {
+        match value {
+            SmeltUnknown::Array(array) => {
+                if ::std::rc::Rc::strong_count(&array.values) == 1 && let Ok(mut values) = array.values.try_borrow_mut() { pending.append(&mut values); }
+            }
+            SmeltUnknown::Object(object) => {
+                if let Some(mut values) = smelt_take_object_values(&object) { pending.append(&mut values); }
+            }
+            _ => {}
+        }
+    }
+}
 
 /// Return whether an erased object key is visible to JavaScript `for...in` iteration.
 fn smelt_object_has_host_marker(object: &SmeltObject) -> bool { object.store.borrow().has_internal_keys() && ["__smelt_abortcontroller", "__smelt_abortsignal", "__smelt_arraybuffer", "__smelt_sharedarraybuffer", "__smelt_int8array", "__smelt_uint8array", "__smelt_uint8clampedarray", "__smelt_int16array", "__smelt_uint16array", "__smelt_int32array", "__smelt_uint32array", "__smelt_float32array", "__smelt_float64array", "__smelt_bigint64array", "__smelt_biguint64array", "__smelt_buffer", "__smelt_dataview", "__smelt_weakmap", "__smelt_weakset", "__smelt_file", "__smelt_blob", "__smelt_headers", "__smelt_urlsearchparams", "__smelt_url", "__smelt_crypto_key", "__smelt_request", "__smelt_response", "__smelt_textencoder", "__smelt_textdecoder", "__smelt_eventemitter", "__smelt_httpserver", "__smelt_incomingmessage", "__smelt_serverresponse", "__smelt_formdata", "__smelt_databasesync", "__smelt_statementsync", "__smelt_readablestream", "__smelt_domexception", "__smelt_intl_collator", "__smelt_intl_displaynames", "__smelt_intl_durationformat", "__smelt_intl_listformat", "__smelt_intl_locale", "__smelt_intl_numberformat", "__smelt_intl_pluralrules", "__smelt_intl_segmenter", "__smelt_number", "__smelt_boolean", "__smelt_string", "__smelt_symbol", "__smelt_builtin_namespace", "__smelt_global_object"].iter().any(|marker| object.contains_key(marker)) }

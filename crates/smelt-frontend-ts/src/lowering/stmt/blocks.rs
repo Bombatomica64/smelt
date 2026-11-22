@@ -30,6 +30,7 @@ impl ModuleBuilder<'_> {
     ) -> Result<(), SmeltError> {
         if let Statement::BlockStatement(block_stmt) = statement {
             let saved = self.scope.snapshot_bindings();
+            self.predeclare_block_forward_reads(&block_stmt.body, body, block)?;
             // A nested `function` declaration is bound for its whole BLOCK, not
             // just from its textual position (`lowering::hoisting`).
             for nested_statement in crate::lowering::hoisting::hoisted_statements(&block_stmt.body)

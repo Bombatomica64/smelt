@@ -2,9 +2,9 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 14277,
+      "concrete": 14282,
       "generic": 366,
-      "erased": 7030
+      "erased": 7027
     },
     "reads": {
       "concrete": 366,
@@ -3726,9 +3726,9 @@
     },
     "src/compat/array/filter.ts": {
       "values": {
-        "concrete": 18,
+        "concrete": 19,
         "generic": 0,
-        "erased": 28
+        "erased": 27
       },
       "reads": {
         "concrete": 1,
@@ -11648,9 +11648,9 @@
     },
     "src/promise/delay.ts": {
       "values": {
-        "concrete": 19,
+        "concrete": 21,
         "generic": 0,
-        "erased": 18
+        "erased": 17
       },
       "reads": {
         "concrete": 0,
@@ -11767,9 +11767,9 @@
     },
     "src/promise/timeout.ts": {
       "values": {
-        "concrete": 12,
+        "concrete": 14,
         "generic": 0,
-        "erased": 18
+        "erased": 17
       },
       "reads": {
         "concrete": 0,

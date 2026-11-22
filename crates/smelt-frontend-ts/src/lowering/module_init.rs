@@ -384,6 +384,7 @@ impl ModuleBuilder<'_> {
             &program.body,
             &mut body,
             true,
+            None,
             |builder, statement| !builder.is_predeclared_arrow_const_statement(statement),
         ) {
             errors.push(error);

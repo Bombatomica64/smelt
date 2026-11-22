@@ -374,6 +374,12 @@ impl<'hir> LoweringCtx<'hir> {
         }
     }
 
+    /// Whether the body being lowered declares `local` unassigned at its
+    /// block's entry (`smelt_hir::Body::unassigned_lets`).
+    pub(super) fn hir_body_declares_unassigned(&self, local: HirLocalId) -> bool {
+        self.body.unassigned_lets.contains(&local)
+    }
+
     /// Whether some closure expression of the body being lowered captures the
     /// HIR local `local`.
     pub(super) fn is_captured_by_closure(&mut self, local: HirLocalId) -> bool {
