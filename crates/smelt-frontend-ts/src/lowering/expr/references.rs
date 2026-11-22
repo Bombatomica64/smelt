@@ -788,7 +788,23 @@ impl ModuleBuilder<'_> {
     ///
     /// Returns `None` for names that are not builtin function values so the
     /// caller can continue its normal resolution chain.
+    ///
+    /// The closure reports the builtin's own `name` and `length`
+    /// ([`Self::name_builtin_function_value`]).
     pub(in crate::lowering) fn builtin_function_value_expression(
+        &mut self,
+        host: HostGlobal<'_>,
+        start: u32,
+        end: u32,
+        outer_body: &mut Body,
+    ) -> Option<smelt_hir::ExprId> {
+        let name = host.name();
+        let expr = self.builtin_function_adapter_expression(host, start, end, outer_body)?;
+        Some(self.name_builtin_function_value(expr, None, name, outer_body))
+    }
+
+    /// The adapter closure of [`Self::builtin_function_value_expression`].
+    fn builtin_function_adapter_expression(
         &mut self,
         host: HostGlobal<'_>,
         start: u32,
@@ -1044,6 +1060,7 @@ impl ModuleBuilder<'_> {
                 captures: Vec::new(),
                 body: body_id,
                 name: None,
+                length: None,
                 function_item: None,
                 this_binding: smelt_hir::ClosureThis::Own,
                 span,
@@ -1718,6 +1735,7 @@ impl ModuleBuilder<'_> {
                 captures: Vec::new(),
                 body,
                 name: None,
+                length: None,
                 function_item: None,
                 this_binding: smelt_hir::ClosureThis::Own,
                 span,
@@ -1983,6 +2001,7 @@ impl ModuleBuilder<'_> {
                 // keyed by item alone, and a capped-arity wrapper must not alias
                 // the full-arity wrapper emitted for ordinary value positions.
                 name: None,
+                length: None,
                 function_item: if truncated { None } else { Some(item) },
                 // A function item's value wrapper forwards its call's receiver
                 // to the item: it is not a JavaScript function of its own.
@@ -2277,6 +2296,7 @@ impl ModuleBuilder<'_> {
                 captures: Vec::new(),
                 body: body_id,
                 name: None,
+                length: None,
                 function_item: None,
                 this_binding: smelt_hir::ClosureThis::Own,
                 span,
@@ -2595,6 +2615,7 @@ impl ModuleBuilder<'_> {
                 captures: Vec::new(),
                 body: body_id,
                 name: None,
+                length: None,
                 function_item: None,
                 this_binding: smelt_hir::ClosureThis::Own,
                 span,

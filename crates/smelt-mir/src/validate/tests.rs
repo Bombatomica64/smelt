@@ -98,6 +98,7 @@ fn closure(
         can_throw: false,
         is_generator: false,
         is_async: false,
+        length: None,
         function_item_key: None,
         name: None,
         this_binding: smelt_hir::ClosureThis::Own,

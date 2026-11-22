@@ -38,6 +38,13 @@ pub struct ClosureExpr {
     /// name, except that a function-item wrapper (`function_item`) reports its
     /// item's name, which MIR lowering fills in.
     pub name: Option<Symbol>,
+    /// JavaScript `Function.prototype.length` this closure value reports when
+    /// it is not the parameter count: a builtin function's value (`parseInt`
+    /// built as a one-parameter adapter) reports its specified length (`2`,
+    /// see `smelt_stdlib::builtin_functions`). `None` reads the length off
+    /// the parameters (`required_params`, else the rest index or arity).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub length: Option<usize>,
     /// Where this closure's `this` comes from (see [`ClosureThis`]).
     pub this_binding: ClosureThis,
     /// Source span covering the closure expression.

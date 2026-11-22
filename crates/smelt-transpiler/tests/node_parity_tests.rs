@@ -305,6 +305,15 @@ fn function_name_typed_only() -> TestResult {
     verify_node_parity("function_name_typed_only")
 }
 
+/// A builtin function read as a value (`const g = parseInt`, `Math.floor`,
+/// `String`) reports the property key it is installed under as its `name` and
+/// its specified `length` (`parseInt.length` is 2, though the adapter Smelt
+/// builds takes one parameter), through copies and the erased namespace path.
+#[test]
+fn builtin_function_names() -> TestResult {
+    verify_node_parity("builtin_function_names")
+}
+
 /// A function used at an object type (`const n: Named = hello`, an argument,
 /// `unknown` cast back to the record) is the record of its own `name` and
 /// `length`, and an optional member it lacks reads `undefined`.
