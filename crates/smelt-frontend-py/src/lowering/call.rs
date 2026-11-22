@@ -355,6 +355,9 @@ impl ModuleBuilder<'_> {
             if self.program_binds_name(name.id.as_str()) {
                 return Ok(None);
             }
+            if name.id.as_str() == "isinstance" {
+                return self.isinstance_expression(call, body, span).map(Some);
+            }
             if matches!(name.id.as_str(), "list" | "set" | "dict" | "tuple")
                 && let Some(expr) =
                     self.container_constructor_call_expression(call, body, type_hint)?

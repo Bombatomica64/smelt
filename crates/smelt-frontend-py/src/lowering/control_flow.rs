@@ -413,9 +413,23 @@ impl ModuleBuilder<'_> {
         block: smelt_hir::BlockId,
     ) -> Result<(), SmeltError> {
         let cond = self.expression(&if_stmt.test, body)?;
-        let then_block = self.block_from_stmts(&if_stmt.body, body)?;
+        let facts = self.narrowing_facts(&if_stmt.test, body);
+        let then_block = self.with_narrowings(&facts.then_facts, |this| this.block_from_stmts(&if_stmt.body, body))?;
 
-        let else_block = self.elif_else_chain(&if_stmt.elif_else_clauses, body)?;
+        let else_block = self.with_narrowings(&facts.else_facts, |this| {
+            this.elif_else_chain(&if_stmt.elif_else_clauses, body)
+        })?;
+        // A branch that always leaves proves the other side for the rest of
+        // the enclosing block, which restores the narrowings when it ends.
+        if if_stmt.elif_else_clauses.is_empty() && Self::always_leaves(&if_stmt.body) {
+            self.scope.narrowed.extend(facts.else_facts.iter().copied());
+        } else if let [else_clause] = if_stmt.elif_else_clauses.as_slice()
+            && else_clause.test.is_none()
+            && Self::always_leaves(&else_clause.body)
+            && !Self::always_leaves(&if_stmt.body)
+        {
+            self.scope.narrowed.extend(facts.then_facts.iter().copied());
+        }
 
         body.push_stmt_to_block(
             block,
@@ -443,8 +457,11 @@ impl ModuleBuilder<'_> {
         if let Some(test) = &first.test {
             // `elif` — recurse for the tail.
             let cond = self.expression(test, body)?;
-            let then_block = self.block_from_stmts(&first.body, body)?;
-            let else_block = self.elif_else_chain(clauses.get(1..).unwrap_or(&[]), body)?;
+            let facts = self.narrowing_facts(test, body);
+            let then_block = self.with_narrowings(&facts.then_facts, |this| this.block_from_stmts(&first.body, body))?;
+            let else_block = self.with_narrowings(&facts.else_facts, |this| {
+                this.elif_else_chain(clauses.get(1..).unwrap_or(&[]), body)
+            })?;
             body.push_stmt_to_block(
                 block,
                 HirStmt::If {
@@ -455,9 +472,12 @@ impl ModuleBuilder<'_> {
             );
         } else {
             // `else` — just lower the body into the new block.
-            for stmt in &first.body {
-                self.statement_in_block(stmt, body, block)?;
-            }
+            self.with_narrowings(&[], |this| {
+                for stmt in &first.body {
+                    this.statement_in_block(stmt, body, block)?;
+                }
+                Ok::<(), SmeltError>(())
+            })?;
         }
 
         Ok(Some(block))
@@ -677,9 +697,12 @@ impl ModuleBuilder<'_> {
         let item_read = body.push_expr(HirExpr { kind: ExprKind::Local(item), ty: item_ty, span });
         let pat = self.binding_pattern_from_target(&for_stmt.target, body, Some(item_ty))?;
         body.push_stmt_to_block(loop_block, HirStmt::Let { pat, ty: item_ty, value: Some(item_read) });
-        for stmt in &for_stmt.body {
-            self.statement_in_block(stmt, body, loop_block)?;
-        }
+        self.with_narrowings(&[], |this| {
+            for stmt in &for_stmt.body {
+                this.statement_in_block(stmt, body, loop_block)?;
+            }
+            Ok::<(), SmeltError>(())
+        })?;
         let true_cond = body.push_expr(HirExpr { kind: ExprKind::Literal(Literal::Bool(true)), ty: bool_ty, span });
         body.push_stmt_to_block(block, HirStmt::While { cond: true_cond, body: loop_block });
         Ok(())

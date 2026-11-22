@@ -346,6 +346,7 @@ impl FunctionEmitter<'_> {
             Rvalue::TypeofValue {
                 value: unknown_value,
             } => self.typeof_value(unknown_value),
+            Rvalue::UnionArmTest { value: tested, arms } => self.union_arm_test_expr(tested, arms),
             Rvalue::PrototypeSentinel {
                 value: unknown_value,
                 own_slot_shadows,

@@ -2318,6 +2318,17 @@ macro_rules! op_group_transcribed {
                 kind: [$crate::UnknownKind],
             }
                 => (format!("unknown_is {kind:?} {value}"));
+            /// Whether a value of a concrete union (or an optional) currently
+            /// holds one of `arms`, members of its static type: Python's
+            /// `isinstance(x, int)` on an `x: int | str`. `None` among `arms`
+            /// is the absent value of an optional.
+            UnionArmTest {
+                /// Value being tested.
+                value: one @READ,
+                /// The member types that pass.
+                arms: [Vec<$crate::TypeId>],
+            }
+                => (format!("union_arm_test {value} {arms:?}"));
             /// Return the JavaScript `typeof` string for a runtime-erased value.
             TypeofValue {
                 /// Value being classified.

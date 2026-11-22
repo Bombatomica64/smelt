@@ -226,6 +226,11 @@ struct FnScope {
     /// Module variables this function declared `global`: its writes of them
     /// store the module globals.
     globals: HashSet<String>,
+    /// The names this function binds exactly once, which an `isinstance`
+    /// narrowing may name (see `lowering/narrowing.rs`).
+    single_binding: HashSet<String>,
+    /// The narrowed type of each local an enclosing `isinstance` test proved.
+    narrowed: HashMap<smelt_hir::LocalId, TypeId>,
 }
 
 /// How a call site packs its arguments for a callable local: what a `Callable`
@@ -656,6 +661,7 @@ include!("lowering/pytest.rs");
 include!("lowering/types.rs");
 include!("lowering/statement.rs");
 include!("lowering/control_flow.rs");
+include!("lowering/narrowing.rs");
 // Exception classes, `raise` and `try`/`except`.
 include!("lowering/exceptions.rs");
 // Match statement and block lowering helpers.

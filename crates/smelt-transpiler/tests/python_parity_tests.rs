@@ -478,3 +478,16 @@ fn callback_named_function() -> TestResult {
 fn module_global_inferred() -> TestResult {
     verify_python_parity("module_global_inferred")
 }
+
+/// `isinstance(x, T)` for builtin types, classes and tuples of them: decided
+/// from `x`'s static type where that settles it (`isinstance(True, int)`),
+/// a member test on a concrete union or an optional, and a class test for a
+/// base-class value. The branch a test proves reads `x` as the narrowed
+/// member (`if`, `elif` chains, `and`, `not`, and the rest of the block after
+/// a branch that returns or continues). Requirements: `CPython`'s output, and
+/// a narrowed read is the concrete member (`SmeltPyInt` out of the union
+/// enum), never an erased value.
+#[test]
+fn isinstance_narrowing() -> TestResult {
+    verify_python_parity("isinstance_narrowing")
+}

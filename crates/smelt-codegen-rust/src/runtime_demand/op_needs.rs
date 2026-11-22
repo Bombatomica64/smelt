@@ -344,6 +344,8 @@ impl RuntimeDemand {
                 self.add(Need::ClassValue);
             }
             Rvalue::StaticDispatch { .. } => {}
+            // A `matches!` over the generated union enum: no runtime helper.
+            Rvalue::UnionArmTest { .. } => {}
             Rvalue::InstanceOfValue { .. } => {
                 self.add(Need::InstanceOfValue);
             }
