@@ -1,4 +1,6 @@
-//! Optional-chained method calls that must reach an enclosing `catch`.
+//! Optional-chained calls lowered as presence branches: a method call that must
+//! reach an enclosing `catch`, and a call of an `Option<Fn>` callee whose
+//! arguments must not run when it is absent.
 //!
 //! `receiver?.method(args)` normally lowers to a single
 //! [`Rvalue::OptionalMethod`], which the emitter renders as a
@@ -187,5 +189,134 @@ impl LoweringCtx<'_> {
             Some(Type::TypeParam { .. } | Type::Unknown | Type::Union(_)) => None,
             _ => Some(payload),
         }
+    }
+}
+
+impl LoweringCtx<'_> {
+    /// Lower `f?.(args)` (a call whose callee is `Option<Fn>`) as a presence
+    /// branch, or answer `None` to keep the single call lowering.
+    ///
+    /// JavaScript's optional call short-circuits before its arguments:
+    /// `o.m?.(sideEffect())` never calls `sideEffect` when `o.m` is nullish.
+    /// The single lowering evaluated every argument first and let the emitter
+    /// skip only the call. The branch tests the callee, and only its present
+    /// arm evaluates the arguments and makes the call. Absent
+    /// arm, the result is `undefined`.
+    ///
+    /// Arguments that run no code (`argument_runs_no_code`) have no effect to
+    /// skip, so a call with only those keeps the single lowering and its
+    /// emitted Rust stays as it was.
+    pub(super) fn lower_optional_closure_call(
+        &mut self,
+        callee: ExprId,
+        args: &[ExprId],
+        result_ty: TypeId,
+        span: Span,
+    ) -> Result<Option<Operand>, LowerError> {
+        let callee_ty = self.hir_expr(callee)?.ty;
+        let Some(Type::Optional(inner_ty, _)) = self.krate.types.get(callee_ty).cloned() else {
+            return Ok(None);
+        };
+        let Some(Type::Function(function)) = self.krate.types.get(inner_ty).cloned() else {
+            return Ok(None);
+        };
+        let mut effectful = false;
+        for arg in args {
+            effectful |= !self.argument_runs_no_code(*arg)?;
+        }
+        if !effectful {
+            return Ok(None);
+        }
+        let callee_operand = self.lower_expr(callee)?;
+        let callee_local = self.materialize_operand_local(callee_operand, callee_ty, span)?;
+        let bool_ty = self.loop_bool_ty;
+        let present = self.assign_temp(
+            bool_ty,
+            span,
+            Rvalue::Binary {
+                op: BinOp::NotEq,
+                lhs: Operand::Copy(Place::Local(callee_local)),
+                rhs: Operand::Const(Constant::None),
+            },
+        )?;
+        let dest = self.push_temp(result_ty, span);
+        let present_block = self.function.push_block(span);
+        let absent_block = self.function.push_block(span);
+        self.terminate(Terminator::Switch {
+            cond: present,
+            then_block: present_block,
+            else_block: absent_block,
+        })?;
+
+        // Present arm: evaluate the arguments and make the call exactly as the
+        // single lowering makes it, on the still-optional callee (the emitter's
+        // optional call answers the function's result here), so the branch adds
+        // no unwrapped or intermediate value of its own.
+        self.switch_to(present_block);
+        let mut lowered_args = Vec::with_capacity(args.len());
+        for arg in args {
+            lowered_args.push(self.lower_expr(*arg)?);
+        }
+        let present_callee = Operand::Copy(Place::Local(callee_local));
+        let returns_future = function.is_async
+            || matches!(
+                self.krate.types.get(function.return_ty),
+                Some(Type::Future(_))
+            );
+        let unwind = self.current_exception_handler();
+        if function.may_throw || (!returns_future && unwind.is_some()) {
+            let after_call = self.function.push_block(span);
+            self.terminate(Terminator::Call {
+                callee: Callee::Indirect(present_callee),
+                args: lowered_args,
+                dest,
+                target: after_call,
+                unwind,
+            })?;
+            self.switch_to(after_call);
+        } else {
+            self.block_mut()?.statements.push(Statement::Assign {
+                dest,
+                value: Rvalue::ClosureCall {
+                    callee: present_callee,
+                    args: lowered_args,
+                },
+            });
+        }
+        let present_tail = self.current_block;
+
+        // Absent arm: the chain short-circuits to `undefined`.
+        self.switch_to(absent_block);
+        self.block_mut()?.statements.push(Statement::Assign {
+            dest,
+            value: Rvalue::Use(Operand::Const(Constant::Undefined)),
+        });
+
+        // The join is allocated last so every `goto` into it is a forward edge.
+        let join_block = self.function.push_block(span);
+        self.terminate(Terminator::Goto(join_block))?;
+        self.switch_to(present_tail);
+        self.terminate(Terminator::Goto(join_block))?;
+        self.switch_to(join_block);
+        Ok(Some(Operand::Copy(Place::Local(dest))))
+    }
+
+    /// Whether evaluating `expr` runs no source code: a literal, a read of a
+    /// binding or item, or a type-level cast of one (`key as string` is erased
+    /// in JavaScript). A member read is not one, since it may run a getter.
+    fn argument_runs_no_code(&self, expr: ExprId) -> Result<bool, LowerError> {
+        let kind = &self.hir_expr(expr)?.kind;
+        if let smelt_hir::ExprKind::TypeAssert { value }
+        | smelt_hir::ExprKind::UnknownCast { value, .. } = kind
+        {
+            return self.argument_runs_no_code(*value);
+        }
+        Ok(matches!(
+            kind,
+            smelt_hir::ExprKind::Literal(_)
+                | smelt_hir::ExprKind::Local(_)
+                | smelt_hir::ExprKind::Item(_)
+                | smelt_hir::ExprKind::GlobalGet { .. }
+        ))
     }
 }
