@@ -64,6 +64,11 @@ pub struct Crate {
     /// `isConstructor`).
     #[serde(default)]
     pub constructible_functions: Vec<ItemId>,
+    /// The JavaScript `Function.prototype.name` of function items whose item
+    /// symbol is not that name (a module-private `const f = () => ..` lifted to
+    /// a crate-unique `f__module_<id>` item reports `"f"`).
+    #[serde(default)]
+    pub function_js_names: Vec<(ItemId, Symbol)>,
 }
 
 impl Crate {

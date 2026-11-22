@@ -51,6 +51,13 @@ impl FunctionEmitter<'_> {
         operand: &Operand,
         dest_ty: TypeId,
     ) -> Result<RustExpr, EmitError> {
+        // A function at an object type: its `name` and `length` read off the
+        // operand itself, where the static name is known.
+        if let Some(record) =
+            self.function_record_expr(Some(operand), self.operand_ty(operand)?, dest_ty)?
+        {
+            return Ok(record);
+        }
         let dest_erased = matches!(self.mir.types.get(dest_ty), Some(Type::Unknown))
             || matches!(self.mir.types.get(dest_ty), Some(Type::TypeParam { .. }))
                 && self.renders_erased(dest_ty).unwrap_or(false);

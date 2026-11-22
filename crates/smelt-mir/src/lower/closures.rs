@@ -68,6 +68,14 @@ impl LoweringCtx<'_> {
     /// value: its declared name, a method's property name, a constructor's
     /// class name.
     fn function_item_name(&self, item: smelt_hir::ItemId) -> Option<smelt_hir::Symbol> {
+        if let Some((_, name)) = self
+            .krate
+            .function_js_names
+            .iter()
+            .find(|(named, _)| *named == item)
+        {
+            return Some(*name);
+        }
         let index = usize::try_from(item.0).ok()?;
         let smelt_hir::Item::Function(function) = self.krate.items.get(index)? else {
             return None;

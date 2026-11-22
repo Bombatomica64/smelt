@@ -665,14 +665,30 @@ impl<'a> CrateBuilder<'a, BodiesWritten> {
                     .map(|(key, _)| *key),
             );
         }
+        // The item's `Function.prototype.name`, carried on its value wrappers.
+        let item_names: std::collections::HashMap<usize, &str> = mir
+            .closures
+            .iter()
+            .filter_map(|closure| {
+                let name = mir
+                    .names
+                    .get(closure.name?)
+                    .or_else(|| mir.symbols.get(closure.name?))?;
+                Some((closure.function_item_key?, name))
+            })
+            .collect();
         for key in &identity_keys {
             // A `function` declaration is a JavaScript constructor and owns a
             // `prototype`; an arrow or method item does not (see
             // `smelt_hir::Crate::constructible_functions`).
-            let make = if mir.constructible_function_items.contains(key) {
+            let fresh = if mir.constructible_function_items.contains(key) {
                 "SmeltFunctionIdentity::constructor()"
             } else {
                 "SmeltFunctionIdentity::default()"
+            };
+            let make = match item_names.get(key) {
+                Some(name) => format!("{fresh}.named({name:?})"),
+                None => fresh.to_owned(),
             };
             out.push_str(&format!(
                 "\nfn __smelt_fn_identity_{key}() -> SmeltFunctionIdentity {{\n    thread_local! {{ static SMELT_FN_IDENTITY: SmeltFunctionIdentity = {make}; }}\n    SMELT_FN_IDENTITY.with(Clone::clone)\n}}\n"

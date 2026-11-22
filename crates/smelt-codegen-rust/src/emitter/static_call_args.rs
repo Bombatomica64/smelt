@@ -365,8 +365,15 @@ impl FunctionEmitter<'_> {
                         .into_string(),
                 );
             }
+            // A record target the function's own `name`/`length` can fill is
+            // built from them; any other target keeps its default.
             StaticArgumentKind::ErasedFunctionDefault { target_ty } => {
-                rendered_args.push(self.default_value(target_ty)?.into_string());
+                let source_ty = self.operand_ty(arg)?;
+                let value = match self.function_record_expr(Some(arg), source_ty, target_ty)? {
+                    Some(record) => record,
+                    None => self.default_value(target_ty)?,
+                };
+                rendered_args.push(value.into_string());
             }
             StaticArgumentKind::Coerced { target_ty } => {
                 // The target is the CALLEE's declared parameter type, so the

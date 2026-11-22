@@ -364,6 +364,16 @@ pub mod function_length {
     pub const READ_TYPED_OR: &str = "smelt_callable_length_or";
 }
 
+/// Runtime helpers for JavaScript `Function.prototype.name` on the erased path.
+pub mod function_name {
+    /// Records a callable's name unless one is already recorded.
+    pub const REGISTER_ONCE: &str = "smelt_register_function_name_once";
+
+    /// Reads a typed callable handle's recorded name, falling back to the
+    /// given static name.
+    pub const READ_TYPED_OR: &str = "smelt_callable_name_or";
+}
+
 /// JavaScript numeric-semantics runtime helpers.
 ///
 /// Rust's `f64` inherent methods and JavaScript's `Math` functions agree almost

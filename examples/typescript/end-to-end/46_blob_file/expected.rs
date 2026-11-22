@@ -1273,6 +1273,7 @@ fn smelt_finish_reference_view(id: usize, view: SmeltObject, entries: Vec<(Strin
 #[derive(Default)]
 struct SmeltFunctionIdentityState {
     length: ::std::cell::Cell<Option<f64>>,
+    name: ::std::cell::RefCell<Option<String>>,
     properties: ::std::cell::RefCell<Option<SmeltObject>>,
     constructor: ::std::cell::Cell<bool>,
 }
@@ -1286,6 +1287,8 @@ impl SmeltFunctionIdentity {
     fn key(&self) -> usize { ::std::rc::Rc::as_ptr(&self.0) as usize }
     #[allow(dead_code)]
     fn constructor() -> Self { let identity = Self::default(); identity.0.constructor.set(true); identity }
+    #[allow(dead_code)]
+    fn named(self, name: &str) -> Self { *self.0.name.borrow_mut() = Some(name.to_owned()); self }
 }
 
 impl PartialEq for SmeltFunctionIdentity {
@@ -1346,6 +1349,7 @@ fn smelt_join_function_identity<F: ?Sized + 'static>(function: &::std::rc::Rc<F>
     let own = smelt_canonical_function_identity(function);
     if own == *token { return; }
     if token.0.length.get().is_none() { token.0.length.set(own.0.length.get()); }
+    if token.0.name.borrow().is_none() { let moved = own.0.name.borrow_mut().take(); *token.0.name.borrow_mut() = moved; }
     if token.0.properties.borrow().is_none() {
         let moved = own.0.properties.borrow_mut().take();
         *token.0.properties.borrow_mut() = moved;
@@ -1432,6 +1436,15 @@ fn smelt_function_length_or(value: &SmeltUnknown, fallback: f64) -> f64 { let fu
 /// Read a typed callable's `Function.prototype.length`, answering `fallback`
 /// (its static signature's arity) when no erasure recorded one.
 fn smelt_callable_length_or<F: ?Sized>(function: &::std::rc::Rc<F>, fallback: f64) -> f64 { smelt_read_callable(function, |meta| meta.identity.as_ref().and_then(|identity| identity.0.length.get())).unwrap_or(fallback) }
+
+/// Record a callable's `Function.prototype.name` if none is known.
+#[allow(dead_code)]
+fn smelt_register_function_name_once<T: ?Sized + 'static>(function: &::std::rc::Rc<T>, name: &str) { let identity = smelt_canonical_function_identity(function); if identity.0.name.borrow().is_none() { *identity.0.name.borrow_mut() = Some(name.to_owned()); } }
+
+/// Read a typed callable's `Function.prototype.name`, answering `fallback`
+/// when no representation recorded one.
+#[allow(dead_code)]
+fn smelt_callable_name_or<F: ?Sized>(function: &::std::rc::Rc<F>, fallback: &str) -> String { smelt_read_callable(function, |meta| meta.identity.as_ref().and_then(|identity| identity.0.name.borrow().clone())).unwrap_or_else(|| fallback.to_owned()) }
 
 /// Stamp the live host value an erased record was made from into its origin slot.
 #[allow(dead_code)]
@@ -2318,7 +2331,7 @@ fn smelt_set_function_property<F: ?Sized + 'static>(function: &::std::rc::Rc<F>,
 fn smelt_function_prototype(identity: &SmeltFunctionIdentity, constructor: SmeltUnknown) -> SmeltUnknown { if let Some(value) = smelt_function_property_lookup(identity, "prototype") { return value; } let prototype = SmeltUnknown::Object(SmeltObject::new(Vec::from([("constructor".to_owned(), constructor)]))); smelt_set_function_property_key(identity, "prototype", prototype.clone()); prototype }
 
 /// Read one own property of an erased function value (JS `f.prototype`).
-fn smelt_function_value_property(function: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>, name: &str) -> SmeltUnknown { let identity = smelt_canonical_function_identity(function); if let Some(value) = smelt_function_property_lookup(&identity, name) { return value; } if name == "prototype" && identity.0.constructor.get() { return smelt_function_prototype(&identity, SmeltUnknown::Function(function.clone())); } SmeltUnknown::Undefined }
+fn smelt_function_value_property(function: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>, name: &str) -> SmeltUnknown { let identity = smelt_canonical_function_identity(function); if let Some(value) = smelt_function_property_lookup(&identity, name) { return value; } if name == "prototype" && identity.0.constructor.get() { return smelt_function_prototype(&identity, SmeltUnknown::Function(function.clone())); } if name == "name" { return SmeltUnknown::String(identity.0.name.borrow().as_deref().unwrap_or_default().into()); } if name == "length" { return SmeltUnknown::Number(identity.0.length.get().unwrap_or(0.0)); } SmeltUnknown::Undefined }
 
 /// Mark a function value as a JavaScript constructor (a `function`
 /// declaration or expression): it owns a `prototype` object.

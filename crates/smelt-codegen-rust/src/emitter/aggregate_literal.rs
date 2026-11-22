@@ -652,10 +652,23 @@ impl FunctionEmitter<'_> {
             };
             field_text.push(format!("{field_name}: {value}", value = value.delimited()));
         }
-        self.push_phantom_field(&mut field_text, *name, args.len());
-        self.push_class_identity_field(&mut field_text, *name, None);
+        self.finish_record_literal(*name, args.len(), dest_ty, field_text)
+            .map(Some)
+    }
 
-        let type_name = self.type_rust_name(*name)?;
+    /// The nominal record `name` (with `type_args` type arguments) at
+    /// `dest_ty`, from its rendered `field: value` parts.
+    pub(super) fn finish_record_literal(
+        &self,
+        name: Symbol,
+        type_args: usize,
+        dest_ty: TypeId,
+        mut field_text: Vec<String>,
+    ) -> Result<RustExpr, EmitError> {
+        self.push_phantom_field(&mut field_text, name, type_args);
+        self.push_class_identity_field(&mut field_text, name, None);
+
+        let type_name = self.type_rust_name(name)?;
         // A reference-class record is a handle newtype over its `Inner`
         // struct (it is mutated through somewhere), so the literal builds the
         // inner record inside a fresh shared cell, exactly as the structural
@@ -664,16 +677,16 @@ impl FunctionEmitter<'_> {
             let inner = crate::class_polymorphism::inner_literal(
                 self.mir,
                 self.context,
-                *name,
+                name,
                 &field_text,
             )?;
-            return Ok(Some(RustExpr::atom(type_name).postfix(format!(
+            return Ok(RustExpr::atom(type_name).postfix(format!(
                 "(::std::rc::Rc::new(::std::cell::RefCell::new({inner})))"
-            ))));
+            )));
         }
-        Ok(Some(RustExpr::loose(format!(
+        Ok(RustExpr::loose(format!(
             "{type_name} {{ {} }}",
             field_text.join(", ")
-        ))))
+        )))
     }
 }

@@ -155,6 +155,11 @@ impl FunctionEmitter<'_> {
             return Ok(upcast);
         }
         let source_ty = self.operand_ty(operand)?;
+        // A function at an object type: its `name` and `length` read off the
+        // operand itself, where the static name is known.
+        if let Some(record) = self.function_record_expr(Some(operand), source_ty, target)? {
+            return Ok(record);
+        }
         let operand_expr = self.operand_expr(operand)?;
         if let Some(key) = self.prop_key_conversion(&operand_expr, source_ty, target)? {
             return Ok(key);
@@ -1495,6 +1500,9 @@ impl FunctionEmitter<'_> {
             )
             && !self.is_erased_class_type(target)
         {
+            if let Some(record) = self.function_record_expr(None, source, target)? {
+                return Ok(record);
+            }
             return self.default_value(target);
         }
         if self.mir.types.get(target) == Some(&Type::Float)

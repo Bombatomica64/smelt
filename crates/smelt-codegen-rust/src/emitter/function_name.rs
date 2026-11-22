@@ -131,3 +131,90 @@ impl FunctionEmitter<'_> {
         observed.next().is_none().then_some(value)
     }
 }
+
+impl FunctionEmitter<'_> {
+    /// A function value used at an object type (`const n: { name: string;
+    /// length: number } = hello`): the record built from the properties every
+    /// function owns.
+    ///
+    /// TypeScript accepts a function at an object type whose members are all
+    /// `Function.prototype` members or optional, so the record's `name` and
+    /// `length` are read off the function and every other field takes its
+    /// `undefined` (an optional member the function lacks). With the `operand`
+    /// at hand the reads are the ones `f.name` and `f.length` emit (a static
+    /// name, the recorded arity); without it (a value already rendered to
+    /// text) the name is the anonymous `""` and the arity is the signature's.
+    ///
+    /// Answers `None` when `target` is not a record type or has a required
+    /// member other than `name` and `length`, which keeps the caller's
+    /// conversion.
+    pub(super) fn function_record_expr(
+        &self,
+        operand: Option<&Operand>,
+        source: TypeId,
+        target: TypeId,
+    ) -> Result<Option<RustExpr>, EmitError> {
+        let Some(Type::Function(function)) = self.mir.types.get(source) else {
+            return Ok(None);
+        };
+        let Some(Type::Class { name: class, args }) = self.mir.types.get(target) else {
+            return Ok(None);
+        };
+        if self.is_erased_class_type(target)
+            || (!self.is_interface_record_type(target) && !self.mir.has_class(*class))
+        {
+            return Ok(None);
+        }
+        let Some(fields) = self.structural_record_fields(target) else {
+            return Ok(None);
+        };
+        let signature_length = function
+            .required_params
+            .unwrap_or_else(|| function.rest.unwrap_or(function.params.len()));
+        let mut parts = Vec::new();
+        for field in fields {
+            let field_ty = self.mir.types.get(field.ty);
+            let read = match (self.symbol_source_name(field.name)?, field_ty) {
+                ("name", Some(Type::String)) => Some(match operand {
+                    Some(function_value) => self.function_name_expr(function_value, field.ty)?,
+                    None => RustExpr::js_string_literal(""),
+                }),
+                ("length", Some(Type::Float | Type::Int)) => Some(match operand {
+                    Some(function_value) => self.len_expr(function_value, field.ty)?,
+                    None if matches!(field_ty, Some(Type::Float)) => {
+                        RustExpr::atom(format!("{signature_length}.0"))
+                    }
+                    None => RustExpr::atom(format!("{signature_length}")),
+                }),
+                _ => None,
+            };
+            let accessor = crate::accessor_prelude::is_accessor_field(self.mir, *class, field.name);
+            let value = match read {
+                Some(own) if accessor => crate::accessor_prelude::constant_expr(&own),
+                Some(own) => {
+                    self.record_field_value_at_slot_abi(own.into_string(), target, &field)?
+                }
+                // An optional member the function does not own reads `undefined`.
+                None if matches!(field_ty, Some(Type::Optional(..))) => {
+                    let default = self.default_value(field.ty)?;
+                    if accessor {
+                        crate::accessor_prelude::constant_expr(&default)
+                    } else {
+                        default
+                    }
+                }
+                // A required member this conversion cannot read (a
+                // `Function.prototype` method): keep the caller's conversion.
+                None => return Ok(None),
+            };
+            let field_name = self.context.names().field_text(self.mir, field.name);
+            parts.push(format!("{field_name}: {value}", value = value.delimited()));
+        }
+        Ok(Some(self.finish_record_literal(
+            *class,
+            args.len(),
+            target,
+            parts,
+        )?))
+    }
+}

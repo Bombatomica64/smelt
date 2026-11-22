@@ -264,6 +264,8 @@ fn smelt_finish_reference_view(id: usize, view: SmeltObject, entries: Vec<(Strin
 struct SmeltFunctionIdentityState {
     //~ `Function.prototype.length`, once some representation recorded it.
     length: ::std::cell::Cell<Option<f64>>,
+    //~ `Function.prototype.name`, once some representation recorded it.
+    name: ::std::cell::RefCell<Option<String>>,
     //~ Own JavaScript properties (`f.prototype`, `f.placeholder = ..`).
     properties: ::std::cell::RefCell<Option<SmeltObject>>,
     //~ Whether the function is a JavaScript CONSTRUCTOR (a plain `function`
@@ -288,6 +290,9 @@ impl SmeltFunctionIdentity {
     //~ A fresh identity for a function the source declares as a constructor.
     #[allow(dead_code)]
     fn constructor() -> Self { let identity = Self::default(); identity.0.constructor.set(true); identity }
+    //~ This identity with its `Function.prototype.name` recorded.
+    #[allow(dead_code)]
+    fn named(self, name: &str) -> Self { *self.0.name.borrow_mut() = Some(name.to_owned()); self }
 }
 
 impl PartialEq for SmeltFunctionIdentity {
@@ -386,6 +391,7 @@ fn smelt_join_function_identity<F: ?Sized + 'static>(function: &::std::rc::Rc<F>
     let own = smelt_canonical_function_identity(function);
     if own == *token { return; }
     if token.0.length.get().is_none() { token.0.length.set(own.0.length.get()); }
+    if token.0.name.borrow().is_none() { let moved = own.0.name.borrow_mut().take(); *token.0.name.borrow_mut() = moved; }
     if token.0.properties.borrow().is_none() {
         let moved = own.0.properties.borrow_mut().take();
         *token.0.properties.borrow_mut() = moved;
@@ -519,5 +525,18 @@ fn smelt_function_length_or(value: &SmeltUnknown, fallback: f64) -> f64 { let fu
 //~ `(b, c) => R`. The adapter that re-types it links its identity to the
 //~ erased function, so the arity that function recorded is the answer.
 fn smelt_callable_length_or<F: ?Sized>(function: &::std::rc::Rc<F>, fallback: f64) -> f64 { smelt_read_callable(function, |meta| meta.identity.as_ref().and_then(|identity| identity.0.length.get())).unwrap_or(fallback) }
+
+/// Record a callable's `Function.prototype.name` if none is known.
+//~
+//~ The first registration is the one made where the function value was
+//~ created (its declaration's or binding's name); a later erasure of the same
+//~ function through another binding must not rename it.
+#[allow(dead_code)]
+fn smelt_register_function_name_once<T: ?Sized + 'static>(function: &::std::rc::Rc<T>, name: &str) { let identity = smelt_canonical_function_identity(function); if identity.0.name.borrow().is_none() { *identity.0.name.borrow_mut() = Some(name.to_owned()); } }
+
+/// Read a typed callable's `Function.prototype.name`, answering `fallback`
+/// when no representation recorded one.
+#[allow(dead_code)]
+fn smelt_callable_name_or<F: ?Sized>(function: &::std::rc::Rc<F>, fallback: &str) -> String { smelt_read_callable(function, |meta| meta.identity.as_ref().and_then(|identity| identity.0.name.borrow().clone())).unwrap_or_else(|| fallback.to_owned()) }
 
 // @smelt:item-end

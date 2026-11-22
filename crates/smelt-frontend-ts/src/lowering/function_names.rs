@@ -42,6 +42,17 @@ impl crate::lowering::ModuleBuilder<'_> {
         let name = self.function_names.get(&span_start)?.clone();
         Some(self.intern_source_name(&name))
     }
+
+    /// Record that function `item`, lifted from a `const name = () => ..`
+    /// binding, reports `name` whatever symbol the item itself carries.
+    pub(in crate::lowering) fn record_function_js_name(
+        &mut self,
+        item: smelt_hir::ItemId,
+        name: &str,
+    ) {
+        let symbol = self.intern_source_name(name);
+        self.ctx.krate.function_js_names.push((item, symbol));
+    }
 }
 
 /// Map each function node's span start to the name the function reports.
