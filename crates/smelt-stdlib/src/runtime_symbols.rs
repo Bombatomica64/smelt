@@ -832,6 +832,9 @@ pub mod boundary {
     pub const GET_CALLABLE_FIELD_FN: &str = "fn __smelt_get_callable_field(";
     /// A live member read off an erased view.
     pub const LIVE_MEMBER_CALL: &str = "smelt_live_member(";
+    /// An erased `SmeltErasedFunction` narrowed to a typed callable slot,
+    /// keeping the erased function's identity.
+    pub const ERASED_CALLABLE_NARROWING: &str = ".callback.clone(); let smelt_narrowed_callable = ";
 }
 
 /// The `node:path` and `node:crypto` hash helpers (`runtime/host_module.rs`).

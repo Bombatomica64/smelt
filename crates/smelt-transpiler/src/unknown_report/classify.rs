@@ -247,7 +247,7 @@ pub(super) fn classify_program_line(line: &str) -> Category {
 }
 
 /// Spellings that put a line at a genuine dynamic boundary; each entry says why.
-const BOUNDARY_MARKERS: [&str; 50] = [
+const BOUNDARY_MARKERS: [&str; 51] = [
     boundary::FUNCTION_TAG,
     boundary::PROMISE_TAG,
     // A JavaScript SYMBOL value. `Symbol()` mints a value whose whole
@@ -667,6 +667,17 @@ const BOUNDARY_MARKERS: [&str; 50] = [
     // The live member read that asks that getter first (the prelude's
     // `smelt_live_member`), called from a receiver-bound record slot.
     boundary::LIVE_MEMBER_CALL,
+    // An ERASED callable (`SmeltErasedFunction`, the value of a function
+    // typed `any`/`(...args: unknown[]) => unknown` or one erased interop
+    // handed back) narrowed into a typed callable slot. The adapter forwards
+    // the slot's arguments into the erased argument vector and extracts the
+    // erased result; the callee's own parameter and return types were erased
+    // before the value reached this line, so no struct, union or generic in
+    // scope can name them. The erasure is the source value's, not this
+    // adapter's: a typed source takes the typed adapter, which never writes
+    // this marker (it binds `smelt_adapted_callable`). Proven in
+    // `erased_callable_narrowing_is_a_boundary`.
+    boundary::ERASED_CALLABLE_NARROWING,
 ];
 
 /// Whether a line's `SmeltUnknown` usage sits at a genuine dynamic boundary.

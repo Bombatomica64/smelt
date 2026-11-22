@@ -692,6 +692,28 @@ fn global_object_members_are_run_time_facts() {
     );
 }
 
+/// An erased callable (`SmeltErasedFunction`) narrowed into a typed slot is
+/// a boundary: es-toolkit's `iterateeToolkit(..) as (value: any) => any`
+/// reaches `countBy`'s typed `mapper` slot with its own types already
+/// erased, so the adapter can only forward the slot's arguments into the
+/// erased vector. A typed source keeps the typed adapter, which binds
+/// `smelt_adapted_callable` instead and stays avoidable when it erases.
+#[test]
+fn erased_callable_narrowing_is_a_boundary() {
+    let narrowed = "    _smelt_tmp_20 = { let smelt_identity_source = (_smelt_tmp_19).callback.clone(); let smelt_narrowed_callable = ::std::rc::Rc::new({ let _smelt_adapted_callback = _smelt_tmp_19.clone(); move |smelt_arg0: &SmeltUnknown| _smelt_adapted_callback.call({ let mut smelt_forwarded_args = Vec::new(); smelt_forwarded_args.push(smelt_arg0.clone()); Into::<SmeltList<_>>::into(smelt_forwarded_args) }) }); smelt_link_function_identity(&smelt_narrowed_callable, &smelt_identity_source); smelt_narrowed_callable };";
+    assert_eq!(
+        classify_line(narrowed, false),
+        Category::LegitimateBoundary,
+        "the erased callable's own types are gone before the slot sees it"
+    );
+    let typed = "    let f = { let smelt_identity_source = g.clone(); let smelt_adapted_callable = ::std::rc::Rc::new({ let _smelt_adapted_callback = g.clone(); move |smelt_arg0: &SmeltUnknown| (_smelt_adapted_callback)(smelt_arg0) }); smelt_link_function_identity(&smelt_adapted_callable, &smelt_identity_source); smelt_adapted_callable };";
+    assert_eq!(
+        classify_line(typed, false),
+        Category::AvoidableErasure,
+        "a typed source's adapter erasing its parameter is still avoidable"
+    );
+}
+
 /// Counting is non-overlapping and handles repeats on one line.
 #[test]
 fn counts_occurrences_per_line() {
