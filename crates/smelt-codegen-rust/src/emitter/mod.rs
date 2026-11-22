@@ -138,6 +138,7 @@ mod field_access;
 mod fixed_int;
 mod flow_state;
 mod function_item;
+mod function_name;
 mod helper_reservation;
 mod local_binding;
 mod url;

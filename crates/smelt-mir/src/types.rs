@@ -287,6 +287,10 @@ pub struct MirClosure {
     /// identity (`===`). The `ItemId` index is crate-unique, so it is a safe
     /// accessor key across all references.
     pub function_item_key: Option<usize>,
+    /// JavaScript `Function.prototype.name` of this closure value: the HIR
+    /// closure's name, or its function item's name for an item wrapper. `None`
+    /// is the empty name.
+    pub name: Option<Symbol>,
     /// Where this closure's `this` comes from (carried over from
     /// `ClosureExpr::this_binding`): its own call's receiver, its enclosing
     /// function's (an arrow), or forwarded untouched (a function item's value

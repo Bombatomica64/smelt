@@ -1132,6 +1132,7 @@ impl ModuleBuilder<'_> {
                 return_ty: actual_return_ty,
                 captures,
                 body: body_id,
+                name: self.closure_name_at(span.start),
                 function_item: None,
                 this_binding: if matches!(kind, BodyKind::Arrow) {
                     smelt_hir::ClosureThis::Lexical

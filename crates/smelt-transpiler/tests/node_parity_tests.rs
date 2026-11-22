@@ -288,6 +288,23 @@ fn function_value_semantics() -> TestResult {
     verify_node_parity("function_value_semantics")
 }
 
+/// `Function.prototype.name` of typed functions: a declaration's own name, the
+/// name `NamedEvaluation` gives an anonymous arrow or function expression (a
+/// `const`, a later assignment, a TypeScript `as`), a named function
+/// expression's own name, a copied function value, a method read off an
+/// instance, and nested local functions.
+#[test]
+fn function_names() -> TestResult {
+    verify_node_parity("function_names")
+}
+
+/// A typed function's `name` in a program with no erased runtime is a static
+/// string (it used to emit an erased read the runtime scan did not predict).
+#[test]
+fn function_name_typed_only() -> TestResult {
+    verify_node_parity("function_name_typed_only")
+}
+
 /// A function keeps one identity across its representations: erased into
 /// `unknown`, read at a typed slot, stored in a list, a `Set` or a `Map`, and
 /// found again with `===`, `indexOf`, `includes`, `has` and `get`.

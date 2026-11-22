@@ -303,6 +303,7 @@ impl<'mir> FunctionEmitter<'mir> {
                                 || matches!(
                                     value,
                                     Rvalue::Len { .. }
+                                        | Rvalue::FunctionName { .. }
                                         | Rvalue::Unary {
                                             op: smelt_hir::UnaryOp::Not,
                                             ..
@@ -505,7 +506,12 @@ impl<'mir> FunctionEmitter<'mir> {
                     // a local copy nothing hands on cannot tell.
                     if let Some(dest_ty) = local_ty(*dest)
                         && own_container(dest_ty)
-                        && !matches!(value, Rvalue::Len { .. } | Rvalue::Closure { .. })
+                        && !matches!(
+                            value,
+                            Rvalue::Len { .. }
+                                | Rvalue::FunctionName { .. }
+                                | Rvalue::Closure { .. }
+                        )
                         && !smelt_mir::rvalue_mints_fresh_list(value)
                         && handed_on.contains(dest)
                     {
@@ -520,8 +526,10 @@ impl<'mir> FunctionEmitter<'mir> {
                             return Ok(false);
                         }
                     }
-                    if !matches!(value, Rvalue::Len { .. } | Rvalue::Closure { .. })
-                        && !smelt_mir::rvalue_mints_fresh_list(value)
+                    if !matches!(
+                        value,
+                        Rvalue::Len { .. } | Rvalue::FunctionName { .. } | Rvalue::Closure { .. }
+                    ) && !smelt_mir::rvalue_mints_fresh_list(value)
                     {
                         let mut operands: Vec<Operand> = Vec::new();
                         value.reads(|operand| operands.push(operand.clone()));
@@ -558,8 +566,10 @@ impl<'mir> FunctionEmitter<'mir> {
                     }
                     // A length or a closure capture reads the container
                     // itself, never converting it.
-                    if matches!(value, Rvalue::Len { .. } | Rvalue::Closure { .. })
-                        || !holds_carrier(dest_ty)
+                    if matches!(
+                        value,
+                        Rvalue::Len { .. } | Rvalue::FunctionName { .. } | Rvalue::Closure { .. }
+                    ) || !holds_carrier(dest_ty)
                         || mentions_own(dest_ty)
                     {
                         continue;
