@@ -553,16 +553,16 @@ impl ModuleBuilder<'_> {
                 width.push(digit);
                 chars.next();
             }
-            let mut precision = None;
-            if chars.peek() == Some(&'.') {
+            let precision = (chars.peek() == Some(&'.')).then(|| {
                 chars.next();
                 let mut digits = String::new();
                 while let Some(&digit) = chars.peek().filter(|digit| digit.is_ascii_digit()) {
                     digits.push(digit);
                     chars.next();
                 }
-                precision = Some(if digits.is_empty() { "0".to_owned() } else { digits });
-            }
+                // `%.f` is precision 0, as in C.
+                if digits.is_empty() { "0".to_owned() } else { digits }
+            });
             while chars.peek().is_some_and(|modifier| "hlL".contains(*modifier)) {
                 chars.next();
             }
@@ -654,9 +654,9 @@ impl ModuleBuilder<'_> {
         if !literal.is_empty() || pieces.is_empty() {
             pieces.push(body.push_expr(HirExpr { kind: ExprKind::Literal(Literal::String(literal)), ty: str_ty, span }));
         }
-        let mut pieces = pieces.into_iter();
-        let first = pieces.next().ok_or_else(|| unsupported("an empty template"))?;
-        Ok(pieces.fold(first, |acc, piece| {
+        let mut piece_iter = pieces.into_iter();
+        let first = piece_iter.next().ok_or_else(|| unsupported("an empty template"))?;
+        Ok(piece_iter.fold(first, |acc, piece| {
             body.push_expr(HirExpr { kind: ExprKind::BinOp { op: BinOp::Add, lhs: acc, rhs: piece }, ty: str_ty, span })
         }))
     }

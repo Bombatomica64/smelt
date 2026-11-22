@@ -324,11 +324,11 @@ fn smelt_py_str_ascii_escape(text: &str) -> String {
         if code < 0x80 {
             out.push(ch);
         } else if code < 0x100 {
-            out.push_str(&format!("\\x{code:02x}"));
+            let _ = ::std::fmt::Write::write_fmt(&mut out, format_args!("\\x{code:02x}"));
         } else if code < 0x1_0000 {
-            out.push_str(&format!("\\u{code:04x}"));
+            let _ = ::std::fmt::Write::write_fmt(&mut out, format_args!("\\u{code:04x}"));
         } else {
-            out.push_str(&format!("\\U{code:08x}"));
+            let _ = ::std::fmt::Write::write_fmt(&mut out, format_args!("\\U{code:08x}"));
         }
     }
     out
