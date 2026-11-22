@@ -398,3 +398,23 @@ fn sort_nan_cpython_order() -> TestResult {
 fn json_indent_and_exact_loads() -> TestResult {
     verify_python_parity("json_indent_and_exact_loads")
 }
+
+/// `"template" % args` with a literal template formats each conversion as
+/// `CPython`'s printf-style formatting does: `d i u o x X e E f F g G c s r
+/// a %`, the `- + space # 0` flags, width and precision, `%d` of a `float`
+/// truncating, `%s`/`%r` writing `str`/`repr` of any value with Python text,
+/// a tuple supplying one value per conversion and any other value the only
+/// one. Requirements: `CPython`'s output, and the result is a `str` built
+/// from the values' own typed formatting (no erased value).
+#[test]
+fn percent_formatting() -> TestResult {
+    verify_python_parity("percent_formatting")
+}
+
+/// `ascii(x)`, `f"{x!a}"` and `%a` are `repr(x)` with every non-ASCII code
+/// point escaped as `\xhh`, `\uhhhh` or `\Uhhhhhhhh`, for strings and for
+/// containers alike, and a format spec after `!a` pads the escaped text.
+#[test]
+fn ascii_conversion() -> TestResult {
+    verify_python_parity("ascii_conversion")
+}

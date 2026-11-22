@@ -373,6 +373,13 @@ impl ModuleBuilder<'_> {
                 let value = self.expression(value_expr, body)?;
                 return self.python_text_expr(value, true, span, body).map(Some);
             }
+            if name.id.as_str() == "ascii" {
+                let [value_expr] = call.arguments.args.as_ref() else {
+                    return Err(SmeltError::unsupported(span, "ascii() requires exactly one argument"));
+                };
+                let value = self.expression(value_expr, body)?;
+                return self.python_ascii_expr(value, span, body).map(Some);
+            }
             if name.id.as_str() == "abs" {
                 return self.numeric_abs_call_expression(call, body).map(Some);
             }

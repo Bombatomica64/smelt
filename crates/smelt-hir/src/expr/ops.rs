@@ -337,6 +337,9 @@ pub enum PyStrOp {
     LStripChars,
     /// `s.rstrip(chars)`: `[s, chars]`.
     RStripChars,
+    /// `ascii(x)`'s escaping of `repr(x)`: `[text]`, every non-ASCII code
+    /// point as `\xhh`, `\uhhhh` or `\Uhhhhhhhh`.
+    AsciiEscape,
 }
 
 impl PyStrOp {
@@ -364,6 +367,7 @@ impl PyStrOp {
             Self::StripChars => "strip",
             Self::LStripChars => "lstrip",
             Self::RStripChars => "rstrip",
+            Self::AsciiEscape => "ascii_escape",
         }
     }
 

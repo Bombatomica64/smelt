@@ -255,6 +255,24 @@ impl ModuleBuilder<'_> {
         candidates.iter().copied().find(|method| self.class_method_dispatch(ty, method).is_some())
     }
 
+    /// `ascii(value)`: `repr(value)` with every non-ASCII code point escaped
+    /// (`\xe9`, `\u20ac`, `\U0001f600`), as `CPython` writes it for any
+    /// object; also `!a` in an f-string and `%a`.
+    fn python_ascii_expr(
+        &mut self,
+        value: smelt_hir::ExprId,
+        span: Span,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let text = self.python_text_expr(value, true, span, body)?;
+        let ty = self.intern_type(Type::PyStr);
+        Ok(body.push_expr(HirExpr {
+            kind: ExprKind::PyStrCall { op: smelt_hir::PyStrOp::AsciiEscape, args: vec![text] },
+            ty,
+            span,
+        }))
+    }
+
     /// `str(value)` or `repr(value)` of a lowered value with Python text:
     /// a primitive `str()` stays the `ToString` cast every other path uses.
     fn python_text_expr(

@@ -313,4 +313,25 @@ fn smelt_py_ord(text: &str) -> Result<i64, Box<dyn ::std::error::Error>> {
     }
 }
 
+/// `ascii(x)` over `repr(x)`'s text: each non-ASCII code point becomes
+/// `\xhh` (below U+0100), `\uhhhh` (below U+10000) or `\Uhhhhhhhh`, as
+/// `CPython`'s `backslashreplace` writes them; ASCII is copied.
+#[allow(dead_code)]
+fn smelt_py_str_ascii_escape(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for ch in text.chars() {
+        let code = u32::from(ch);
+        if code < 0x80 {
+            out.push(ch);
+        } else if code < 0x100 {
+            out.push_str(&format!("\\x{code:02x}"));
+        } else if code < 0x1_0000 {
+            out.push_str(&format!("\\u{code:04x}"));
+        } else {
+            out.push_str(&format!("\\U{code:08x}"));
+        }
+    }
+    out
+}
+
 // @smelt:item-end

@@ -507,4 +507,157 @@ impl ModuleBuilder<'_> {
             None => self.machine_int_as_py_int(kind, span, body),
         }))
     }
+
+    /// `"template" % args`, printf-style formatting with a literal template:
+    /// each conversion is parsed here and lowered to the format-spec
+    /// formatting an f-string uses, so `%5.2f` is `format(x, "5.2f")`.
+    ///
+    /// Flags map onto the spec (`-` left-aligns, `0` zero-pads a number, `+`,
+    /// space and `#` are the spec's own); `%d`/`%i`/`%u` truncate a `float`
+    /// first, as `CPython` does (`int(x)`, raising for a NaN or an infinity);
+    /// `%s`/`%r`/`%a` are `str`/`repr`/`ascii` of the value, right-aligned in
+    /// a width unless `-`; `%c` takes a code point or a one-character `str`;
+    /// `%%` is a `%`. A tuple right operand supplies one value per
+    /// conversion, any other value is the single argument. A count that does
+    /// not match, a `%(name)s` mapping key, a `*` width and a template that is
+    /// not a literal are refused (the first raises `TypeError` in `CPython`).
+    fn percent_format_expression(
+        &mut self,
+        template: &str,
+        args: &Expr,
+        span: Span,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let values: Vec<&Expr> = match args {
+            Expr::Tuple(tuple) => tuple.elts.iter().collect(),
+            other => vec![other],
+        };
+        let str_ty = self.intern_type(Type::PyStr);
+        let mut pieces: Vec<smelt_hir::ExprId> = Vec::new();
+        let mut literal = String::new();
+        let mut next_value = values.iter();
+        let mut chars = template.chars().peekable();
+        let unsupported = |message: &str| SmeltError::unsupported(span, format!("`%` formatting: {message}"));
+        while let Some(ch) = chars.next() {
+            if ch != '%' {
+                literal.push(ch);
+                continue;
+            }
+            let mut flags = String::new();
+            while let Some(&flag) = chars.peek().filter(|flag| "-+ #0".contains(**flag)) {
+                flags.push(flag);
+                chars.next();
+            }
+            let mut width = String::new();
+            while let Some(&digit) = chars.peek().filter(|digit| digit.is_ascii_digit()) {
+                width.push(digit);
+                chars.next();
+            }
+            let mut precision = None;
+            if chars.peek() == Some(&'.') {
+                chars.next();
+                let mut digits = String::new();
+                while let Some(&digit) = chars.peek().filter(|digit| digit.is_ascii_digit()) {
+                    digits.push(digit);
+                    chars.next();
+                }
+                precision = Some(if digits.is_empty() { "0".to_owned() } else { digits });
+            }
+            while chars.peek().is_some_and(|modifier| "hlL".contains(*modifier)) {
+                chars.next();
+            }
+            let Some(conversion) = chars.next() else {
+                return Err(unsupported("the template ends inside a conversion (ValueError in CPython)"));
+            };
+            if conversion == '%' && flags.is_empty() && width.is_empty() && precision.is_none() {
+                literal.push('%');
+                continue;
+            }
+            if matches!(conversion, '(' | '*') || chars.peek() == Some(&'*') {
+                return Err(unsupported("mapping keys and `*` widths are not supported"));
+            }
+            let Some(value_ast) = next_value.next() else {
+                return Err(unsupported("not enough arguments for the template (TypeError in CPython)"));
+            };
+            let value = self.expression(value_ast, body)?;
+            let value_ty = self.ctx.krate.types.get(Self::expr_ty(body, value)).cloned();
+            let left = flags.contains('-');
+            let precision_text = precision.as_ref().map(|digits| format!(".{digits}")).unwrap_or_default();
+            let formatted = match conversion {
+                'd' | 'i' | 'u' | 'o' | 'x' | 'X' | 'e' | 'E' | 'f' | 'F' | 'g' | 'G' => {
+                    let integral = matches!(conversion, 'd' | 'i' | 'u' | 'o' | 'x' | 'X');
+                    if integral && precision.is_some() {
+                        return Err(unsupported("a precision on an integer conversion is not supported"));
+                    }
+                    let shown = match (&value_ty, conversion) {
+                        (Some(Type::Float), 'd' | 'i' | 'u') => {
+                            self.py_numeric_call(PyNumericOp::FromFloat, vec![value], span, body)
+                        }
+                        (Some(Type::Float), 'o' | 'x' | 'X') => {
+                            return Err(unsupported("an integer conversion of a float (TypeError in CPython)"));
+                        }
+                        (Some(Type::PyInt | Type::Float | Type::Bool), _) => value,
+                        _ => return Err(unsupported("a numeric conversion needs an int, float or bool")),
+                    };
+                    let mut spec = String::new();
+                    if left {
+                        spec.push('<');
+                    }
+                    if flags.contains('+') {
+                        spec.push('+');
+                    } else if flags.contains(' ') {
+                        spec.push(' ');
+                    }
+                    if flags.contains('#') {
+                        spec.push('#');
+                    }
+                    if flags.contains('0') && !left {
+                        spec.push('0');
+                    }
+                    spec.push_str(&width);
+                    spec.push_str(&precision_text);
+                    spec.push(if matches!(conversion, 'i' | 'u') { 'd' } else { conversion });
+                    self.formatted_value(shown, spec, span, body)?
+                }
+                's' | 'r' | 'a' | 'c' => {
+                    let text = match conversion {
+                        's' if value_ty == Some(Type::PyStr) => value,
+                        's' => self.python_text_expr(value, false, span, body)?,
+                        'r' => self.python_text_expr(value, true, span, body)?,
+                        'a' => self.python_ascii_expr(value, span, body)?,
+                        _ => match value_ty {
+                            Some(Type::PyInt) => {
+                                let point = self.py_int_as_clamped_bound(value, body);
+                                self.py_numeric_call(PyNumericOp::Chr, vec![point], span, body)
+                            }
+                            Some(Type::PyStr) => value,
+                            _ => return Err(unsupported("`%c` needs an int or a one-character str")),
+                        },
+                    };
+                    if width.is_empty() && precision.is_none() {
+                        text
+                    } else {
+                        let spec = format!("{}{width}{precision_text}", if left { '<' } else { '>' });
+                        self.formatted_value(text, spec, span, body)?
+                    }
+                }
+                other => return Err(unsupported(&format!("unsupported format character '{other}' (ValueError in CPython)"))),
+            };
+            if !literal.is_empty() {
+                pieces.push(body.push_expr(HirExpr { kind: ExprKind::Literal(Literal::String(::std::mem::take(&mut literal))), ty: str_ty, span }));
+            }
+            pieces.push(formatted);
+        }
+        if next_value.next().is_some() {
+            return Err(unsupported("not all arguments converted (TypeError in CPython)"));
+        }
+        if !literal.is_empty() || pieces.is_empty() {
+            pieces.push(body.push_expr(HirExpr { kind: ExprKind::Literal(Literal::String(literal)), ty: str_ty, span }));
+        }
+        let mut pieces = pieces.into_iter();
+        let first = pieces.next().ok_or_else(|| unsupported("an empty template"))?;
+        Ok(pieces.fold(first, |acc, piece| {
+            body.push_expr(HirExpr { kind: ExprKind::BinOp { op: BinOp::Add, lhs: acc, rhs: piece }, ty: str_ty, span })
+        }))
+    }
 }
