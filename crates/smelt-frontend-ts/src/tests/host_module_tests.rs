@@ -621,6 +621,16 @@ fn unmodeled_host_namespace_members_block() -> Result<(), String> {
 }
 
 /// A binding named like the host namespace is the binding, not the namespace.
+///
+/// `process.cwd()` reads the parameter's own `cwd` member and calls it. This
+/// used to also expect a `BindThis`: the inline `{ cwd(): string }` lowered to
+/// a dictionary whose dropped method made the call go through the erased call
+/// ABI, which binds a receiver. The literal now lowers like its interface
+/// spelling, a struct with a typed `cwd` function field, so the call is the
+/// typed closure call `interface P { cwd(): string }` gives (codegen still binds
+/// `this` where the program reads it). The requirement this test states, that
+/// the parameter shadows the namespace and its member is read and called, is
+/// unchanged.
 #[test]
 fn shadowed_host_namespace_call_is_not_blocked() -> Result<(), String> {
     let mut ctx = HirCtx::new();
@@ -632,7 +642,7 @@ export function dir(process: { cwd(): string }): string {
 "),
         &mut ctx,
     )?;
-    ensure_exprs!(&ctx, BindThis);
+    ensure_exprs!(&ctx, ClosureCall);
     ensure!(crate_has_field(&ctx, "cwd"), "no read of field `cwd`");
     Ok(())
 }

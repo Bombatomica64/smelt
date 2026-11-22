@@ -36,6 +36,7 @@ use std::hash::{Hash, Hasher};
 use oxc::ast::ast::{TSSignature, TSTypeLiteral};
 use smelt_hir::{Field, Type};
 
+use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
 
 use super::types_iface::StructuralMembers;
@@ -143,6 +144,79 @@ impl ModuleBuilder<'_> {
             self.items.insert(name_text, item);
         }
         Some(self.ctx.krate.types.intern(Type::Class { name, args }))
+    }
+
+    /// Lower an inline type literal that declares a METHOD to its synthesized
+    /// struct, exactly as the alias spelling `type O = { v: number; get():
+    /// number }` lowers to an interface whose methods are function fields.
+    ///
+    /// A method is a member like any field: `x as { v: number; get(): number }`
+    /// reads `x.get` and calls it. The uniform `Dict` lowering has no slot for
+    /// it, so it dropped the method, typed the literal as a dictionary of the
+    /// remaining fields, and `x.get()` then lowered as `Map.get`. A method
+    /// therefore always takes the struct route, even when every member shares
+    /// one value type.
+    ///
+    /// Returns `Ok(None)`, leaving the caller in charge, when the literal has no
+    /// method or declares anything but named property and method signatures
+    /// (an index, call or construct signature, a runtime-computed key), or a
+    /// method whose own type parameters or `this` parameter a struct field
+    /// cannot carry.
+    pub(in crate::lowering) fn anonymous_method_record_type(
+        &mut self,
+        literal: &TSTypeLiteral<'_>,
+    ) -> Result<Option<smelt_hir::TypeId>, SmeltError> {
+        let mut has_method = false;
+        for member in &literal.members {
+            match member {
+                TSSignature::TSPropertySignature(prop)
+                    if !prop.computed || self.is_resolvable_property_key(&prop.key) => {}
+                TSSignature::TSMethodSignature(method)
+                    if (!method.computed || self.is_resolvable_property_key(&method.key))
+                        && method.this_param.is_none()
+                        && method.type_parameters.is_none() =>
+                {
+                    has_method = true;
+                }
+                _ => return Ok(None),
+            }
+        }
+        if !has_method {
+            return Ok(None);
+        }
+        let mut members = StructuralMembers::default();
+        self.lower_structural_members(&literal.members, &mut members)?;
+        // The struct's fields, method fields included, name its shape and the
+        // type parameters it declares; registration adds the same method fields.
+        let mut shape = members.fields.clone();
+        self.add_interface_method_fields(&mut shape, &members.methods);
+        let minted = self.anonymous_record_name(&shape, &members.decode_facts);
+        let name = self.intern_synthesized_type_name(&minted);
+        let name_text = minted.as_str().to_owned();
+        let span = self.span(0, 0);
+        let type_params = self.type_params_mentioned(&shape, span);
+        let args = type_params
+            .iter()
+            .map(|param| {
+                self.ctx
+                    .krate
+                    .types
+                    .intern(Type::TypeParam { name: param.name })
+            })
+            .collect();
+        if self.find_interface(name).is_none() {
+            let item = self.register_callable_object_interface(
+                name,
+                &name_text,
+                type_params,
+                members,
+                span,
+            );
+            self.items.insert(name_text, item);
+        }
+        Ok(Some(
+            self.ctx.krate.types.intern(Type::Class { name, args }),
+        ))
     }
 
     /// Derive the generated name of an anonymous record from its structure.

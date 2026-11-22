@@ -265,6 +265,11 @@ impl ModuleBuilder<'_> {
             self.pop_type_parameter_scope();
             return result;
         }
+        // A literal with a method is a struct with function fields, never a
+        // dictionary (see `decls::anonymous_record`).
+        if let Some(record_ty) = self.anonymous_method_record_type(literal)? {
+            return Ok(record_ty);
+        }
         let mut key_ty = self.ctx.krate.types.intern(Type::String);
         let mut member_tys = Vec::new();
         for member in &literal.members {
