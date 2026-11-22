@@ -68,6 +68,13 @@ impl ModuleBuilder<'_> {
         }
     }
 
+    /// Whether `ty` has a typed absent value: an optional, or a union with a
+    /// `None` member. Unlike [`Self::type_admits_none`], an erased type does
+    /// not count, so a literal `None` never crosses into one unchecked.
+    fn admits_none_member(&self, ty: TypeId) -> bool {
+        !matches!(self.ctx.krate.types.get(ty), Some(Type::Unknown)) && self.type_admits_none(ty)
+    }
+
     /// Whether a default is an immutable literal, which every call may
     /// evaluate afresh without anyone telling.
     fn default_is_literal(default: &Expr) -> bool {

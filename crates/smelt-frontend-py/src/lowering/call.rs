@@ -899,6 +899,20 @@ impl ModuleBuilder<'_> {
                 *arg = body.push_expr(HirExpr { kind: ExprKind::TypeAssert { value: *arg }, ty: *expected, span: arg_span });
                 continue;
             }
+            // A literal `None` is the absent value of a parameter that admits
+            // `None` (`x: int | None`, or a defaulted one): it takes the
+            // parameter's type, as the `None` an omitted argument passes does.
+            if supplied != *expected
+                && self.admits_none_member(*expected)
+                && matches!(
+                    body.exprs.get(usize::try_from(arg.0).unwrap_or(usize::MAX)),
+                    Some(HirExpr { kind: ExprKind::Literal(Literal::None), .. })
+                )
+            {
+                let arg_span = body.exprs.get(usize::try_from(arg.0).unwrap_or(usize::MAX)).map_or(span, |expr| expr.span);
+                *arg = body.push_expr(HirExpr { kind: ExprKind::Literal(Literal::None), ty: *expected, span: arg_span });
+                continue;
+            }
             // A value is an `Optional` of its own type (a defaulted parameter).
             let optional_of_supplied =
                 matches!(self.ctx.krate.types.get(*expected), Some(Type::Optional(inner, _)) if *inner == supplied);

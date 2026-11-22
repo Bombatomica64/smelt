@@ -334,7 +334,9 @@ fn inlined_callback_operands(value: &Rvalue) -> Vec<&Operand> {
         Rvalue::ListSort {
             comparator, key, ..
         } => comparator.iter().chain(key).collect(),
-        Rvalue::ListSorted { key, .. } => key.iter().collect(),
+        Rvalue::ListSorted { key, .. } | Rvalue::PythonListExtrema { key, .. } => {
+            key.iter().collect()
+        }
         Rvalue::FormDataOp {
             op: smelt_hir::FormDataOp::ForEach,
             args,

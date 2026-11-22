@@ -491,3 +491,29 @@ fn module_global_inferred() -> TestResult {
 fn isinstance_narrowing() -> TestResult {
     verify_python_parity("isinstance_narrowing")
 }
+
+/// A literal `None` argument to a parameter that admits `None` (`x: int |
+/// None`, defaulted or not, positional or keyword) is that parameter's absent
+/// value, and `x is None` / `x is not None` narrow a single-binding optional
+/// local to its payload: in `if`/`elif`/`else` branches, after a branch that
+/// returns, in a conditional expression, and in the later operands of `and`
+/// / `or`. Also pins two shapes that used to be refused (a list literal to a
+/// union parameter, an `int` to an `int | float` parameter keeping its `int`
+/// text). Requirements: `CPython`'s output; the narrowed read is the
+/// payload type (`SmeltPyInt`, `SmeltList<SmeltPyInt>`), never erased.
+#[test]
+fn optional_none_argument() -> TestResult {
+    verify_python_parity("optional_none_argument")
+}
+
+/// `min(xs, key=f)` / `max(xs, key=f)` with a named function, a lambda, a
+/// builtin (`len`, `abs`, `sum`) or `key=None`: the key runs once per item in
+/// list order, the first of equal keys wins, a NaN key compares as `CPython`
+/// compares it, an empty list raises `ValueError`, and a raising key
+/// propagates. Builtins also work as `sorted`/`map` callbacks, including over
+/// list items (borrowed by the callback ABI). Requirements: `CPython`'s
+/// output, and the result keeps the item type (no erased value).
+#[test]
+fn extrema_key() -> TestResult {
+    verify_python_parity("extrema_key")
+}
