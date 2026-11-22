@@ -214,6 +214,7 @@ impl LoweringCtx<'_> {
                 Some(Type::Function(function_ty)) if function_ty.is_async
             ),
             function_item_key,
+            length: closure.length,
             name: closure.name.or_else(|| {
                 closure
                     .function_item

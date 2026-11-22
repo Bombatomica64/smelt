@@ -636,19 +636,19 @@ impl ModuleBuilder<'_> {
             return Ok(expr);
         }
         if let Some(expr) = self.math_member_expression(member, body) {
-            return Ok(expr);
+            return Ok(self.name_builtin_static_function_value(member, expr, body));
         }
         if let Some(expr) = self.number_static_constant(member, body) {
             return Ok(expr);
         }
         if let Some(expr) = self.number_predicate_member_expression(member, None, body) {
-            return Ok(expr);
+            return Ok(self.name_builtin_static_function_value(member, expr, body));
         }
         if let Some(expr) = self.array_is_array_member_expression(member, body) {
-            return Ok(expr);
+            return Ok(self.name_builtin_static_function_value(member, expr, body));
         }
         if let Some(expr) = self.object_static_function_member(member, body) {
-            return Ok(expr);
+            return Ok(self.name_builtin_static_function_value(member, expr, body));
         }
         if let Some(expr) = self.object_static_member(member, body) {
             return Ok(expr);
@@ -1066,6 +1066,7 @@ impl ModuleBuilder<'_> {
                 captures: Vec::new(),
                 body: body_id,
                 name: None,
+                length: None,
                 function_item: None,
                 this_binding: smelt_hir::ClosureThis::Own,
                 span,
@@ -1299,6 +1300,7 @@ impl ModuleBuilder<'_> {
                 captures: Vec::new(),
                 body,
                 name: None,
+                length: None,
                 function_item: None,
                 this_binding: smelt_hir::ClosureThis::Own,
                 span,
@@ -1577,6 +1579,7 @@ impl ModuleBuilder<'_> {
                 captures: Vec::new(),
                 body: body_id,
                 name: None,
+                length: None,
                 function_item: None,
                 this_binding: smelt_hir::ClosureThis::Own,
                 span,

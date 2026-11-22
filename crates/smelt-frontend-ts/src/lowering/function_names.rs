@@ -43,6 +43,67 @@ impl crate::lowering::ModuleBuilder<'_> {
         Some(self.intern_source_name(&name))
     }
 
+    /// Give a builtin function value (`parseInt`, `Math.floor`, `String` read
+    /// as values) the `Function.prototype.name` and `length` it reports.
+    ///
+    /// The adapter closure built for a builtin runs the builtin's own IR op
+    /// over the parameters the value position needs, so neither its (absent)
+    /// name nor its parameter count is the builtin's. A builtin's name is the
+    /// property key it is installed under (`key` on `owner`, `None` for a
+    /// global binding) and its length is the specified one
+    /// ([`smelt_stdlib::builtin_functions`]); an untabulated builtin keeps its
+    /// adapter's parameter count. A value that is not a closure (a folded
+    /// constant such as `Math.PI`) is left alone.
+    pub(in crate::lowering) fn name_builtin_function_value(
+        &mut self,
+        expr: smelt_hir::ExprId,
+        owner: Option<&str>,
+        key: &str,
+        body: &mut smelt_hir::Body,
+    ) -> smelt_hir::ExprId {
+        let Some(index) = usize::try_from(expr.0).ok() else {
+            return expr;
+        };
+        if !matches!(
+            body.exprs.get(index).map(|e| &e.kind),
+            Some(smelt_hir::ExprKind::Closure(_))
+        ) {
+            return expr;
+        }
+        let name = self.intern_source_name(key);
+        let length = smelt_stdlib::builtin_functions::builtin_function(owner, key)
+            .map(|builtin| builtin.length);
+        if let Some(smelt_hir::Expr {
+            kind: smelt_hir::ExprKind::Closure(closure),
+            ..
+        }) = body.exprs.get_mut(index)
+        {
+            closure.name = Some(name);
+            closure.length = length;
+        }
+        expr
+    }
+
+    /// [`Self::name_builtin_function_value`] for a static function read off a
+    /// global namespace object (`Math.floor`, `Number.isNaN`): the member's
+    /// key on the object's global name.
+    pub(in crate::lowering) fn name_builtin_static_function_value(
+        &mut self,
+        member: &oxc::ast::ast::StaticMemberExpression<'_>,
+        expr: smelt_hir::ExprId,
+        body: &mut smelt_hir::Body,
+    ) -> smelt_hir::ExprId {
+        let Expression::Identifier(owner) = &member.object else {
+            return expr;
+        };
+        self.name_builtin_function_value(
+            expr,
+            Some(owner.name.as_str()),
+            member.property.name.as_str(),
+            body,
+        )
+    }
+
     /// Record that function `item`, lifted from a `const name = () => ..`
     /// binding, reports `name` whatever symbol the item itself carries.
     pub(in crate::lowering) fn record_function_js_name(

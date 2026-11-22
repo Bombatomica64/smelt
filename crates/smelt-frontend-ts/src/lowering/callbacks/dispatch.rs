@@ -102,6 +102,7 @@ impl ModuleBuilder<'_> {
         {
             let span = self.span(span_start, span_end);
             let expr = self.builtin_parse_int_closure_expression(true, span, body);
+            let expr = self.name_builtin_function_value(expr, None, name, body);
             let return_ty = self.closure_value_return_ty(expr, body);
             return Ok(ClosureCallback { expr, return_ty });
         }
@@ -502,7 +503,7 @@ impl ModuleBuilder<'_> {
                     ) else {
                         return Ok(None);
                     };
-                    break predicate;
+                    break self.name_builtin_static_function_value(member, predicate, body);
                 }
                 _ => return Ok(None),
             }

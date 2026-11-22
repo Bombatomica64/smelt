@@ -318,9 +318,10 @@ impl FunctionEmitter<'_> {
                 .closures
                 .get(id_index(closure_id.0, "closure index does not fit usize")?)
         {
-            return Ok(closure
-                .required_params
-                .unwrap_or_else(|| closure.rest.unwrap_or(closure.params.len())));
+            return Ok(function_name::closure_length(closure));
+        }
+        if let Some(length) = self.static_closure_length(operand)? {
+            return Ok(length);
         }
 
         Ok(match self.mir.types.get(self.operand_ty(operand)?) {

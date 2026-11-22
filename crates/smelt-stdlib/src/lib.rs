@@ -4,6 +4,7 @@
 //! source syntax into local call shapes, ask this crate for a rule identity,
 //! and then perform their own typed lowering.
 
+pub mod builtin_functions;
 pub mod builtin_members;
 pub mod category;
 pub mod classes;

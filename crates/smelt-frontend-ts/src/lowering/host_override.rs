@@ -282,6 +282,7 @@ impl ModuleBuilder<'_> {
                 captures: Vec::new(),
                 body: body_id,
                 name: None,
+                length: None,
                 function_item: None,
                 this_binding: smelt_hir::ClosureThis::Own,
                 span,

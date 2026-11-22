@@ -291,6 +291,10 @@ pub struct MirClosure {
     /// closure's name, or its function item's name for an item wrapper. `None`
     /// is the empty name.
     pub name: Option<Symbol>,
+    /// JavaScript `Function.prototype.length` when it is not the parameter
+    /// count (the HIR closure's `length`, a builtin's specified length).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub length: Option<usize>,
     /// Where this closure's `this` comes from (carried over from
     /// `ClosureExpr::this_binding`): its own call's receiver, its enclosing
     /// function's (an arrow), or forwarded untouched (a function item's value

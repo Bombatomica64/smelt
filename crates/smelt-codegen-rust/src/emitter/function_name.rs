@@ -18,6 +18,32 @@ use crate::rust::RustExpr;
 /// How many `a = b` copies are followed back to a closure definition.
 const COPY_CHAIN_LIMIT: usize = 16;
 
+/// The function value an operand provably holds.
+enum StaticFunction<'m> {
+    /// A closure definition (a function expression, an adapter, an item
+    /// wrapper).
+    Closure(&'m MirClosure),
+    /// A field read off a class instance (`k.m`): a method value, or a data
+    /// field holding a function.
+    Method {
+        /// The instance local the field is read off.
+        base: LocalId,
+        /// The field read.
+        field: Symbol,
+    },
+}
+
+/// The `Function.prototype.length` a closure reports: its recorded length (a
+/// builtin's specified one), else its leading required parameters, else the
+/// parameters before a rest parameter.
+pub(super) fn closure_length(closure: &MirClosure) -> usize {
+    closure.length.unwrap_or_else(|| {
+        closure
+            .required_params
+            .unwrap_or_else(|| closure.rest.unwrap_or(closure.params.len()))
+    })
+}
+
 impl FunctionEmitter<'_> {
     /// Emit `operand.name` for a function operand, typed at `dest_ty`.
     pub(super) fn function_name_expr(
@@ -32,19 +58,50 @@ impl FunctionEmitter<'_> {
         })
     }
 
-    /// The name of the one closure `operand` can hold, when that is known.
+    /// The name of the one function `operand` can hold, when that is known
+    /// ([`Self::static_function_value`]).
+    fn static_function_name(&self, operand: &Operand) -> Result<Option<String>, EmitError> {
+        Ok(match self.static_function_value(operand)? {
+            Some(StaticFunction::Closure(closure)) => Some(
+                closure
+                    .name
+                    .and_then(|name| self.symbol_source_name(name).ok())
+                    .unwrap_or_default()
+                    .to_owned(),
+            ),
+            Some(StaticFunction::Method { base, field }) => self.method_value_name(base, field)?,
+            None => None,
+        })
+    }
+
+    /// The `Function.prototype.length` of the one closure `operand` can hold,
+    /// when that is known (followed as [`Self::static_function_name`] is).
+    pub(super) fn static_closure_length(
+        &self,
+        operand: &Operand,
+    ) -> Result<Option<usize>, EmitError> {
+        Ok(match self.static_function_value(operand)? {
+            Some(StaticFunction::Closure(closure)) => Some(closure_length(closure)),
+            Some(StaticFunction::Method { .. }) | None => None,
+        })
+    }
+
+    /// The one function value `operand` can hold, when that is known.
     ///
     /// Only a local assigned exactly once is followed, through plain copies, to
-    /// its `Rvalue::Closure` or a method read off a class instance: a local
+    /// its `Rvalue::Closure` or a field read off a class instance: a local
     /// written twice may hold either value at the read, and a parameter is
     /// written by the caller.
-    fn static_function_name(&self, operand: &Operand) -> Result<Option<String>, EmitError> {
+    fn static_function_value(
+        &self,
+        operand: &Operand,
+    ) -> Result<Option<StaticFunction<'_>>, EmitError> {
         let (Operand::Copy(mut place) | Operand::Move(mut place)) = operand.clone() else {
             return Ok(None);
         };
         for _ in 0..COPY_CHAIN_LIMIT {
             if let Place::Field { base, field } = place {
-                return self.method_value_name(base, field);
+                return Ok(Some(StaticFunction::Method { base, field }));
             }
             let Place::Local(local) = place else {
                 return Ok(None);
@@ -56,13 +113,7 @@ impl FunctionEmitter<'_> {
                         .closures
                         .get(id_index(id.0, "closure index does not fit usize")?)
                         .ok_or_else(|| EmitError::new("function name read of a missing closure"))?;
-                    return Ok(Some(
-                        closure
-                            .name
-                            .and_then(|name| self.symbol_source_name(name).ok())
-                            .unwrap_or_default()
-                            .to_owned(),
-                    ));
+                    return Ok(Some(StaticFunction::Closure(closure)));
                 }
                 Some(Rvalue::Use(Operand::Copy(source) | Operand::Move(source))) => {
                     place = source.clone();
