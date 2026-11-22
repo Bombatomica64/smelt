@@ -100,6 +100,14 @@ impl ModuleBuilder<'_> {
                 _ => None,
             })
             .collect::<HashSet<_>>();
+        let classes = module
+            .body
+            .iter()
+            .filter_map(|stmt| match stmt {
+                Stmt::ClassDef(class) => Some(class.name.as_str()),
+                _ => None,
+            })
+            .collect::<HashSet<_>>();
         let mut stores = ModuleStores::default();
         for stmt in &module.body {
             ruff_python_ast::visitor::Visitor::visit_stmt(&mut stores, stmt);
@@ -117,7 +125,8 @@ impl ModuleBuilder<'_> {
                 || (name.starts_with("__") && name.ends_with("__"))
                 || is_module_all_assignment(stmt)
                 || Self::type_alias_parts(stmt).is_some()
-                || matches!(stmt, Stmt::Assign(assign) if Self::constructed_constant_shape(assign).is_some())
+                || type_param_declaration_name(stmt).is_some()
+                || matches!(stmt, Stmt::Assign(assign) if self.is_class_constant(assign, &classes))
                 || Self::lambda_with_call_metadata(value)
             {
                 continue;
@@ -127,7 +136,7 @@ impl ModuleBuilder<'_> {
                     Ok(ty) => ty,
                     Err(_) => continue,
                 },
-                None => match self.literal_value_type(value) {
+                None => match self.literal_value_type(value).or_else(|| self.resolved_binding_type(stmt)) {
                     Some(ty) => ty,
                     None => continue,
                 },
@@ -187,6 +196,39 @@ impl ModuleBuilder<'_> {
         }
     }
 
+    /// Whether `assign` is `NAME = Class(...)` for a class of this module or
+    /// an imported one: pass 1 makes that a constructed constant
+    /// (`constructed_constant_assign`), so pass 0 leaves it alone. Any other
+    /// call (`x = float(text)`, `n = helper()`) is an ordinary module variable.
+    fn is_class_constant(&self, assign: &StmtAssign, classes: &HashSet<&str>) -> bool {
+        let Some((_, call)) = Self::constructed_constant_shape(assign) else {
+            return false;
+        };
+        let Some(constructor) = stdlib_dispatch::constructed_constant_constructor(call) else {
+            return false;
+        };
+        classes.contains(constructor)
+            || self.items.get(constructor).is_some_and(|&item| matches!(self.item_ref(item), Item::Class(_)))
+    }
+
+    /// The type `ty` infers for the value of an unannotated top-level
+    /// `NAME = value` that is not a literal (`x = float(text)` is a `float`),
+    /// so the binding can be a typed module global every function reads.
+    ///
+    /// A list, set or dict display is not typed this way: `ty` spells
+    /// `[1, 2.5, x]` as `list[float]`, its promotable `float` that admits an
+    /// `int`, which as an annotation would turn the `1` into `1.0`. A display
+    /// pass 0 cannot type from its literal items stays a module-body local.
+    fn resolved_binding_type(&mut self, stmt: &Stmt) -> Option<TypeId> {
+        if let Stmt::Assign(assign) = stmt
+            && matches!(assign.value.as_ref(), Expr::List(_) | Expr::Set(_) | Expr::Dict(_))
+        {
+            return None;
+        }
+        let spelling = self.resolved_types.module_binding_type_at(stmt.start())?.to_owned();
+        self.resolved_spelling_to_hir(&spelling)
+    }
+
     /// The `(name, annotation, value)` of a top-level `NAME = value` or
     /// `NAME: T = value`.
     fn module_binding(stmt: &Stmt) -> Option<(&str, Option<&Expr>, &Expr)> {
@@ -214,7 +256,14 @@ impl ModuleBuilder<'_> {
             },
             Expr::StringLiteral(_) => Type::PyStr,
             Expr::BooleanLiteral(_) => Type::Bool,
-            Expr::List(list) => Type::List(self.literal_items_type(&list.elts)?),
+            // A signed number (`-3`, `+2.5`) has its literal's type.
+            Expr::UnaryOp(unary)
+                if matches!(unary.op, ruff_python_ast::UnaryOp::USub | ruff_python_ast::UnaryOp::UAdd)
+                    && matches!(unary.operand.as_ref(), Expr::NumberLiteral(_)) =>
+            {
+                return self.literal_value_type(&unary.operand);
+            }
+            Expr::List(list) => Type::List(self.literal_items_union(&list.elts)?),
             Expr::Set(set) => Type::Set(self.literal_items_type(&set.elts)?),
             Expr::Tuple(tuple) => Type::Tuple(
                 tuple.elts.iter().map(|item| self.literal_value_type(item)).collect::<Option<Vec<_>>>()?,
@@ -222,7 +271,7 @@ impl ModuleBuilder<'_> {
             Expr::Dict(dict) => {
                 let keys = dict.items.iter().map(|item| item.key.as_ref()).collect::<Option<Vec<_>>>()?;
                 let values = dict.items.iter().map(|item| &item.value).collect::<Vec<_>>();
-                Type::Dict(self.literal_items_type(keys)?, self.literal_items_type(values)?)
+                Type::Dict(self.literal_items_type(keys)?, self.literal_items_union(values)?)
             }
             _ => return None,
         };
@@ -240,6 +289,30 @@ impl ModuleBuilder<'_> {
             found = Some(ty);
         }
         found
+    }
+
+    /// The union of the literal types of a non-empty collection's items, the
+    /// element type the expression lowering gives the same literal
+    /// (`literal_elements_type`): `[1, 2.5]` is `list[int | float]`. Typing it
+    /// here keeps `ty`'s spelling out of it, which writes that list as
+    /// `list[float]`, its promotable `float` that admits an `int`.
+    fn literal_items_union<'expr>(&mut self, items: impl IntoIterator<Item = &'expr Expr>) -> Option<TypeId> {
+        let mut types: Vec<TypeId> = Vec::new();
+        for item in items {
+            let ty = self.literal_value_type(item)?;
+            if !types.contains(&ty) {
+                types.push(ty);
+            }
+        }
+        match types.as_slice() {
+            [] => None,
+            [only] => Some(*only),
+            _ => {
+                // Only an internal invariant can fail here; the span is unused then.
+                let span = self.span(TextRange::default());
+                self.union_from_types(types, span).ok()
+            }
+        }
     }
 
     /// A scalar literal value stored inline as a global's initializer.

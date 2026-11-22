@@ -98,4 +98,19 @@ impl ResolvedTypes {
             None
         }
     }
+
+    /// Return the `ty`-resolved type spelling of the value of the module-level
+    /// `NAME = value` statement that starts at `offset`, if any.
+    #[must_use]
+    pub(crate) fn module_binding_type_at(&self, offset: TextSize) -> Option<&str> {
+        #[cfg(feature = "ty")]
+        {
+            self.inner.as_ref()?.module_binding_type_at(offset.to_u32())
+        }
+        #[cfg(not(feature = "ty"))]
+        {
+            let _ = (self, offset);
+            None
+        }
+    }
 }
