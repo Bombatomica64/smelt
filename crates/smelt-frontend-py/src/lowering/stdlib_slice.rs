@@ -218,7 +218,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower and validate a Python slice bound.
-    fn slice_bound(
+    pub(super) fn slice_bound(
         &mut self,
         expr: &Expr,
         body: &mut Body,

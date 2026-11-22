@@ -418,3 +418,13 @@ fn percent_formatting() -> TestResult {
 fn ascii_conversion() -> TestResult {
     verify_python_parity("ascii_conversion")
 }
+
+/// `del xs[a:b]` and `del xs[a:b:c]` remove, in place, exactly the items the
+/// same slice reads (`slice.indices` clamping, negative bounds and steps), so
+/// an alias and a caller's list see the shorter list; a zero step raises a
+/// catchable `ValueError`. Requirements: `CPython`'s output, and the list
+/// keeps its `SmeltList<T>` element type.
+#[test]
+fn del_slice() -> TestResult {
+    verify_python_parity("del_slice")
+}

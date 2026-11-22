@@ -2930,6 +2930,23 @@ macro_rules! op_group_custom {
             }
                 mutates(Some(list))
                 => (format!("list_reverse {list}"));
+            /// Python's `del xs[start:end:step]`: removes, in place, the items
+            /// at the positions `CPython`'s `slice.indices` picks (out-of-range
+            /// bounds clamp, a zero step is a `ValueError`).
+            PythonSliceDelete {
+                /// List to mutate.
+                list: one @RECV_MUT,
+                /// Optional start bound.
+                start: opt,
+                /// Optional end bound.
+                end: opt,
+                /// Optional step.
+                step: opt,
+            }
+                mutates(Some(list))
+                fallible(true)
+                call("@python_slice_delete".to_owned())
+                => (format!("python_slice_delete {list}, {}, {}, {}", opt(&start), opt(&end), opt(&step)));
             /// Clear all items from a list and return `None`.
             ListClear {
                 /// List value to mutate.

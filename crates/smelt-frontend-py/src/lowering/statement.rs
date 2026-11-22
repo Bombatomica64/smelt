@@ -248,11 +248,29 @@ impl ModuleBuilder<'_> {
                     "only `del dict[key]` deletion is supported",
                 ));
             };
-            if matches!(sub.slice.as_ref(), Expr::Slice(_)) {
-                return Err(SmeltError::unsupported(
-                    self.span(sub.range),
-                    "slice deletion (`del seq[a:b]`) is not supported",
-                ));
+            if let Expr::Slice(slice) = sub.slice.as_ref() {
+                // `del xs[a:b:c]` removes what `xs[a:b:c]` reads, in place.
+                let list = self.expression(&sub.value, body)?;
+                if !matches!(self.ctx.krate.types.get(Self::expr_ty(body, list)), Some(Type::List(_))) {
+                    return Err(SmeltError::unsupported(
+                        self.span(sub.range),
+                        "slice deletion (`del seq[a:b]`) needs a list (a str or tuple raises TypeError)",
+                    ));
+                }
+                let mut bound = |bound_ast: Option<&Expr>, this: &mut Self| {
+                    bound_ast.map(|bound_expr| this.slice_bound(bound_expr, body)).transpose()
+                };
+                let start = bound(slice.lower.as_deref(), self)?;
+                let end = bound(slice.upper.as_deref(), self)?;
+                let step = bound(slice.step.as_deref(), self)?;
+                let none_ty = self.intern_type(Type::None);
+                let delete = body.push_expr(HirExpr {
+                    kind: ExprKind::PythonSliceDelete { list, start, end, step },
+                    ty: none_ty,
+                    span: self.span(sub.range),
+                });
+                body.push_stmt_to_block(block, HirStmt::Expr(delete));
+                continue;
             }
             let dict = self.expression(&sub.value, body)?;
             let dict_ty = Self::expr_ty(body, dict);
