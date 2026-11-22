@@ -474,19 +474,15 @@ impl ModuleBuilder<'_> {
                                         interp.conversion
                                     }
                                 });
-                                if conversion == ruff_python_ast::ConversionFlag::Ascii {
-                                    return Err(SmeltError::unsupported(
-                                        self.span(interp.range),
-                                        "f-string `!a` conversions are not supported",
-                                    ));
-                                }
                                 let interpolated = self.expression(&interp.expression, body)?;
                                 // `!r` is `repr(x)`; a container or an exception
                                 // formats as its `str`, which is Python text the
                                 // string `+` fold below would spell the
                                 // JavaScript way.
                                 let expr_ty = Self::expr_ty(body, interpolated);
-                                let expr = if conversion == ruff_python_ast::ConversionFlag::Repr {
+                                let expr = if conversion == ruff_python_ast::ConversionFlag::Ascii {
+                                    self.python_ascii_expr(interpolated, self.span(interp.range), body)?
+                                } else if conversion == ruff_python_ast::ConversionFlag::Repr {
                                     self.python_text_expr(interpolated, true, self.span(interp.range), body)?
                                 } else if conversion == ruff_python_ast::ConversionFlag::Str
                                     || !matches!(
@@ -687,6 +683,11 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let span = self.span(b.range);
+        if b.op == Operator::Mod
+            && let Expr::StringLiteral(template) = b.left.as_ref()
+        {
+            return self.percent_format_expression(template.value.to_str(), &b.right, span, body);
+        }
         let lhs = self.expression(&b.left, body)?;
         let rhs = self.expression(&b.right, body)?;
         if let Some(expr) = self.set_operator_expression(b.op, lhs, rhs, span, body)? {

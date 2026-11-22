@@ -17,6 +17,17 @@ impl ModuleBuilder<'_> {
         }
     }
 
+    /// Whether a tuple appears anywhere in the JSON-compatible type `ty`.
+    fn contains_tuple_type(&self, ty: smelt_hir::TypeId) -> bool {
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::Tuple(_)) => true,
+            Some(Type::List(item) | Type::Set(item) | Type::Optional(item, _) | Type::Dict(_, item)) => {
+                self.contains_tuple_type(*item)
+            }
+            _ => false,
+        }
+    }
+
     /// Whether a set appears anywhere in the JSON-compatible type `ty`.
     fn contains_set_type(&self, ty: smelt_hir::TypeId) -> bool {
         match self.ctx.krate.types.get(ty) {

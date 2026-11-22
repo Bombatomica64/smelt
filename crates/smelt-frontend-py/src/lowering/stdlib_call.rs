@@ -107,13 +107,19 @@ impl ModuleBuilder<'_> {
         if self.stdlib_call_rule(call) != Some(RuleId::PyJsonDumps) {
             return Ok(None);
         }
-        if call.arguments.args.len() != 1 || !call.arguments.keywords.is_empty() {
+        if call.arguments.args.len() != 1
+            || call.arguments.keywords.iter().any(|keyword| keyword.arg.as_ref().is_none_or(|name| name.as_str() != "indent"))
+        {
             return Err(SmeltError::unsupported(
                 self.span(call.range()),
-                "json.dumps() currently supports exactly one value argument",
+                "json.dumps() supports one value argument and the `indent` keyword",
             ));
         }
         let value = self.expression(&call.arguments.args[0], body)?;
+        let indent = match call.arguments.keywords.first() {
+            Some(keyword) => self.json_indent_text(&keyword.value, body)?,
+            None => None,
+        };
         let value_ty = Self::expr_ty(body, value);
         if !self.is_json_serializable_type(value_ty) {
             return Err(SmeltError::unsupported(
@@ -132,10 +138,39 @@ impl ModuleBuilder<'_> {
         }
         let ty = self.intern_type(Type::PyStr);
         Ok(Some(body.push_expr(HirExpr {
-            kind: ExprKind::PyJsonDumps { value },
+            kind: ExprKind::PyJsonDumps { value, indent },
             ty,
             span: self.span(call.range()),
         })))
+    }
+
+    /// `json.dumps(..., indent=x)`'s indent as the `str` one level indents
+    /// by, as `CPython`'s encoder reads it: `None` is the one-line form, an
+    /// `int` is that many spaces (`" " * n`, empty when `n <= 0`, which still
+    /// breaks lines), a `str` is used as given.
+    fn json_indent_text(
+        &mut self,
+        indent: &Expr,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        if matches!(indent, Expr::NoneLiteral(_)) {
+            return Ok(None);
+        }
+        let span = self.span(indent.range());
+        let value = self.expression(indent, body)?;
+        match self.ctx.krate.types.get(Self::expr_ty(body, value)) {
+            Some(Type::PyStr) => Ok(Some(value)),
+            Some(Type::PyInt) => {
+                let str_ty = self.intern_type(Type::PyStr);
+                let space = body.push_expr(HirExpr {
+                    kind: ExprKind::Literal(smelt_hir::Literal::String(" ".to_owned())),
+                    ty: str_ty,
+                    span,
+                });
+                self.python_arithmetic(crate::lowering::PythonArithmetic::Plain(smelt_hir::BinOp::Mul), space, value, span, body).map(Some)
+            }
+            _ => Err(SmeltError::unsupported(span, "json.dumps() indent must be an int, a str or None")),
+        }
     }
 
     /// Lower Python `json.loads(text)` calls with an annotated destination type.
@@ -166,6 +201,14 @@ impl ModuleBuilder<'_> {
                 "json.loads() destination type must be JSON-compatible",
             ));
         }
+        // `json.loads` builds lists and dicts only: a tuple or set
+        // destination would hold a value the program can never receive.
+        if self.contains_set_type(ty) || self.contains_tuple_type(ty) {
+            return Err(SmeltError::unsupported(
+                self.span(call.range()),
+                "json.loads() never returns a tuple or a set",
+            ));
+        }
         let text = self.expression(&call.arguments.args[0], body)?;
         if self.ctx.krate.types.get(Self::expr_ty(body, text)) != Some(&Type::PyStr) {
             return Err(SmeltError::unsupported(
@@ -174,10 +217,7 @@ impl ModuleBuilder<'_> {
             ));
         }
         Ok(Some(body.push_expr(HirExpr {
-            kind: ExprKind::JsonParse {
-                text,
-                target: None,
-            },
+            kind: ExprKind::PyJsonLoads { text },
             ty,
             span: self.span(call.range()),
         })))

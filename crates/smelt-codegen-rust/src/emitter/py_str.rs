@@ -43,6 +43,7 @@ impl FunctionEmitter<'_> {
         };
         let call = match op {
             PyStrOp::Title => format!("smelt_py_str_title({})", text(0)?),
+            PyStrOp::AsciiEscape => format!("smelt_py_str_ascii_escape({})", text(0)?),
             PyStrOp::Capitalize => format!("smelt_py_str_capitalize({})", text(0)?),
             PyStrOp::SwapCase => format!("smelt_py_str_swapcase({})", text(0)?),
             PyStrOp::ZFill => format!("smelt_py_str_zfill({}, {})", text(0)?, number(1)?),

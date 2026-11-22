@@ -33,8 +33,13 @@ impl FunctionEmitter<'_> {
 
     /// `json.dumps(value)`: the runtime's `SmeltPyJson` encoding of the value
     /// at its own static type (`runtime/py_repr.rs`), never through the
-    /// erased carrier, which cannot tell an `int` from a `float`.
-    pub(super) fn py_json_dumps_expr(&self, value: &Operand) -> Result<RustExpr, EmitError> {
+    /// erased carrier, which cannot tell an `int` from a `float`. With an
+    /// `indent`, the one-line text is laid out by `smelt_py_json_indent`.
+    pub(super) fn py_json_dumps_expr(
+        &self,
+        value: &Operand,
+        indent: Option<&Operand>,
+    ) -> Result<RustExpr, EmitError> {
         let ty = self.operand_ty(value)?;
         if !self.type_has_py_json(ty) {
             return Err(EmitError::new(format!(
@@ -43,10 +48,14 @@ impl FunctionEmitter<'_> {
             )));
         }
         let text = self.operand_borrow_expr(value)?;
-        Ok(RustExpr::atom(format!(
-            "smelt_py_json_dumps(&{text})",
-            text = text.tight()
-        )))
+        let dumped = format!("smelt_py_json_dumps(&{text})", text = text.tight());
+        Ok(RustExpr::atom(match indent {
+            Some(indent_operand) => format!(
+                "smelt_py_json_indent(&{dumped}, &{indent})",
+                indent = self.operand_borrow_expr(indent_operand)?.tight()
+            ),
+            None => dumped,
+        }))
     }
 
     /// Whether a value of type `ty` has a `SmeltPyJson` impl: Python's

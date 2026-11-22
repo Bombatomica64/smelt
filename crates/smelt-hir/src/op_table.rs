@@ -2613,8 +2613,25 @@ macro_rules! op_group_transcribed {
             PyJsonDumps {
                 /// The JSON-compatible value.
                 value: one @READ,
+                /// `indent=`: the `str` one nesting level indents by (an
+                /// `int` indent is already spelled as that many spaces), or
+                /// none for the one-line form.
+                indent: opt @READ,
             }
-                => (format!("py_json_dumps {value}"));
+                => (match indent {
+                    Some(indent) => format!("py_json_dumps {value}, indent {indent}"),
+                    None => format!("py_json_dumps {value}"),
+                });
+            /// Python's `json.loads(text)` decoded into the expression's own
+            /// static type (an `int` stays exact at any size); raises
+            /// `json.JSONDecodeError` on a malformed document.
+            PyJsonLoads {
+                /// The JSON text.
+                text: one @READ,
+            }
+                fallible(true)
+                call("@py_json_loads".to_owned())
+                => (format!("py_json_loads {text}"));
             /// `e.args`: the constructor arguments of an exception, as the
             /// runtime's `SmeltPyExceptionArgs`.
             PyExceptionArgs {

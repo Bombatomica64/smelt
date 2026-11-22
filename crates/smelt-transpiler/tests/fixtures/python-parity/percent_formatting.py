@@ -1,0 +1,25 @@
+name = "ab"
+n = 42
+x = 3.14159
+neg = -7
+print("%s has %d items" % (name, n))
+print("%5d|%-5d|%05d|%+d|% d" % (n, n, n, n, n))
+print("%.2f %10.3f %e %g %E %G" % (x, x, x, x, x, x))
+print("%-8.3f|%+.1f|%08.2f" % (x, x, -x))
+print("%r %s %a" % (name, name, "café"))
+print("%x %X %o %#x %#o %#X" % (255, 255, 8, 255, 8, 255))
+print("%x %d %5x" % (neg, neg, neg))
+print("100%%")
+print("%d%%" % n)
+print("%s" % name)
+print("%c%c" % (65, "z"))
+print("[%6s][%-6s][%.1s]" % (name, name, name))
+print("%d %i %u" % (3.99, -2.5, 7))
+print("%f %g" % (n, n))
+print("%s %s %s" % (True, None, [1, 2]))
+print("%r" % (["x", "a"],))
+print("%s" % (x,))
+print("%d" % True)
+print("%10.4e|%-12g|" % (12345.678, 0.0001234))
+print("value: %s" % 10**30)
+print("%5s|" % "é")

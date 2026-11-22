@@ -1,0 +1,69 @@
+{
+  "a": [
+    1,
+    2
+  ],
+  "b": [],
+  "c": [
+    3
+  ]
+}
+[
+    [
+        1
+    ],
+    [
+        2,
+        3
+    ],
+    []
+]
+{
+"k": "x, y: [z]"
+}
+[
+	[
+		1.5,
+		2.5
+	],
+	[]
+]
+{
+"n": [
+1
+]
+}
+[1, 2]
+{
+   "deep": {
+      "er": [
+         [
+            1
+         ],
+         [
+            2,
+            3
+         ]
+      ]
+   }
+}
+{} []
+12345678901234567890123 12345678901234567890124
+[1, -2, 99999999999999999999]
+{'n': 7, 'm': -5}
+[1.5, 2000.0, -0.25, inf, -inf, nan]
+{'a': ['xé😀', 'q"\n']}
+[1, None, 3]
+True
+ValueError: Expecting value: line 1 column 1 (char 0)
+ValueError: Expecting ',' delimiter: line 1 column 6 (char 5)
+ValueError: Expecting ',' delimiter: line 1 column 4 (char 3)
+ValueError: Expecting ':' delimiter: line 1 column 6 (char 5)
+ValueError: Illegal trailing comma before end of object: line 1 column 8 (char 7)
+ValueError: Illegal trailing comma before end of array: line 1 column 3 (char 2)
+ValueError: Extra data: line 1 column 2 (char 1)
+ValueError: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)
+ValueError: Unterminated string starting at: line 1 column 1 (char 0)
+ValueError: Extra data: line 1 column 5 (char 4)
+ValueError: Expecting value: line 3 column 4 (char 5)
+ValueError: Invalid \escape: line 1 column 3 (char 2)

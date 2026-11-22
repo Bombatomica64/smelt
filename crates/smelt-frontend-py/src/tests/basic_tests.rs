@@ -517,23 +517,31 @@ def render(value: float, width: int) -> str:
     )
 }
 
+/// `!a` lowers to `ascii(value)`: `repr` escaped by `PyStrOp::AsciiEscape`
+/// (the `ascii_conversion` parity fixture checks the text). It used to be a
+/// named deferral; the old requirement (an `unsupported-py` refusal) was a
+/// placeholder for exactly this lowering.
 #[test]
-fn fstring_ascii_conversion_is_rejected() -> TestResult {
-    // `!r` lowers to `repr` (see the python_text parity fixture); `!a`, which
-    // escapes non-ASCII text, is still a named deferral.
+fn fstring_ascii_conversion_lowers_to_ascii_escape() -> TestResult {
     let source = py!(r#"
 def render(value: int) -> str:
     return f"{value!a}"
 "#);
     let mut ctx = HirCtx::new();
-    let errors = lower_errors(source, &mut ctx)?;
-    let error = first_error(&errors)?;
-    ensure_eq(&error.code, &"smelt::unsupported-py", "error code")?;
+    let module_id = lower_module(source, &mut ctx)?;
+    let body = single_function_body(&ctx, module_id)?;
     ensure(
-        error.message.contains("conversions"),
-        "expected conversion rejection message",
-    )?;
-    Ok(())
+        body.exprs.iter().any(|expr| {
+            matches!(
+                expr.kind,
+                ExprKind::PyStrCall {
+                    op: smelt_hir::PyStrOp::AsciiEscape,
+                    ..
+                }
+            )
+        }),
+        "expected `!a` to lower to an ascii escape of the repr",
+    )
 }
 
 /// Returns the body of the single function item in `source` after lowering.

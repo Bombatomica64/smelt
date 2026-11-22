@@ -1,0 +1,5 @@
+'plain' 'caf\xe9 \u2615 \U0001f600' ['\xe9', '1']
+1.5 None 'tab\there' '\xff\u0100'
+'na\xefve' 'naïve' naïve
+[  'na\xefve']
+'na\xefve'|  'x'|'\xe9'   |

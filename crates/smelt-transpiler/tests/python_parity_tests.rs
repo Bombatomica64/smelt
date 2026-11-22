@@ -384,3 +384,37 @@ fn min_max_mixed_numbers() -> TestResult {
 fn sort_nan_cpython_order() -> TestResult {
     verify_python_parity("sort_nan_cpython_order")
 }
+
+/// `json.dumps(indent=..)` lays the text out as `CPython`'s encoder does (an
+/// `int` is that many spaces, `0` or a negative still breaks lines, a `str`
+/// is used as given, empty containers stay `[]`/`{}`, strings are copied
+/// untouched), and `json.loads` decodes at the annotated type: an `int`
+/// stays exact past 64 bits, `NaN`/`Infinity` are floats, a later duplicate
+/// key wins, and a malformed document raises `json.JSONDecodeError` (a
+/// `ValueError`) with `CPython`'s message and position. Requirements:
+/// `CPython`'s output, and the decoded values keep their static types
+/// (`SmeltPyInt`, `SmeltList<SmeltPyInt>`, ...), never the erased carrier.
+#[test]
+fn json_indent_and_exact_loads() -> TestResult {
+    verify_python_parity("json_indent_and_exact_loads")
+}
+
+/// `"template" % args` with a literal template formats each conversion as
+/// `CPython`'s printf-style formatting does: `d i u o x X e E f F g G c s r
+/// a %`, the `- + space # 0` flags, width and precision, `%d` of a `float`
+/// truncating, `%s`/`%r` writing `str`/`repr` of any value with Python text,
+/// a tuple supplying one value per conversion and any other value the only
+/// one. Requirements: `CPython`'s output, and the result is a `str` built
+/// from the values' own typed formatting (no erased value).
+#[test]
+fn percent_formatting() -> TestResult {
+    verify_python_parity("percent_formatting")
+}
+
+/// `ascii(x)`, `f"{x!a}"` and `%a` are `repr(x)` with every non-ASCII code
+/// point escaped as `\xhh`, `\uhhhh` or `\Uhhhhhhhh`, for strings and for
+/// containers alike, and a format spec after `!a` pads the escaped text.
+#[test]
+fn ascii_conversion() -> TestResult {
+    verify_python_parity("ascii_conversion")
+}
