@@ -358,6 +358,10 @@ pub mod function_length {
     /// non-callable — which is also what JavaScript answers for a value with no
     /// `length` property.
     pub const READ: &str = "smelt_function_length";
+
+    /// Reads a typed callable handle's recorded arity, falling back to its
+    /// static signature's arity when no erasure recorded one.
+    pub const READ_TYPED_OR: &str = "smelt_callable_length_or";
 }
 
 /// JavaScript numeric-semantics runtime helpers.

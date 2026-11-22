@@ -2063,3 +2063,13 @@ fn tuple_for_of() -> TestResult {
 fn generic_union_returns() -> TestResult {
     verify_node_parity("generic_union_returns")
 }
+
+/// An unannotated `function` expression returns what the checker inferred
+/// (`add(2, 3)` is a `number`, `pair(4)` a list), as an unannotated arrow
+/// does, and a typed view of a function reports that function's own
+/// `length`: `partial(add, 1)` returns a rest-parameter function, so its
+/// `length` is 0 although its type is `(b: number) => number`.
+#[test]
+fn function_expression_inferred_return() -> TestResult {
+    verify_node_parity("function_expression_inferred_return")
+}

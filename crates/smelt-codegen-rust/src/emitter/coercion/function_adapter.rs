@@ -414,8 +414,12 @@ impl FunctionEmitter<'_> {
             && self.context.demand().has(Need::Unknown)
         {
             (
-                " let smelt_source_callback = smelt_callback.callback.clone();",
-                " smelt_link_function_identity(&smelt_adapted, &smelt_source_callback);",
+                " let smelt_source_callback = smelt_callback.callback.clone(); let smelt_source_length = smelt_callback.length;",
+                // The erased function's arity rides in the struct, not on
+                // its identity; record it there so a `.length` read off the
+                // typed adapter answers the function's own arity, not the
+                // target signature's (`partial(fn, a).length` is 0).
+                " smelt_link_function_identity(&smelt_adapted, &smelt_source_callback); smelt_register_function_length_once(&smelt_adapted, smelt_source_length);",
             )
         } else {
             ("", "")

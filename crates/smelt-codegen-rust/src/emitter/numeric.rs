@@ -19,6 +19,31 @@ impl FunctionEmitter<'_> {
         ))
     }
 
+    /// Whether a typed callable's `.length` reads the arity recorded on its
+    /// function identity instead of its static signature's.
+    ///
+    /// Only an owned handle (a non-parameter place: a borrowed `&dyn Fn`
+    /// parameter has no `Rc` to key the registry) that is not a closure this
+    /// function defines (whose arity IS its declaration's), and only when the
+    /// crate carries the erased runtime that records arities at all.
+    fn reads_recorded_function_length(&self, operand: &Operand) -> Result<bool, EmitError> {
+        if !self.context.demand().has(Need::Unknown) {
+            return Ok(false);
+        }
+        let (Operand::Copy(place) | Operand::Move(place)) = operand else {
+            return Ok(false);
+        };
+        if self.is_function_parameter_place(place)? {
+            return Ok(false);
+        }
+        if let Some(local) = operand.local()
+            && closure_definitions(self.function)?.contains_key(&local)
+        {
+            return Ok(false);
+        }
+        Ok(true)
+    }
+
     /// Converts an operand for len() to its Rust text representation.
     pub(super) fn len_operand_expr(&self, operand: &Operand) -> Result<RustExpr, EmitError> {
         match operand {
@@ -72,6 +97,19 @@ impl FunctionEmitter<'_> {
             Some(Type::Function(_)) if self.callee_uses_erased_call_method(operand)? => {
                 format!(
                     "{receiver_text}.length",
+                    receiver_text = receiver_text.tight()
+                )
+            }
+            // An owned typed handle that is not a known closure definition may
+            // be a typed VIEW of a function whose runtime arity differs from
+            // its signature (`partial(fn, a)` returns a rest-parameter function
+            // typed `(b, c) => R`). With the erased runtime present, the arity
+            // recorded on its identity wins; the signature's is the fallback.
+            Some(Type::Function(_)) if self.reads_recorded_function_length(operand)? => {
+                format!(
+                    "{read}(&{receiver_text}, {length}.0)",
+                    read = smelt_stdlib::runtime_symbols::function_length::READ_TYPED_OR,
+                    length = self.operand_function_length(operand)?,
                     receiver_text = receiver_text.tight()
                 )
             }

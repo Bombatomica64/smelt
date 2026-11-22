@@ -377,6 +377,14 @@ impl ModuleBuilder<'_> {
             self.ts_type_to_hir(&return_type.type_annotation)?
         } else if let Some((_, function_ty)) = &hint_function {
             function_ty.return_ty
+        } else if let Some(checker_return) =
+            self.checker_function_return_type(function.span.start, function.span.end)
+        {
+            // With no annotation and no contextual signature, the checker's
+            // inferred return stands in for the annotation the source left
+            // out, exactly as for an unannotated arrow
+            // (`checker_function_return_type`).
+            checker_return
         } else {
             self.erase_with(
                 ErasureReason::MissingAnnotation,
