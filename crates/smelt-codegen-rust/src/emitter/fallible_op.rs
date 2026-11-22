@@ -241,17 +241,20 @@ impl FunctionEmitter<'_> {
         end: Option<&Operand>,
         step: Option<&Operand>,
     ) -> Result<RustExpr, EmitError> {
-        let bound = |operand: Option<&Operand>| -> Result<String, EmitError> {
-            Ok(match operand {
-                Some(operand) => format!(
+        let bound = |slot: Option<&Operand>| -> Result<String, EmitError> {
+            Ok(match slot {
+                Some(bound_operand) => format!(
                     "Some({} as i64)",
-                    self.operand_expr(operand)?.as_cast_operand()
+                    self.operand_expr(bound_operand)?.as_cast_operand()
                 ),
                 None => "None".to_owned(),
             })
         };
         let step_text = match step {
-            Some(step) => format!("{} as i64", self.operand_expr(step)?.as_cast_operand()),
+            Some(step_operand) => format!(
+                "{} as i64",
+                self.operand_expr(step_operand)?.as_cast_operand()
+            ),
             None => "1_i64".to_owned(),
         };
         let list_text = self.operand_borrow_expr(list)?;

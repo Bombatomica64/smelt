@@ -257,8 +257,8 @@ impl ModuleBuilder<'_> {
                         "slice deletion (`del seq[a:b]`) needs a list (a str or tuple raises TypeError)",
                     ));
                 }
-                let mut bound = |expr: Option<&Expr>, this: &mut Self| {
-                    expr.map(|expr| this.slice_bound(expr, body)).transpose()
+                let mut bound = |bound_ast: Option<&Expr>, this: &mut Self| {
+                    bound_ast.map(|bound_expr| this.slice_bound(bound_expr, body)).transpose()
                 };
                 let start = bound(slice.lower.as_deref(), self)?;
                 let end = bound(slice.upper.as_deref(), self)?;

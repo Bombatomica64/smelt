@@ -438,16 +438,16 @@ impl LoweringCtx<'_> {
                 step,
             } => {
                 let (list_operand, writeback) = self.lower_mutation_receiver(*list)?;
-                let start = start.map(|bound| self.lower_expr(bound)).transpose()?;
-                let end = end.map(|bound| self.lower_expr(bound)).transpose()?;
-                let step = step.map(|bound| self.lower_expr(bound)).transpose()?;
+                let start_operand = start.map(|bound| self.lower_expr(bound)).transpose()?;
+                let end_operand = end.map(|bound| self.lower_expr(bound)).transpose()?;
+                let step_operand = step.map(|bound| self.lower_expr(bound)).transpose()?;
                 let deleted = self.finish_op(
                     &expr,
                     Rvalue::PythonSliceDelete {
                         list: list_operand,
-                        start,
-                        end,
-                        step,
+                        start: start_operand,
+                        end: end_operand,
+                        step: step_operand,
                     },
                 )?;
                 self.write_back_mutation_receiver(writeback)?;
