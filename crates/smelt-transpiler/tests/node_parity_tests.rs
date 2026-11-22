@@ -509,6 +509,14 @@ fn number_predicate_callbacks() -> TestResult {
     verify_node_parity("number_predicate_callbacks")
 }
 
+/// A `function` object-literal property value, with or without an explicit
+/// `this:` parameter, is a function the property holds: its body runs on each
+/// call, never once on the read.
+#[test]
+fn object_literal_function_values() -> TestResult {
+    verify_node_parity("object_literal_function_values")
+}
+
 /// A union of present types and a nullish arm is the optional of the present
 /// union.
 #[test]

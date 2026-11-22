@@ -1,10 +1,10 @@
 {
   "version": 1,
   "files_scanned": 744,
-  "total": 48857,
+  "total": 48865,
   "category_totals": {
-    "avoidable-erasure": 12391,
-    "legitimate-boundary": 33980,
+    "avoidable-erasure": 12379,
+    "legitimate-boundary": 34000,
     "runtime-prelude": 2486
   },
   "shapes": [
@@ -1430,6 +1430,13 @@
       "example": "/home/lorenzo/scratch/smelt/r3b/corpora/es-toolkit-branch-out/src/uniqBy_spec.rs:97"
     },
     {
+      "category": "avoidable-erasure",
+      "shape": "let _smelt_tmp_N: ::std::rc::Rc<dyn Fn() -> SmeltUnknown>;",
+      "occurrences": 43,
+      "files": 21,
+      "example": "/home/lorenzo/scratch/smelt/r3b/corpora/es-toolkit-branch-out/src/AbortError_spec.rs:69"
+    },
+    {
       "category": "legitimate-boundary",
       "shape": "_smelt_tmp_N = { let _smelt_this_guard = smelt_push_no_this(); { let smelt_function_value = _smelt_tmp_N.clone(); let smelt_call_args: Vec<SmeltUnknown> = Into::into(vec![SmeltList::clone(&_smelt_tmp_N).into_live_smelt_unknown(), SmeltUnknown::String(\"S\".into()), { let smelt_record = _smelt_tmp_N.clone(); SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(smelt_key, smelt_value)| (smelt_key, SmeltUnknown::String(smelt_value.into()))).collect())) }]); let smelt_callable = match smelt_function_value { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"S\") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function.clone()), _ => None }, _ => None }; if let Some(smelt_function) = smelt_callable { (smelt_function)(smelt_call_args).unwrap_or_else(|smelt_error| smelt_panic_throw(smelt_error)) } else { smelt_value_not_callable() } } };",
       "occurrences": 42,
@@ -1540,13 +1547,6 @@
       "occurrences": 42,
       "files": 9,
       "example": "/home/lorenzo/scratch/smelt/r3b/corpora/es-toolkit-branch-out/src/defaultsDeep.rs:146"
-    },
-    {
-      "category": "avoidable-erasure",
-      "shape": "let _smelt_tmp_N: ::std::rc::Rc<dyn Fn() -> SmeltUnknown>;",
-      "occurrences": 42,
-      "files": 20,
-      "example": "/home/lorenzo/scratch/smelt/r3b/corpora/es-toolkit-branch-out/src/AbortError_spec.rs:69"
     },
     {
       "category": "avoidable-erasure",
@@ -3846,6 +3846,13 @@
     },
     {
       "category": "legitimate-boundary",
+      "shape": "let _smelt_tmp_N: bool = is_equal_with_N({ let smelt_record = object.clone(); SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(smelt_key, smelt_value)| (smelt_key, { let smelt_function_value = smelt_value; if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) { smelt_callable_object } else { let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function_value); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>((smelt_function_value)())); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); smelt_link_function_identity_key(&smelt_erased_function, smelt_origin_identity); smelt_register_function_length_once(&smelt_erased_function, N.N); SmeltUnknown::Function(smelt_erased_function) } })).collect())) }, closure_arg_N.clone(), &mut { let _smelt_adapted_callback = _smelt_tmp_N.clone(); move |smelt_argN: &SmeltUnknown, smelt_argN: &SmeltUnknown, smelt_argN: Option<SmeltUnionN>, smelt_argN: Option<SmeltUnknown>, smelt_argN: Option<SmeltUnknown>, smelt_argN: Option<SmeltJsMap<SmeltUnknown, SmeltUnknown>>| { let _ = (_smelt_adapted_callback)(); None::<bool> } })?;",
+      "occurrences": 20,
+      "files": 1,
+      "example": "/home/lorenzo/scratch/smelt/r3b/corpora/es-toolkit-branch-out/src/isEqualWith_spec.rs:4011"
+    },
+    {
+      "category": "legitimate-boundary",
       "shape": "let _smelt_tmp_N: bool = match &_smelt_tmp_N.clone() { SmeltUnknown::Function(_) => true, SmeltUnknown::Object(smelt_object) => smelt_object.contains_key(\"S\"), _ => false };",
       "occurrences": 20,
       "files": 4,
@@ -5005,13 +5012,6 @@
       "occurrences": 14,
       "files": 9,
       "example": "/home/lorenzo/scratch/smelt/r3b/corpora/es-toolkit-branch-out/src/isEmptyObject_spec.rs:92"
-    },
-    {
-      "category": "avoidable-erasure",
-      "shape": "let _smelt_tmp_N: bool = is_equal_with_N(SmeltUnknown::Object(SmeltObject::from_unknown_record(object.clone())), closure_arg_N.clone(), &mut { let _smelt_adapted_callback = _smelt_tmp_N.clone(); move |smelt_argN: &SmeltUnknown, smelt_argN: &SmeltUnknown, smelt_argN: Option<SmeltUnionN>, smelt_argN: Option<SmeltUnknown>, smelt_argN: Option<SmeltUnknown>, smelt_argN: Option<SmeltJsMap<SmeltUnknown, SmeltUnknown>>| { let _ = (_smelt_adapted_callback)(); None::<bool> } })?;",
-      "occurrences": 14,
-      "files": 1,
-      "example": "/home/lorenzo/scratch/smelt/r3b/corpora/es-toolkit-branch-out/src/isEqualWith_spec.rs:4004"
     },
     {
       "category": "avoidable-erasure",
@@ -10303,7 +10303,7 @@
       "shape": "values = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltUnknown> = vec![SmeltUnknown::Bool(true), SmeltUnknown::Null, SmeltUnknown::Number(N.N as fN), SmeltUnknown::String(\"S\".into()), SmeltUnknown::Undefined]; smelt_list_items }));",
       "occurrences": 6,
       "files": 1,
-      "example": "/home/lorenzo/scratch/smelt/r3b/corpora/es-toolkit-branch-out/src/isEqualWith_spec.rs:3992"
+      "example": "/home/lorenzo/scratch/smelt/r3b/corpora/es-toolkit-branch-out/src/isEqualWith_spec.rs:3999"
     },
     {
       "category": "avoidable-erasure",
@@ -37250,7 +37250,7 @@
     },
     {
       "category": "avoidable-erasure",
-      "shape": "let object: SmeltRecord<JsString, SmeltUnknown>;",
+      "shape": "let object: SmeltRecord<JsString, ::std::rc::Rc<dyn Fn() -> SmeltUnknown>>;",
       "occurrences": 1,
       "files": 1,
       "example": "/home/lorenzo/scratch/smelt/r3b/corpora/es-toolkit-branch-out/src/isEqualWith_spec.rs:3957"
@@ -37723,6 +37723,13 @@
       "occurrences": 1,
       "files": 1,
       "example": "/home/lorenzo/scratch/smelt/r3b/corpora/es-toolkit-branch-out/src/clone_1.rs:271"
+    },
+    {
+      "category": "avoidable-erasure",
+      "shape": "object = SmeltRecord::from([(JsString::from(\"S\"), { let smelt_fn: ::std::rc::Rc<dyn Fn() -> SmeltUnknown> = _smelt_tmp_N.clone(); smelt_fn })]);",
+      "occurrences": 1,
+      "files": 1,
+      "example": "/home/lorenzo/scratch/smelt/r3b/corpora/es-toolkit-branch-out/src/isEqualWith_spec.rs:3998"
     },
     {
       "category": "avoidable-erasure",
@@ -38884,7 +38891,7 @@
       "shape": "smelt_capture_primitive = ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltUnknown::Undefined));",
       "occurrences": 1,
       "files": 1,
-      "example": "/home/lorenzo/scratch/smelt/r3b/corpora/es-toolkit-branch-out/src/isEqualWith_spec.rs:3990"
+      "example": "/home/lorenzo/scratch/smelt/r3b/corpora/es-toolkit-branch-out/src/isEqualWith_spec.rs:3991"
     },
     {
       "category": "avoidable-erasure",
@@ -39287,8 +39294,8 @@
     }
   ],
   "erasure": {
-    "records": 4196,
-    "avoidable": 3537,
+    "records": 4197,
+    "avoidable": 3538,
     "by_reason": [
       {
         "reason": "explicit-any",
@@ -39303,7 +39310,7 @@
       {
         "reason": "missing-annotation",
         "class": "avoidable",
-        "count": 324
+        "count": 325
       },
       {
         "reason": "by-name",
@@ -39381,7 +39388,7 @@
         "count": 7
       }
     ],
-    "avoidable_lines_total": 2843,
+    "avoidable_lines_total": 2844,
     "avoidable_lines": [
       {
         "file": "src/compat/function/bind.ts",
