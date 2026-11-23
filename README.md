@@ -372,7 +372,7 @@ the library gates run on it.
 | --- | ---: | ---: | ---: |
 | `smelt-codegen-rust` | 91.54% | 86.55% | 73.98% |
 | `smelt-frontend-py` | 87.58% | 81.19% | 72.99% |
-| `smelt-frontend-ts` | 90.76% | 84.55% | 73.13% |
+| `smelt-frontend-ts` | 90.76% | 84.55% | 73.12% |
 | `smelt-hir` | 85.88% | 80.06% | 72.81% |
 | `smelt-mir` | 92.85% | 92.05% | 78.37% |
 | `smelt-py-types` | 85.51% | 93.46% | 72.73% |
@@ -383,6 +383,7 @@ the library gates run on it.
 | `smelt-ts-model` | 91.67% | 93.27% | 50.00% |
 | `smelt-ts-types` | 86.05% | 90.62% | 84.72% |
 <!-- COVERAGE:END -->
+
 
 
 
