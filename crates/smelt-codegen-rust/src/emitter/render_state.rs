@@ -303,7 +303,7 @@ impl EmitContext {
             );
         }
         // The item's `Function.prototype.name`, carried on its value wrappers.
-        let item_names: std::collections::HashMap<usize, &str> = mir
+        let item_names: HashMap<usize, &str> = mir
             .closures
             .iter()
             .filter_map(|closure| {
