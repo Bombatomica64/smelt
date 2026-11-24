@@ -7,6 +7,7 @@ use crate::rust::RustExpr;
 
 mod assign;
 mod calls;
+mod cfg_paths;
 mod loops;
 mod switch;
 
