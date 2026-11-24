@@ -185,6 +185,19 @@ impl CrossLanguageStubs {
         self.python.insert(canonical(provider), text);
     }
 
+    /// The `.d.ts` stubs, each as a checker input at the path a TypeScript
+    /// import of its provider looks.
+    #[cfg(feature = "ts7")]
+    pub(crate) fn typescript_declarations(&self) -> Vec<smelt_ts_types::SourceInput> {
+        self.typescript
+            .iter()
+            .map(|(provider, text)| {
+                let location = stub_path(provider, "d.ts", "index");
+                smelt_ts_types::SourceInput::new(location.display().to_string(), text.clone())
+            })
+            .collect()
+    }
+
     /// The `.pyi` stubs, each at the path a Python import of its provider looks.
     #[cfg(feature = "python")]
     pub(crate) fn python_declarations(&self) -> Vec<(PathBuf, &str)> {
@@ -283,14 +296,7 @@ pub(crate) fn typescript_program(
                 .located_at(checker_location(source).display().to_string())
         })
         .collect();
-    let mut declarations = stubs
-        .typescript
-        .iter()
-        .map(|(provider, text)| {
-            let location = stub_path(provider, "d.ts", "index");
-            smelt_ts_types::SourceInput::new(location.display().to_string(), text.clone())
-        })
-        .collect::<Vec<_>>();
+    let mut declarations = stubs.typescript_declarations();
     // A module `[sources] exclude` keeps out of the crate is still what its
     // import means: the checker reads it (its own diagnostics are not the
     // crate's) and resolves the import to it.
