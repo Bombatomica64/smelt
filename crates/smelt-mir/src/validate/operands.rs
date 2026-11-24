@@ -1,10 +1,10 @@
 //! Existence checks: the "does this reference exist" validation of rvalues,
-//! operands, places, and callees used by structural validation.
+//! operands, places, callees and locals used by structural validation and the
+//! definite-assignment checker.
 
 use crate::{Callee, GlobalProjection, Mir, MirBody, Operand, Place, Rvalue};
 
-use super::structure::validate_local_exists;
-use super::{ValidationError, error};
+use super::{ValidationError, error, local_index};
 
 /// Validate that IDs referenced by an rvalue point to existing MIR entities.
 pub(super) fn validate_rvalue_exists(
@@ -98,5 +98,19 @@ pub(super) fn validate_callee_exists(
             op.reads(|operand| validate_operand_exists(mir, body, operand, errors));
         }
         Callee::Builtin(_) => {}
+    }
+}
+
+/// Ensure a local ID points to an existing local declaration.
+pub(super) fn validate_local_exists(
+    body: MirBody<'_>,
+    local: crate::LocalId,
+    errors: &mut Vec<ValidationError>,
+) {
+    if body.locals.get(local_index(local)).is_none() {
+        errors.push(error(format!(
+            "{:?} references unknown local {:?}",
+            body.owner, local
+        )));
     }
 }

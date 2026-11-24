@@ -11,9 +11,10 @@
 use crate::{Mir, MirBody, Statement, Terminator};
 
 use super::operands::{
-    validate_callee_exists, validate_operand_exists, validate_place_exists, validate_rvalue_exists,
+    validate_callee_exists, validate_local_exists, validate_operand_exists, validate_place_exists,
+    validate_rvalue_exists,
 };
-use super::{ValidationError, assignment, block_index, error, local_index};
+use super::{ValidationError, assignment, block_index, error};
 
 /// Validate one MIR body and append any discovered errors.
 ///
@@ -193,20 +194,6 @@ fn validate_terminator(
         Terminator::Return(operand) | Terminator::Throw(operand) => {
             validate_operand_exists(mir, body, operand, errors);
         }
-    }
-}
-
-/// Ensure a local ID points to an existing local declaration.
-pub(super) fn validate_local_exists(
-    body: MirBody<'_>,
-    local: crate::LocalId,
-    errors: &mut Vec<ValidationError>,
-) {
-    if body.locals.get(local_index(local)).is_none() {
-        errors.push(error(format!(
-            "{:?} references unknown local {:?}",
-            body.owner, local
-        )));
     }
 }
 

@@ -33,7 +33,7 @@ use crate::{
     Callee, LocalId, LocalInit, Mir, MirBody, Operand, Place, Rvalue, Statement, Terminator,
 };
 
-use super::structure::validate_local_exists;
+use super::operands::validate_local_exists;
 use super::{ValidationError, error, local_index};
 
 /// Checks one body's definite-assignment rules (see the module docs).
