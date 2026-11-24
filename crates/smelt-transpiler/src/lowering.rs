@@ -593,6 +593,16 @@ impl Drop for QuietPanics {
     }
 }
 
+/// Lowers HIR to MIR, runs optimizations, and validates the result: the
+/// stage after source lowering that every MIR consumer (crate emission, the
+/// typedness and list-escape reports, `dump-mir`) shares.
+pub(crate) fn lower_to_optimized_mir(
+    krate: &smelt_hir::Crate,
+) -> Result<smelt_mir::Mir, Box<dyn std::error::Error>> {
+    smelt_mir::compile_observed(krate, timing::report)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()).into())
+}
+
 /// Whether panic messages are currently silenced on this thread.
 #[cfg(test)]
 fn panics_are_quiet() -> bool {

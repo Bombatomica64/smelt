@@ -23,7 +23,7 @@ use std::{
 use smelt_mir::{BodyKey, BodyListEscape, EscapeReason, ListLocalClass};
 
 use crate::{
-    lowering, pipeline,
+    lowering,
     report::{ReportFormat, count_share, push_fmt},
 };
 
@@ -88,7 +88,7 @@ pub(crate) fn list_escape_report(
         .into_measured()
         .lower()?
         .krate;
-    let mir = pipeline::lower_to_optimized_mir(&krate)?;
+    let mir = lowering::lower_to_optimized_mir(&krate)?;
     let bodies = smelt_mir::analyze_list_escapes(&mir);
 
     Ok(match options.format {
