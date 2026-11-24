@@ -51,6 +51,11 @@ cargo test
 - Frontend validation boundaries: where `tsc`/Python checks reject invalid source first, HIR/MIR may share
   representations (Map and Record sharing Dict); do not block useful mappings because source spelling is
   erased internally. Keep frontend checks/tests for shapes Smelt can cheaply validate itself.
+-  Run [`deslop-please`](https://github.com/deterministic-machines/deslop-please) to check for sloppy code structure.
+-  Errors flagged by `deslop-please` must be fixed from first principles, don't do mechanical moves to hide them.
+    - `module-cycle` & `tangle`: what is the indented layer of abstraction? Which module should be at which layer?
+    - `field-leak` & `shallow-module`: Why we have these fields/functions at all? What are the patterns of use? Can they be hidden behind a narrow interface? Don't fix each leak one at a time, fix them holistically.
+    - Draw a diagram to help user understand the before and proposed after structure.
 
 ## Type lowering
 - WE DO NOT DO SPECIAL CASES FOR CODE, everything must lower through general rules, except test functions.
