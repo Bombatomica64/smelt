@@ -292,6 +292,11 @@ impl CallSummaries {
         self.analyses
     }
 
+    /// Whether the walks also track carrier-typed locals (see the field).
+    pub(super) const fn tracks_carriers(&self) -> bool {
+        self.carriers
+    }
+
     /// Compute the least fixpoint of the escape summaries over `mir`'s call
     /// graph.
     ///
@@ -302,18 +307,17 @@ impl CallSummaries {
     /// the number of body walks is bounded by
     /// `O(sum over callees of callers(callee) * fields(callee))` rather than by
     /// the quadratic `bodies * bodies` a round-robin loop would cost.
-    pub(super) fn compute(mir: &Mir) -> Self {
-        Self::compute_tracking(mir, false)
-    }
-
-    /// Whether the walks also track carrier-typed locals (see the field).
-    pub(super) const fn tracks_carriers(&self) -> bool {
-        self.carriers
-    }
-
-    /// [`Self::compute`], with `carriers` deciding whether values that may
-    /// hold a list without being typed as one are tracked too.
-    pub(super) fn compute_tracking(mir: &Mir, carriers: bool) -> Self {
+    ///
+    /// The fixpoint is generic in the per-body analysis: `summarize` derives
+    /// one function's facts under the summaries known so far (the walk in
+    /// the parent module), so this table never names the walker it drives.
+    /// `carriers` decides whether values that may hold a list without being
+    /// typed as one are tracked too (see the field).
+    pub(super) fn compute(
+        mir: &Mir,
+        carriers: bool,
+        summarize: impl Fn(&Mir, &Self, &MirFunction) -> SummaryFacts,
+    ) -> Self {
         let overridable = overridable_methods(mir);
         let mut table = Self {
             summaries: mir
@@ -352,7 +356,7 @@ impl CallSummaries {
                 continue;
             };
             table.analyses = table.analyses.saturating_add(1);
-            let next = FunctionSummary::Known(super::summarize_function(mir, &table, function));
+            let next = FunctionSummary::Known(summarize(mir, &table, function));
             let changed = table
                 .summaries
                 .get(index)

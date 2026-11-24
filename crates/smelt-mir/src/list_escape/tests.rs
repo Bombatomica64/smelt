@@ -10,7 +10,9 @@ use smelt_frontend_ts::{HirCtx, to_hir};
 use smelt_hir::FileId;
 
 use super::summary::{CallSummaries, SummaryFacts};
-use super::{FunctionBody, ListLocalClass, analyze_body, analyze_list_escapes};
+use super::{
+    FunctionBody, ListLocalClass, analyze_body, analyze_list_escapes, summarize_function,
+};
 use crate::{BodyKey, EscapeReason, Mir, lower_hir, opt};
 
 /// Lower TypeScript source to optimized MIR, panicking with context on failure.
@@ -299,7 +301,7 @@ fn every_body_reports_each_list_local_exactly_once() {
 /// body it is about fails loudly.
 fn summary_of(source: &str, function: &str) -> SummaryFacts {
     let mir = mir_of(source);
-    let summaries = CallSummaries::compute(&mir);
+    let summaries = CallSummaries::compute(&mir, false, summarize_function);
     for (index, candidate) in mir.functions.iter().enumerate() {
         if mir.symbols.get(candidate.name) == Some(function) {
             return summaries
@@ -559,7 +561,7 @@ fn the_fixpoint_visits_every_resolvable_body_at_least_once() {
          \x20 return total(numbers) + keep(numbers).length;\n\
          }\n",
     );
-    let summaries = CallSummaries::compute(&mir);
+    let summaries = CallSummaries::compute(&mir, false, summarize_function);
     assert!(summaries.analyses() >= mir.functions.len());
 }
 
@@ -572,7 +574,7 @@ fn an_async_callee_is_an_unknown_callee() {
          \x20 return values.length;\n\
          }\n",
     );
-    let summaries = CallSummaries::compute(&mir);
+    let summaries = CallSummaries::compute(&mir, false, summarize_function);
     for (index, function) in mir.functions.iter().enumerate() {
         if mir.symbols.get(function.name) == Some("total") {
             assert!(function.is_async, "fixture must lower to an async body");

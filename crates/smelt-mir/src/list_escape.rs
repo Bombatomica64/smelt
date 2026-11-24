@@ -291,7 +291,7 @@ impl ReadOnlyArguments {
     #[must_use]
     pub fn compute(mir: &Mir) -> Self {
         Self {
-            summaries: CallSummaries::compute_tracking(mir, true),
+            summaries: CallSummaries::compute(mir, true, summarize_function),
         }
     }
 
@@ -330,7 +330,7 @@ impl ReadOnlyArguments {
 /// reports diff cleanly between runs.
 #[must_use]
 pub fn analyze_list_escapes(mir: &Mir) -> Vec<BodyListEscape> {
-    let summaries = CallSummaries::compute(mir);
+    let summaries = CallSummaries::compute(mir, false, summarize_function);
     let mut out = Vec::new();
     for function in &mir.functions {
         let body = FunctionBody::from_function(function);
@@ -633,6 +633,57 @@ impl Groups {
     fn mutate(&mut self, local: u32) {
         let root = self.find(local);
         self.mutated.insert(root, true);
+    }
+
+    /// The verdict on list local `local` (source name `name`): its group, and
+    /// the class and escape reason the group's recorded facts put it in.
+    ///
+    /// Any escape makes it `Escaping`; otherwise a second concurrently live
+    /// name makes it `Aliased`; otherwise it is local, mutated or not.
+    fn fact(&mut self, local: LocalId, name: Option<String>) -> ListLocalFact {
+        let root = self.find(local.0);
+        let reason = self.escaped.get(&root).copied();
+        let mutated = self.mutated.get(&root).copied().unwrap_or(false);
+        let aliased = self.aliased.get(&root).copied().unwrap_or(false);
+        let class = match (reason, aliased, mutated) {
+            (Some(_), _, _) => ListLocalClass::Escaping,
+            (None, true, _) => ListLocalClass::Aliased,
+            (None, false, true) => ListLocalClass::LocalMutated,
+            (None, false, false) => ListLocalClass::LocalImmutable,
+        };
+        ListLocalFact {
+            local,
+            group: LocalId(root),
+            name,
+            class,
+            reason,
+            mutated,
+        }
+    }
+
+    /// What this body does to the buffer bound to list parameter `param`, as
+    /// a caller's argument sees it.
+    ///
+    /// It escapes when its group carries any escape other than the
+    /// conservative entry seeding, a plain return included, since returning a
+    /// parameter hands the caller's buffer back out.
+    fn param_effect(&mut self, param: LocalId) -> ParamEffect {
+        let root = self.find(param.0);
+        let escapes_external = self.escaped_external.contains_key(&root);
+        ParamEffect {
+            escapes: escapes_external || self.returned.get(&root).copied().unwrap_or(false),
+            escapes_external,
+            mutated: self.mutated.get(&root).copied().unwrap_or(false),
+        }
+    }
+
+    /// Whether `local`'s buffer was minted in this body and is published
+    /// nowhere but through a return: its group holds no entry local and has
+    /// no escape other than the return itself.
+    fn minted_here(&mut self, local: LocalId) -> bool {
+        let root = self.find(local.0);
+        !self.escaped_external.contains_key(&root)
+            && !self.entry.get(&root).copied().unwrap_or(false)
     }
 }
 
@@ -1081,24 +1132,8 @@ impl<'a> BodyWalk<'a> {
             if !self.is_list(local) || !self.touched.get(index).copied().unwrap_or(false) {
                 continue;
             }
-            let root = self.groups.find(local.0);
-            let reason = self.groups.escaped.get(&root).copied();
-            let mutated = self.groups.mutated.get(&root).copied().unwrap_or(false);
-            let aliased = self.groups.aliased.get(&root).copied().unwrap_or(false);
-            let class = match (reason, aliased, mutated) {
-                (Some(_), _, _) => ListLocalClass::Escaping,
-                (None, true, _) => ListLocalClass::Aliased,
-                (None, false, true) => ListLocalClass::LocalMutated,
-                (None, false, false) => ListLocalClass::LocalImmutable,
-            };
-            facts.push(ListLocalFact {
-                local,
-                group: LocalId(root),
-                name: self.body.local_name(self.mir, local),
-                class,
-                reason,
-                mutated,
-            });
+            let name = self.body.local_name(self.mir, local);
+            facts.push(self.groups.fact(local, name));
         }
         facts
     }
@@ -1127,14 +1162,7 @@ impl<'a> BodyWalk<'a> {
                         mutated: false,
                     };
                 }
-                let root = self.groups.find(param.0);
-                let escapes_external = self.groups.escaped_external.contains_key(&root);
-                ParamEffect {
-                    escapes: escapes_external
-                        || self.groups.returned.get(&root).copied().unwrap_or(false),
-                    escapes_external,
-                    mutated: self.groups.mutated.get(&root).copied().unwrap_or(false),
-                }
+                self.groups.param_effect(*param)
             },
             returns_fresh_list,
         )
@@ -1159,11 +1187,7 @@ impl<'a> BodyWalk<'a> {
             })
             .collect();
         returned.iter().all(|operand| match operand.local() {
-            Some(local) if self.is_list(local) => {
-                let root = self.groups.find(local.0);
-                !self.groups.escaped_external.contains_key(&root)
-                    && !self.groups.entry.get(&root).copied().unwrap_or(false)
-            }
+            Some(local) if self.is_list(local) => self.groups.minted_here(local),
             // A constant, or a buffer read out through a projection: not
             // provably minted here.
             _ => false,
