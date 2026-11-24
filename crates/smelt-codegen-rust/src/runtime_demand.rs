@@ -679,10 +679,10 @@ impl RuntimeDemand {
             demand.scan_types(mir, &with_unions);
             demand.close();
         }
-        // Which container a dict renders as depends on whether the carrier is
-        // present, so this reads the closed demand and adds a leaf need.
+        // A dict whose key space is neither a JS map's nor a record's renders as
+        // `indexmap::IndexMap`: a leaf need, added after the closure.
         if reachable.ids().any(|id| {
-            matches!(mir.types.get(id), Some(Type::Dict(key, _)) if crate::emitter::dict_renders_as_index_map(mir, &demand, *key))
+            matches!(mir.types.get(id), Some(Type::Dict(key, _)) if crate::emitter::dict_renders_as_index_map(mir, *key))
         }) {
             demand.add(Need::DepIndexMap);
         }

@@ -598,11 +598,7 @@ pub(crate) fn dict_key_uses_js_key_map(mir: &Mir, key_ty: TypeId) -> bool {
 /// insertion-ordered; this is the hashed container for the rest, and it must
 /// keep the same order, since Python dicts and JavaScript objects both iterate
 /// in insertion order.
-pub(crate) fn dict_renders_as_index_map(
-    mir: &Mir,
-    _demand: &RuntimeDemand,
-    key_ty: TypeId,
-) -> bool {
+pub(crate) fn dict_renders_as_index_map(mir: &Mir, key_ty: TypeId) -> bool {
     !dict_key_uses_js_key_map(mir, key_ty) && !dict_key_uses_smelt_record(mir, key_ty)
 }
 

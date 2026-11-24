@@ -728,7 +728,7 @@ impl FunctionEmitter<'_> {
     /// `SmeltJsMap` already keep order under their own `remove`.
     pub(super) fn dict_remove_method(&self, dict_ty: TypeId, key_ty: TypeId) -> &'static str {
         if matches!(self.mir.types.get(dict_ty), Some(Type::Dict(_, _)))
-            && dict_renders_as_index_map(self.mir, self.context.demand(), key_ty)
+            && dict_renders_as_index_map(self.mir, key_ty)
         {
             "shift_remove"
         } else {
