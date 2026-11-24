@@ -39,28 +39,16 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use smelt_hir::{ErasureReason, ErasureRecord, ErasureSeverity};
 
+use crate::config::{ErasureLayer, ErasureLevel};
 use crate::lowering::LoweredSources;
 use crate::report::{Schema, SchemaVersion, push_fmt};
 use crate::source_files::{exclusion_base, manifest_relative_path, path_matches_glob};
 
 /// File name of the sidecar written next to the generated crate's `src/`.
 pub(crate) const SIDECAR_FILE_NAME: &str = "smelt-erasure.json";
-
-/// A severity as spelled in `Smelt.toml`.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, JsonSchema, PartialEq)]
-#[serde(rename_all = "lowercase")]
-pub enum ErasureLevel {
-    /// Record only.
-    Allow,
-    /// Print a warning.
-    Warn,
-    /// Print an error and fail `build`/`check`.
-    Deny,
-}
 
 impl From<ErasureLevel> for ErasureSeverity {
     /// Map the manifest spelling onto the shared severity.
@@ -71,33 +59,6 @@ impl From<ErasureLevel> for ErasureSeverity {
             ErasureLevel::Deny => Self::Deny,
         }
     }
-}
-
-/// The `[erasure]` table of `Smelt.toml`.
-#[derive(Clone, Debug, Default, Deserialize, JsonSchema)]
-pub struct ErasureConfig {
-    /// Severity for every reason, applied before the per-reason levels.
-    #[serde(default)]
-    default: Option<ErasureLevel>,
-    /// Per-path settings, applied in order after the table's own levels.
-    #[serde(default)]
-    scope: Vec<ErasureScopeConfig>,
-    /// Per-reason severities, keyed by reason name (`explicit-any`, ...).
-    #[serde(flatten)]
-    levels: BTreeMap<String, ErasureLevel>,
-}
-
-/// One `[[erasure.scope]]` entry.
-#[derive(Clone, Debug, Deserialize, JsonSchema)]
-pub(crate) struct ErasureScopeConfig {
-    /// Manifest-relative globs (`*` within a segment, `**` across segments).
-    paths: Vec<String>,
-    /// Severity for every reason in matching files.
-    #[serde(default)]
-    default: Option<ErasureLevel>,
-    /// Per-reason severities in matching files.
-    #[serde(flatten)]
-    levels: BTreeMap<String, ErasureLevel>,
 }
 
 /// One ordered setting: which reason (all when `None`), which files (all when
@@ -137,19 +98,16 @@ fn parse_reason(name: &str) -> Result<Option<ErasureReason>, String> {
 }
 
 impl ErasureSettings {
-    /// Build settings from the manifest table and the CLI `--erasure` flags.
-    pub(crate) fn new(config: Option<&ErasureConfig>, cli: &[String]) -> Result<Self, String> {
+    /// Build settings from the manifest's `[erasure]` layers, in application
+    /// order (`crate::config::Config::erasure_layers`), and the CLI
+    /// `--erasure` flags.
+    pub(crate) fn new<'table>(
+        manifest: impl IntoIterator<Item = ErasureLayer<'table>>,
+        cli: &[String],
+    ) -> Result<Self, String> {
         let mut settings = Vec::new();
-        if let Some(table) = config {
-            push_levels(&mut settings, table.default, &table.levels, None)?;
-            for scope in &table.scope {
-                push_levels(
-                    &mut settings,
-                    scope.default,
-                    &scope.levels,
-                    Some(&scope.paths),
-                )?;
-            }
+        for (scope, default, levels) in manifest {
+            push_levels(&mut settings, default, levels, scope)?;
         }
         for flag in cli {
             settings.push(parse_cli_setting(flag)?);
@@ -178,9 +136,9 @@ fn push_levels(
     settings: &mut Vec<Setting>,
     default: Option<ErasureLevel>,
     levels: &BTreeMap<String, ErasureLevel>,
-    scope: Option<&Vec<String>>,
+    scope: Option<&[String]>,
 ) -> Result<(), String> {
-    let scope = scope.cloned();
+    let scope = scope.map(<[String]>::to_vec);
     if let Some(level) = default {
         settings.push(Setting {
             reason: None,
@@ -641,6 +599,7 @@ fn summary(records: &[ResolvedErasure]) -> String {
 #[expect(clippy::expect_used, reason = "a test fails fast on what it set up")]
 mod tests {
     use super::*;
+    use crate::config::ErasureConfig;
 
     /// Parse a manifest `[erasure]` table from TOML text.
     fn config(text: &str) -> ErasureConfig {
@@ -670,7 +629,7 @@ mod tests {
             "",
         ));
         let sources = LoweredSources::from_texts([(file, text.to_owned())]);
-        let settings = ErasureSettings::new(None, &[]).expect("settings");
+        let settings = ErasureSettings::new([], &[]).expect("settings");
         let resolved = resolve(&krate, &sources, &[], Path::new("."), &settings);
         let lines = resolved
             .iter()
@@ -682,7 +641,7 @@ mod tests {
     /// Defaults: every reason allows except `unclassified`, which warns.
     #[test]
     fn defaults_follow_the_reason_table() {
-        let settings = ErasureSettings::new(None, &[]).expect("settings");
+        let settings = ErasureSettings::new([], &[]).expect("settings");
         let file = Path::new("src/a.ts");
         assert_eq!(
             settings.severity(ErasureReason::ExplicitAny, file),
@@ -707,7 +666,7 @@ mod tests {
             default = "allow"
             "#,
         );
-        let settings = ErasureSettings::new(Some(&table), &[]).expect("settings");
+        let settings = ErasureSettings::new(table.layers(), &[]).expect("settings");
         let src = Path::new("src/a.ts");
         let vendor = Path::new("vendor/lib/b.ts");
         assert_eq!(
@@ -727,7 +686,7 @@ mod tests {
             "explicit-any=allow".to_owned(),
             "all:vendor/**=deny".to_owned(),
         ];
-        let settings = ErasureSettings::new(Some(&table), &cli).expect("settings");
+        let settings = ErasureSettings::new(table.layers(), &cli).expect("settings");
         assert_eq!(
             settings.severity(ErasureReason::ExplicitAny, src),
             ErasureSeverity::Allow
@@ -741,16 +700,16 @@ mod tests {
     /// Unknown reasons and levels are rejected with the list of known names.
     #[test]
     fn unknown_names_are_rejected() {
-        let error = ErasureSettings::new(None, &["no-such=warn".to_owned()]).unwrap_err();
+        let error = ErasureSettings::new([], &["no-such=warn".to_owned()]).unwrap_err();
         assert!(
             error.contains("unknown erasure reason `no-such`"),
             "{error}"
         );
         assert!(error.contains("explicit-any"), "{error}");
-        let error = ErasureSettings::new(None, &["explicit-any=loud".to_owned()]).unwrap_err();
+        let error = ErasureSettings::new([], &["explicit-any=loud".to_owned()]).unwrap_err();
         assert!(error.contains("unknown level `loud`"), "{error}");
         let table = config("typo-reason = \"warn\"");
-        assert!(ErasureSettings::new(Some(&table), &[]).is_err());
+        assert!(ErasureSettings::new(table.layers(), &[]).is_err());
     }
 
     /// The sidecar totals count records per reason.

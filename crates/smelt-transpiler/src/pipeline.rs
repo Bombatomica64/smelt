@@ -59,7 +59,7 @@ pub(crate) fn build_rust_crate(
     manifest_path: &Path,
     type_errors: TypeErrorPolicy,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let settings = erasure::ErasureSettings::new(config.erasure(), &[])?;
+    let settings = erasure::ErasureSettings::new(config.erasure_layers(), &[])?;
     build_rust_crate_with_erasure(config, manifest_path, &settings, type_errors)
 }
 

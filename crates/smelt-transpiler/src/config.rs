@@ -60,7 +60,7 @@ pub struct Config {
     packages: BTreeMap<String, PackageSource>,
     /// Erasure-reason severities (`[erasure]`); see `crate::erasure`.
     #[serde(default)]
-    erasure: Option<crate::erasure::ErasureConfig>,
+    erasure: Option<ErasureConfig>,
     /// Definition-time specialization options (`[specialization]`).
     #[serde(default)]
     specialization: Specialization,
@@ -266,10 +266,10 @@ impl Config {
         self.build.define.extend(defines);
     }
 
-    /// Get the `[erasure]` table, when the manifest has one.
-    #[must_use]
-    pub fn erasure(&self) -> Option<&crate::erasure::ErasureConfig> {
-        self.erasure.as_ref()
+    /// The `[erasure]` table's settings in application order, none when the
+    /// manifest has no table; see [`ErasureConfig::layers`].
+    pub(crate) fn erasure_layers(&self) -> impl Iterator<Item = ErasureLayer<'_>> {
+        self.erasure.iter().flat_map(ErasureConfig::layers)
     }
 
     /// Whether the generated output should be built automatically.
@@ -280,8 +280,96 @@ impl Config {
 
     /// `[build] type-errors`: what a build does with type-checker errors.
     #[must_use]
-    pub const fn type_errors(&self) -> crate::type_gate::TypeErrorPolicy {
+    pub const fn type_errors(&self) -> TypeErrorPolicy {
         self.build.type_errors
+    }
+}
+
+/// A severity as spelled in `Smelt.toml`.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, JsonSchema, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum ErasureLevel {
+    /// Record only.
+    Allow,
+    /// Print a warning.
+    Warn,
+    /// Print an error and fail `build`/`check`.
+    Deny,
+}
+
+/// The `[erasure]` table of `Smelt.toml`.
+///
+/// Only the manifest's spelling lives here; `crate::erasure` turns its
+/// [`Self::layers`] (and the `--erasure` flags) into resolved settings.
+#[derive(Clone, Debug, Default, Deserialize, JsonSchema)]
+pub(crate) struct ErasureConfig {
+    /// Severity for every reason, applied before the per-reason levels.
+    #[serde(default)]
+    default: Option<ErasureLevel>,
+    /// Per-path settings, applied in order after the table's own levels.
+    #[serde(default)]
+    scope: Vec<ErasureScopeConfig>,
+    /// Per-reason severities, keyed by reason name (`explicit-any`, ...).
+    #[serde(flatten)]
+    levels: BTreeMap<String, ErasureLevel>,
+}
+
+/// One `[[erasure.scope]]` entry.
+#[derive(Clone, Debug, Deserialize, JsonSchema)]
+pub(crate) struct ErasureScopeConfig {
+    /// Manifest-relative globs (`*` within a segment, `**` across segments).
+    paths: Vec<String>,
+    /// Severity for every reason in matching files.
+    #[serde(default)]
+    default: Option<ErasureLevel>,
+    /// Per-reason severities in matching files.
+    #[serde(flatten)]
+    levels: BTreeMap<String, ErasureLevel>,
+}
+
+/// One layer of `[erasure]` settings: the manifest-relative globs it is
+/// limited to (every file when `None`), its level for every reason, and its
+/// per-reason levels keyed by reason name.
+pub(crate) type ErasureLayer<'table> = (
+    Option<&'table [String]>,
+    Option<ErasureLevel>,
+    &'table BTreeMap<String, ErasureLevel>,
+);
+
+impl ErasureConfig {
+    /// The table's layers in application order: its own levels for every
+    /// file, then each `[[erasure.scope]]` in declaration order.
+    pub(crate) fn layers(&self) -> impl Iterator<Item = ErasureLayer<'_>> {
+        std::iter::once((None, self.default, &self.levels)).chain(
+            self.scope
+                .iter()
+                .map(|scope| (Some(scope.paths.as_slice()), scope.default, &scope.levels)),
+        )
+    }
+}
+
+/// What a command does with checker errors.
+///
+/// Spelled in the manifest as `[build] type-errors`; `crate::type_gate`
+/// applies it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum TypeErrorPolicy {
+    /// A checker error, or a language no checker could vouch for, fails the
+    /// command before anything is written.
+    #[default]
+    Deny,
+    /// Checker errors are printed as warnings and lowering goes on, with the
+    /// frontends' checked-program shortcuts turned into errors.
+    Allow,
+}
+
+impl TypeErrorPolicy {
+    /// The policy of one run: `allow_flag` (`--allow-type-errors`) wins over the
+    /// manifest's `[build] type-errors`.
+    #[must_use]
+    pub const fn resolve(manifest: Self, allow_flag: bool) -> Self {
+        if allow_flag { Self::Allow } else { manifest }
     }
 }
 
@@ -555,7 +643,7 @@ pub struct Build {
     /// lower the program, `"allow"` prints the errors as warnings and lowers it
     /// anyway. `--allow-type-errors` allows for one run.
     #[serde(default, rename = "type-errors")]
-    type_errors: crate::type_gate::TypeErrorPolicy,
+    type_errors: TypeErrorPolicy,
 }
 
 /// The `[rust] edition` of the generated crate.
