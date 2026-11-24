@@ -1718,7 +1718,7 @@ impl FunctionEmitter<'_> {
     /// The value an absent `optional` stands for at `target`.
     ///
     /// The target's default, except where `target` is the erased carrier and
-    /// `optional` is a `T | null` (`TypeInterner::intern_null_optional`): its
+    /// `optional` is a `T | null` (`type_normalize::optional_with(.., Absence::Null)`): its
     /// only absent value is `null`, so at that dynamic boundary its `None` is
     /// `SmeltUnknown::Null`, as the erasure of the value itself answers
     /// (`erase::optional_absent_value`). `[1, null]` handed to an

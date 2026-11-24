@@ -346,7 +346,7 @@ impl FunctionEmitter<'_> {
     /// `"null"`, and `m === null` holds through erased dataflow).
     ///
     /// Likewise a type the source writes `T | null` (`optional` is a
-    /// `TypeInterner::intern_null_optional` id): `null` is the only absent
+    /// `type_normalize::optional_with(.., Absence::Null)` id): `null` is the only absent
     /// value it holds, so at this dynamic boundary its `None` is `null`
     /// (ts-pattern's `.otherwise(() => null)` answer compared with
     /// `toEqual(null)`). `T | undefined` and optional fields stay `undefined`.
