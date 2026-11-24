@@ -72,6 +72,7 @@ pub use list_escape::{
 pub use lower::{LowerError, PENDING_THROWN_LOCAL, lower_hir};
 pub use traversal::{Body, BodyOwner, Edge, MirBody, MirBodyMut, Read, ReadMut};
 pub use type_normalize::normalize_operational_types;
+pub use type_positions::{for_each_function_type, map_function_types};
 pub use types::*;
 pub use validate::{ValidationError, validate};
 
