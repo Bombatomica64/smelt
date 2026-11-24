@@ -510,7 +510,7 @@ impl DependencyCollector {
         if import.module.starts_with('.') || import.module.starts_with('/') {
             return Ok(Vec::new());
         }
-        let package_name = bare_package_name(&import.module);
+        let package_name = crate::sound::bare_package_name(&import.module);
         if let Some(package) = self
             .packages
             .iter()
@@ -823,20 +823,6 @@ fn stub_source(path: &Path) -> PathBuf {
         .map(|extension| path.with_file_name(format!("{stem}.{extension}")))
         .find(|source| source.is_file())
         .unwrap_or_else(|| path.to_path_buf())
-}
-
-/// Return the package name part of a bare TypeScript import specifier.
-pub(crate) fn bare_package_name(module: &str) -> String {
-    let mut parts = module.split('/');
-    let Some(first) = parts.next() else {
-        return module.to_owned();
-    };
-    if first.starts_with('@')
-        && let Some(second) = parts.next()
-    {
-        return format!("{first}/{second}");
-    }
-    first.to_owned()
 }
 
 /// Choose a bounded root for scanning workspace packages.
@@ -1210,7 +1196,7 @@ fn is_bare_package_specifier(specifier: &str) -> bool {
 /// checker then reads its types from disk, whatever Smelt's resolution made
 /// of the import (a type-only import of `type-fest`).
 fn is_installed_package(importer: &Path, specifier: &str) -> bool {
-    let name = bare_package_name(specifier);
+    let name = crate::sound::bare_package_name(specifier);
     let from = importer.parent().unwrap_or(importer);
     let types_name = format!(
         "@types/{}",

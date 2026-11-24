@@ -185,6 +185,22 @@ fn shown_path(root: &Path, home: &Path) -> String {
     )
 }
 
+/// Return the package name part of a bare TypeScript import specifier
+/// (`@scope/pkg/sub` → `@scope/pkg`, `pkg/sub` → `pkg`): the name a package
+/// is installed, and its typed version published, under.
+pub(crate) fn bare_package_name(module: &str) -> String {
+    let mut parts = module.split('/');
+    let Some(first) = parts.next() else {
+        return module.to_owned();
+    };
+    if first.starts_with('@')
+        && let Some(second) = parts.next()
+    {
+        return format!("{first}/{second}");
+    }
+    first.to_owned()
+}
+
 /// The companion package name a typed version is published under:
 /// `@sound/pkg`, or `@sound/scope__pkg` for `@scope/pkg`.
 pub(crate) fn companion_package_name(name: &str) -> String {
