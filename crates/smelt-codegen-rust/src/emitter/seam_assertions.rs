@@ -245,16 +245,10 @@ impl FunctionEmitter<'_> {
         let Some(target_param) = param else {
             return;
         };
-        let generated = crate::generic_lifting::callback_generic_params(
-            self.mir,
-            function,
-            &self.context.owned_callback_params,
-            &self.context.bound_traits,
-            self.context.type_param_elision(),
-            &self.context.erased_arguments,
-            self.context.names(),
-        )
-        .unwrap_or_default();
+        let generated = self
+            .context
+            .callback_generic_params(self.mir, function)
+            .unwrap_or_default();
         let bound = generated
             .iter()
             .find(|(generic_param, _)| *generic_param == target_param);

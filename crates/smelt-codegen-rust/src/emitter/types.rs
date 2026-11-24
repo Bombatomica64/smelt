@@ -301,14 +301,7 @@ impl FunctionEmitter<'_> {
                 }
                 // This is the *subset* that lifts, not all-or-nothing. A parameter absent
                 // from it lowers through the same erasure path a fully-erased function uses.
-                return crate::generic_lifting::liftable_type_params(
-                    self.mir,
-                    self.function,
-                    &self.context.owned_callback_params,
-                    &self.context.bound_traits,
-                    self.context.type_param_elision(),
-                    &self.context.erased_arguments,
-                );
+                return self.context.liftable_type_params(self.mir, self.function);
             }
         };
         // A generic class's static methods live in an impl of their own that
@@ -344,14 +337,7 @@ impl FunctionEmitter<'_> {
             )
             && !self.function.type_params.is_empty()
         {
-            params.extend(crate::generic_lifting::liftable_type_params(
-                self.mir,
-                self.function,
-                &self.context.owned_callback_params,
-                &self.context.bound_traits,
-                self.context.type_param_elision(),
-                &self.context.erased_arguments,
-            ));
+            params.extend(self.context.liftable_type_params(self.mir, self.function));
         }
         params
     }

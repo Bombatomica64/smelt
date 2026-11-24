@@ -387,15 +387,8 @@ impl FunctionEmitter<'_> {
         if !matches!(self.function.origin, HirOrigin::Body(_)) {
             return Ok(Vec::new());
         }
-        crate::generic_lifting::callback_generic_params(
-            self.mir,
-            self.function,
-            &self.context.owned_callback_params,
-            &self.context.bound_traits,
-            self.context.type_param_elision(),
-            &self.context.erased_arguments,
-            self.context.names(),
-        )
+        self.context
+            .callback_generic_params(self.mir, self.function)
     }
 
     /// The generated `F{n}` name for one parameter, if it is rendered `&F{n}`.

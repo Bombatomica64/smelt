@@ -87,14 +87,7 @@ impl<'mir> FunctionEmitter<'mir> {
         // `SmeltUnknown` by design, so they touch the carrier legitimately and
         // would demote the whole function, which is the all-or-nothing behaviour
         // per-parameter lifting exists to remove.
-        let liftable = crate::generic_lifting::liftable_type_params(
-            self.mir,
-            self.function,
-            &self.context.owned_callback_params,
-            &self.context.bound_traits,
-            self.context.type_param_elision(),
-            &self.context.erased_arguments,
-        );
+        let liftable = self.context.liftable_type_params(self.mir, self.function);
         if liftable.len() < self.function.type_params.len() {
             return Ok(!liftable.is_empty());
         }
