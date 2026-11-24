@@ -691,7 +691,7 @@ pub(crate) fn record_field_unknown_expr(
                 record_field_unknown_expr(mir, &RustExpr::path("smelt_value"), *inner)?;
             value_text.postfix(format!(
                 ".map_or({absent}, |smelt_value| {inner_text})",
-                absent = super::erase::erased_absent(*absence),
+                absent = erased_absent(*absence),
                 inner_text = inner_text.delimited()
             ))
         }
@@ -747,4 +747,15 @@ pub(crate) fn record_field_unknown_expr(
         )),
         Some(Type::Function(_)) => RustExpr::atom("SmeltUnknown::Null"),
     })
+}
+
+/// The erased value of an optional's `None`: the absent value its type admits
+/// (`SmeltUnknown::Null` for a `T | null`, `SmeltUnknown::Undefined`
+/// otherwise), so `typeof`, `===` and printing on the erased value answer as
+/// the source would.
+const fn erased_absent(absence: smelt_hir::Absence) -> &'static str {
+    match absence {
+        smelt_hir::Absence::Undefined => "SmeltUnknown::Undefined",
+        smelt_hir::Absence::Null => "SmeltUnknown::Null",
+    }
 }

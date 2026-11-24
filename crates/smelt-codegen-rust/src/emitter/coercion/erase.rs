@@ -63,217 +63,15 @@ impl FunctionEmitter<'_> {
     /// `.into_live_smelt_unknown()`, or its `_with` twin handed the element
     /// erasure when `item` erases differently from its Rust storage type's impl
     /// (`emitter::absent_value`).
-    fn list_live_erasure(&self, item: TypeId) -> Result<String, EmitError> {
+    pub(super) fn list_live_erasure(&self, item: TypeId) -> Result<String, EmitError> {
         Ok(match self.element_erasure_closure(item, "smelt_value")? {
             Some(erase) => format!(".into_live_smelt_unknown_with({erase})"),
             None => ".into_live_smelt_unknown()".to_owned(),
         })
     }
 
-    /// Converts a statically typed operand into a tagged `SmeltUnknown` value.
-    ///
-    /// The operand-shaped twin of [`Self::erase_value`]; the two must agree
-    /// about every `Type`, because the same MIR value reaches one or the other
-    /// depending only on whether the caller already had it rendered.
-    pub(in crate::emitter) fn erase(&self, operand: &Operand) -> Result<RustExpr, EmitError> {
-        if matches!(operand, Operand::Const(Constant::Undefined)) {
-            return Ok(self.carrier_expr(self.carrier()?, &RustExpr::undefined()));
-        }
-        let text = self.operand_expr(operand)?;
-        // `text` is usually already an owned temporary (an operand render clones the local
-        // it reads), so take an owned copy rather than deep-copying it a second time.
-        let smelt_owned_text = text.cloned_value();
-        let ty = self.operand_ty(operand)?;
-        // A lifted `T` VALUE erases through the `IntoSmeltUnknown` bound its
-        // signature declares (`classes::GENERATED_TYPE_PARAM_BOUNDS`): the
-        // bound's own method, which every instantiation supplies, so the generic
-        // trial does not count it against the body. Only a whole operand of type
-        // `T` qualifies: a container of `T`s erases by rebuilding its storage,
-        // which loses JavaScript aliasing the erased signature keeps, and still
-        // counts.
-        let _bound_conversion = matches!(
-            self.mir.types.get(ty),
-            Some(Type::TypeParam { name }) if self.current_function_has_type_param(*name)
-        )
-        .then(|| self.context.carrier_boundary());
-        match self.mir.types.get(ty) {
-            Some(Type::TypeParam { name }) if !self.current_function_has_type_param(*name) => {
-                Ok(text)
-            }
-            // A `void` value erases to the absent tag, but the expression that
-            // produced it still has to RUN: `text` is routinely a call (`let r:
-            // unknown = setter(k, v)`), and answering the bare constant deleted
-            // the call and its side effects from the program.
-            Some(Type::None) if text.is_unit() => {
-                Ok(self.carrier_expr(self.carrier()?, &RustExpr::atom("SmeltUnknown::Null")))
-            }
-            Some(Type::None) => Ok(RustExpr::atom(self.carrier_format(
-                self.carrier()?,
-                format_args!(
-                    "{{ let _ = {text}; SmeltUnknown::Null }}",
-                    text = text.delimited()
-                ),
-            ))),
-            Some(Type::List(item))
-                if !self.list_items_render_as_unknown(ty, &self.render_scope())
-                    && self.list_erases_live(*item) =>
-            {
-                // Genuine dynamic boundary: the live view IS the erased array.
-                let method = self.list_live_erasure(*item)?;
-                Ok(RustExpr::atom(self.carrier_format(
-                    self.carrier()?,
-                    format_args!("SmeltList::clone(&{text}){method}", text = text.delimited()),
-                )))
-            }
-            Some(Type::List(item))
-                if !self.list_items_render_as_unknown(ty, &self.render_scope()) =>
-            {
-                // A `List<None>` erases its elements to `Null`, but an
-                // `[undefined, …]` literal must erase to `Undefined` (the type
-                // lost the distinction; only the defining constants carry it).
-                // Recover it from the def-site so genuine `null` arrays keep the
-                // `Null` path. This mirrors the same recovery in `value_at_type`
-                // for the `List<None> -> List<Unknown>` coercion shape.
-                let value_wrap = if matches!(self.mir.types.get(*item), Some(Type::None))
-                    && self.container_local_all_undefined_constants(operand)?
-                {
-                    self.carrier_expr(self.carrier()?, &RustExpr::undefined())
-                } else {
-                    self.erase_rendered(&RustExpr::path("smelt_value"), *item)?
-                };
-                // The typed list carries its own JS reference id (`SmeltList`),
-                // so erasing to `SmeltUnknown::Array` reuses it directly — this is
-                // what preserves `===`/`.toBe` identity across an erase/extract
-                // round-trip (e.g. `tap`/`forEach` returning their input).
-                //
-                // The elements are taken through `Into<Vec<_>>` rather than
-                // `into_iter()` because `{text}` is an owned list at most sites but a
-                // `&SmeltList<_>` wherever the erased value is a by-reference callback
-                // parameter (see `callback_param_is_shared_reference`), and
-                // `(&SmeltList<T>).into_iter()` yields `&T` — which `{value_wrap}`
-                // cannot consume (a primitive `value as f64` is not fixable by any
-                // trait impl). `From<SmeltList<T>> for Vec<T>` MOVES the backing
-                // storage and `From<&SmeltList<T>> for Vec<T>` clones it, so Rust's own
-                // impl selection does the narrowing: the owned path stays copy-free and
-                // only the borrowed path pays a clone — which erasing to an owned
-                // `SmeltArray` requires anyway.
-                Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
-                    "{{ let smelt_l = {text}; let smelt_id = smelt_l.id(); let smelt_values: Vec<_> = smelt_l.into(); SmeltUnknown::Array(SmeltArray::with_id(smelt_id, smelt_values.into_iter().map(|smelt_value| {value_wrap}).collect::<Vec<_>>())) }}", text = text.delimited(), value_wrap = value_wrap.delimited()
-                ))))
-            }
-            Some(Type::Dict(key, item))
-                if self.mir.types.get(*key).is_some_and(Type::is_text)
-                    && self.mir.types.get(*item) != Some(&Type::Unknown) =>
-            {
-                let value_wrap = self.dict_erased_value_wrap(operand, *item)?;
-                Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
-                    "{{ let smelt_record = {smelt_owned_text}; SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(smelt_key, smelt_value)| (smelt_key, {value_wrap})).collect())) }}", smelt_owned_text = smelt_owned_text.delimited(), value_wrap = value_wrap.delimited()
-                ))))
-            }
-            // A property-key record is an object: an `unknown`-valued one
-            // erases to a second handle on its own store (one JavaScript
-            // object, as the string-keyed record does above); any other is
-            // copied with its id, each value erased.
-            Some(Type::Dict(key, item)) if self.is_prop_key_record_key(*key) => {
-                if self.mir.types.get(*item) == Some(&Type::Unknown) {
-                    return Ok(text.postfix(".share_unknown()"));
-                }
-                let value_wrap = self.dict_erased_value_wrap(operand, *item)?;
-                Ok(text.postfix(format!(
-                    ".to_unknown_with(|smelt_value| {value_wrap})",
-                    value_wrap = value_wrap.delimited()
-                )))
-            }
-            Some(Type::Dict(key, item))
-                if self
-                    .mir
-                    .types
-                    .get(*key)
-                    .is_none_or(|candidate| !candidate.is_text()) =>
-            {
-                let key_wrap =
-                    self.property_key_to_string_expr(&RustExpr::path("smelt_key"), *key)?;
-                let value_wrap = self.dict_erased_value_wrap(operand, *item)?;
-                Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
-                    "SmeltUnknown::Object(SmeltObject::new({text}.into_iter().map(|(smelt_key, smelt_value)| ({key_wrap}, {value_wrap})).collect()))", text = text.tight(), key_wrap = key_wrap.delimited(), value_wrap = value_wrap.delimited()
-                ))))
-            }
-            Some(Type::Set(item)) => {
-                // Every Set erases through its `IntoSmeltUnknown` adapter, which
-                // stamps the `__smelt_set` marker and keeps the set's object id, so
-                // `instanceof Set`, `toString`, inspection and snapshots recognize
-                // the erased value and `SmeltFromUnknown` round-trips it. The
-                // adapter is the live one when the members can be rebuilt
-                // (`Self::container_erasure_method`).
-                let method = self
-                    .container_erasure_with(&self.container_erasure_method(&[*item])?, &[*item])?;
-                Ok(smelt_owned_text
-                    .postfix(self.carrier_format(self.carrier()?, format_args!("{method}"))))
-            }
-            Some(Type::Optional(inner, _)) => {
-                let value_wrap = self.erase_rendered(&RustExpr::path("smelt_value"), *inner)?;
-                let absent = self.optional_absent_value(ty, *inner);
-                Ok(smelt_owned_text.postfix(self.carrier_format(
-                    self.carrier()?,
-                    format_args!(
-                        ".map_or({absent}, |smelt_value| {value_wrap})",
-                        value_wrap = value_wrap.delimited()
-                    ),
-                )))
-            }
-            Some(Type::Function(_)) => {
-                let erased = self.erase_function_operand(operand)?;
-                // A typed inline `function` expression is marked as a
-                // constructor where it is erased (see `closure_value_expr`).
-                if self.operand_is_inline_function_expression(operand)? {
-                    return Ok(RustExpr::atom(format!(
-                        "{{ let smelt_value = {erased}; if let SmeltUnknown::Function(smelt_function) = &smelt_value {{ smelt_mark_constructor(smelt_function); }} smelt_value }}",
-                        erased = erased.delimited()
-                    )));
-                }
-                Ok(erased)
-            }
-            // A generated union erases through `into_smelt_unknown()`, which
-            // takes `self` BY VALUE. Every other consuming arm of this match
-            // hands it an owned copy (`smelt_owned_text`); this one passed the
-            // raw operand text, so erasing a place read moved out of it and the
-            // next read of the same local was a use-after-move (E0382). The
-            // rendered-value twin `erase_concrete_union_expr` has always owned
-            // its source for exactly this reason — erasing a value is an
-            // INSPECTION and must not consume it.
-            Some(Type::Union(_))
-                if self
-                    .concrete_union_members(self.operand_ty(operand)?)
-                    .is_some() =>
-            {
-                Ok(smelt_owned_text.postfix(
-                    self.carrier_format(self.carrier()?, format_args!(".into_smelt_unknown()")),
-                ))
-            }
-            // A `SmeltFuture` is a shared handle, so erasing it takes another
-            // handle on the same promise rather than moving the local: the
-            // erased view shares its settled result and keeps one identity
-            // per source promise (`SmeltFuture::smelt_promise_with`).
-            Some(Type::Future(item)) => self.promise_future_unknown_expr(&smelt_owned_text, *item),
-            // Genuine dynamic boundary: a generator crossing into source
-            // `unknown` is a live resumable state machine that no concrete
-            // type, generated union, or scoped generic can represent on the
-            // erased side. The runtime prelude's `IntoSmeltUnknown` adapter
-            // reproduces the JavaScript iterator protocol (`next` →
-            // `{ value, done }` steps) over the same shared state machine.
-            Some(Type::Generator { .. }) => Ok(smelt_owned_text.postfix(
-                self.carrier_format(self.carrier()?, format_args!(".into_smelt_unknown()")),
-            )),
-            Some(Type::Never) | None => {
-                Ok(self.carrier_expr(self.carrier()?, &RustExpr::atom("SmeltUnknown::Null")))
-            }
-            // The rest has nothing to read from the operand itself.
-            Some(_) => self.erase_value(&RenderedValue::new(text, ty)),
-        }
-    }
-
     /// Erase a function-typed operand to its `SmeltUnknown::Function` value.
-    fn erase_function_operand(&self, operand: &Operand) -> Result<RustExpr, EmitError> {
+    pub(super) fn erase_function_operand(&self, operand: &Operand) -> Result<RustExpr, EmitError> {
         // A bare function-item-as-value wrapper has a stable item key.
         // Every reference to the same named function value lowers to its
         // own closure, so erasing each one inline would build a distinct
@@ -319,7 +117,10 @@ impl FunctionEmitter<'_> {
 
     /// Whether `operand` is an inline `function` expression's closure (its own
     /// `this`), as opposed to an arrow or a function item's value wrapper.
-    fn operand_is_inline_function_expression(&self, operand: &Operand) -> Result<bool, EmitError> {
+    pub(super) fn operand_is_inline_function_expression(
+        &self,
+        operand: &Operand,
+    ) -> Result<bool, EmitError> {
         let Some(local) = operand.local() else {
             return Ok(false);
         };
@@ -350,7 +151,7 @@ impl FunctionEmitter<'_> {
     /// value it holds, so at this dynamic boundary its `None` is `null`
     /// (ts-pattern's `.otherwise(() => null)` answer compared with
     /// `toEqual(null)`). `T | undefined` and optional fields stay `undefined`.
-    fn optional_absent_value(&self, optional: TypeId, inner: TypeId) -> &'static str {
+    pub(super) fn optional_absent_value(&self, optional: TypeId, inner: TypeId) -> &'static str {
         if self.mir.types.absent_is_null(optional) {
             return "SmeltUnknown::Null";
         }
@@ -376,7 +177,7 @@ impl FunctionEmitter<'_> {
     /// true across the boundary. This is the dict twin of the recovery the list
     /// arm does, sharing
     /// [`Self::container_local_all_undefined_constants`] with it.
-    fn dict_erased_value_wrap(
+    pub(super) fn dict_erased_value_wrap(
         &self,
         operand: &Operand,
         item: TypeId,
@@ -511,22 +312,6 @@ impl FunctionEmitter<'_> {
         };
         let unknown_ty = self.type_id(Type::Unknown)?;
         Ok(Some(self.rvalue_expr_for_dest(value, unknown_ty)?))
-    }
-
-    /// Wrap a rendered value expression with a known static type into `SmeltUnknown`.
-    ///
-    /// Transitional wrapper: callers that still thread bare `(text, type)` reach
-    /// the [`RenderedValue`]-based [`FunctionEmitter::erase_value`] through here
-    /// by treating the text as a primary/postfix [`Precedence::Atom`]. New
-    /// callers should build a [`RenderedValue`] with the right precedence and
-    /// call [`FunctionEmitter::erase_value`] directly so erase can parenthesize
-    /// loose operands itself.
-    pub(in crate::emitter) fn erase_rendered(
-        &self,
-        value_text: &RustExpr,
-        ty: TypeId,
-    ) -> Result<RustExpr, EmitError> {
-        self.erase_value(&RenderedValue::new(value_text.clone(), ty))
     }
 
     /// Box a typed [`RenderedValue`] into the erased `SmeltUnknown` runtime form.
@@ -1473,16 +1258,5 @@ impl FunctionEmitter<'_> {
         Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
             "{{ let smelt_function_value = {value_text}; if let Some(smelt_callable_object) = smelt_lookup_callable_object(&smelt_function_value) {{ smelt_callable_object }} else {{ let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function_value); let smelt_function_origin = smelt_function_value.clone(); let smelt_erased_function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, {ERROR_BOX}>> = ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| {return_text}); smelt_register_function_origin(&smelt_erased_function, smelt_function_origin); smelt_link_function_identity_key(&smelt_erased_function, smelt_origin_identity); {register}(&smelt_erased_function, {length}.0); SmeltUnknown::Function(smelt_erased_function) }} }}", value_text = value_text.delimited()
         ))))
-    }
-}
-
-/// The erased value of an optional's `None`: the absent value its type admits
-/// (`SmeltUnknown::Null` for a `T | null`, `SmeltUnknown::Undefined`
-/// otherwise), so `typeof`, `===` and printing on the erased value answer as
-/// the source would.
-pub(in crate::emitter) const fn erased_absent(absence: smelt_hir::Absence) -> &'static str {
-    match absence {
-        smelt_hir::Absence::Undefined => "SmeltUnknown::Undefined",
-        smelt_hir::Absence::Null => "SmeltUnknown::Null",
     }
 }
