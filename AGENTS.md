@@ -56,6 +56,7 @@ cargo test
     - `module-cycle` & `tangle`: what is the indented layer of abstraction? Which module should be at which layer?
     - `field-leak` & `shallow-module`: Why we have these fields/functions at all? What are the patterns of use? Can they be hidden behind a narrow interface? Don't fix each leak one at a time, fix them holistically.
     - Draw a diagram to help user understand the before and proposed after structure.
+    - A finding left on purpose (false positive, or the fix makes the design worse) goes in `.deslop-please.allow` with its reason; run `deslop-please --allow .deslop-please.allow`. Unfixed debt stays out of that file.
 
 ## Type lowering
 - WE DO NOT DO SPECIAL CASES FOR CODE, everything must lower through general rules, except test functions.
