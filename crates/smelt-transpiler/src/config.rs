@@ -298,9 +298,10 @@ pub(crate) enum ErasureLevel {
 }
 
 /// The `[erasure]` table of `Smelt.toml`.
-///
-/// Only the manifest's spelling lives here; `crate::erasure` turns its
-/// [`Self::layers`] (and the `--erasure` flags) into resolved settings.
+//
+// Only the manifest's spelling lives here; `crate::erasure` turns its
+// `layers` (and the `--erasure` flags) into resolved settings. (A plain
+// comment, so the generated schema description stays what `smelt-schema.json` has.)
 #[derive(Clone, Debug, Default, Deserialize, JsonSchema)]
 pub(crate) struct ErasureConfig {
     /// Severity for every reason, applied before the per-reason levels.
@@ -349,9 +350,10 @@ impl ErasureConfig {
 }
 
 /// What a command does with checker errors.
-///
-/// Spelled in the manifest as `[build] type-errors`; `crate::type_gate`
-/// applies it.
+//
+// Spelled in the manifest as `[build] type-errors`; `crate::type_gate`
+// applies it. (A plain comment, so the generated schema description stays
+// what `smelt-schema.json` has.)
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum TypeErrorPolicy {
