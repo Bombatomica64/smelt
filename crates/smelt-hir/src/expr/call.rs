@@ -3,7 +3,22 @@
 use serde::{Deserialize, Serialize};
 
 use crate::ids::{BodyId, ItemId, LocalId, Span, Symbol, TypeId};
-use crate::item::Param;
+
+/// A parameter of a callable: a function item's or a closure expression's.
+///
+/// Lives with the expressions because a closure carries its parameter list
+/// inline; function items above reuse the same declaration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Param {
+    /// The name of the parameter.
+    pub name: Symbol,
+    /// The local variable ID for this parameter.
+    pub local: LocalId,
+    /// The type of the parameter.
+    pub ty: TypeId,
+    /// Source location of the parameter.
+    pub span: Span,
+}
 
 /// A first-class closure expression with explicit captures.
 #[derive(Debug, Clone, Serialize, Deserialize)]

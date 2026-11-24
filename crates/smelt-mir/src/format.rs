@@ -5,7 +5,8 @@
 
 use std::fmt::Write as _;
 
-use smelt_hir::op_table::{opt, regex_replace_args_text, tail};
+use smelt_hir::op_table::{opt, tail};
+use smelt_hir::regex_replace_args_text;
 use smelt_hir::{Type, TypeId};
 
 use crate::{
