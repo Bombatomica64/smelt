@@ -11,8 +11,9 @@ use super::super::state::local_scope::LocalScope;
 use super::super::state::lowering_mode::UnknownIndexAccess;
 use super::super::state::type_scope::TypeScope;
 use super::super::support::{const_literal_from_item, insert_visible_item, item_name};
-use super::super::{ConstLiteral, ModuleBuilder, SpecializationData};
+use super::super::{ConstLiteral, ModuleBuilder, SourceTrust, SpecializationData};
 use crate::HirCtx;
+use oxc::ast::ast::Program;
 use smelt_hir::{FileId, Item, Span};
 use std::collections::{HashMap, HashSet};
 
@@ -94,7 +95,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             pending_host_imports: Vec::new(),
             excluded_modules,
             ts_facts: None,
-            trust: crate::lowering::SourceTrust::Unchecked,
+            trust: SourceTrust::Unchecked,
             int32_type_depth: 0,
             indexed_access_mode: crate::lowering::ty::deferred_index::IndexedAccessMode::Erase,
             tuple_rest_arrows: HashMap::new(),
@@ -111,11 +112,28 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
     }
 
-    /// Install the module's facts and publish the member names it declares.
-    pub(in crate::lowering) fn adopt_source_facts(
+    /// Read the syntactic facts every pass asks of this module's parsed
+    /// program before any declaration is lowered: the owner of each type
+    /// parameter, and the module's declarations and reads. The predeclaration
+    /// pass and the full lowering both start here.
+    pub(in crate::lowering) fn read_program_facts(&mut self, program: &Program<'_>) {
+        self.type_param_owners = super::super::type_param_owners::type_param_owners(program);
+        self.adopt_source_facts(super::super::source_facts::SourceFacts::collect(program));
+    }
+
+    /// Adopt what the TypeScript checker established about this module, when
+    /// its facts cover it, and how far lowering may trust the source.
+    pub(in crate::lowering) fn adopt_checker_facts(
         &mut self,
-        facts: super::super::source_facts::SourceFacts,
+        facts: Option<&'ctx smelt_ts_model::TsTypeFacts>,
+        trust: SourceTrust,
     ) {
+        self.ts_facts = facts.filter(|facts| facts.has_file(&self.path));
+        self.trust = trust;
+    }
+
+    /// Install the module's facts and publish the member names it declares.
+    fn adopt_source_facts(&mut self, facts: super::super::source_facts::SourceFacts) {
         self.ctx
             .declared_member_names
             .extend(facts.declared_members().cloned());

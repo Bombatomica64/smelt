@@ -370,58 +370,6 @@ impl FunctionEmitter<'_> {
         Ok(result)
     }
 
-    /// Returns whether a control-flow path can reach `target`.
-    pub(in crate::emitter) fn block_reaches_target(
-        &self,
-        block_id: smelt_mir::BlockId,
-        target: smelt_mir::BlockId,
-        visited: &mut BlockIdSet,
-    ) -> bool {
-        if block_id == target {
-            return true;
-        }
-        if !visited.insert(block_id) {
-            return false;
-        }
-        let Some(block) = self.block(block_id).ok() else {
-            return false;
-        };
-        let Some(terminator) = &block.terminator else {
-            return false;
-        };
-        control_flow_successors(terminator)
-            .into_iter()
-            .any(|successor| self.block_reaches_target(successor, target, visited))
-    }
-
-    /// Returns whether `block_id` reaches `target` without crossing avoided blocks.
-    pub(in crate::emitter) fn block_reaches_target_avoiding(
-        &self,
-        block_id: smelt_mir::BlockId,
-        target: smelt_mir::BlockId,
-        avoid: &[smelt_mir::BlockId],
-        visited: &mut BlockIdSet,
-    ) -> bool {
-        if avoid.contains(&block_id) {
-            return false;
-        }
-        if block_id == target {
-            return true;
-        }
-        if !visited.insert(block_id) {
-            return false;
-        }
-        let Some(block) = self.block(block_id).ok() else {
-            return false;
-        };
-        let Some(terminator) = &block.terminator else {
-            return false;
-        };
-        control_flow_successors(terminator)
-            .into_iter()
-            .any(|successor| self.block_reaches_target_avoiding(successor, target, avoid, visited))
-    }
-
     /// Checks if a block starts a while loop with a latch block.
     pub(super) fn while_header_with_latch(
         &self,
@@ -587,49 +535,6 @@ impl FunctionEmitter<'_> {
             return Ok(Some((candidate.id, body_entry, exit_entry, then_repeats)));
         }
         Ok(None)
-    }
-
-    /// Returns whether `from` returns to `header` along a genuine BACK EDGE —
-    /// a path that stays inside `header`'s own region, never passing through
-    /// one of `header`'s strict dominators.
-    ///
-    /// Plain reachability is not enough: every block inside an OUTER loop
-    /// reaches every other one by going around that loop. The `if` inside
-    /// `for (..) { if (c) { for (..) {..} } }` reaches itself through the outer
-    /// latch and header, so it was mistaken for a `while` header, the inner
-    /// loop's preheader was emitted inside a spurious `loop {}`, and the inner
-    /// loop's `continue` re-ran that preheader forever (Hono's trie-router
-    /// `#pushHandlerSets` hang). Returning through a strict dominator means
-    /// the path LEFT the region and came back in through its entry — no loop.
-    fn is_back_edge_target(&self, from: smelt_mir::BlockId, header: smelt_mir::BlockId) -> bool {
-        let dominators = self.strict_dominators(header);
-        self.block_reaches_target_avoiding(from, header, &dominators, &mut BlockIdSet::default())
-    }
-
-    /// Returns the blocks that strictly dominate `header`.
-    ///
-    /// A block `d` strictly dominates `header` when `d != header` and every path
-    /// from the function entry to `header` passes through `d`; equivalently, the
-    /// entry cannot reach `header` while avoiding `d`. Used by
-    /// [`Self::compound_while`] to distinguish a real loop back-edge (which
-    /// re-enters the header from inside the loop, avoiding every strict
-    /// dominator) from an enclosing loop's edge that merely flows forward into
-    /// the header through one of its dominators.
-    fn strict_dominators(&self, header: smelt_mir::BlockId) -> Vec<smelt_mir::BlockId> {
-        self.function
-            .blocks
-            .iter()
-            .map(|candidate| candidate.id)
-            .filter(|&candidate| {
-                candidate != header
-                    && !self.block_reaches_target_avoiding(
-                        self.function.entry,
-                        header,
-                        &[candidate],
-                        &mut BlockIdSet::default(),
-                    )
-            })
-            .collect()
     }
 
     /// Returns whether every forward path from `block_id` reaches `decision`.
@@ -985,6 +890,22 @@ impl FunctionEmitter<'_> {
             Some(terminator) => self.emit_terminator(block.id, terminator, out),
             None => Err(EmitError::new("basic block has no terminator")),
         }
+    }
+
+    /// Emit one arm of a join-region branch: in full when it diverges before
+    /// the region's `stop` (it never reaches the join), otherwise up to the
+    /// branch's inner `join`.
+    fn emit_join_region_arm(
+        &self,
+        arm: smelt_mir::BlockId,
+        join: smelt_mir::BlockId,
+        stop: smelt_mir::BlockId,
+        out: &mut String,
+    ) -> Result<(), EmitError> {
+        if self.block_diverges_before(arm, stop, &mut BlockIdSet::default())? {
+            return self.emit_block(self.block(arm)?, out);
+        }
+        self.emit_block_until_goto(self.block(arm)?, join, RegionExit::Join, out)
     }
 
     /// Emits a branch inside a loop.

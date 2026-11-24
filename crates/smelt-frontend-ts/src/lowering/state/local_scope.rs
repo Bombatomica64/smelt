@@ -657,6 +657,22 @@ impl LocalScope {
     pub(in crate::lowering) fn restore_narrowings(&mut self, saved: Narrowings) {
         self.narrowings = saved;
     }
+
+    /// Open `facts` (when `Some`) as the innermost narrowing scope, answering
+    /// the depth [`Self::close_narrowings_to`] returns the stack to.
+    fn open_narrowing(&mut self, facts: Option<HashMap<String, TypeId>>) -> usize {
+        let depth = self.narrowings.0.len();
+        if let Some(facts) = facts {
+            self.narrowings.0.push(facts);
+        }
+        depth
+    }
+
+    /// Close every narrowing scope opened since [`Self::open_narrowing`]
+    /// answered `depth`.
+    fn close_narrowings_to(&mut self, depth: usize) {
+        self.narrowings.0.truncate(depth);
+    }
 }
 
 impl crate::lowering::ModuleBuilder<'_> {
@@ -673,12 +689,9 @@ impl crate::lowering::ModuleBuilder<'_> {
         facts: Option<HashMap<String, TypeId>>,
         lower: impl FnOnce(&mut Self) -> R,
     ) -> R {
-        let depth = self.scope.narrowings.0.len();
-        if let Some(facts) = facts {
-            self.scope.narrowings.0.push(facts);
-        }
+        let depth = self.scope.open_narrowing(facts);
         let lowered = lower(self);
-        self.scope.narrowings.0.truncate(depth);
+        self.scope.close_narrowings_to(depth);
         lowered
     }
 }

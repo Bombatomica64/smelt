@@ -166,7 +166,13 @@ per-`Type` mechanics.
 - **Behind the seam (private)** — the structural-record / function-shape
   adapters and the per-`Type` match arms that decide the concrete Rust text.
 
-Lives in `crates/smelt-codegen-rust/src/emitter/coercion.rs`, with the `erase`, `extract`
-and `tag_check` verbs in `emitter/coercion/{erase,extract,tag}.rs`. The private adapters sit
-behind the same seam: a record's field-by-field crossings in `coercion/record.rs` and
-`coercion/record_adapter.rs`, function shapes in `coercion/function_adapter.rs`.
+Lives in `crates/smelt-codegen-rust/src/emitter/coercion.rs`, which holds the verbs themselves
+(`value_at_type`, `rendered_at_type`, `erase[_rendered]`, `extract[_rendered]`); `tag_check` is in
+`coercion/tag.rs`. Below the verbs, one layer of private workers: the per-target arms of
+`value_at_type`/`rendered_at_type` in `coercion/at_type.rs`, the per-`Type` erase and extract
+mechanics in `coercion/{erase,extract}.rs`, a record's field-by-field crossings in
+`coercion/record_adapter.rs` and `coercion/record.rs`, function shapes in
+`coercion/function_adapter.rs`. A worker that meets a nested crossing (a callback's argument, a
+record's field) re-enters through a verb, never through a sibling worker. Under the workers,
+`coercion/shapes.rs` answers the pure "can this cross, and in what shape" questions every worker
+asks before emitting.

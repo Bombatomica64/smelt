@@ -45,18 +45,10 @@ pub(crate) fn print_hir(
 
 /// Prints optimized MIR in compact format.
 pub(crate) fn print_mir(krate: &smelt_hir::Crate) -> Result<(), Box<dyn std::error::Error>> {
-    let mir = lower_to_optimized_mir(krate)?;
+    let mir = lowering::lower_to_optimized_mir(krate)?;
     let mut stdout = io::stdout().lock();
     write!(stdout, "{}", smelt_mir::format_compact(&mir))?;
     Ok(())
-}
-
-/// Lowers HIR to MIR, runs optimizations, and validates the result.
-pub(crate) fn lower_to_optimized_mir(
-    krate: &smelt_hir::Crate,
-) -> Result<smelt_mir::Mir, Box<dyn std::error::Error>> {
-    smelt_mir::compile_observed(krate, timing::report)
-        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()).into())
 }
 
 /// Builds a Rust crate from manifest configuration, with the manifest's own
@@ -67,7 +59,7 @@ pub(crate) fn build_rust_crate(
     manifest_path: &Path,
     type_errors: TypeErrorPolicy,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let settings = erasure::ErasureSettings::new(config.erasure(), &[])?;
+    let settings = erasure::ErasureSettings::new(config.erasure_layers(), &[])?;
     build_rust_crate_with_erasure(config, manifest_path, &settings, type_errors)
 }
 
@@ -109,7 +101,7 @@ pub(crate) fn build_rust_crate_with_erasure(
     timing::measure("stubs.emit", || {
         stubs::emit_type_declarations(&krate, &modules)
     })?;
-    let mir = lower_to_optimized_mir(&krate)?;
+    let mir = lowering::lower_to_optimized_mir(&krate)?;
     let manifest_dir = manifest_path.parent().unwrap_or_else(|| Path::new("."));
     // Measured before emitting: a failure here must not leave a fresh crate
     // beside the previous build's typedness sidecar.

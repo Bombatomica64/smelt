@@ -24,34 +24,11 @@
 use std::fmt;
 use std::io::Write as _;
 
-use schemars::JsonSchema;
-use serde::Deserialize;
 use smelt_frontend_ts::SourceTrust;
 use smelt_stdlib::DiagnosticCategory;
 
+pub use crate::config::TypeErrorPolicy;
 use crate::lowering::{ManifestDiagnostic, Severity};
-
-/// What a command does with checker errors.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, JsonSchema)]
-#[serde(rename_all = "lowercase")]
-pub enum TypeErrorPolicy {
-    /// A checker error, or a language no checker could vouch for, fails the
-    /// command before anything is written.
-    #[default]
-    Deny,
-    /// Checker errors are printed as warnings and lowering goes on, with the
-    /// frontends' checked-program shortcuts turned into errors.
-    Allow,
-}
-
-impl TypeErrorPolicy {
-    /// The policy of one run: `allow_flag` (`--allow-type-errors`) wins over the
-    /// manifest's `[build] type-errors`.
-    #[must_use]
-    pub const fn resolve(manifest: Self, allow_flag: bool) -> Self {
-        if allow_flag { Self::Allow } else { manifest }
-    }
-}
 
 /// What one language's checker made of a run's sources.
 #[derive(Debug, Clone)]

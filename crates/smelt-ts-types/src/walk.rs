@@ -54,8 +54,9 @@ type EvolvedReads = Vec<P<Type>>;
 /// not across branches, so in `if (c) { xs.push(1); use(xs) } xs.push("a");
 /// return xs` the last read is `string[]` and misses the `number` the first
 /// branch pushed.
-#[derive(Default)]
-struct EvolvingArrays {
+struct EvolvingArrays<'text> {
+    /// The text of the file being walked, which spans are keyed in.
+    text: &'text str,
     /// Declared symbol → span of its declaration name.
     declarations: HashMap<P<Symbol>, SpanKey>,
     /// The declared names, to skip the symbol lookup for every other identifier.
@@ -64,9 +65,19 @@ struct EvolvingArrays {
     reads: HashMap<SpanKey, EvolvedReads>,
 }
 
-impl EvolvingArrays {
+impl<'text> EvolvingArrays<'text> {
+    /// A tracker for the file whose text is `text`, with nothing declared.
+    fn new(text: &'text str) -> Self {
+        Self {
+            text,
+            declarations: HashMap::new(),
+            names: std::collections::HashSet::new(),
+            reads: HashMap::new(),
+        }
+    }
+
     /// Records `node` when it declares an evolving array.
-    fn declare(&mut self, text: &str, node: P<Node>) {
+    fn declare(&mut self, node: P<Node>) {
         if node.kind() != Kind::VariableDeclaration {
             return;
         }
@@ -81,22 +92,56 @@ impl EvolvingArrays {
         {
             return;
         }
-        let (Some(symbol), Some(key)) = (node.symbol(), span_key(text, declaration.name())) else {
+        let (Some(symbol), Some(key)) = (node.symbol(), span_key(self.text, declaration.name()))
+        else {
             return;
         };
         self.declarations.insert(symbol, key);
         self.names.insert(declaration.name().text());
     }
 
+    /// Records a value-position `node` of type `ty` (converted to `id`) as a
+    /// read of the evolving array it names, when it reads one and TypeScript
+    /// has resolved its element there ([`is_evolved_array`]).
+    fn observe_value(
+        &mut self,
+        converter: &mut Converter<'_>,
+        node: P<Node>,
+        id: crate::TsTypeId,
+        ty: P<Type>,
+    ) {
+        if is_evolved_array(converter, id)
+            && let Some(declaration) = self.read_of(converter, node)
+        {
+            self.reads.entry(declaration).or_default().push(ty);
+        }
+    }
+
+    /// The evolved type of each declaration with at least one evolved read,
+    /// keyed by its declaration name ([`joined_evolved_array`]).
+    fn into_evolved_types(self, converter: &mut Converter<'_>) -> FileTypes {
+        let mut evolved = FileTypes::new();
+        #[expect(
+            clippy::iter_over_hash_type,
+            reason = "keyed inserts, one per declaration"
+        )]
+        for (declaration, reads) in self.reads {
+            if let Some(id) = joined_evolved_array(converter, &reads) {
+                evolved.insert(declaration, id);
+            }
+        }
+        evolved
+    }
+
     /// The declaration-name span of the evolving array `node` reads, when it
     /// is a read of one (and not the declaration name itself).
-    fn read_of(&self, converter: &mut Converter<'_>, text: &str, node: P<Node>) -> Option<SpanKey> {
+    fn read_of(&self, converter: &mut Converter<'_>, node: P<Node>) -> Option<SpanKey> {
         if node.kind() != Kind::Identifier || !self.names.contains(node.text()) {
             return None;
         }
         let symbol = converter.checker().get_symbol_at_location_exported(node)?;
         let declaration = *self.declarations.get(&symbol)?;
-        (span_key(text, node) != Some(declaration)).then_some(declaration)
+        (span_key(self.text, node) != Some(declaration)).then_some(declaration)
     }
 }
 
@@ -123,21 +168,17 @@ pub(crate) fn collect_file_types(
         type_nodes: HashMap::new(),
         evolved_arrays: HashMap::new(),
     };
-    let mut evolving = EvolvingArrays::default();
     let text = file.text();
+    let mut evolving = EvolvingArrays::new(text);
     let mut work: Vec<P<Node>> = vec![file.as_node()];
     while let Some(node) = work.pop() {
-        evolving.declare(text, node);
+        evolving.declare(node);
         if let Some(key) = span_key(text, node) {
             if is_value_position(node) && !collected.values.contains_key(&key) {
                 let ty = converter.checker().get_type_at_location(node);
                 let id = converter.convert_root(ty);
                 collected.values.insert(key, id);
-                if is_evolved_array(converter, id)
-                    && let Some(declaration) = evolving.read_of(converter, text, node)
-                {
-                    evolving.reads.entry(declaration).or_default().push(ty);
-                }
+                evolving.observe_value(converter, node, id, ty);
             } else if is_annotation_type_node(node) && !collected.type_nodes.contains_key(&key) {
                 let ty = converter.checker().get_type_from_type_node_exported(node);
                 collected.type_nodes.insert(key, converter.convert_root(ty));
@@ -145,15 +186,7 @@ pub(crate) fn collect_file_types(
         }
         push_children_in_order(node, &mut work);
     }
-    #[expect(
-        clippy::iter_over_hash_type,
-        reason = "keyed inserts, one per declaration"
-    )]
-    for (declaration, reads) in evolving.reads {
-        if let Some(id) = joined_evolved_array(converter, &reads) {
-            collected.evolved_arrays.insert(declaration, id);
-        }
-    }
+    collected.evolved_arrays = evolving.into_evolved_types(converter);
     collected
 }
 

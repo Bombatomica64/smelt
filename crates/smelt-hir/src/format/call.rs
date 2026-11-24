@@ -2,7 +2,8 @@
 
 use crate::expr::{Expr, ExprKind};
 use crate::krate::Crate;
-use crate::op_table::{opt, regex_replace_args_text, tail};
+use crate::op_table::{opt, tail};
+use crate::regex_replace_args_text;
 
 use super::{
     collection_text, dict_lit_text, expr_list_text, expr_ref, item_ref, literal_text, local_ref,

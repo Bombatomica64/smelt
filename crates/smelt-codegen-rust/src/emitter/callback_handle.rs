@@ -374,10 +374,7 @@ impl FunctionEmitter<'_> {
         if matches!(function.origin, HirOrigin::ClassConstructor { .. }) {
             return Ok(true);
         }
-        Ok(self
-            .context
-            .owned_callback_params
-            .contains(&(function.id, local)))
+        Ok(self.context.owns_callback_param(function.id, local))
     }
 
     /// Whether `local` holds a borrowed callback: a function-typed source

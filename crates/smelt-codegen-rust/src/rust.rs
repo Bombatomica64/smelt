@@ -359,6 +359,22 @@ impl RustExpr {
         self.fact == ExprFact::Undefined
     }
 
+    /// The quoted Rust literal token this expression builds a string from,
+    /// when it is the emitter's own spelling of a string constant
+    /// (`"x".to_owned()` or `JsString::from("x")`).
+    #[must_use]
+    pub fn string_literal_token(&self) -> Option<&str> {
+        match &self.fact {
+            ExprFact::OwnedLiteral(literal) | ExprFact::JsLiteral(literal) => Some(literal),
+            ExprFact::Plain
+            | ExprFact::Unit
+            | ExprFact::Receiver
+            | ExprFact::Undefined
+            | ExprFact::IndexedPlace
+            | ExprFact::BorrowedCallback => None,
+        }
+    }
+
     /// Whether this expression already ends in a `.clone()` call.
     #[must_use]
     pub fn has_clone_tail(&self) -> bool {
@@ -550,7 +566,7 @@ const JS_STRING_EMPTY: &str = "JsString::new()";
 /// buffer move-and-copy for a `String`.
 #[must_use]
 pub fn erased_string(value: &RustExpr) -> RustExpr {
-    if let ExprFact::OwnedLiteral(literal) | ExprFact::JsLiteral(literal) = &value.fact {
+    if let Some(literal) = value.string_literal_token() {
         return RustExpr::atom(format!("SmeltUnknown::String({literal}.into())"));
     }
     if value.precedence == Precedence::Path {

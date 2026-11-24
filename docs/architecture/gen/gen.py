@@ -229,7 +229,7 @@ MR = "crates/smelt-mir/src/"
 c = lambda *m: commits(*m)
 LOOK = [
     ("Where are stdlib and host calls mapped (TypeScript)?", [(FT + "lowering/stdlib/call_dispatch.rs", "ModuleBuilder::call_expression_with_hint"), ("crates/smelt-stdlib/src/recognition.rs", "typescript_call_rule")], c(FT + "lowering/stdlib")),
-    ("Where does a value cross between a typed Rust value and SmeltUnknown?", [(CG + "emitter/coercion.rs", "value_at_type / rendered_at_type"), (CG + "emitter/coercion/erase.rs", "erase"), (CG + "emitter/coercion/extract.rs", "extract")], c(CG + "emitter/coercion")),
+    ("Where does a value cross between a typed Rust value and SmeltUnknown?", [(CG + "emitter/coercion.rs", "value_at_type / rendered_at_type / erase / extract")], c(CG + "emitter/coercion")),
     ("Where are expressions lowered?", [(FT + "lowering/expr/dispatch.rs", "ModuleBuilder::expression_with_hint")], c(FT + "lowering/expr")),
     ("Where are classes and functions declared?", [(FT + "lowering/decls/classes.rs", "class_declaration"), (FT + "lowering/decls/functions.rs", "function_declaration")], c(FT + "lowering/decls")),
     ("Where does a TS annotation become a HIR type?", [(FT + "lowering/ty/annotations.rs", "ModuleBuilder::ts_type_to_hir")], c(FT + "lowering/ty")),

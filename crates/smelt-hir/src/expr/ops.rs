@@ -512,6 +512,22 @@ pub enum RegexReplaceArg {
     Source,
 }
 
+/// A regex replacer's resolved argument roles as `matched,p1,position`, so a
+/// dump shows WHICH spec arguments a callback receives, not merely that it has
+/// some.
+#[must_use]
+pub fn regex_replace_args_text(args: &[RegexReplaceArg]) -> String {
+    args.iter()
+        .map(|arg| match arg {
+            RegexReplaceArg::Matched => "matched".to_owned(),
+            RegexReplaceArg::Capture(index) => format!("p{index}"),
+            RegexReplaceArg::Position => "position".to_owned(),
+            RegexReplaceArg::Source => "source".to_owned(),
+        })
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
 /// Which of the four ECMA-262 URI transcoding globals an operation is.
 ///
 /// ECMA-262 §19.2.6 defines all four from two algorithms (`Encode` / `Decode`)

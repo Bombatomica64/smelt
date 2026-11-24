@@ -173,7 +173,7 @@ pub fn run() -> CliResult<()> {
         } => {
             let mut config = load_config(&manifest_path)?;
             config.extend_defines(define.values);
-            let settings = erasure::ErasureSettings::new(config.erasure(), &erasure)?;
+            let settings = erasure::ErasureSettings::new(config.erasure_layers(), &erasure)?;
             let type_errors = if deny_type_errors {
                 TypeErrorPolicy::Deny
             } else {
@@ -212,7 +212,7 @@ pub fn run() -> CliResult<()> {
                     .lower()?;
                 pipeline::print_hir(&lowered.krate, &lowered.modules, mode);
             } else {
-                let settings = erasure::ErasureSettings::new(config.erasure(), &erasure)?;
+                let settings = erasure::ErasureSettings::new(config.erasure_layers(), &erasure)?;
                 pipeline::build_rust_crate_with_erasure(
                     &config,
                     &manifest_path,

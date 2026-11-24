@@ -150,7 +150,7 @@ fn possibly_unbound_bindings(
                 let is_binding = body
                     .local_decl(local)
                     .is_some_and(|decl| matches!(decl.kind, LocalKind::UserBinding(_)));
-                if is_binding && !state.must.contains(&local) {
+                if is_binding && !state.is_assigned(local) {
                     marked.push((body.owner, local));
                 }
             };
@@ -167,7 +167,7 @@ fn possibly_unbound_bindings(
                             let Some(source) = operand.local() else {
                                 continue;
                             };
-                            if state.must.contains(&source) {
+                            if state.is_assigned(source) {
                                 continue;
                             }
                             marked.push((body.owner, source));
@@ -590,7 +590,7 @@ fn read_sites(body: &BodyParts<'_>, unbound: &HashSet<LocalId>) -> Vec<ReadSite>
                 (block, count)
             }
         };
-        read.retain(|local| unbound.contains(local) && !state.must.contains(local));
+        read.retain(|local| unbound.contains(local) && !state.is_assigned(*local));
         read.sort_unstable_by_key(|local| local.0);
         read.dedup();
         if !read.is_empty() {

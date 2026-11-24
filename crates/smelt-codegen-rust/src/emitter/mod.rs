@@ -272,7 +272,7 @@ pub(crate) struct GenericsDecided(());
 pub(crate) struct EmitContext {
     /// Everything a body render writes into the context (see
     /// [`render_state::MintedItems`]).
-    pub(crate) minted: render_state::MintedItems,
+    minted: render_state::MintedItems,
     /// The type ID of the None type.
     pub(crate) none_ty: TypeId,
     /// Whether each union asked about so far is stored as a generated enum; a
@@ -292,7 +292,7 @@ pub(crate) struct EmitContext {
     /// entry is for; computed on first ask.
     pub(crate) constructs_like: std::cell::OnceCell<bool>,
     /// See [`crate::generic_lifting::ErasedArgumentMemo`].
-    pub(crate) erased_arguments: crate::generic_lifting::ErasedArgumentMemo,
+    erased_arguments: crate::generic_lifting::ErasedArgumentMemo,
     /// What this program demands of the runtime, computed once.
     demand: RuntimeDemand,
     /// The module bodies `main` runs at start, in order (`crate::startup`).
@@ -310,7 +310,7 @@ pub(crate) struct EmitContext {
     carrier_boundaries: std::cell::Cell<usize>,
     /// The generated traits of class- and interface-bounded type parameters
     /// (see [`crate::bound_traits`]).
-    pub(crate) bound_traits: crate::bound_traits::BoundTraitPlan,
+    bound_traits: crate::bound_traits::BoundTraitPlan,
     /// Runtime state every emitted native test resets before its body.
     test_runtime_resets: TestRuntimeResets,
     /// Every declared item's Rust name (see [`crate::names`]).
@@ -320,7 +320,7 @@ pub(crate) struct EmitContext {
     /// Emitted return types keyed by the emitted item's identity.
     function_return_types: HashMap<function_item::SignatureKey, TypeId>,
     /// Function parameters that must use an owned callback handle.
-    pub(crate) owned_callback_params: HashSet<(FuncId, LocalId)>,
+    owned_callback_params: HashSet<(FuncId, LocalId)>,
     /// MIR ids of free functions that emit real Rust generics.
     ///
     /// A generic free function only keeps real generics when its signature is
@@ -754,16 +754,7 @@ impl EmitContext {
             .functions
             .iter()
             .filter(|function| crate::generic_lifting::may_declare_own_generics(mir, function))
-            .filter(|function| {
-                crate::generic_lifting::function_emits_rust_generics(
-                    mir,
-                    function,
-                    &self.owned_callback_params,
-                    &self.bound_traits,
-                    &self.type_param_elision,
-                    &self.erased_arguments,
-                )
-            })
+            .filter(|function| self.function_emits_rust_generics(mir, function))
             .collect();
 
         // Functions demoted because a caller forwarding them its own bounded
@@ -904,15 +895,9 @@ impl EmitContext {
                                     .ok()
                                     .and_then(|index| mir.functions.get(index))
                                     .is_none_or(|caller| {
-                                        !crate::generic_lifting::liftable_type_params(
-                                            mir,
-                                            caller,
-                                            &self.owned_callback_params,
-                                            &self.bound_traits,
-                                            &self.type_param_elision,
-                                            &self.erased_arguments,
-                                        )
-                                        .contains(&caller_param)
+                                        !self
+                                            .liftable_type_params(mir, caller)
+                                            .contains(&caller_param)
                                     })
                         })
                 })

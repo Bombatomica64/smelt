@@ -62,7 +62,7 @@ use serde::{Deserialize, Serialize};
 use smelt_codegen_rust::{KindCounts, TypednessCounts};
 
 use crate::{
-    CliResult, config_parser, lowering, pipeline,
+    CliResult, config_parser, lowering,
     report::{self, GatedOutcome, ReportFormat, Schema, SchemaVersion, push_fmt},
     source_files::{exclusion_base, manifest_relative_path},
 };
@@ -291,7 +291,7 @@ fn measure_source(name: &str) -> CliResult<TypednessCounts> {
         .check()?
         .into_measured()
         .lower()?;
-    let mir = pipeline::lower_to_optimized_mir(&lowered.krate)?;
+    let mir = lowering::lower_to_optimized_mir(&lowered.krate)?;
     Ok(smelt_codegen_rust::measure_typedness(&mir)?.total())
 }
 
@@ -304,7 +304,7 @@ fn measure_manifest(manifest_path: &Path, defines: &[(String, String)]) -> CliRe
         .into_measured()
         .lower()?
         .krate;
-    let mir = pipeline::lower_to_optimized_mir(&krate)?;
+    let mir = lowering::lower_to_optimized_mir(&krate)?;
     let manifest_dir = manifest_path.parent().unwrap_or_else(|| Path::new("."));
     Ok(programs_of(
         &smelt_codegen_rust::measure_typedness(&mir)?,

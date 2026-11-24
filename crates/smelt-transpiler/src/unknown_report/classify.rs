@@ -2,7 +2,7 @@
 //! prelude and adapter region state a line scan carries to decide that.
 use smelt_stdlib::runtime_symbols::boundary;
 
-use super::{Category, scan::count_occurrences};
+use super::Category;
 
 /// How a scanned file says where its runtime prelude ends.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -200,8 +200,8 @@ fn is_prelude_definition_start(trimmed: &str) -> bool {
 
 /// Whether a line opens more braces than it closes (i.e. leaves a block open).
 fn opens_more_braces_than_it_closes(line: &str) -> bool {
-    let opens = count_occurrences(line, "{");
-    let closes = count_occurrences(line, "}");
+    let opens = line.matches('{').count();
+    let closes = line.matches('}').count();
     opens > closes
 }
 

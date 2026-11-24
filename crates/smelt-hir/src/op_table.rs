@@ -3095,22 +3095,6 @@ pub fn opt(child: &Option<String>) -> String {
     child.clone().unwrap_or_else(|| "_".to_owned())
 }
 
-/// A regex replacer's resolved argument roles as `matched,p1,position`, so a
-/// dump shows WHICH spec arguments a callback receives, not merely that it has
-/// some.
-#[must_use]
-pub fn regex_replace_args_text(args: &[crate::RegexReplaceArg]) -> String {
-    args.iter()
-        .map(|arg| match arg {
-            crate::RegexReplaceArg::Matched => "matched".to_owned(),
-            crate::RegexReplaceArg::Capture(index) => format!("p{index}"),
-            crate::RegexReplaceArg::Position => "position".to_owned(),
-            crate::RegexReplaceArg::Source => "source".to_owned(),
-        })
-        .collect::<Vec<_>>()
-        .join(",")
-}
-
 #[cfg(test)]
 mod tests {
     //! The text helpers every display clause leans on.

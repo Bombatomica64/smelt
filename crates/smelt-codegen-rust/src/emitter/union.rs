@@ -275,16 +275,7 @@ impl FunctionEmitter<'_> {
                 .filter(|function| {
                     crate::generic_lifting::may_declare_own_generics(self.mir, function)
                 })
-                .flat_map(|function| {
-                    crate::generic_lifting::liftable_type_params(
-                        self.mir,
-                        function,
-                        &self.context.owned_callback_params,
-                        &self.context.bound_traits,
-                        self.context.type_param_elision(),
-                        &self.context.erased_arguments,
-                    )
-                })
+                .flat_map(|function| self.context.liftable_type_params(self.mir, function))
                 .collect();
             *self.context.union_arm_params.borrow_mut() = Some(lifted);
         }

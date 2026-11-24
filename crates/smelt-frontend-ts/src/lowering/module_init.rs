@@ -44,6 +44,7 @@ impl ModuleBuilder<'_> {
         let first_body = self.ctx.krate.bodies.len();
         let mut body = Body::new(None, span);
         let mut errors = Vec::new();
+        self.literal_record_uses = super::literal_record_uses::LiteralRecordUses::collect(program);
         self.presence_widened_bindings =
             super::presence_tested_locals::presence_tested_keyed_bindings(program);
         let any_written = super::any_written_locals::any_written_bindings(program);

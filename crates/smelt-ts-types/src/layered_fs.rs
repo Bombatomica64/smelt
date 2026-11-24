@@ -19,7 +19,10 @@ use std::time::SystemTime;
 
 use tsrs_vfs::{Entries, FS, FileInfo};
 
-use crate::project::ROOT;
+/// Virtual directory holding the analysed sources and the generated
+/// `tsconfig.json`: the in-memory layer's namespace, which every path under it
+/// is read from memory and every disk path is re-rooted beneath.
+pub(crate) const ROOT: &str = "/smelt";
 
 /// The in-memory program, with installed packages read from disk.
 pub(crate) struct LayeredFs {

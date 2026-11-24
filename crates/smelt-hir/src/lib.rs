@@ -86,13 +86,14 @@ pub use expr::{
     ErasedPatternMethod, EventEmitterOp, Expr, ExprKind, FormDataOp, GeneratorResumeKind, HashOp,
     HeadersOp, HostModuleOp, HttpServerOp, IncomingMessageOp, ListCallbackOp, ListProjectionOp,
     ListSearchOp, ListSpliceItem, Literal, NumericExtremaOp, NumericFormatMethod,
-    NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp, PathOp, PrimitiveCastOp,
+    NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp, Param, PathOp, PrimitiveCastOp,
     PropertyLookup, PyNumericOp, PyStrOp, PythonDivisionOp, RegexMatchOp, RegexReplaceArg,
     RequestInitMember, RequestOp, ResponseOp, ServerResponseOp, SetBinaryOp, SetProjectionOp,
     SetRelationOp, SetRemoveOp, SqliteOp, StaticMember, StringAffixOp, StringCaseOp,
     StringNormalizeForm, StringPadOp, StringPredicateOp, StringReplaceOp, StringSearchOp,
     StringSliceKind, StringTrimSide, TextDecoderOp, TextEncoderOp, UnaryOp, UnboundRead,
     UnknownKind, UriTranscodeOp, UrlField, UrlOp, UrlSearchParamsOp, bin_op_text,
+    regex_replace_args_text,
 };
 pub use format::{format_compact, function_signature, string_units_text, type_display};
 pub use ids::{
@@ -102,7 +103,7 @@ pub use ids::{
 pub use item::{
     Class, ClassKind, ClassProtocol, ConstItem, Descriptor, DescriptorValueField, Field,
     FieldDecodeFacts, Function, FunctionOwner, InheritedStaticAccess, Interface, InterfaceHeritage,
-    Item, MethodSig, MutableGlobalInit, MutableGlobalItem, Param, ParamSig, StaticField, TypeAlias,
+    Item, MethodSig, MutableGlobalInit, MutableGlobalItem, ParamSig, StaticField, TypeAlias,
     TypeDecodeFacts, TypeParamDef, Visibility,
 };
 pub use krate::{

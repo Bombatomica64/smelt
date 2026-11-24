@@ -26,6 +26,17 @@ use crate::{
     Statement, Terminator,
 };
 
+/// Visit every type id a function's emission reads; see
+/// [`MirFunction::visit_types`], the one list of a function's type positions.
+pub fn for_each_function_type(function: &MirFunction, mut visit: impl FnMut(TypeId)) {
+    function.visit_types(&mut visit);
+}
+
+/// Rewrite every type id [`for_each_function_type`] visits.
+pub fn map_function_types(function: &mut MirFunction, mut map: impl FnMut(TypeId) -> TypeId) {
+    function.map_types(&mut map);
+}
+
 /// Visits (or maps) the type ids one op-table field holds, by its table kind.
 macro_rules! op_field_types {
     (visit $visit:ident, (ty), $field:ident) => {

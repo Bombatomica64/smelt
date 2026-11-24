@@ -141,15 +141,9 @@ impl FunctionEmitter<'_> {
         let generics = if self.role.own_generics_erased() {
             String::new()
         } else {
-            let mut parts = crate::generic_lifting::function_impl_generics_list(
-                self.mir,
-                self.function,
-                &self.context.owned_callback_params,
-                &self.context.bound_traits,
-                self.context.type_param_elision(),
-                &self.context.erased_arguments,
-                crate::classes::generated_type_param_bounds(self.context.demand()),
-            )?;
+            let mut parts = self
+                .context
+                .function_impl_generics_list(self.mir, self.function)?;
             parts.extend(self.callback_generic_bounds_text()?);
             if parts.is_empty() {
                 String::new()
@@ -699,15 +693,9 @@ impl FunctionEmitter<'_> {
         if !declared {
             return Ok(String::new());
         }
-        let mut parts = crate::generic_lifting::function_impl_generics_list(
-            self.mir,
-            self.function,
-            &self.context.owned_callback_params,
-            &self.context.bound_traits,
-            self.context.type_param_elision(),
-            &self.context.erased_arguments,
-            crate::classes::generated_type_param_bounds(self.context.demand()),
-        )?;
+        let mut parts = self
+            .context
+            .function_impl_generics_list(self.mir, self.function)?;
         parts.extend(self.callback_generic_bounds_text()?);
         Ok(if parts.is_empty() {
             String::new()
@@ -729,18 +717,12 @@ impl FunctionEmitter<'_> {
         if self.method_own_generics_text()?.is_empty() {
             return Ok(String::new());
         }
-        let mut parts = crate::generic_lifting::function_impl_generics_list(
-            self.mir,
-            self.function,
-            &self.context.owned_callback_params,
-            &self.context.bound_traits,
-            self.context.type_param_elision(),
-            &self.context.erased_arguments,
-            crate::classes::generated_type_param_bounds(self.context.demand()),
-        )?
-        .into_iter()
-        .map(|_| "SmeltUnknown".to_owned())
-        .collect::<Vec<_>>();
+        let mut parts = self
+            .context
+            .function_impl_generics_list(self.mir, self.function)?
+            .into_iter()
+            .map(|_| "SmeltUnknown".to_owned())
+            .collect::<Vec<_>>();
         parts.extend(
             self.callback_generic_bounds_text()?
                 .into_iter()

@@ -172,7 +172,7 @@ impl SoundOverlay {
         let Some(layer) = &self.layer else {
             return;
         };
-        let name = crate::manifest::bare_package_name(specifier);
+        let name = crate::sound::bare_package_name(specifier);
         let from = importer.parent().unwrap_or_else(|| Path::new("."));
         let Some(installed) = installed_package_dir(from, &name) else {
             return;

@@ -3,8 +3,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    expr::Literal,
-    ids::{BodyId, ExprId, ItemId, LocalId, Span, Symbol, TypeId},
+    expr::{Literal, Param},
+    ids::{BodyId, ExprId, ItemId, Span, Symbol, TypeId},
 };
 
 /// A top-level item in the HIR.
@@ -147,19 +147,6 @@ pub enum FunctionOwner {
         /// Owning class.
         class: Symbol,
     },
-}
-
-/// A parameter of a function.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Param {
-    /// The name of the parameter.
-    pub name: Symbol,
-    /// The local variable ID for this parameter.
-    pub local: LocalId,
-    /// The type of the parameter.
-    pub ty: TypeId,
-    /// Source location of the parameter.
-    pub span: Span,
 }
 
 /// A class item.

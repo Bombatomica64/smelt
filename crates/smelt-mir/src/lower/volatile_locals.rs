@@ -260,6 +260,13 @@ impl FieldWrites {
             || matches!(types.get(receiver), Some(Type::Unknown)) && !self.any_field_of.is_empty()
     }
 
+    /// Records a write of the field named `name`, into any receiver.
+    fn named_field(&mut self, name: &str) {
+        if !self.names.contains(name) {
+            self.names.insert(name.to_owned());
+        }
+    }
+
     /// Records a write of unknown field into a receiver of type `receiver`.
     fn any_field(&mut self, types: &TypeInterner, receiver: smelt_hir::TypeId) {
         if matches!(
@@ -290,7 +297,7 @@ fn assigned_fields(krate: &smelt_hir::Crate) -> FieldWrites {
             match expr_kind(body, *target) {
                 Some(ExprKind::Field { field, .. }) => {
                     if let Some(name) = krate.symbols.get(*field) {
-                        writes.names.insert(name.to_owned());
+                        writes.named_field(name);
                     }
                 }
                 Some(ExprKind::Index { receiver, index })
@@ -298,7 +305,7 @@ fn assigned_fields(krate: &smelt_hir::Crate) -> FieldWrites {
                 {
                     match expr_kind(body, *index) {
                         Some(ExprKind::Literal(smelt_hir::Literal::String(name))) => {
-                            writes.names.insert(name.clone());
+                            writes.named_field(name);
                         }
                         _ => {
                             if let Some(ty) = ty_of(body, *receiver) {

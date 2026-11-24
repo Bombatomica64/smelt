@@ -16,85 +16,19 @@
 
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
+use crate::lowering::testing::chai_words::{LibraryCheck, chai_terminal};
 use crate::lowering::testing::matchers::{LoweredActual, MatcherSite, SiteActual};
 use oxc::ast::ast::{Argument, CallExpression, Expression};
 use oxc::span::GetSpan;
 use smelt_hir::{
     BinOp, Body, ErasureReason, Expr, ExprId, ExprKind, Literal, LocalDecl, Pattern, Stmt, Type,
-    UnaryOp,
 };
-
-/// An assertion rule, once the library's spelling is gone.
-#[derive(Clone, Copy, Debug, PartialEq)]
-enum LibraryCheck {
-    /// The vitest matcher of this name has the same meaning.
-    Matcher(&'static str),
-    /// `==`.
-    LooseEqual,
-    /// `===`.
-    StrictEqual,
-    /// `=== true` / `=== false`.
-    IsBool(bool),
-    /// `Object.prototype.toString` names this type.
-    TypeIs(&'static str),
-    /// As [`Self::TypeIs`], with the name in the first argument.
-    TypeArgument,
-    /// Neither `null` nor `undefined`.
-    Exists,
-    /// Answered by the runtime over erased values (`smelt_test_check`).
-    Runtime(&'static str),
-    /// Fails, with the message in the first argument.
-    Fail,
-}
 
 /// The chai words that read as English and change nothing.
 const CHAI_LANGUAGE_CHAINS: &[&str] = &[
     "to", "be", "been", "is", "that", "which", "and", "has", "have", "with", "at", "of", "same",
     "but", "does", "still", "also",
 ];
-
-/// The rule chai's `expect` chain ends in, given the flags collected before it.
-///
-/// `None` is a word this model does not have.
-fn chai_terminal(name: &str, deep: bool, contains: bool) -> Option<LibraryCheck> {
-    use LibraryCheck::{Exists, Fail, IsBool, Matcher, Runtime, StrictEqual, TypeArgument};
-    Some(match name {
-        "equal" | "equals" | "eq" if deep => Matcher("toStrictEqual"),
-        "equal" | "equals" | "eq" => StrictEqual,
-        "eql" | "eqls" => Matcher("toStrictEqual"),
-        "true" => IsBool(true),
-        "false" => IsBool(false),
-        "null" => Matcher("toBeNull"),
-        "undefined" => Matcher("toBeUndefined"),
-        "NaN" => Matcher("toBeNaN"),
-        "ok" => Matcher("toBeTruthy"),
-        "exist" | "exists" => Exists,
-        "empty" => Runtime("is_empty"),
-        "a" | "an" => TypeArgument,
-        "instanceof" | "instanceOf" => Matcher("toBeInstanceOf"),
-        "include" | "includes" | "contain" | "contains" | "string" if deep => {
-            Runtime("deep_include")
-        }
-        "include" | "includes" | "contain" | "contains" | "string" => Runtime("include"),
-        "lengthOf" | "length" => Runtime("length_is"),
-        "match" | "matches" => Matcher("toMatch"),
-        "above" | "gt" | "greaterThan" => Matcher("toBeGreaterThan"),
-        "below" | "lt" | "lessThan" => Matcher("toBeLessThan"),
-        "least" | "gte" | "greaterThanOrEqual" => Matcher("toBeGreaterThanOrEqual"),
-        "most" | "lte" | "lessThanOrEqual" => Matcher("toBeLessThanOrEqual"),
-        "within" => Runtime("within"),
-        "closeTo" | "approximately" => Runtime("close_to"),
-        "property" | "ownProperty" | "haveOwnProperty" => Runtime("has_property"),
-        "keys" | "key" => Runtime("keys_are"),
-        "members" if contains => Runtime("includes_members"),
-        "members" => Runtime("same_members"),
-        "oneOf" => Runtime("one_of"),
-        "satisfy" | "satisfies" => Runtime("satisfies"),
-        "throw" | "throws" | "Throw" => Matcher("toThrow"),
-        "fail" => Fail,
-        _ => return None,
-    })
-}
 
 /// The rule of `assert.<name>(actual, ...)`, shared by chai and `node:assert`,
 /// and whether the name asserts the opposite.
@@ -202,11 +136,6 @@ fn expected_arity(check: LibraryCheck) -> usize {
 }
 
 impl ModuleBuilder<'_> {
-    /// Whether `name` ends a chai chain.
-    pub(in crate::lowering) fn is_chai_terminal(name: &str) -> bool {
-        chai_terminal(name, false, false).is_some()
-    }
-
     /// The library that bound `name`, by its import.
     fn library_root(&self, name: &str) -> Option<LibraryRoot> {
         // vitest's `expect` is chai's, extended: `.to.equal` and `.greaterThan` work on it.
@@ -651,98 +580,6 @@ impl ModuleBuilder<'_> {
         };
         self.assertion_holds(holds, inverted, message, span, body);
         Ok(())
-    }
-
-    /// Fail unless the erased runtime check `name` holds for `actual`.
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "each is one independent part of the source assertion"
-    )]
-    pub(in crate::lowering) fn runtime_check(
-        &mut self,
-        name: &str,
-        actual: ExprId,
-        arguments: &[ExprId],
-        inverted: bool,
-        span: oxc::span::Span,
-        message: &str,
-        body: &mut Body,
-    ) -> Result<(), SmeltError> {
-        let holds = self.runtime_check_expr(name, actual, arguments, span, body);
-        self.assertion_holds(holds, inverted, message, span, body);
-        Ok(())
-    }
-
-    /// The boolean answer of the erased runtime check `name`.
-    pub(in crate::lowering) fn runtime_check_expr(
-        &mut self,
-        name: &str,
-        actual: ExprId,
-        arguments: &[ExprId],
-        span: oxc::span::Span,
-        body: &mut Body,
-    ) -> ExprId {
-        let hir_span = self.span(span.start, span.end);
-        let unknown_ty = self.erase_with(ErasureReason::TestHarness, "assertion library check");
-        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
-        let mut args = vec![Self::erase_to_unknown(actual, unknown_ty, hir_span, body)];
-        args.extend(
-            arguments
-                .iter()
-                .map(|argument| Self::erase_to_unknown(*argument, unknown_ty, hir_span, body)),
-        );
-        body.push_expr(Expr {
-            kind: ExprKind::TestRuntimeCheck {
-                check: name.to_owned(),
-                args,
-            },
-            ty: bool_ty,
-            span: hir_span,
-        })
-    }
-
-    /// Throw `message` unless `holds` agrees with the assertion's polarity.
-    pub(in crate::lowering) fn assertion_holds(
-        &mut self,
-        holds: ExprId,
-        inverted: bool,
-        message: &str,
-        span: oxc::span::Span,
-        body: &mut Body,
-    ) {
-        let failed = if inverted {
-            holds
-        } else {
-            self.unary_bool_expr(UnaryOp::Not, holds, span, body)
-        };
-        self.push_test_failure_if(failed, &format!("{message} failed"), span, body);
-    }
-
-    /// An assertion that fails whenever it runs (`assert.fail`).
-    pub(in crate::lowering) fn always_failing_assertion(
-        &mut self,
-        message: &str,
-        span: oxc::span::Span,
-        body: &mut Body,
-    ) {
-        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
-        let hir_span = self.span(span.start, span.end);
-        let always = body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::Bool(true)),
-            ty: bool_ty,
-            span: hir_span,
-        });
-        self.push_test_failure_if(always, message, span, body);
-    }
-
-    /// Report an assertion this model has no rule for by failing where it runs.
-    pub(in crate::lowering) fn unmodelled_assertion(
-        &mut self,
-        what: &str,
-        span: oxc::span::Span,
-        body: &mut Body,
-    ) {
-        self.always_failing_assertion(&format!("{what} is not modelled"), span, body);
     }
 }
 

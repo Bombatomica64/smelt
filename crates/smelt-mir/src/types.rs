@@ -1268,14 +1268,3 @@ pub enum BuiltinFn {
     /// receiver to a new array would leave every other handle on the old one.
     ErasedListWriteBack,
 }
-
-/// Visit every type id a function's emission reads; see
-/// [`MirFunction::visit_types`], the one list of a function's type positions.
-pub fn for_each_function_type(function: &MirFunction, mut visit: impl FnMut(TypeId)) {
-    function.visit_types(&mut visit);
-}
-
-/// Rewrite every type id [`for_each_function_type`] visits.
-pub fn map_function_types(function: &mut MirFunction, mut map: impl FnMut(TypeId) -> TypeId) {
-    function.map_types(&mut map);
-}

@@ -33,7 +33,7 @@ use crate::{
     Callee, LocalId, LocalInit, Mir, MirBody, Operand, Place, Rvalue, Statement, Terminator,
 };
 
-use super::structure::validate_local_exists;
+use super::operands::validate_local_exists;
 use super::{ValidationError, error, local_index};
 
 /// Checks one body's definite-assignment rules (see the module docs).
@@ -156,7 +156,7 @@ impl Checker<'_> {
 
     /// A read of `local`'s value: it must be definitely assigned here.
     fn read(self, local: LocalId, state: &Assigned, errors: &mut Vec<ValidationError>) {
-        if !state.must.contains(&local) {
+        if !state.is_assigned(local) {
             errors.push(error(format!(
                 "{} reads local {local:?} {} before it is definitely defined",
                 super::owner_name(self.mir, self.body.owner),
@@ -182,7 +182,7 @@ impl Checker<'_> {
                 continue;
             };
             let source_unbound = self.maybe_unbound(source);
-            if !source_unbound && !state.must.contains(&source) {
+            if !source_unbound && !state.is_assigned(source) {
                 errors.push(error(format!(
                     "{} captures local {source:?} {} into closure {id:?} before it is definitely defined, but it is not MaybeUnbound",
                     super::owner_name(self.mir, self.body.owner),

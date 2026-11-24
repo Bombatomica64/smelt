@@ -505,11 +505,8 @@ pub fn to_hir_with_options(
         specialization,
         options.excluded_modules.to_vec(),
     );
-    builder.ts_facts = options.ts_facts.filter(|facts| facts.has_file(path));
-    builder.trust = options.trust;
-    builder.type_param_owners = type_param_owners::type_param_owners(&parsed.program);
-    builder.adopt_source_facts(source_facts::SourceFacts::collect(&parsed.program));
-    builder.literal_record_uses = literal_record_uses::LiteralRecordUses::collect(&parsed.program);
+    builder.adopt_checker_facts(options.ts_facts, options.trust);
+    builder.read_program_facts(&parsed.program);
     builder.program(&parsed.program)
 }
 
@@ -633,8 +630,7 @@ pub fn predeclare_type_declarations_with_path(
         None,
         Vec::new(),
     );
-    builder.type_param_owners = type_param_owners::type_param_owners(&parsed.program);
-    builder.adopt_source_facts(source_facts::SourceFacts::collect(&parsed.program));
+    builder.read_program_facts(&parsed.program);
     // Import provenance first: every surface below may name an imported
     // ambiguous type, and only provenance lets it ask the rename map for the
     // exporting module's rendering (see `predeclare_import_provenance`).

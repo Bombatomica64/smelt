@@ -558,16 +558,6 @@ impl TypeInterner {
         id
     }
 
-    /// The id of `T | null`: the optional of `present` whose absent value is
-    /// `null`, in canonical form (`crate::type_normalize::optional_with`).
-    ///
-    /// A `present` that admits `null` already is its own answer
-    /// (`T | null | null` is `T | null`); one that admits `undefined` gains
-    /// the inner `null` layer (`Optional(Optional(T, Null), Undefined)`).
-    pub fn intern_null_optional(&mut self, present: TypeId) -> TypeId {
-        crate::type_normalize::optional_with(self, present, Absence::Null)
-    }
-
     #[must_use]
     /// Whether `id` is an optional whose outer absent value is `null`
     /// (`Optional(T, Null)`), so its `None` erases as `null`.
@@ -582,18 +572,6 @@ impl TypeInterner {
     /// for callers that rebuild a layer around another present type.
     pub fn lookup_like(&self, _like: TypeId, rewritten: &Type) -> Option<TypeId> {
         self.lookup(rewritten)
-    }
-
-    /// The optional of `present` with the outer absent value of `like`
-    /// (`undefined` when `like` is no optional).
-    ///
-    /// For passes that rebuild an optional around a rewritten present type.
-    pub fn intern_optional_like(&mut self, like: TypeId, present: TypeId) -> TypeId {
-        let absence = match self.get(like) {
-            Some(Type::Optional(_, absence)) => *absence,
-            _ => Absence::Undefined,
-        };
-        crate::type_normalize::wrap_optional(self, present, absence)
     }
 
     /// Move the late tail into `types`, keeping every late id's meaning.

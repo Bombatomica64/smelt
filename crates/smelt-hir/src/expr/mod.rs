@@ -14,7 +14,7 @@ mod types;
 /// `dump` spellings of the operation selectors.
 mod op_text;
 
-pub use call::{CaptureMode, ClosureCapture, ClosureExpr, ClosureThis};
+pub use call::{CaptureMode, ClosureCapture, ClosureExpr, ClosureThis, Param};
 pub use control_flow::AsyncOp;
 pub use core::Expr;
 pub use kinds::{ExprKind, GeneratorResumeKind, ListSpliceItem, PropertyLookup, StaticMember};
@@ -29,6 +29,6 @@ pub use ops::{
     SetRelationOp, SetRemoveOp, SqliteOp, StringAffixOp, StringCaseOp, StringNormalizeForm,
     StringPadOp, StringPredicateOp, StringReplaceOp, StringSearchOp, StringSliceKind,
     StringTrimSide, TextDecoderOp, TextEncoderOp, UnboundRead, UriTranscodeOp, UrlField, UrlOp,
-    UrlSearchParamsOp,
+    UrlSearchParamsOp, regex_replace_args_text,
 };
 pub use types::{BinOp, UnaryOp, bin_op_text};

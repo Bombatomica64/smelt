@@ -1,5 +1,12 @@
 //! The generic trial: rendering a function once with its own type parameters
 //! kept, to decide whether its Rust definition can stay generic.
+//!
+//! The signature side of the same decision, the generic-lifting gate, is asked
+//! through the [`EmitContext`] (end of this file): whether a type parameter
+//! lifts depends on four per-crate tables the context owns (owned callback
+//! parameters, the bound-trait plan, carried class type parameters, the
+//! erased-argument memo), so callers ask the question and never thread the
+//! tables into [`crate::generic_lifting`] themselves.
 
 use super::*;
 use std::collections::HashSet;
@@ -87,14 +94,7 @@ impl<'mir> FunctionEmitter<'mir> {
         // `SmeltUnknown` by design, so they touch the carrier legitimately and
         // would demote the whole function, which is the all-or-nothing behaviour
         // per-parameter lifting exists to remove.
-        let liftable = crate::generic_lifting::liftable_type_params(
-            self.mir,
-            self.function,
-            &self.context.owned_callback_params,
-            &self.context.bound_traits,
-            self.context.type_param_elision(),
-            &self.context.erased_arguments,
-        );
+        let liftable = self.context.liftable_type_params(self.mir, self.function);
         if liftable.len() < self.function.type_params.len() {
             return Ok(!liftable.is_empty());
         }
@@ -686,4 +686,80 @@ fn whole_erased_slot(mir: &Mir, ty: TypeId) -> bool {
         mir.types.get(payload),
         Some(Type::Unknown | Type::TypeParam { .. })
     )
+}
+
+/// The generic-lifting gate, answered from the context's own tables.
+impl EmitContext {
+    /// The type parameters of `function` that lift to real Rust generics
+    /// (see [`crate::generic_lifting::liftable_type_params`]).
+    pub(crate) fn liftable_type_params(
+        &self,
+        mir: &Mir,
+        function: &MirFunction,
+    ) -> HashSet<Symbol> {
+        crate::generic_lifting::liftable_type_params(
+            mir,
+            function,
+            &self.owned_callback_params,
+            &self.bound_traits,
+            &self.type_param_elision,
+            &self.erased_arguments,
+        )
+    }
+
+    /// Whether `function` declares any real Rust generic of its own (see
+    /// [`crate::generic_lifting::function_emits_rust_generics`]).
+    pub(crate) fn function_emits_rust_generics(&self, mir: &Mir, function: &MirFunction) -> bool {
+        crate::generic_lifting::function_emits_rust_generics(
+            mir,
+            function,
+            &self.owned_callback_params,
+            &self.bound_traits,
+            &self.type_param_elision,
+            &self.erased_arguments,
+        )
+    }
+
+    /// The generated `F{n}` generic of each borrowed callback parameter of
+    /// `function` (see [`crate::generic_lifting::callback_generic_params`]).
+    pub(crate) fn callback_generic_params(
+        &self,
+        mir: &Mir,
+        function: &MirFunction,
+    ) -> Result<Vec<(LocalId, String)>, EmitError> {
+        crate::generic_lifting::callback_generic_params(
+            mir,
+            function,
+            &self.owned_callback_params,
+            &self.bound_traits,
+            &self.type_param_elision,
+            &self.erased_arguments,
+            &self.names,
+        )
+    }
+
+    /// The `<..>` entries `function` declares for its lifted type parameters,
+    /// each with the bounds a generated type parameter carries in this crate
+    /// (see [`crate::generic_lifting::function_impl_generics_list`]).
+    pub(crate) fn function_impl_generics_list(
+        &self,
+        mir: &Mir,
+        function: &MirFunction,
+    ) -> Result<Vec<String>, EmitError> {
+        crate::generic_lifting::function_impl_generics_list(
+            mir,
+            function,
+            &self.owned_callback_params,
+            &self.bound_traits,
+            &self.type_param_elision,
+            &self.erased_arguments,
+            crate::classes::generated_type_param_bounds(&self.demand),
+        )
+    }
+
+    /// Whether `function` owns the callback held in its parameter `local`
+    /// (the ownership fixpoint, `compute_owned_callback_params`).
+    pub(crate) fn owns_callback_param(&self, function: FuncId, local: LocalId) -> bool {
+        self.owned_callback_params.contains(&(function, local))
+    }
 }

@@ -1,0 +1,87 @@
+# deslop-please findings left on purpose: each is a false positive, or its fix
+# would make the design worse. Every entry carries its reason.
+#
+# Unfixed debt is NOT listed here (the large emitter/lowering cycles, the
+# codegen and HirCtx tangles, EmitContext::polymorphic_classes,
+# ControlFlowState::last_flow, LocalScope::bindings, the shallow modules,
+# wide-directory, long-file): it stays visible in `deslop-please` output.
+# Run: deslop-please --allow .deslop-please.allow
+
+# `Mir` carries its lookup tables as a memoized `pub index: MirIndex` field,
+# and the index is built from `Mir`. Breaking the edge means passing an index
+# to every `class_named`/`static_callers` caller across the backend, or
+# folding the lookup tables into `types.rs`: both are worse than the cache.
+module-cycle smelt_mir::index,smelt_mir::types
+tangle smelt_mir::index::DuplicateName,smelt_mir::index::Lookups,smelt_mir::index::MirIndex,smelt_mir::index::NameIndex,smelt_mir::index::unique_positions,smelt_mir::types::Mir
+
+# HIR-to-MIR lowering is recursive descent: an expression lowers a closure,
+# which lowers blocks, which lower statements and places, which lower
+# expressions. A try/finally's `FinallyPlan` lowers its clause through
+# `LoweringCtx`, which may meet a nested try/finally. The recursion is the
+# grammar's, not a layering mistake.
+module-cycle smelt_mir::lower::closures,smelt_mir::lower::context,smelt_mir::lower::expr,smelt_mir::lower::optional_call,smelt_mir::lower::place,smelt_mir::lower::scope,smelt_mir::lower::stmt,smelt_mir::lower::transcribe
+tangle smelt_mir::lower::context::LoweringCtx,smelt_mir::lower::stmt::FinallyPlan
+
+# A recursive data type: a place's index projection holds an operand, and an
+# operand reads a place.
+tangle smelt_mir::types::GlobalProjection,smelt_mir::types::Operand,smelt_mir::types::Place
+
+# IR arenas. HIR `Body`, `Mir` and `TypeInterner` are the data every pass of a
+# compiler walks; their tables ARE the interface (an `ExprId` indexes
+# `Body::exprs`, a `TypeId` indexes the interner). Private fields with one
+# getter each would hide nothing.
+field-leak smelt_hir::body::Body::blocks
+field-leak smelt_hir::body::Body::exprs
+field-leak smelt_hir::body::Body::id
+field-leak smelt_hir::body::Body::locals
+field-leak smelt_hir::body::Body::params
+field-leak smelt_hir::body::Body::patterns
+field-leak smelt_hir::body::Body::stmts
+field-leak smelt_hir::body::Body::unassigned_lets
+field-leak smelt_hir::ty::TypeInterner::types
+field-leak smelt_mir::types::Mir::accessor_fields
+field-leak smelt_mir::types::Mir::classes
+field-leak smelt_mir::types::Mir::closures
+field-leak smelt_mir::types::Mir::constructible_function_items
+field-leak smelt_mir::types::Mir::file_paths
+field-leak smelt_mir::types::Mir::functions
+field-leak smelt_mir::types::Mir::globals
+field-leak smelt_mir::types::Mir::inherited_member_types
+field-leak smelt_mir::types::Mir::interfaces
+field-leak smelt_mir::types::Mir::names
+field-leak smelt_mir::types::Mir::symbols
+field-leak smelt_mir::types::Mir::types
+
+# Data crossing a process or crate boundary. `TsTypeFacts` is the checker's
+# output handed to the compiler; `CallableProvenance` is a serialized
+# specialization-manifest record. Their fields are the wire format.
+field-leak smelt_ts_model::TsTypeFacts::diagnostics
+field-leak smelt_ts_model::TsTypeFacts::types
+field-leak smelt_specialize::manifest::CallableProvenance::captures
+field-leak smelt_specialize::manifest::CallableProvenance::qualified_name
+field-leak smelt_specialize::manifest::CallableProvenance::span
+
+# `Config` is the bottom layer (the parsed manifest). `[packages]` has a single
+# reader, `package_sources::resolve_packages`, which interprets it; moving that
+# into `config` would make the bottom layer resolve packages.
+field-leak smelt_transpiler::config::Config::packages
+
+# Written once by an intent-named setter, read only as a membership query.
+field-leak smelt_frontend_ts::lowering::state::type_scope::TypeScope::module_type_names
+
+# Each of these EmitContext fields is a per-crate plan object (`RustNames`,
+# `RuntimeDemand`, structural views, static/weak receivers, deep equality,
+# startup, bound traits, type-parameter elision) with its own narrow,
+# intent-named queries, read by that plan's own emitter. Forwarding every
+# query through EmitContext would make it a ~40-method facade: wider, not
+# deeper. (`polymorphic_classes` is a raw HashSet and is NOT allowed: it is
+# real debt.)
+field-leak smelt_codegen_rust::emitter::EmitContext::bound_traits
+field-leak smelt_codegen_rust::emitter::EmitContext::deep_equality
+field-leak smelt_codegen_rust::emitter::EmitContext::demand
+field-leak smelt_codegen_rust::emitter::EmitContext::names
+field-leak smelt_codegen_rust::emitter::EmitContext::startup
+field-leak smelt_codegen_rust::emitter::EmitContext::static_receivers
+field-leak smelt_codegen_rust::emitter::EmitContext::structural_views
+field-leak smelt_codegen_rust::emitter::EmitContext::type_param_elision
+field-leak smelt_codegen_rust::emitter::EmitContext::weak_receivers

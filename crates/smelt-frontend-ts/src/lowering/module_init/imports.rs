@@ -1,12 +1,12 @@
 //! Import declarations: binding an import's locals to the source module's items,
 //! recording import provenance, and classifying host-module imports.
 
-use super::super::support::{const_literal_from_item, module_export_name};
+use super::super::support::module_export_name;
 use super::super::{ModuleBuilder, PendingHostImport};
 use crate::lowering::js_text::js_str_text;
 use crate::test_support;
 use oxc::ast::ast::{ImportDeclarationSpecifier, ImportOrExportKind, Program, Statement};
-use smelt_hir::{ErasureReason, Import, Item, Module};
+use smelt_hir::{ErasureReason, Import, Module};
 
 impl ModuleBuilder<'_> {
     /// Record where each imported name came from before the predeclaration
@@ -242,123 +242,5 @@ impl ModuleBuilder<'_> {
             || self.consts.is_folded_const(local)
             || self.object_namespaces.contains_key(local)
             || self.functions.has_overloads(local)
-    }
-
-    /// Add a local alias for an imported item when it is already known.
-    pub(in crate::lowering) fn alias_imported_item(
-        &mut self,
-        source: &str,
-        imported: &str,
-        local: &str,
-    ) {
-        // A static property hung off an exported function (`partial.placeholder`)
-        // is recorded under the compound key `partial.placeholder`, so an importer
-        // has to alias those alongside the name itself. The fallback path below
-        // already does this for locally-known items; the resolved-exports path
-        // returned early and skipped it, which left an imported
-        // `partial.placeholder` unresolved.
-        if let Some(exports) = self.source_module_exports(source) {
-            let imported_prefix = format!("{imported}.");
-            let qualified = exports
-                .iter()
-                .filter_map(|(name, item)| {
-                    let member = name.strip_prefix(&imported_prefix)?;
-                    Some((format!("{local}.{member}"), *item))
-                })
-                .collect::<Vec<_>>();
-            for (alias, item) in qualified {
-                self.items.insert(alias, item);
-            }
-        }
-        // Facts that are not items (an object constant's entries, enum
-        // members, overloads, ...) come from the module `source` resolves to,
-        // never from whichever module last published the bare name.
-        self.adopt_exported_facts(source, imported, local);
-        if let Some(exports) = self.source_module_exports(source)
-            && let Some(item) = exports.get(imported).copied()
-        {
-            self.items.insert(local.to_owned(), item);
-            self.adopt_imported_predicate(item, local);
-            match self.item_ref(item) {
-                Item::Class(_) => {
-                    self.classes.register(local.to_owned(), item);
-                }
-                Item::Interface(_) => {
-                    self.interfaces.register_alias(local.to_owned(), item);
-                }
-                // Imported primitive const literals (e.g. `export const stringTag
-                // = '[object String]'`) must be foldable in the importer so they
-                // can appear in switch case labels and other constant positions.
-                // The construction-time `visible_const_literals` snapshot misses
-                // imports whose source module is lowered after this one, so fold
-                // the resolved crate item here where the dependency is guaranteed
-                // present.
-                Item::Const(const_item) => {
-                    if let Some(value) = const_literal_from_item(&self.ctx.krate, const_item) {
-                        self.consts.set_literal(local.to_owned(), value);
-                    }
-                }
-                _ => {}
-            }
-            return;
-        }
-        if let Some(item) = self.items.get(imported).copied() {
-            self.items.insert(local.to_owned(), item);
-        }
-        let imported_prefix = format!("{imported}.");
-        let qualified_item_aliases = self
-            .items
-            .iter()
-            .filter_map(|(name, item)| {
-                let member = name.strip_prefix(&imported_prefix)?;
-                Some((format!("{local}.{member}"), *item))
-            })
-            .collect::<Vec<_>>();
-        for (alias, item) in qualified_item_aliases {
-            self.items.insert(alias, item);
-        }
-        if let Some(item) = self.classes.item(imported) {
-            self.classes.register(local.to_owned(), item);
-        }
-        let qualified_class_aliases = self
-            .classes
-            .entries()
-            .filter_map(|(name, item)| {
-                let member = name.strip_prefix(&imported_prefix)?;
-                Some((format!("{local}.{member}"), item))
-            })
-            .collect::<Vec<_>>();
-        for (alias, item) in qualified_class_aliases {
-            self.classes.register(alias, item);
-        }
-        if let Some(item) = self.interfaces.item(imported) {
-            self.interfaces.register_alias(local.to_owned(), item);
-        }
-        let qualified_interface_aliases = self
-            .interfaces
-            .entries()
-            .filter_map(|(name, item)| {
-                let member = name.strip_prefix(&imported_prefix)?;
-                Some((format!("{local}.{member}"), item))
-            })
-            .collect::<Vec<_>>();
-        for (alias, item) in qualified_interface_aliases {
-            self.interfaces.register_alias(alias, item);
-        }
-        // Rebinding by the imported name only reaches this module's own
-        // declarations (`import { a as b } from './self'`): another module's
-        // constants were adopted through its qualified exports above.
-        self.consts.rebind_import(local, imported);
-        if let Some(namespace) = self.object_namespaces.get(imported).cloned() {
-            self.object_namespaces
-                .write()
-                .insert(local.to_owned(), namespace);
-        }
-        if let Some(overloads) = self.functions.overloads(imported).cloned() {
-            self.functions.set_overloads(local.to_owned(), overloads);
-        }
-        if let Some(rest) = self.functions.rest(imported) {
-            self.functions.set_rest(local.to_owned(), rest);
-        }
     }
 }

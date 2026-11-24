@@ -1,122 +1,17 @@
-//! Callback-surface classification: resolving callback function items,
-//! arrow/function callback recognizers, factory predicates, and opaque
-//! (local/member) callback values, plus building callbacks from param lists.
+//! Callback-surface classification: arrow/function callback recognizers,
+//! factory predicates, and opaque (local/member) callback values, plus
+//! building callbacks from param lists. What a name stands for is decided
+//! here; the closure it becomes is built by [`super::forwarding`].
 
 use super::forwarding::{ForwardTarget, ForwardingCallback};
 use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::js_text::js_str_text;
 use crate::lowering::{
-    Argument, Body, Expr, ExprKind, Expression, FunctionType, HashMap, Item, LocalDecl,
-    ModuleBuilder, Param, SmeltError, Span, Type,
+    Argument, Body, Expression, FunctionType, HashMap, Item, ModuleBuilder, SmeltError, Type,
 };
 use oxc::span::GetSpan;
 use smelt_hir::ErasureReason;
 impl ModuleBuilder<'_> {
-    /// Resolve a callback function symbol back to its normal HIR item.
-    pub(in crate::lowering) fn callback_function_item(
-        &self,
-        function: smelt_hir::Symbol,
-        span: Span,
-    ) -> Result<smelt_hir::ItemId, SmeltError> {
-        self.ctx
-            .krate
-            .items
-            .iter()
-            .enumerate()
-            .find_map(|(index, item)| {
-                if matches!(item, Item::Function(item_function) if item_function.name == function) {
-                    Some(smelt_hir::ItemId(u32::try_from(index).ok()?))
-                } else {
-                    None
-                }
-            })
-            .ok_or_else(|| {
-                SmeltError::unsupported(
-                    span,
-                    "callback function reference does not resolve to an item",
-                )
-            })
-    }
-
-    /// Wrap a function item in a first-class closure value.
-    pub(in crate::lowering) fn callback_function_item_closure(
-        &mut self,
-        item: smelt_hir::ItemId,
-        function_ty: smelt_hir::TypeId,
-        outer_body: &mut Body,
-        span: Span,
-    ) -> Result<smelt_hir::ExprId, SmeltError> {
-        let Some(Type::Function(function)) = self.ctx.krate.types.get(function_ty).cloned() else {
-            return Err(SmeltError::unsupported(
-                span,
-                "callback function reference must have a function type",
-            ));
-        };
-        let mut closure_body = Body::new(None, span);
-        let mut closure_params = Vec::new();
-        let mut call_args = Vec::new();
-        for (index, ty) in function.params.iter().copied().enumerate() {
-            let name = self.ctx.krate.symbols.intern(&format!("arg{index}"));
-            let local = closure_body.push_local(LocalDecl {
-                name: Some(name),
-                ty,
-                mutable: false,
-                span,
-            });
-            closure_body.params.push(local);
-            closure_params.push(Param {
-                name,
-                local,
-                ty,
-                span,
-            });
-            call_args.push(closure_body.push_expr(Expr {
-                kind: ExprKind::Local(local),
-                ty,
-                span,
-            }));
-        }
-        let callee = closure_body.push_expr(Expr {
-            kind: ExprKind::Item(item),
-            ty: function_ty,
-            span,
-        });
-        let call = closure_body.push_expr(Expr {
-            kind: ExprKind::Call {
-                callee,
-                args: call_args,
-            },
-            ty: function.return_ty,
-            span,
-        });
-        if let Some(block) = closure_body.blocks.first_mut() {
-            block.tail = Some(call);
-        }
-        let body = self.ctx.krate.push_body(closure_body);
-        Ok(outer_body.push_expr(Expr {
-            kind: ExprKind::Closure(smelt_hir::ClosureExpr {
-                params: closure_params,
-                rest: function.rest,
-                required_params: function.required_params,
-                return_ty: function.return_ty,
-                captures: Vec::new(),
-                body,
-                // Same bare function-item-as-value wrapper as
-                // `item_function_closure_expression`, reached through the
-                // callback-reference path. Tag it with the source item so all
-                // references to this named function share one cached runtime
-                // wrapper and compare equal under JavaScript `===`.
-                name: None,
-                length: None,
-                function_item: Some(item),
-                this_binding: smelt_hir::ClosureThis::Forwarded,
-                span,
-            }),
-            ty: function_ty,
-            span,
-        }))
-    }
-
     /// Lower a supported arrow callback to a typed expression tree.
     pub(in crate::lowering) fn forwarding_callback(
         &mut self,

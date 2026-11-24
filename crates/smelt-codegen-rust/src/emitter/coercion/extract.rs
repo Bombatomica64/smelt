@@ -4,93 +4,6 @@
 use super::*;
 
 impl FunctionEmitter<'_> {
-    /// Emits extraction from `SmeltUnknown` into a concrete Rust type.
-    ///
-    /// JavaScript and Python code often narrows dynamic values through guards
-    /// the frontend cannot fully preserve after generic or regex surfaces erase
-    /// the shape. Keep primitive extraction total where the source language has
-    /// a defined coercion/default instead of turning those paths into generated
-    /// Rust panics.
-    pub(in crate::emitter) fn extract(
-        &self,
-        value: &Operand,
-        target: TypeId,
-        scope: &RenderScope,
-    ) -> Result<RustExpr, EmitError> {
-        // The primitive-target arms of `extract_rendered` (`Bool`/`Int`/
-        // `Float`/`String`) match directly on a `SmeltUnknown` scrutinee. A
-        // caller that reaches here with an already-concrete `Option` source whose
-        // inner type is itself concrete — e.g. an `Option<String>` array element
-        // coerced to a `String` method receiver — must instead go through the
-        // general concrete coercion, which unwraps the `Option`. (List/Dict and
-        // other targets normalize their source through `into_smelt_unknown`
-        // first, so they still accept a non-erased source.) `value_at_type`
-        // handles a non-erased `Option` source directly without delegating back
-        // to `extract`, so this cannot recurse.
-        // A whole `T` recovered from the carrier converts through the
-        // `SmeltFromUnknown` bound every lifted parameter declares, so the
-        // generic trial does not count it; see the `IntoSmeltUnknown` twin in
-        // `erase`. A container of `T`s is rebuilt and still counts.
-        let _bound_conversion = matches!(
-            self.mir.types.get(target),
-            Some(Type::TypeParam { name }) if scope.spells(*name)
-        )
-        .then(|| self.context.carrier_boundary());
-        let source_ty = self.operand_ty(value)?;
-        let target_is_primitive = matches!(
-            self.mir.types.get(target),
-            Some(Type::Bool | Type::Int | Type::PyInt | Type::Float | Type::String | Type::PyStr)
-        );
-        let source_inner_is_erased = matches!(
-            self.mir.types.get(source_ty),
-            Some(Type::Optional(inner, _)) if self.has_dynamic_shape(*inner)
-        );
-        // The same holds for a FUNCTION target that is the optional's own inner
-        // type: a narrowed `Option<Rc<dyn Fn ..>>` unwraps to its function. The
-        // erased path below matched it as a `SmeltUnknown`, which an
-        // `Option<Rc<dyn Fn>>` is not (E0308), so it never compiled. Other
-        // inner types keep the erased extraction and its handling of an absent
-        // value (e.g. `Array.from(null)` reaching an iterable extraction).
-        let target_is_source_inner =
-            matches!(
-                self.mir.types.get(source_ty),
-                Some(Type::Optional(inner, _)) if *inner == target
-            ) && matches!(self.mir.types.get(target), Some(Type::Function(_)));
-        if (target_is_primitive || target_is_source_inner)
-            && matches!(self.mir.types.get(source_ty), Some(Type::Optional(..)))
-            && !source_inner_is_erased
-        {
-            return self.value_at_type(value, target);
-        }
-        // A bare function value (`Rc<dyn Fn ...>`) crossing into a record/list
-        // extraction cannot be fed straight to the `into_smelt_unknown()` arms:
-        // the erased-function Rust type does not implement `IntoSmeltUnknown`.
-        // Wrap it into a `SmeltUnknown::Function` at the boundary first, then
-        // extract from that erased value.
-        if matches!(self.mir.types.get(source_ty), Some(Type::Function(_))) {
-            let erased = self.erase(value)?;
-            return self.extract_rendered(&erased, target, scope);
-        }
-        // A RECORD source needs the same normalization for the same reason. The
-        // fetch-runtime arm of `extract_rendered` hands its text straight to
-        // `SmeltFromUnknown::smelt_from_unknown`, which takes a `SmeltUnknown`,
-        // so an object literal flowing into a `Response`/`Headers` position
-        // (`{}` at a `Response`-returning slot) reached it as a `SmeltRecord`
-        // and produced an E0308 naming neither the source line nor the reason.
-        // Erasing here keeps `extract_rendered`'s contract — its text IS an
-        // erased value — instead of teaching one of its arms to re-derive the
-        // source type it was never given.
-        if matches!(self.mir.types.get(source_ty), Some(Type::Dict(_, _)))
-            && matches!(self.mir.types.get(target), Some(Type::Class { .. }))
-            && self.is_fetch_runtime_class_type(target)?
-        {
-            let erased = self.erase(value)?;
-            return self.extract_rendered(&erased, target, scope);
-        }
-        let text = self.operand_expr(value)?;
-        self.extract_rendered(&text, target, scope)
-    }
-
     /// The erased-record-to-class conversion of `text`, spelled inline.
     ///
     /// Rebuilds the class from the erased object's record (or recovers the
@@ -306,342 +219,6 @@ impl FunctionEmitter<'_> {
         )))
     }
 
-    /// Emits checked extraction from an already-rendered `SmeltUnknown` value.
-    ///
-    /// `scope` is the render position's type-parameter environment, threaded in
-    /// by [`Self::rendered_at_type`] (or built by an ordinary emit site with
-    /// `self.render_scope()`). The `Type::TypeParam` arm below recovers the
-    /// value as the Rust generic exactly when `scope` spells that name, which is
-    /// the same query the coercion path and the container annotation ask — so
-    /// the recovered entries cannot carry a `T` the annotation erased, or vice
-    /// versa.
-    pub(in crate::emitter) fn extract_rendered(
-        &self,
-        text: &RustExpr,
-        target: TypeId,
-        scope: &RenderScope,
-    ) -> Result<RustExpr, EmitError> {
-        // `text` is usually already an owned temporary (an operand render clones the local
-        // it reads), so take an owned copy rather than deep-copying it a second time.
-        let smelt_owned_text = text.cloned_value();
-        match self.mir.types.get(target) {
-            Some(Type::Unknown) => Ok(text.to_owned()),
-            // An erased `Date` keeps the marker record; the concrete `SmeltDate`
-            // recovers through its own adapter (the runtime-class arm below).
-            Some(Type::Class { name, .. })
-                if self.stdlib_class_of_symbol(*name)? == Some(smelt_stdlib::StdlibClass::Date) && self.is_erased_class_type(target) =>
-            {
-                Ok(text.to_owned())
-            }
-            // Extracting an erased value into the unit type means the source
-            // language discards it (a `=> void` callback ignores whatever it
-            // returns; JS does not assert the value is null), so it is dropped, not
-            // checked: `tap(identity)` and a `vi.fn<(x) => void>` transformer return
-            // values here.
-            Some(Type::None) => Ok(RustExpr::atom(format!("{{ let _ = {smelt_owned_text}; () }}", smelt_owned_text = smelt_owned_text.delimited()))),
-            // A bigint is extracted the way its scalar siblings below are: an
-            // exhaustive match over the tags, keeping the `BigInt` tag's exact
-            // value and coercing the primitives a dynamic value can hold
-            // exactly as `SmeltFromUnknown for BigInt` does.
-            // A symbol and a property key extract through their runtime
-            // `SmeltFromUnknown` adapters: the symbol tag's spelling moves into
-            // the typed value, and a key is `ToPropertyKey` of whatever arrived.
-            Some(Type::Symbol) => Ok(RustExpr::chain(self.carrier_format(self.carrier()?, format_args!(
-                "<SmeltSymbol as SmeltFromUnknown>::smelt_from_unknown({smelt_owned_text})", smelt_owned_text = smelt_owned_text.delimited()
-            )))),
-            Some(Type::PropKey) => Ok(RustExpr::chain(self.carrier_format(self.carrier()?, format_args!(
-                "SmeltToPropKey::smelt_to_prop_key(&({smelt_owned_text}))", smelt_owned_text = smelt_owned_text.delimited()
-            )))),
-            Some(Type::BigInt) => Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
-                "match {smelt_owned_text} {{ SmeltUnknown::BigInt(smelt_value) => smelt_value, SmeltUnknown::Number(smelt_value) => smelt_bigint_from_number(smelt_value).unwrap_or_default(), SmeltUnknown::String(smelt_value) => smelt_bigint_from_string(&smelt_value).unwrap_or_default(), SmeltUnknown::Bool(smelt_value) => {big}::from(i64::from(smelt_value)), SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => {big}::default() }}",
-                big = crate::bigint_prelude::BIGINT_TYPE, smelt_owned_text = smelt_owned_text.delimited()
-            )))),
-            Some(Type::Bool) => Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
-                "match {smelt_owned_text} {{ SmeltUnknown::Null | SmeltUnknown::Undefined => false, SmeltUnknown::Bool(smelt_value) => smelt_value, SmeltUnknown::Number(smelt_value) => smelt_value != 0.0 && !smelt_value.is_nan(), SmeltUnknown::String(smelt_value) => !smelt_value.is_empty(), {smelt_bigint_arm}SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => true }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => !::num_traits::Zero::is_zero(&value),"), smelt_owned_text = smelt_owned_text.delimited()
-            )))),
-            Some(Type::Float) => Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
-                "match {smelt_owned_text} {{ SmeltUnknown::Number(smelt_value) => smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get(\"{SMELT_DATE}\") {{ Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }}, SmeltUnknown::String(smelt_value) => smelt_js_string_to_number(&smelt_value), SmeltUnknown::Bool(smelt_value) => if smelt_value {{ 1.0 }} else {{ 0.0 }}, {smelt_bigint_arm}SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value),"), smelt_owned_text = smelt_owned_text.delimited()
-            )))),
-            Some(Type::Int) => self.extract_int(&smelt_owned_text),
-            // A Python `int` read back out of the carrier (a `json.loads`
-            // result, a value through an erased generic): the runtime's adapter.
-            Some(Type::PyInt) => Ok(RustExpr::chain(self.carrier_format(self.carrier()?, format_args!(
-                "<SmeltPyInt as SmeltFromUnknown>::smelt_from_unknown({smelt_owned_text})", smelt_owned_text = smelt_owned_text.delimited()
-            )))),
-            // Reading an erased value out into a `String` slot is not the JS
-            // `String(x)` CONVERSION -- nothing in the source asked for one; the
-            // slot's declared type simply says `string`. So absence must not
-            // become the conversion's answer `"undefined"`: the slot cannot
-            // represent absence at all, and inventing a five-letter string for
-            // it makes the erased side disagree with the very same absence
-            // written as a literal, which the typed side renders as the type's
-            // default (`String::new()`). `Null` has always answered
-            // `String::new()` here rather than `"null"` for exactly that
-            // reason; `Undefined` was the arm that had drifted, and a
-            // `[3, undefined]` expectation therefore compared unequal to the
-            // `[3, undefined]` a callee produced. The real conversion lives in
-            // `strings.rs` (`String(x)`, template literals, a `replace`
-            // replacer's return) and keeps `"undefined"`.
-            //
-            // The honest representation of an absent `string` is
-            // `Optional(String)`; where the declared type refuses it (here a
-            // library overload asserting `[number, string][]` for a `zip` that
-            // pads with `undefined`) the type's default is the closest the slot
-            // can come -- and it is at least the SAME answer on both sides of a
-            // comparison.
-            // A JavaScript string target takes the erased payload itself and
-            // transcodes only the text a non-string value coerces to.
-            Some(Type::String) => Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
-                "match {smelt_owned_text} {{ SmeltUnknown::String(smelt_value) => smelt_value, smelt_other => JsString::from(match smelt_other {{ {smelt_bigint_arm}SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_symbol_to_string(&smelt_value), SmeltUnknown::Number(smelt_value) => smelt_number_to_string(smelt_value), SmeltUnknown::Bool(smelt_value) => smelt_value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}) }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => value.to_string(),"), smelt_owned_text = smelt_owned_text.delimited()
-            )))),
-            Some(Type::PyStr) => Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
-                "match {smelt_owned_text} {{ {smelt_bigint_arm}SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_symbol_to_string(&smelt_value), SmeltUnknown::Number(smelt_value) => smelt_number_to_string(smelt_value), SmeltUnknown::Bool(smelt_value) => smelt_value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned(), SmeltUnknown::Promise(_) => \"[object Promise]\".to_owned() }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => value.to_string(),"), smelt_owned_text = smelt_owned_text.delimited()
-            )))),
-            // Iterable-to-list extraction inspects the source through the
-            // `SmeltUnknown` variant space (array/string/`Symbol.iterator`). The
-            // source expression is usually erased already, but a statically typed
-            // `SmeltList<_>` or `Option<SmeltList<_>>` (e.g. `Array.from(arr)`
-            // where `arr: ArrayLike<T> | null | undefined`) reaches here too, so
-            // normalize through the `IntoSmeltUnknown` boundary adapter first
-            // rather than matching `SmeltUnknown::` arms against a non-erased
-            // value. The adapter is identity on an existing `SmeltUnknown` and
-            // preserves the backing array id, so already-erased callers are
-            // unaffected.
-            Some(Type::List(_)) if self.list_items_render_as_unknown(target, scope) => {
-                Ok(erased_to_list_expr(text, None, &self.carrier_expr(self.carrier()?, &RustExpr::atom("SmeltUnknown::String(smelt_ch)"))))
-            }
-            Some(Type::List(item)) if self.mir.types.get(*item) == Some(&Type::String) => {
-                Ok(erased_to_list_expr(
-                    text,
-                    Some("<JsString as SmeltFromUnknown>::smelt_from_unknown(smelt_value)"),
-                    &RustExpr::path("smelt_ch"),
-                ))
-            }
-            Some(Type::List(item)) if self.mir.types.get(*item).is_some_and(Type::is_text) => {
-                Ok(erased_to_list_expr(
-                    text,
-                    Some(
-                        "if let SmeltUnknown::String(smelt_text) = smelt_value { smelt_text.to_string() } else { smelt_value.to_string() }",
-                    ),
-                    &RustExpr::chain("smelt_ch.to_string()"),
-                ))
-            }
-            Some(Type::List(item)) => {
-                let rendered_item = self.extract_rendered(&RustExpr::path("smelt_value"), *item, scope)?;
-                let holds_record = record_coercion::type_holds_generated_record(self.mir, *item);
-                let item_text = if holds_record {
-                    RustExpr::atom(format!("{{ smelt_conv_next_item(); {rendered_item} }}", rendered_item = rendered_item.delimited()))
-                } else {
-                    rendered_item
-                };
-                let shared = SharedItemConversion::new(item_text);
-                let char_text = match shared.binding() {
-                    Some(_) => RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
-                        "{SHARED_ITEM}(SmeltUnknown::String(smelt_ch))"
-                    ))),
-                    None => self.extract_rendered(
-                        &self.carrier_expr(self.carrier()?, &RustExpr::atom("SmeltUnknown::String(smelt_ch)")),
-                        *item,
-                        scope,
-                    )?,
-                };
-                let list = shared.wrap(erased_to_list_expr(text, Some(shared.use_text()), &char_text));
-                Ok(if holds_record {
-                    RustExpr::atom(format!("{{ let _smelt_conv_list = smelt_conv_enter_list(); {list} }}", list = list.delimited()))
-                } else {
-                    list
-                })
-            }
-            Some(Type::Dict(key, item))
-                if self.mir.types.get(*key).is_some_and(Type::is_text)
-                    && self.mir.types.get(*item) == Some(&Type::Unknown) =>
-            {
-                // An erased object read as a dictionary is its own store,
-                // shared, except a class value: its enumerable static fields
-                // (`Object.keys(Box)`) live in their storage
-                // (`smelt_object_dict_view`, in a program with class values).
-                let object_view = if self.context.demand().has(Need::ClassValue) {
-                    "smelt_object_dict_view(&smelt_value)"
-                } else {
-                    "smelt_value.smelt_shared_record()"
-                };
-                Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
-                    "match ({text}).into_smelt_unknown() {{ SmeltUnknown::Object(smelt_value) => {object_view}, SmeltUnknown::Array(smelt_values) => smelt_values.own_entries().into_iter().map(|(smelt_key, smelt_value)| (JsString::from(smelt_key), smelt_value)).collect(), SmeltUnknown::String(smelt_value) => smelt_value.units().iter().enumerate().map(|(smelt_index, smelt_unit)| (JsString::from(smelt_index.to_string()), SmeltUnknown::String(JsString::from_units(&[*smelt_unit])))).collect(), SmeltUnknown::Function(smelt_value) => SmeltRecord::from([(JsString::from(\"{SMELT_CALL}\"), SmeltUnknown::Function(smelt_value))]), _ => SmeltRecord::new() }}", text = text.delimited()
-                ))))
-            }
-            Some(Type::Dict(key, item)) if self.mir.types.get(*key) == Some(&Type::String) => {
-                let shared = SharedItemConversion::new(
-                    self.extract_rendered(&RustExpr::path("smelt_value"), *item, scope)?,
-                );
-                let item_text = shared.use_text();
-                // An erased object that is a view of a typed record
-                // (`emitter::live_view`) is read as a dictionary VIEW of that
-                // record: the record stays one object, and the dictionary's
-                // reads and writes are the record's. Any other object is its
-                // own store and is copied entry by entry, as before.
-                let object_view = if crate::runtime_prelude::flag(self.context, "live_views") == Some(true)
-                    && let Ok(erased_item) = self.erase_rendered(&RustExpr::path("smelt_typed").cloned_value(), *item)
-                {
-                    format!(
-                        "match smelt_values.smelt_typed_view(move |smelt_value: SmeltUnknown| {item_text}, |smelt_typed| {erased_item}) {{ Some(smelt_view) => smelt_view, None => SmeltRecord::with_id_from_entries(smelt_values.id, smelt_values.into_iter().map(|(smelt_key, smelt_value)| (smelt_key, {item_text}))) }}",
-                        erased_item = erased_item.delimited()
-                    )
-                } else {
-                    format!("SmeltRecord::with_id_from_entries(smelt_values.id, smelt_values.into_iter().map(|(smelt_key, smelt_value)| (smelt_key, {item_text})))")
-                };
-                Ok(shared.wrap(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
-                    "match ({text}).into_smelt_unknown() {{ SmeltUnknown::Object(smelt_values) => {object_view}, SmeltUnknown::Array(smelt_values) => smelt_values.into_iter().enumerate().map(|(smelt_index, smelt_value)| (JsString::from(smelt_index.to_string()), {item_text})).collect(), SmeltUnknown::String(smelt_value) => smelt_value.units().iter().enumerate().map(|(smelt_index, smelt_unit)| {{ let smelt_value = SmeltUnknown::String(JsString::from_units(&[*smelt_unit])); (JsString::from(smelt_index.to_string()), {item_text}) }}).collect(), _ => SmeltRecord::new() }}", text = text.delimited()
-                )))))
-            }
-            Some(Type::Dict(key, item)) if self.mir.types.get(*key).is_some_and(Type::is_text) => {
-                let shared = SharedItemConversion::new(
-                    self.extract_rendered(&RustExpr::path("smelt_value"), *item, scope)?,
-                );
-                let item_text = shared.use_text();
-                Ok(shared.wrap(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
-                    "match ({text}).into_smelt_unknown() {{ SmeltUnknown::Object(smelt_values) => SmeltRecord::with_id_from_entries(smelt_values.id, smelt_values.into_iter().map(|(smelt_key, smelt_value)| (smelt_key.to_string_lossy(), {item_text}))), SmeltUnknown::Array(smelt_values) => smelt_values.into_iter().enumerate().map(|(smelt_index, smelt_value)| (smelt_index.to_string(), {item_text})).collect(), SmeltUnknown::String(smelt_value) => smelt_value.code_point_strings().into_iter().enumerate().map(|(smelt_index, smelt_ch)| {{ let smelt_value = SmeltUnknown::String(smelt_ch); (smelt_index.to_string(), {item_text}) }}).collect(), _ => SmeltRecord::new() }}", text = text.delimited()
-                )))))
-            }
-            // A property-key record reads its keys back through the inverse of
-            // the storage encoding: a reserved `__smelt_symbol` key is the
-            // symbol it was written for, every other key the string it is.
-            // An `unknown`-valued one recovers a second handle on the erased
-            // object's own store, so the record and the value it was read
-            // from stay one object (`data as Record<PropertyKey, unknown>`).
-            Some(Type::Dict(key, item)) if self.is_prop_key_record_key(*key) => {
-                if self.mir.types.get(*item) == Some(&Type::Unknown) {
-                    return Ok(RustExpr::chain(self.carrier_format(self.carrier()?, format_args!(
-                        "SmeltPropKeyRecord::from_shared_unknown({smelt_owned_text})", smelt_owned_text = smelt_owned_text.delimited()
-                    ))));
-                }
-                let item_text = self.extract_rendered(&RustExpr::path("smelt_value"), *item, scope)?;
-                Ok(RustExpr::chain(self.carrier_format(self.carrier()?, format_args!(
-                    "SmeltPropKeyRecord::from_unknown_with({smelt_owned_text}, |smelt_value| {item_text})",
-                    smelt_owned_text = smelt_owned_text.delimited(), item_text = item_text.delimited()
-                ))))
-            }
-            Some(Type::Dict(key, item)) if self.mir.types.get(*key).is_none_or(|candidate| !candidate.is_text()) => {
-                let key_text = self.rendered_at_type(&RustExpr::path("smelt_key"), self.type_id(Type::String)?, *key, scope)?;
-                let item_text = self.extract_rendered(&RustExpr::path("smelt_value"), *item, scope)?;
-                if self.dict_uses_js_key_map(*key) {
-                    return Ok(RustExpr::loose(self.carrier_format(self.carrier()?, format_args!(
-                        "if let SmeltUnknown::Object(smelt_values) = {smelt_owned_text} {{ SmeltJsMap::from_iter(smelt_values.into_iter().map(|(smelt_key, smelt_value)| ({key_text}, {item_text}))) }} else {{ SmeltJsMap::new() }}", smelt_owned_text = smelt_owned_text.delimited(), key_text = key_text.delimited(), item_text = item_text.delimited()
-                    ))));
-                }
-                Ok(RustExpr::loose(self.carrier_format(self.carrier()?, format_args!(
-                    "if let SmeltUnknown::Object(smelt_values) = {smelt_owned_text} {{ smelt_values.into_iter().map(|(smelt_key, smelt_value)| ({key_text}, {item_text})).collect::<::indexmap::IndexMap<_, _>>() }} else {{ ::indexmap::IndexMap::new() }}", smelt_owned_text = smelt_owned_text.delimited(), key_text = key_text.delimited(), item_text = item_text.delimited()
-                ))))
-            }
-            // A source `Map` recovers through `SmeltJsMap`'s `SmeltFromUnknown`
-            // impl, which round-trips the `__smelt_map` marker: an erased Map
-            // rebuilds its entries (and stable id) from the marker payload, and a
-            // plain object falls back to string-keyed entries. This is the
-            // inverse of the `SmeltJsMap` erasure adapter, so `unknown -> Map`
-            // extraction stays lossless.
-            Some(Type::JsMap(_, _)) => {
-                let target_text = self.rendered_type(target)?;
-                Ok(RustExpr::loose(self.carrier_format(self.carrier()?, format_args!(
-                    "<{target_text} as SmeltFromUnknown>::smelt_from_unknown(({text}).into_smelt_unknown())", text = text.delimited()
-                ))))
-            }
-            Some(Type::TypeParam { name }) if scope.spells(*name) => {
-                let param_name = crate::names::type_param(self.symbol_name(*name)?).into_string();
-                Ok(RustExpr::loose(self.carrier_format(self.carrier()?, format_args!(
-                    "<{param_name} as SmeltFromUnknown>::smelt_from_unknown(({text}).into_smelt_unknown())", text = text.delimited()
-                ))))
-            }
-            Some(Type::TypeParam { .. }) => Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!("({text}).into_smelt_unknown()", text = text.delimited())))),
-            // A concrete union stores a tagged `SmeltUnion…` enum, so an erased
-            // `SmeltUnknown` value extracted into that destination must be
-            // reconstructed into the matching variant rather than passed through
-            // as `SmeltUnknown`. This mirrors the `from_smelt_unknown` boundary
-            // `inject_union_value` applies for `Unknown`/`TypeParam` sources;
-            // here the source is a wider (non-concrete) union still stored erased.
-            Some(Type::Union(_)) if self.concrete_union_members(target).is_some() => Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
-                "{}::from_smelt_unknown(({text}).into_smelt_unknown())",
-                union::union_name(target), text = text.delimited()
-            )))),
-            Some(Type::Never | Type::Union(_)) => Ok(text.to_owned()),
-            Some(Type::Optional(inner, absence)) => {
-                self.extract_optional(text, *inner, *absence, scope)
-            }
-            Some(Type::Tuple(items)) => self.extract_tuple(&smelt_owned_text, items, scope),
-            // The prelude `SmeltFromUnknown` impl is the single inverse of the
-            // `SmeltRegExp` erasure adapter, so `source`, `flags` AND the
-            // writable `lastIndex` all survive a round trip through erased
-            // dataflow (`clone(re)`, `structuredClone`, an `unknown` bag).
-            Some(Type::Class { name, .. }) if self.is_regexp_class_symbol(*name)? => Ok(RustExpr::loose(self.carrier_format(self.carrier()?, format_args!(
-                "<SmeltRegExp as SmeltFromUnknown>::smelt_from_unknown({smelt_owned_text})", smelt_owned_text = smelt_owned_text.delimited()
-            )))),
-            // Both synthetic match-result classes are backed by the concrete
-            // `SmeltMatch` Rust type, whose prelude `SmeltFromUnknown` impl is
-            // the inverse of its erasure adapter. Without this arm the generic
-            // class fallback below answers `Default::default()`, silently
-            // turning a round-tripped match into an EMPTY match.
-            Some(Type::Class { name, .. }) if self.is_match_class_symbol(*name)? => Ok(RustExpr::loose(self.carrier_format(self.carrier()?, format_args!(
-                "<SmeltMatch as SmeltFromUnknown>::smelt_from_unknown(({text}).into_smelt_unknown())", text = text.delimited()
-            )))),
-            // The inverse of the fetch-type erasure. Without this arm the generic
-            // class fallback answers `Default::default()`, so a header list or a
-            // parameter list that round-tripped through erased dataflow came back
-            // EMPTY with no diagnostic.
-            Some(Type::Class { .. }) if self.is_fetch_runtime_class_type(target)? => {
-                let rust_type = self.rendered_type(target)?;
-                Ok(RustExpr::loose(self.carrier_format(self.carrier()?, format_args!(
-                    "<{rust_type} as SmeltFromUnknown>::smelt_from_unknown({smelt_owned_text})", smelt_owned_text = smelt_owned_text.delimited()
-                ))))
-            }
-            Some(Type::Class { .. })
-                if self.renders_erased(target)? =>
-            {
-                Ok(text.to_owned())
-            }
-            Some(Type::Class { .. }) if self.is_erased_class_type(target) => Ok(text.to_owned()),
-            Some(Type::Class { .. }) if self.can_extract_unknown_object_record(target) => self.extract_object_record(text, target, scope),
-            // A source `Set` recovers through `SmeltJsSet`'s `SmeltFromUnknown`
-            // impl, which round-trips the `__smelt_set` marker (rebuilding members
-            // and the stable id) and tolerantly accepts a bare array. This is the
-            // inverse of the erasure adapter, so an `unknown -> Set` cast (e.g.
-            // `data as unknown as Set` in a deep-equality walk) recovers the real
-            // members instead of an empty set. `SmeltPrimSet` has the same impl.
-            Some(Type::Set(_)) => {
-                let target_text = self.rendered_type(target)?;
-                Ok(RustExpr::loose(self.carrier_format(self.carrier()?, format_args!(
-                    "<{target_text} as SmeltFromUnknown>::smelt_from_unknown(({text}).into_smelt_unknown())", text = text.delimited()
-                ))))
-            }
-            Some(Type::Class { .. }) => {
-                Ok(RustExpr::atom("Default::default()"))
-            }
-            Some(Type::Function(function)) => self.extract_function(target, function, scope, &smelt_owned_text),
-            // An already-erased `SmeltUnknown` at a `Type::Future` position is a
-            // `SmeltUnknown::Promise` (e.g. `await`ing the result of an erased
-            // vitest-mock call, or an `x as Promise<T>` cast). It CAN be recovered:
-            // `SmeltFuture::from_erased` is the same promise seen at `T`, settling
-            // when the erased one does (flattening a nested promise) with its value
-            // extracted to the declared `Output`, so its reactions keep their turn. Discarding it for `SmeltFuture::resolved`
-            // of a default would drop the real resolved value and leave the shared
-            // settle state unobserved (breaking, e.g., mock result matchers and
-            // chained awaits on the recovered promise).
-            Some(Type::Future(output)) => {
-                let extracted = self.extract_rendered(&RustExpr::path("smelt_awaited"), *output, scope)?;
-                // The erased source is read OUTSIDE the `async move` block. The
-                // block is `'static`, so a `{text}` that borrows — a callback
-                // parameter passed by shared reference
-                // (`callback_param_is_shared_reference`) is the case that reaches
-                // here — cannot be named inside it (E0521). Reading it eagerly is
-                // also what the source does: the promise value already exists at
-                // this point; only the `await` is deferred.
-                Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
-                    "{{ let smelt_erased_future = ({text}).into_smelt_unknown(); SmeltFuture::from_erased(smelt_erased_future, move |smelt_awaited| Ok::<_, {ERROR_BOX}>({extracted})) }}", text = text.delimited(), extracted = extracted.delimited()
-                ))))
-            }
-            other => Err(EmitError::new(format!(
-                "checked extraction from unknown expression `{text}` to {other:?} is not implemented yet", text = text.delimited()
-            ))),
-        }
-    }
-
     /// Render the erased argument vector used when a `SmeltUnknown::Function`
     /// is called through a concrete function type.
     ///
@@ -718,38 +295,6 @@ impl FunctionEmitter<'_> {
             "{{ let mut smelt_call_args = Vec::new(); {} smelt_call_args }}",
             statements.join(" ")
         )))
-    }
-
-    /// Whether `list_ty` is a list whose elements render as `SmeltUnknown` at
-    /// `scope`.
-    ///
-    /// `Type::Unknown` is that outright. A `Type::TypeParam` is too whenever
-    /// `scope` does not spell it: `rust_type` resolves such a name to
-    /// [`crate::type_substitution::Resolved::Erased`], so `List<T>` is emitted
-    /// as `SmeltList<SmeltUnknown>` and the per-element conversion the general
-    /// path would run is `into_smelt_unknown()` on a value that already IS a
-    /// `SmeltUnknown` — the identity impl. An *in-scope* `T` is a real Rust
-    /// generic and must keep going through the general path, which converts each
-    /// element through the corresponding inbound or outbound boundary adapter.
-    ///
-    /// Scope-aware rather than unconditional, and deliberately so: pass the
-    /// scope the asked-about type was (or will be) rendered at. A value of the
-    /// item being emitted was rendered at `&self.render_scope()`; a coercion
-    /// target is rendered at the scope its render position threads, which a
-    /// callee argument narrows (`callee_parameter_render_scope`).
-    pub(in crate::emitter) fn list_items_render_as_unknown(
-        &self,
-        list_ty: TypeId,
-        scope: &RenderScope,
-    ) -> bool {
-        let Some(Type::List(item)) = self.mir.types.get(list_ty) else {
-            return false;
-        };
-        match self.mir.types.get(*item) {
-            Some(Type::Unknown) => true,
-            Some(Type::TypeParam { name }) => !scope.spells(*name),
-            _ => false,
-        }
     }
 
     /// Whether `param_ty` is a list whose elements are `SmeltUnknown` once the
@@ -869,7 +414,7 @@ impl FunctionEmitter<'_> {
 }
 
 /// The closure name a container extraction binds its item conversion to.
-const SHARED_ITEM: &str = "smelt_item";
+pub(super) const SHARED_ITEM: &str = "smelt_item";
 
 /// An item conversion that a container extraction spells in several arms.
 ///
@@ -881,7 +426,7 @@ const SHARED_ITEM: &str = "smelt_item";
 /// a closure, `let smelt_item = |value: SmeltUnknown| ..;`, and each arm calls
 /// it, which keeps the text linear in the depth. A small one stays inline,
 /// where it costs less than the binding and keeps the common output as it was.
-struct SharedItemConversion {
+pub(super) struct SharedItemConversion {
     /// The conversion of an erased `value` to the item type.
     item: RustExpr,
     /// Whether the conversion is bound once instead of spelled per arm.
@@ -893,13 +438,13 @@ impl SharedItemConversion {
     const INLINE_LIMIT: usize = 512;
 
     /// Decide how `item` (a conversion reading the erased `value`) is spelled.
-    fn new(item: RustExpr) -> Self {
+    pub(super) fn new(item: RustExpr) -> Self {
         let bound = item.as_str().len() > Self::INLINE_LIMIT;
         Self { item, bound }
     }
 
     /// The `let` binding, when the conversion is bound once.
-    fn binding(&self) -> Option<String> {
+    pub(super) fn binding(&self) -> Option<String> {
         self.bound.then(|| {
             format!(
                 "let {SHARED_ITEM} = |smelt_value: SmeltUnknown| {};",
@@ -910,7 +455,7 @@ impl SharedItemConversion {
 
     /// The text each arm spells for one item: the inline conversion, or a call
     /// of the bound closure.
-    fn use_text(&self) -> &str {
+    pub(super) fn use_text(&self) -> &str {
         if self.bound {
             "smelt_item(smelt_value)"
         } else {
@@ -919,7 +464,7 @@ impl SharedItemConversion {
     }
 
     /// `container`, preceded by the binding its arms call when there is one.
-    fn wrap(&self, container: RustExpr) -> RustExpr {
+    pub(super) fn wrap(&self, container: RustExpr) -> RustExpr {
         match self.binding() {
             Some(binding) => RustExpr::atom(format!(
                 "{{ {binding} {container} }}",
@@ -969,7 +514,7 @@ impl SharedItemConversion {
 /// so that arm still rebuilds — but it keeps `values.id`, exactly as before.
 /// Every non-array arm builds a list that did not exist in the source program,
 /// so it mints a fresh identity through `SmeltList::new`.
-pub(in crate::emitter) fn erased_to_list_expr(
+pub(super) fn erased_to_list_expr(
     text: &RustExpr,
     item_text: Option<&str>,
     char_text: &RustExpr,
@@ -1056,7 +601,7 @@ impl FunctionEmitter<'_> {
     /// that tag is the slot's `None`. A slot that admits both absences
     /// (`Option<Option<T>>`, `undefined` outside) puts each tag on its own
     /// layer.
-    fn extract_optional(
+    pub(super) fn extract_optional(
         &self,
         text: &RustExpr,
         inner: TypeId,
@@ -1137,7 +682,7 @@ impl FunctionEmitter<'_> {
     }
 
     /// Extraction at a function type.
-    fn extract_function(
+    pub(super) fn extract_function(
         &self,
         target: TypeId,
         function: &FunctionType,
@@ -1293,14 +838,14 @@ impl FunctionEmitter<'_> {
     }
 
     /// Extraction at an integer.
-    fn extract_int(&self, smelt_owned_text: &RustExpr) -> Result<RustExpr, EmitError> {
+    pub(super) fn extract_int(&self, smelt_owned_text: &RustExpr) -> Result<RustExpr, EmitError> {
         Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
             "match {smelt_owned_text} {{ SmeltUnknown::Number(smelt_value) => smelt_value as i64, SmeltUnknown::Object(smelt_value) => match smelt_value.get(\"{SMELT_DATE}\") {{ Some(SmeltUnknown::Number(smelt_value)) => smelt_value as i64, _ => 0_i64 }}, SmeltUnknown::String(smelt_value) => smelt_js_string_to_number(&smelt_value) as i64, SmeltUnknown::Bool(smelt_value) => if smelt_value {{ 1_i64 }} else {{ 0_i64 }}, {smelt_bigint_arm}SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => 0_i64 }}", smelt_bigint_arm = self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value) as i64,"), smelt_owned_text = smelt_owned_text.delimited()
         ))))
     }
 
     /// Extraction at a tuple.
-    fn extract_tuple(
+    pub(super) fn extract_tuple(
         &self,
         smelt_owned_text: &RustExpr,
         items: &[TypeId],
@@ -1331,7 +876,7 @@ impl FunctionEmitter<'_> {
     }
 
     /// Extraction of a record from an erased object.
-    fn extract_object_record(
+    pub(super) fn extract_object_record(
         &self,
         text: &RustExpr,
         target: TypeId,
