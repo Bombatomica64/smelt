@@ -10,9 +10,7 @@ use smelt_frontend_ts::{HirCtx, to_hir};
 use smelt_hir::FileId;
 
 use super::summary::{CallSummaries, SummaryFacts};
-use super::{
-    FunctionBody, ListLocalClass, analyze_body, analyze_list_escapes, summarize_function,
-};
+use super::{FunctionBody, ListLocalClass, analyze_body, analyze_list_escapes, summarize_function};
 use crate::{BodyKey, EscapeReason, Mir, lower_hir, opt};
 
 /// Lower TypeScript source to optimized MIR, panicking with context on failure.
