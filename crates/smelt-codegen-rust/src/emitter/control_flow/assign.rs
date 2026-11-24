@@ -36,9 +36,11 @@ impl FunctionEmitter<'_> {
             Place::Local(_) => {}
         }
 
-        self.binding_uses.take_mut_borrows();
-        let rendered_value = self.rvalue_expr_for_dest(value, self.place_ty(place)?)?;
-        let value_mut_borrows = self.binding_uses.take_mut_borrows();
+        let dest_ty = self.place_ty(place)?;
+        let (rendered_value, value_mut_borrows) = self
+            .binding_uses
+            .mut_borrows_while(|| self.rvalue_expr_for_dest(value, dest_ty));
+        let rendered_value = rendered_value?;
         if let Place::Local(local) = place
             && (!self.is_local_declared(*local)
                 || (matches!(self.local_decl(*local)?.kind, LocalKind::Temp)

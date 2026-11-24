@@ -201,7 +201,7 @@ impl PlaceTarget {
 pub(super) struct BindingUses {
     /// Whether the rendered text named [`LocalBinding::SelfOwned`].
     self_owned: Cell<bool>,
-    /// Capture cells mutably borrowed since the last [`Self::take_mut_borrows`].
+    /// Capture cells mutably borrowed during the current [`Self::mut_borrows_while`].
     mut_borrowed_cells: RefCell<HashSet<String>>,
     /// Whether a body wrote an early `return Ok(..)`.
     early_return: Cell<bool>,
@@ -252,9 +252,13 @@ impl BindingUses {
         (result, inner)
     }
 
-    /// Answers the cells mutably borrowed so far and clears the record.
-    pub(super) fn take_mut_borrows(&self) -> HashSet<String> {
-        self.mut_borrowed_cells.take()
+    /// Runs `render` and answers, beside its result, the capture cells it
+    /// rendered in their mutably borrowing form (and only those: borrows
+    /// recorded before `render` started are forgotten).
+    pub(super) fn mut_borrows_while<T>(&self, render: impl FnOnce() -> T) -> (T, HashSet<String>) {
+        self.mut_borrowed_cells.take();
+        let rendered = render();
+        (rendered, self.mut_borrowed_cells.take())
     }
 }
 
@@ -316,8 +320,14 @@ mod tests {
         assert!(!uses.self_owned_used());
 
         let cell = SharedCell::named("x", CellUpgrade::Strong);
+        let ((), borrowed) =
+            uses.mut_borrows_while(|| uses.record(&LocalBinding::SharedCapture(cell.clone())));
+        assert!(borrowed.contains(&cell.cell));
         uses.record(&LocalBinding::SharedCapture(cell.clone()));
-        assert!(uses.take_mut_borrows().contains(&cell.cell));
-        assert!(uses.take_mut_borrows().is_empty());
+        let ((), borrowed) = uses.mut_borrows_while(|| ());
+        assert!(
+            borrowed.is_empty(),
+            "a borrow before the render is not the render's"
+        );
     }
 }
