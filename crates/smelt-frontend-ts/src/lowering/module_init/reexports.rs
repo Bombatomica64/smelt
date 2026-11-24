@@ -128,35 +128,4 @@ impl ModuleBuilder<'_> {
             self.alias_source_exports_under_namespace(source, &exported);
         }
     }
-
-    /// Alias exports from one source module under a namespace re-export.
-    ///
-    /// For `export * as Types from "./types"`, this records aliases such as
-    /// `Types.Id` only for exports that came from `./types`. Keeping this
-    /// source-scoped prevents namespace imports in large barrel graphs from
-    /// repeatedly re-aliasing every previously seen item.
-    pub(in crate::lowering) fn alias_source_exports_under_namespace(
-        &mut self,
-        source: &str,
-        namespace: &str,
-    ) {
-        let Some(exports) = self.source_module_exports(source) else {
-            return;
-        };
-        #[expect(
-            clippy::iter_over_hash_type,
-            reason = "keyed inserts of distinct names"
-        )]
-        for (name, item) in exports {
-            let alias = format!("{namespace}.{name}");
-            self.publish_export_alias(alias.clone(), item);
-            self.items.insert(alias.clone(), item);
-            if self.classes.has_item(item) {
-                self.classes.register(alias.clone(), item);
-            }
-            if self.interfaces.has_item(item) {
-                self.interfaces.register_alias(alias, item);
-            }
-        }
-    }
 }

@@ -1,4 +1,5 @@
-//! The ordered prepasses of module lowering, as a typestate.
+//! The ordered prepasses of module lowering, as a typestate, and the export
+//! publication that closes a lowered module.
 //!
 //! Lowering a module's statements needs a stack of module-wide facts that are
 //! each computed from the ones before: host imports can only be classified
@@ -15,13 +16,13 @@
 //! compile error. The individual passes a phase runs are called from that
 //! phase only.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use oxc::ast::ast::{Program, Statement};
 use oxc::span::GetSpan;
 use smelt_hir::Module;
 
-use super::super::support::implemented_function_names;
+use super::super::support::{implemented_function_names, item_name};
 use super::ModuleBuilder;
 use crate::SmeltError;
 
@@ -224,5 +225,105 @@ impl ModuleBuilder<'_> {
         // collecting these in source order would leave that read unresolved.
         self.collect_function_static_properties(program, errors);
         (SignaturesDeclared { _sealed: () }, facts)
+    }
+
+    /// Closing step: record item exports lowered from the current source path.
+    ///
+    /// Takes the [`SignaturesDeclared`] token by value, the last use of the
+    /// typestate: the export-rename
+    /// projection below reads every module item, so it runs once, after the
+    /// signature phase and the statement lowering that follows it.
+    pub(in crate::lowering) fn record_module_exports(
+        &mut self,
+        module: &Module,
+        _lowered: SignaturesDeclared,
+    ) {
+        // Resolve the renames the export prepass could not: `export { Store as
+        // StoreBase }` is visited before a non-exported `class Store {}` has
+        // been predeclared, so the alias found no item then and was recorded as
+        // a rename only. By the time the module is done its items exist, so the
+        // alias is published here — otherwise the importing module sees a name
+        // no declaration is bound to, and `class X extends StoreBase` recorded a
+        // base class nothing declares (silently dropping every inherited member).
+        //
+        // Every local resolves before any alias is published: in `export { a as
+        // b, b as c }` the alias `b` must not capture the local `b` of `c`.
+        let resolved = self
+            .export_renames
+            .iter()
+            .filter(|(exported, _)| {
+                !self
+                    .ctx
+                    .export_aliases
+                    .contains_key(&self.export_key(exported.as_str()))
+            })
+            // A namespace import re-exported under a new name published its
+            // members instead (`reexport_namespace_members`).
+            .filter(|(_, local)| !self.imports.is_namespace(local))
+            .filter_map(|(exported, local)| {
+                // Either registry can hold the declaration at this point: a class
+                // lives in the class registry, everything else in the item map.
+                let item = self
+                    .items
+                    .get(local)
+                    .copied()
+                    .or_else(|| self.classes.item(local))?;
+                Some((exported.clone(), item))
+            })
+            .collect::<Vec<_>>();
+        for (exported, item) in resolved {
+            self.items.insert(exported.clone(), item);
+            self.publish_export_alias(exported, item);
+        }
+        let mut exports = HashMap::new();
+        for item_id in &module.items {
+            let Some(item) = self
+                .ctx
+                .krate
+                .items
+                .get(usize::try_from(item_id.0).unwrap_or(usize::MAX))
+            else {
+                continue;
+            };
+            if let Some(name) = item_name(&self.ctx.krate, item) {
+                exports.insert(name.to_owned(), *item_id);
+            }
+        }
+        #[expect(
+            clippy::iter_over_hash_type,
+            reason = "keyed inserts of distinct aliases"
+        )]
+        for (alias, item_id) in &self.ctx.export_aliases {
+            if alias.module == self.module_key {
+                exports.insert(alias.name.clone(), *item_id);
+            }
+        }
+        // The module's own `export { local as exported }` specifiers, including
+        // re-exports of an import (`import { matcher } from ..; export { matcher }`)
+        // that bound no alias of their own.
+        let own = self
+            .export_renames
+            .iter()
+            .filter(|(_, local)| !self.imports.is_namespace(local))
+            .filter_map(|(exported, local)| {
+                Some((exported.clone(), self.items.get(local).copied()?))
+            })
+            .collect::<Vec<_>>();
+        for (exported, item_id) in own {
+            exports.entry(exported).or_insert(item_id);
+        }
+        self.publish_exported_predicates(&exports);
+        self.ctx
+            .module_exports
+            .insert(self.path.clone(), exports.clone());
+        if let Some(stripped) = self.path.strip_prefix("./") {
+            self.ctx
+                .module_exports
+                .insert(stripped.to_owned(), exports.clone());
+        }
+        if let Some(canonical) = Self::canonical_module_path(&self.path) {
+            self.ctx.module_exports.insert(canonical, exports);
+        }
+        self.record_module_global_object_aliases();
     }
 }

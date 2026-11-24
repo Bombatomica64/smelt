@@ -2,115 +2,15 @@
 //! predicates, global-object aliases) and how an importer resolves the exports of
 //! a source module.
 
-use super::super::support::item_name;
+use super::super::support::const_literal_from_item;
 use super::super::{AssertionNarrowing, ModuleBuilder};
-use super::phases::SignaturesDeclared;
 use crate::context::{ModuleKey, QualifiedExport};
 use crate::lowering::support::source_spelling;
-use smelt_hir::{Module, Type};
+use smelt_hir::{Item, Type};
 use std::collections::HashMap;
 use std::path::Path;
 
 impl ModuleBuilder<'_> {
-    /// Record item exports lowered from the current source path.
-    ///
-    /// Takes the [`SignaturesDeclared`] token by value: the export-rename
-    /// projection below reads every module item, so it runs once, after the
-    /// signature phase and the statement lowering that follows it.
-    pub(in crate::lowering) fn record_module_exports(
-        &mut self,
-        module: &Module,
-        _lowered: SignaturesDeclared,
-    ) {
-        // Resolve the renames the export prepass could not: `export { Store as
-        // StoreBase }` is visited before a non-exported `class Store {}` has
-        // been predeclared, so the alias found no item then and was recorded as
-        // a rename only. By the time the module is done its items exist, so the
-        // alias is published here — otherwise the importing module sees a name
-        // no declaration is bound to, and `class X extends StoreBase` recorded a
-        // base class nothing declares (silently dropping every inherited member).
-        //
-        // Every local resolves before any alias is published: in `export { a as
-        // b, b as c }` the alias `b` must not capture the local `b` of `c`.
-        let resolved = self
-            .export_renames
-            .iter()
-            .filter(|(exported, _)| {
-                !self
-                    .ctx
-                    .export_aliases
-                    .contains_key(&self.export_key(exported.as_str()))
-            })
-            // A namespace import re-exported under a new name published its
-            // members instead (`reexport_namespace_members`).
-            .filter(|(_, local)| !self.imports.is_namespace(local))
-            .filter_map(|(exported, local)| {
-                // Either registry can hold the declaration at this point: a class
-                // lives in the class registry, everything else in the item map.
-                let item = self
-                    .items
-                    .get(local)
-                    .copied()
-                    .or_else(|| self.classes.item(local))?;
-                Some((exported.clone(), item))
-            })
-            .collect::<Vec<_>>();
-        for (exported, item) in resolved {
-            self.items.insert(exported.clone(), item);
-            self.publish_export_alias(exported, item);
-        }
-        let mut exports = HashMap::new();
-        for item_id in &module.items {
-            let Some(item) = self
-                .ctx
-                .krate
-                .items
-                .get(usize::try_from(item_id.0).unwrap_or(usize::MAX))
-            else {
-                continue;
-            };
-            if let Some(name) = item_name(&self.ctx.krate, item) {
-                exports.insert(name.to_owned(), *item_id);
-            }
-        }
-        #[expect(
-            clippy::iter_over_hash_type,
-            reason = "keyed inserts of distinct aliases"
-        )]
-        for (alias, item_id) in &self.ctx.export_aliases {
-            if alias.module == self.module_key {
-                exports.insert(alias.name.clone(), *item_id);
-            }
-        }
-        // The module's own `export { local as exported }` specifiers, including
-        // re-exports of an import (`import { matcher } from ..; export { matcher }`)
-        // that bound no alias of their own.
-        let own = self
-            .export_renames
-            .iter()
-            .filter(|(_, local)| !self.imports.is_namespace(local))
-            .filter_map(|(exported, local)| {
-                Some((exported.clone(), self.items.get(local).copied()?))
-            })
-            .collect::<Vec<_>>();
-        for (exported, item_id) in own {
-            exports.entry(exported).or_insert(item_id);
-        }
-        self.publish_exported_predicates(&exports);
-        self.ctx
-            .module_exports
-            .insert(self.path.clone(), exports.clone());
-        if let Some(stripped) = self.path.strip_prefix("./") {
-            self.ctx
-                .module_exports
-                .insert(stripped.to_owned(), exports.clone());
-        }
-        if let Some(canonical) = Self::canonical_module_path(&self.path) {
-            self.ctx.module_exports.insert(canonical, exports);
-        }
-        self.record_module_global_object_aliases();
-    }
-
     /// The key this module publishes `name` under in the crate-wide export
     /// tables.
     pub(in crate::lowering) fn export_key(&self, name: impl Into<String>) -> QualifiedExport {
@@ -206,7 +106,10 @@ impl ModuleBuilder<'_> {
     /// `value is PropertyKey`) gives an importer no type to read at, only a cast
     /// into one more erased value per read, so it stays with the module that
     /// spells it.
-    fn publish_exported_predicates(&mut self, exports: &HashMap<String, smelt_hir::ItemId>) {
+    pub(super) fn publish_exported_predicates(
+        &mut self,
+        exports: &HashMap<String, smelt_hir::ItemId>,
+    ) {
         #[expect(
             clippy::iter_over_hash_type,
             reason = "keyed inserts, one per exported item"
@@ -399,6 +302,155 @@ impl ModuleBuilder<'_> {
         keys.push(key.to_owned());
         if let Some(stripped) = key.strip_prefix("./") {
             keys.push(stripped.to_owned());
+        }
+    }
+
+    /// Add a local alias for an imported item when it is already known.
+    pub(in crate::lowering) fn alias_imported_item(
+        &mut self,
+        source: &str,
+        imported: &str,
+        local: &str,
+    ) {
+        // A static property hung off an exported function (`partial.placeholder`)
+        // is recorded under the compound key `partial.placeholder`, so an importer
+        // has to alias those alongside the name itself. The fallback path below
+        // already does this for locally-known items; the resolved-exports path
+        // returned early and skipped it, which left an imported
+        // `partial.placeholder` unresolved.
+        if let Some(exports) = self.source_module_exports(source) {
+            let imported_prefix = format!("{imported}.");
+            let qualified = exports
+                .iter()
+                .filter_map(|(name, item)| {
+                    let member = name.strip_prefix(&imported_prefix)?;
+                    Some((format!("{local}.{member}"), *item))
+                })
+                .collect::<Vec<_>>();
+            for (alias, item) in qualified {
+                self.items.insert(alias, item);
+            }
+        }
+        // Facts that are not items (an object constant's entries, enum
+        // members, overloads, ...) come from the module `source` resolves to,
+        // never from whichever module last published the bare name.
+        self.adopt_exported_facts(source, imported, local);
+        if let Some(exports) = self.source_module_exports(source)
+            && let Some(item) = exports.get(imported).copied()
+        {
+            self.items.insert(local.to_owned(), item);
+            self.adopt_imported_predicate(item, local);
+            match self.item_ref(item) {
+                Item::Class(_) => {
+                    self.classes.register(local.to_owned(), item);
+                }
+                Item::Interface(_) => {
+                    self.interfaces.register_alias(local.to_owned(), item);
+                }
+                // Imported primitive const literals (e.g. `export const stringTag
+                // = '[object String]'`) must be foldable in the importer so they
+                // can appear in switch case labels and other constant positions.
+                // The construction-time `visible_const_literals` snapshot misses
+                // imports whose source module is lowered after this one, so fold
+                // the resolved crate item here where the dependency is guaranteed
+                // present.
+                Item::Const(const_item) => {
+                    if let Some(value) = const_literal_from_item(&self.ctx.krate, const_item) {
+                        self.consts.set_literal(local.to_owned(), value);
+                    }
+                }
+                _ => {}
+            }
+            return;
+        }
+        if let Some(item) = self.items.get(imported).copied() {
+            self.items.insert(local.to_owned(), item);
+        }
+        let imported_prefix = format!("{imported}.");
+        let qualified_item_aliases = self
+            .items
+            .iter()
+            .filter_map(|(name, item)| {
+                let member = name.strip_prefix(&imported_prefix)?;
+                Some((format!("{local}.{member}"), *item))
+            })
+            .collect::<Vec<_>>();
+        for (alias, item) in qualified_item_aliases {
+            self.items.insert(alias, item);
+        }
+        if let Some(item) = self.classes.item(imported) {
+            self.classes.register(local.to_owned(), item);
+        }
+        let qualified_class_aliases = self
+            .classes
+            .entries()
+            .filter_map(|(name, item)| {
+                let member = name.strip_prefix(&imported_prefix)?;
+                Some((format!("{local}.{member}"), item))
+            })
+            .collect::<Vec<_>>();
+        for (alias, item) in qualified_class_aliases {
+            self.classes.register(alias, item);
+        }
+        if let Some(item) = self.interfaces.item(imported) {
+            self.interfaces.register_alias(local.to_owned(), item);
+        }
+        let qualified_interface_aliases = self
+            .interfaces
+            .entries()
+            .filter_map(|(name, item)| {
+                let member = name.strip_prefix(&imported_prefix)?;
+                Some((format!("{local}.{member}"), item))
+            })
+            .collect::<Vec<_>>();
+        for (alias, item) in qualified_interface_aliases {
+            self.interfaces.register_alias(alias, item);
+        }
+        // Rebinding by the imported name only reaches this module's own
+        // declarations (`import { a as b } from './self'`): another module's
+        // constants were adopted through its qualified exports above.
+        self.consts.rebind_import(local, imported);
+        if let Some(namespace) = self.object_namespaces.get(imported).cloned() {
+            self.object_namespaces
+                .write()
+                .insert(local.to_owned(), namespace);
+        }
+        if let Some(overloads) = self.functions.overloads(imported).cloned() {
+            self.functions.set_overloads(local.to_owned(), overloads);
+        }
+        if let Some(rest) = self.functions.rest(imported) {
+            self.functions.set_rest(local.to_owned(), rest);
+        }
+    }
+
+    /// Alias exports from one source module under a namespace re-export.
+    ///
+    /// For `export * as Types from "./types"`, this records aliases such as
+    /// `Types.Id` only for exports that came from `./types`. Keeping this
+    /// source-scoped prevents namespace imports in large barrel graphs from
+    /// repeatedly re-aliasing every previously seen item.
+    pub(in crate::lowering) fn alias_source_exports_under_namespace(
+        &mut self,
+        source: &str,
+        namespace: &str,
+    ) {
+        let Some(exports) = self.source_module_exports(source) else {
+            return;
+        };
+        #[expect(
+            clippy::iter_over_hash_type,
+            reason = "keyed inserts of distinct names"
+        )]
+        for (name, item) in exports {
+            let alias = format!("{namespace}.{name}");
+            self.publish_export_alias(alias.clone(), item);
+            self.items.insert(alias.clone(), item);
+            if self.classes.has_item(item) {
+                self.classes.register(alias.clone(), item);
+            }
+            if self.interfaces.has_item(item) {
+                self.interfaces.register_alias(alias, item);
+            }
         }
     }
 }
