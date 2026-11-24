@@ -105,7 +105,7 @@ pub(crate) struct ModuleBuilder<'ctx> {
     /// Source path used for module metadata and diagnostics.
     path: String,
     /// Whether this module is the program entry (`__name__ == "__main__"`).
-    pub(crate) is_entry: bool,
+    is_entry: bool,
     /// Shared HIR context being populated.
     ctx: &'ctx mut HirCtx,
     /// State owned by the function body being lowered; swapped wholesale by
@@ -451,8 +451,14 @@ impl<'ctx> ModuleBuilder<'ctx> {
     // Module — two-pass lowering
     // -----------------------------------------------------------------------
 
-    /// Lower a parsed Python module into HIR.
-    pub(crate) fn module(&mut self, module: &ModModule) -> Result<ModuleId, Vec<SmeltError>> {
+    /// Lower a parsed Python module into HIR, as the program entry when
+    /// `as_entry` (its `__name__` then reads `"__main__"`).
+    pub(crate) fn module(
+        &mut self,
+        module: &ModModule,
+        as_entry: bool,
+    ) -> Result<ModuleId, Vec<SmeltError>> {
+        self.is_entry = as_entry;
         let source = SourceFile {
             path: self.path.clone(),
             language: Language::Python,
