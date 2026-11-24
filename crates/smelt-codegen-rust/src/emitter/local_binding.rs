@@ -323,10 +323,10 @@ mod tests {
         let ((), borrowed) =
             uses.mut_borrows_while(|| uses.record(&LocalBinding::SharedCapture(cell.clone())));
         assert!(borrowed.contains(&cell.cell));
-        uses.record(&LocalBinding::SharedCapture(cell.clone()));
-        let ((), borrowed) = uses.mut_borrows_while(|| ());
+        uses.record(&LocalBinding::SharedCapture(cell));
+        let ((), borrowed_by_empty_render) = uses.mut_borrows_while(|| ());
         assert!(
-            borrowed.is_empty(),
+            borrowed_by_empty_render.is_empty(),
             "a borrow before the render is not the render's"
         );
     }
