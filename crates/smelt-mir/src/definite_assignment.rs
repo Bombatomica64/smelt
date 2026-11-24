@@ -47,9 +47,9 @@ use crate::{
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Assigned {
     /// Locals assigned on every path that reaches the point.
-    pub must: HashSet<LocalId>,
+    must: HashSet<LocalId>,
     /// Locals assigned on at least one path that reaches the point.
-    pub may: HashSet<LocalId>,
+    may: HashSet<LocalId>,
 }
 
 /// How a read of one local relates to the paths that reach it.
@@ -71,6 +71,13 @@ impl Assigned {
             may: must.clone(),
             must,
         }
+    }
+
+    /// Whether `local` is assigned on every path that reaches this point, so
+    /// a read of it here always finds a value.
+    #[must_use]
+    pub fn is_assigned(&self, local: LocalId) -> bool {
+        self.must.contains(&local)
     }
 
     /// How a read of `local` at this point relates to its assignments.
@@ -467,7 +474,7 @@ impl CaptureInit {
             let sources: Vec<Option<LocalId>> = captures.iter().map(Operand::local).collect();
             let assigned: Vec<bool> = sources
                 .iter()
-                .map(|source| source.is_some_and(|local| state.must.contains(&local)))
+                .map(|source| source.is_some_and(|local| state.is_assigned(local)))
                 .collect();
             pending.push(PendingSite {
                 id: *id,
@@ -541,7 +548,7 @@ fn value_unobserved_until_assigned(
     let aliases = copies_of(body, value, source);
     let mut observed_unassigned = false;
     analysis.walk(body, |point, state| {
-        if observed_unassigned || state.must.contains(&source) {
+        if observed_unassigned || state.is_assigned(source) {
             return;
         }
         match point {
