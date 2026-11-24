@@ -1,7 +1,10 @@
 //! Test-harness lowering: describe/it suites and expect/assert matchers.
 
+mod assertion_check;
 mod assertion_library;
 mod async_expect;
+mod chai_words;
+mod containment;
 mod fake_timers;
 /// The `expect` matchers and the shared assertion site.
 pub(in crate::lowering) mod matchers;
