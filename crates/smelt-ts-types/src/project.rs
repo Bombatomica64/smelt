@@ -25,9 +25,7 @@ use tsrs_tsoptions::{self as tsoptions, ParseConfigHost};
 use tsrs_vfs::{FS, bundled, vfstest};
 
 use crate::TsTypesError;
-
-/// Virtual directory holding the analysed sources and the generated `tsconfig.json`.
-pub(crate) const ROOT: &str = "/smelt";
+use crate::layered_fs::ROOT;
 
 /// Path of the declaration of the test frameworks Smelt models itself.
 const TEST_FRAMEWORK_DECLARATIONS: &str = "/smelt/__smelt_test_frameworks.d.ts";
