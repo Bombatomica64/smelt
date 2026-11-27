@@ -8,6 +8,14 @@
 //! per path (`2^n` copies; `3^n` for a `try`, whose panic-routed arm repeats
 //! the `catch` continuation) — Hono's `utils/cookie.test.ts` produced a 616 MB
 //! module and v5's `compose` hit the closure emitter's unstructured-flow panic.
+//!
+//! The same requirement holds for loops whose body leaves them other than
+//! through their exit (`loop_exit_join`): `n` sequential `for...of` loops over
+//! generators (each a `try`/`finally` whose `next()` call's handler jumps past
+//! the loop to the clause), in a function, a closure, or the body of an
+//! enclosing loop, and `n` sequential `try { while (..) { .. } .. } finally`.
+//! Each early exit re-emitted the rest of the body (`4^n` copies in a function,
+//! `3^n` in a closure): 6 loops took ~90 s to transpile.
 
 use super::*;
 
@@ -110,4 +118,99 @@ fn rejoined_emission_grows_linearly() {
         trys_large * 10 < trys_small * 25,
         "function body: {trys_small} bytes for 4 try statements, {trys_large} for 8"
     );
+}
+
+/// A generator and the function `run` whose body is `n` copies of `statement`
+/// (inside `wrap`, which holds one `{}` for them), then one marker statement.
+fn generator_loops(n: usize, statement: &str, wrap: &str) -> String {
+    let body = statement.repeat(n);
+    let body = wrap.replace("{}", &body);
+    format!(
+        r"
+function* digits(limit: number): Generator<number> {{
+  for (let digit = 0; digit < limit; digit++) {{
+    yield digit;
+  }}
+}}
+
+function risky(value: number): number {{
+  if (value > 1000) {{
+    throw new Error('too big');
+  }}
+  return value;
+}}
+
+export function run(seed: number): number {{
+  let total = seed;
+  let i = 0;
+{body}
+  total = total * 7919;
+  return total;
+}}
+"
+    )
+}
+
+/// The loop shapes whose early exits rejoin past the loop: a `for...of` over
+/// a generator in a function, in a closure, and nested in an outer loop, and
+/// a `while` with code after it inside `try`/`finally`.
+fn loop_exit_programs(n: usize) -> Vec<(&'static str, String)> {
+    let for_of = "  for (const digit of digits(3)) { total += digit; }\n";
+    vec![
+        ("function for-of", generator_loops(n, for_of, "{}")),
+        (
+            "closure for-of",
+            generator_loops(
+                n,
+                for_of,
+                "  const step = (): number => {\n{}    return total;\n  };\n  total += step();",
+            ),
+        ),
+        (
+            "for-of in an outer loop",
+            generator_loops(
+                n,
+                for_of,
+                "  for (let round = 0; round < 2; round++) {\n{}    total += round;\n  }",
+            ),
+        ),
+        (
+            "while in try/finally",
+            generator_loops(
+                n,
+                "  try { while (i < 3) { i++; total += risky(i); } total += 1; } finally { total += 2; }\n",
+                "{}",
+            ),
+        ),
+    ]
+}
+
+#[test]
+fn loop_exits_emit_their_shared_tail_once() {
+    for (shape, program) in loop_exit_programs(4) {
+        let source = source_for(&program);
+        let program = program_body(&source);
+        assert_eq!(
+            program.matches("* 7919.0").count(),
+            1,
+            "{shape}: the statement after four sequential loops must be emitted once:\n{program}"
+        );
+    }
+}
+
+#[test]
+fn loop_exit_emission_grows_linearly() {
+    // Twelve loops against four: linear emission is ~3x the text; per-exit
+    // emission was `4^8` times larger (and never finished).
+    for ((shape, small), (_, large)) in loop_exit_programs(4)
+        .into_iter()
+        .zip(loop_exit_programs(12))
+    {
+        let small = program_body(&source_for(&small)).len();
+        let large = program_body(&source_for(&large)).len();
+        assert!(
+            large < small * 4,
+            "{shape}: {small} bytes for 4 loops, {large} for 12"
+        );
+    }
 }

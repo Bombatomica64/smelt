@@ -1798,9 +1798,10 @@ pub(crate) struct FunctionEmitter<'mir> {
     /// emitted Rust keeps as a borrowed `Fn` value.
     borrowed_callback_locals: HashSet<LocalId>,
     /// The `loop`s the closure-body emitter has open on the current path, by
-    /// header block, each with whether a labelled `continue` named it. See
-    /// [`FunctionEmitter::emit_closure_block_inner`].
-    closure_loops: RefCell<Vec<(smelt_mir::BlockId, bool)>>,
+    /// header block, each with whether a labelled `continue` or `break` named
+    /// it, its exit join (`closure_loop_exit_join`), and whether an exit broke
+    /// to that join. See [`FunctionEmitter::emit_closure_block_inner`].
+    closure_loops: RefCell<Vec<(smelt_mir::BlockId, bool, Option<smelt_mir::BlockId>, bool)>>,
     /// Parameter locals whose emitted Rust binding is already a shared
     /// reference (`name: &T`) rather than an owned `T`.
     ///

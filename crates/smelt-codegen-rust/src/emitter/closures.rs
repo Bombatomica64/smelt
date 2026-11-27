@@ -1347,12 +1347,15 @@ impl FunctionEmitter<'_> {
         if active.contains(&block.id) {
             return self.emit_closure_back_edge(block.id, out);
         }
+        if self.emit_closure_exit_join_break(block.id, out) {
+            return Ok(());
+        }
         let Some(terminator) = &block.terminator else {
             return Err(EmitError::new("closure basic block has no terminator"));
         };
         let mut path = ActivePath::enter(active, block.id);
         if self.closure_block_is_loop_header(block.id, terminator, &path) {
-            return self.emit_closure_loop(block, terminator, out, &mut path);
+            return self.emit_closure_loop(block, terminator, out, &mut path, stop, in_loop);
         }
         for statement in &block.statements {
             self.emit_statement(statement, out)?;
@@ -1363,15 +1366,32 @@ impl FunctionEmitter<'_> {
     /// Emits the loop headed by `block`: `loop { <block> }`, every path that
     /// returns to `block` continuing it and every other path leaving through a
     /// `return`, a throw or a labelled `continue` of an enclosing loop.
+    ///
+    /// When the loop's exits rejoin (`closure_loop_exit_join`), each exit
+    /// instead ends at the join with `break 'smelt_loop_N;`, and the join is
+    /// emitted once after the loop in the enclosing region (`stop`,
+    /// `in_loop`). Without it every exit carried its own copy of the rest of
+    /// the closure, so `n` sequential `for..of` loops over generators (whose
+    /// `next()` call's handler is a second exit) rendered `3^n` copies.
     fn emit_closure_loop(
         &self,
         block: &BasicBlock,
         terminator: &Terminator,
         out: &mut String,
         active: &mut Vec<smelt_mir::BlockId>,
+        stop: Option<smelt_mir::BlockId>,
+        in_loop: bool,
     ) -> Result<(), EmitError> {
         let mut body = String::new();
-        self.closure_loops.borrow_mut().push((block.id, false));
+        let enclosing = active
+            .iter()
+            .copied()
+            .filter(|candidate| *candidate != block.id)
+            .collect::<Vec<_>>();
+        let exit_join = self.closure_loop_exit_join(block.id, &enclosing, stop);
+        self.closure_loops
+            .borrow_mut()
+            .push((block.id, false, exit_join, false));
         let emitted = (|| {
             for statement in &block.statements {
                 self.emit_statement(statement, &mut body)?;
@@ -1381,11 +1401,13 @@ impl FunctionEmitter<'_> {
             // reach must become an explicit `return` (see `in_loop`).
             self.emit_closure_terminator(block, terminator, &mut body, active, Some(block.id), true)
         })();
-        let labelled = self
+        let (labelled, exit_join_used) = self
             .closure_loops
             .borrow_mut()
             .pop()
-            .is_some_and(|(_, used)| used);
+            .map_or((false, false), |(_, labelled, _, exit_used)| {
+                (labelled || exit_used, exit_used)
+            });
         emitted?;
         if labelled {
             out.push_str(&format!("    '{}: loop {{\n", closure_loop_label(block.id)));
@@ -1394,7 +1416,26 @@ impl FunctionEmitter<'_> {
         }
         out.push_str(&body);
         out.push_str("    }\n");
+        if let Some(join) = exit_join.filter(|_| exit_join_used) {
+            self.emit_closure_block_inner(self.block(join)?, out, active, stop, in_loop)?;
+        }
         Ok(())
+    }
+
+    /// Writes `break 'smelt_loop_N;` when `target` is the exit join of an open
+    /// closure loop (the innermost one naming it), and answers whether it did.
+    fn emit_closure_exit_join_break(&self, target: smelt_mir::BlockId, out: &mut String) -> bool {
+        let mut loops = self.closure_loops.borrow_mut();
+        let Some(open) = loops
+            .iter_mut()
+            .rev()
+            .find(|(_, _, exit_join, _)| *exit_join == Some(target))
+        else {
+            return false;
+        };
+        open.3 = true;
+        out.push_str(&format!("    break '{};\n", closure_loop_label(open.0)));
+        true
     }
 
     /// Emits the edge to `target`, a block already on the emission path: a
@@ -1405,7 +1446,7 @@ impl FunctionEmitter<'_> {
         out: &mut String,
     ) -> Result<(), EmitError> {
         let mut loops = self.closure_loops.borrow_mut();
-        let Some(open) = loops.iter_mut().rev().find(|(header, _)| *header == target) else {
+        let Some(open) = loops.iter_mut().rev().find(|(header, _, _, _)| *header == target) else {
             return Err(EmitError::new(format!(
                 "closure body has an unstructured cycle through block {}: it re-enters a block on the emission path that heads no loop",
                 target.0

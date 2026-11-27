@@ -19,6 +19,13 @@
 //! targets, so such an edge becomes a labelled `continue 'smelt_loop_N` /
 //! `break 'smelt_loop_N`, and the label is written onto the loop only when
 //! some edge used it.
+//!
+//! A loop may also carry an EXIT JOIN (`FunctionEmitter::loop_exit_join`): the
+//! block where edges that leave the loop early (a `catch` arm out of the
+//! body, a jump past the loop's own exit) meet its normal exit again. An edge
+//! reaching it from inside the loop becomes `break 'smelt_exit_N`, out of a
+//! labelled block that wraps the loop and the code from its exit up to the
+//! join, which is then emitted once after that block.
 
 use std::cell::{Cell, RefCell};
 
@@ -73,8 +80,13 @@ struct OpenLoop {
     has_latch: bool,
     /// The block the loop exits to, when it has a single structural exit.
     break_block: Option<smelt_mir::BlockId>,
+    /// The block where the loop's early exits rejoin its normal exit, past
+    /// `break_block` (see the module docs).
+    exit_join: Option<smelt_mir::BlockId>,
     /// Whether some edge jumped to this loop by label.
     labelled: bool,
+    /// Whether some edge jumped to `exit_join` (so the exit block is written).
+    exit_join_used: bool,
 }
 
 /// An edge that leaves more than one generated loop: see
@@ -98,6 +110,13 @@ pub(crate) enum LoopJump {
         /// Whether the jump names the loop (it is not the innermost one).
         labelled: bool,
     },
+    /// Leave the loop headed by `header` straight to its exit join: the end
+    /// of the labelled block around the loop and its exit region. Always
+    /// labelled, since a block can only be left by name.
+    BreakToExitJoin {
+        /// The loop's header.
+        header: smelt_mir::BlockId,
+    },
 }
 
 impl LoopJump {
@@ -113,6 +132,7 @@ impl LoopJump {
                 header,
                 labelled: true,
             },
+            Self::BreakToExitJoin { header } => Self::BreakToExitJoin { header },
         }
     }
 
@@ -134,6 +154,7 @@ impl LoopJump {
             Self::Break {
                 labelled: false, ..
             } => "    break;\n".to_owned(),
+            Self::BreakToExitJoin { header } => format!("    break {};\n", exit_label(header)),
         }
     }
 
@@ -141,7 +162,7 @@ impl LoopJump {
     pub(crate) fn latch(self) -> Option<smelt_mir::BlockId> {
         match self {
             Self::Continue { latch, .. } => latch,
-            Self::Break { .. } => None,
+            Self::Break { .. } | Self::BreakToExitJoin { .. } => None,
         }
     }
 }
@@ -149,6 +170,12 @@ impl LoopJump {
 /// The Rust label of the generated loop headed by `header`.
 pub(crate) fn loop_label(header: smelt_mir::BlockId) -> String {
     format!("'smelt_loop_{}", header.0)
+}
+
+/// The Rust label of the block around the loop headed by `header` and the
+/// region from its exit up to its exit join.
+pub(crate) fn exit_label(header: smelt_mir::BlockId) -> String {
+    format!("'smelt_exit_{}", header.0)
 }
 
 /// One open loop pushed by [`ControlFlowState::open_loop`]. Closing it with
@@ -167,22 +194,29 @@ pub(crate) struct OpenLoopScope<'a> {
 impl OpenLoopScope<'_> {
     /// Pop the loop and, when some edge jumped to it by label, write the label
     /// in front of its opening keyword in `out` (the buffer it was opened in).
-    pub(crate) fn close(mut self, out: &mut String) {
+    ///
+    /// Answers the exit join some edge jumped to: the labelled block around
+    /// the loop is then OPEN in `out`, and the caller emits the loop's exit
+    /// region up to that join, closes the block, and continues at the join.
+    pub(crate) fn close(mut self, out: &mut String) -> Option<smelt_mir::BlockId> {
         self.closed = true;
-        let Some(open) = self.state.open_loops.borrow_mut().pop() else {
-            return;
-        };
-        if !open.labelled {
-            return;
+        let open = self.state.open_loops.borrow_mut().pop()?;
+        if open.labelled {
+            let indent = out[self.opened_at..]
+                .bytes()
+                .take_while(|byte| *byte == b' ')
+                .count();
+            out.insert_str(
+                self.opened_at.saturating_add(indent),
+                &format!("{}: ", loop_label(open.header)),
+            );
         }
-        let indent = out[self.opened_at..]
-            .bytes()
-            .take_while(|byte| *byte == b' ')
-            .count();
+        let join = open.exit_join.filter(|_| open.exit_join_used)?;
         out.insert_str(
-            self.opened_at.saturating_add(indent),
-            &format!("{}: ", loop_label(open.header)),
+            self.opened_at,
+            &format!("    {}: {{\n", exit_label(open.header)),
         );
+        Some(join)
     }
 }
 
@@ -365,12 +399,14 @@ impl ControlFlowState {
     ///
     /// `continue_target` is where an iteration ends (the header, or `latch`
     /// when the loop closes each iteration with a latch block's statements);
-    /// `break_block` is the loop's exit, when it has one.
+    /// `break_block` is the loop's exit, when it has one; `exit_join` is where
+    /// its early exits rejoin that exit, when that is past it.
     pub(crate) fn open_loop(
         &self,
         header: smelt_mir::BlockId,
         latch: Option<smelt_mir::BlockId>,
         break_block: Option<smelt_mir::BlockId>,
+        exit_join: Option<smelt_mir::BlockId>,
         opened_at: usize,
     ) -> OpenLoopScope<'_> {
         self.open_loops.borrow_mut().push(OpenLoop {
@@ -378,7 +414,9 @@ impl ControlFlowState {
             continue_target: latch.unwrap_or(header),
             has_latch: latch.is_some(),
             break_block,
+            exit_join,
             labelled: false,
+            exit_join_used: false,
         });
         OpenLoopScope {
             state: self,
@@ -407,11 +445,28 @@ impl ControlFlowState {
         {
             return None;
         }
+        // The innermost loop's exit join is no plain target of its walker:
+        // reaching it leaves the labelled block, whichever loop is innermost.
+        if Some(target) == innermost.exit_join {
+            innermost.exit_join_used = true;
+            return Some(LoopJump::BreakToExitJoin {
+                header: innermost.header,
+            });
+        }
         let (index, jump) = Self::jump_into(enclosing, target)?;
         if let Some(open) = enclosing.get_mut(index) {
-            open.labelled = true;
+            Self::mark_used(open, jump);
         }
         Some(LoopJump::labelled(jump))
+    }
+
+    /// Record that `jump` named `open`: its loop label, or its exit block.
+    fn mark_used(open: &mut OpenLoop, jump: LoopJump) {
+        if matches!(jump, LoopJump::BreakToExitJoin { .. }) {
+            open.exit_join_used = true;
+        } else {
+            open.labelled = true;
+        }
     }
 
     /// The jump an edge to `target` needs when it ends an iteration of, or
@@ -421,11 +476,11 @@ impl ControlFlowState {
         let mut loops = self.open_loops.borrow_mut();
         let innermost = loops.len().checked_sub(1)?;
         let (index, jump) = Self::jump_into(&loops[..], target)?;
-        if index == innermost {
+        if index == innermost && !matches!(jump, LoopJump::BreakToExitJoin { .. }) {
             return Some(jump);
         }
         if let Some(open) = loops.get_mut(index) {
-            open.labelled = true;
+            Self::mark_used(open, jump);
         }
         Some(LoopJump::labelled(jump))
     }
@@ -452,6 +507,10 @@ impl ControlFlowState {
                 LoopJump::Break {
                     header: open.header,
                     labelled: false,
+                }
+            } else if Some(target) == open.exit_join {
+                LoopJump::BreakToExitJoin {
+                    header: open.header,
                 }
             } else {
                 return None;
@@ -480,6 +539,7 @@ impl ControlFlowState {
                     Some(open.header),
                     Some(open.continue_target),
                     open.break_block,
+                    open.exit_join,
                 ]
             })
             .flatten()

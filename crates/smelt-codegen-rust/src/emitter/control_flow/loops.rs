@@ -657,7 +657,7 @@ impl FunctionEmitter<'_> {
         let loop_declared = self.declared_scope();
         let open_loop = self
             .flow
-            .open_loop(block.id, None, Some(exit_entry), out.len());
+            .open_loop(block.id, None, Some(exit_entry), None, out.len());
         out.push_str("    loop {\n");
         self.emit_condition_region(block, decision, out, &mut BlockIdSet::default())?;
         out.push_str(&format!(
@@ -813,6 +813,23 @@ impl FunctionEmitter<'_> {
                 then_block,
                 else_block,
             }) if break_target.is_some() => {
+                // Rejoin the arms where they meet, as `emit_loop_branch_inner`
+                // does: this walker also runs the region after a nested loop
+                // (`emit_after_nested_loop`), where a `for..of`'s closing
+                // `if (!done) it.return()` otherwise doubled everything after
+                // it on each sequential loop.
+                if self.emit_loop_branch_at_join(
+                    block.id,
+                    cond,
+                    *then_block,
+                    *else_block,
+                    stop,
+                    break_target,
+                    out,
+                    visited,
+                )? {
+                    return Ok(());
+                }
                 out.push_str(&format!(
                     "    if {} {{\n",
                     self.truthy_operand_expr(cond)?.delimited()
@@ -1367,9 +1384,10 @@ impl FunctionEmitter<'_> {
             };
             let then = self.block(then_block)?;
             let loop_declared = self.declared_scope();
-            let open_loop = self
-                .flow
-                .open_loop(block.id, None, Some(break_block), out.len());
+            let exit_join = self.nested_loop_exit_join(block.id, break_block, else_block, stop);
+            let open_loop =
+                self.flow
+                    .open_loop(block.id, None, Some(break_block), exit_join, out.len());
             self.open_while_loop(block, &cond, cond_statement_idx, out)?;
             self.emit_block_until_goto(
                 then,
@@ -1380,9 +1398,10 @@ impl FunctionEmitter<'_> {
                 out,
             )?;
             out.push_str("    }\n");
-            open_loop.close(out);
+            let used_join = open_loop.close(out);
             loop_declared.close();
-            self.emit_after_nested_loop(else_block, stop, exit, out, visited)?;
+            let next = self.emit_loop_exit_region(used_join, else_block, out)?;
+            self.emit_after_nested_loop(next, stop, exit, out, visited)?;
             return Ok(true);
         }
 
@@ -1398,9 +1417,10 @@ impl FunctionEmitter<'_> {
             };
             let then = self.block(then_block)?;
             let loop_declared = self.declared_scope();
-            let open_loop = self
-                .flow
-                .open_loop(block.id, None, Some(break_block), out.len());
+            let exit_join = self.nested_loop_exit_join(block.id, break_block, else_block, stop);
+            let open_loop =
+                self.flow
+                    .open_loop(block.id, None, Some(break_block), exit_join, out.len());
             out.push_str("    loop {\n");
             for statement in &block.statements {
                 self.emit_statement_for_block(block, statement, out)?;
@@ -1414,9 +1434,10 @@ impl FunctionEmitter<'_> {
                 out,
             )?;
             out.push_str("    }\n");
-            open_loop.close(out);
+            let used_join = open_loop.close(out);
             loop_declared.close();
-            self.emit_after_nested_loop(else_block, stop, exit, out, visited)?;
+            let next = self.emit_loop_exit_region(used_join, else_block, out)?;
+            self.emit_after_nested_loop(next, stop, exit, out, visited)?;
             return Ok(true);
         }
 
@@ -1435,9 +1456,14 @@ impl FunctionEmitter<'_> {
             let then = self.block(then_block)?;
             let latch = self.block(latch_block)?;
             let loop_declared = self.declared_scope();
-            let open_loop =
-                self.flow
-                    .open_loop(block.id, Some(latch_block), Some(break_block), out.len());
+            let exit_join = self.nested_loop_exit_join(block.id, break_block, else_block, stop);
+            let open_loop = self.flow.open_loop(
+                block.id,
+                Some(latch_block),
+                Some(break_block),
+                exit_join,
+                out.len(),
+            );
             self.open_while_loop(block, &cond, cond_statement_idx, out)?;
             self.emit_block_until_goto(
                 then,
@@ -1451,9 +1477,10 @@ impl FunctionEmitter<'_> {
                 self.emit_statement(statement, out)?;
             }
             out.push_str("    }\n");
-            open_loop.close(out);
+            let used_join = open_loop.close(out);
             loop_declared.close();
-            self.emit_after_nested_loop(else_block, stop, exit, out, visited)?;
+            let next = self.emit_loop_exit_region(used_join, else_block, out)?;
+            self.emit_after_nested_loop(next, stop, exit, out, visited)?;
             return Ok(true);
         }
 
@@ -1544,7 +1571,7 @@ impl FunctionEmitter<'_> {
         let loop_declared = self.declared_scope();
         let open_loop = self
             .flow
-            .open_loop(block.id, None, Some(break_block), out.len());
+            .open_loop(block.id, None, Some(break_block), None, out.len());
         out.push_str("    loop {\n");
         for statement in &block.statements {
             self.emit_statement_for_block(block, statement, out)?;
@@ -1639,6 +1666,20 @@ impl FunctionEmitter<'_> {
         }
         (matches!(exit, RegionExit::LoopBody { .. }) && self.flow.in_open_loop())
             .then_some(else_block)
+    }
+
+    /// The exit join of a loop nested in a region ending at `stop`, when its
+    /// body breaks to its own exit `else_block` (see `loop_exit_join`).
+    fn nested_loop_exit_join(
+        &self,
+        header: smelt_mir::BlockId,
+        break_block: smelt_mir::BlockId,
+        else_block: smelt_mir::BlockId,
+        stop: smelt_mir::BlockId,
+    ) -> Option<smelt_mir::BlockId> {
+        (break_block == else_block)
+            .then(|| self.loop_exit_join(header, else_block, Some(stop)))
+            .flatten()
     }
 
     /// Whether following blocks that hold no statement and only `goto` leads
