@@ -18,10 +18,6 @@ use super::*;
 ///   `Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn Error>>>`,
 ///   shared by every erased callback in the crate, so it cannot mention a
 ///   parameter belonging to one caller.
-///
-/// Expectation corrected (branch rejoin at the post-dominator): the old text nested the rest of the
-/// body in the `else` of a branch whose arm throws/returns; the same statements now follow the `if`
-/// once. Behaviour is unchanged.
 #[test]
 fn one_channel_carries_structurally_unrelated_payloads() {
     let source = source_for(
@@ -40,8 +36,9 @@ function boom(asRecord: boolean): void {
         r#"fn boom(as_record: bool) -> Result<(), Box<dyn std::error::Error>> {
 if as_record {
 return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::Object(SmeltObject::from_unknown_record((SmeltRecord::from([(JsString::from("code"), SmeltUnknown::Number(42.0 as f64)), (JsString::from("tag"), SmeltUnknown::String("record".into()))])).clone()))));
-}
+} else {
 return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::String("a bare string".into())));
+}
 }"#
     );
 }
@@ -51,8 +48,8 @@ return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::String("a 
 /// fixture occupies a spread of them.
 ///
 /// Expectation corrected (branch rejoin at the post-dominator): the old text nested the rest of the
-/// body in the `else` of a branch whose arm throws/returns; the same statements now follow the `if`
-/// once. Behaviour is unchanged.
+/// body in the `else` of a branch whose arm throws; the same statements now follow the `if` once.
+/// Behaviour is unchanged.
 #[test]
 fn a_foreign_closure_capture_does_not_suppress_the_fold() {
     let source = source_for(
@@ -101,8 +98,8 @@ return Ok(size);
 /// the record or its erasure, because a hand-written crate would not.
 ///
 /// Expectation corrected (branch rejoin at the post-dominator): the old text nested the rest of the
-/// body in the `else` of a branch whose arm throws/returns; the same statements now follow the `if`
-/// once. Behaviour is unchanged.
+/// body in the `else` of a branch whose arm throws; the same statements now follow the `if` once.
+/// Behaviour is unchanged.
 #[test]
 fn thrown_error_payload_is_built_at_the_throw_site() {
     let source = source_for(
@@ -130,10 +127,6 @@ return Ok(size);
 
 /// The fold is keyed on the shape of the MIR, not on the operand being an
 /// `Error`: a thrown string and a thrown object each enter the channel whole.
-///
-/// Expectation corrected (branch rejoin at the post-dominator): the old text nested the rest of the
-/// body in the `else` of a branch whose arm throws/returns; the same statements now follow the `if`
-/// once. Behaviour is unchanged.
 #[test]
 fn throwing_a_plain_value_keeps_its_own_payload() {
     let source = source_for(
@@ -156,8 +149,9 @@ export function reject(flag: boolean): number {
         r#"fn reject(flag: bool) -> Result<f64, Box<dyn std::error::Error>> {
 if flag {
 return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::String("negative".into())));
-}
+} else {
 return Err::<_, Box<dyn std::error::Error>>(smelt_throw({ let smelt_record = (SmeltRecord::from([(JsString::from("code"), 1.0)])).clone(); SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(smelt_key, smelt_value)| (smelt_key, SmeltUnknown::Number(smelt_value as f64))).collect())) }));
+}
 }"#
     );
 }

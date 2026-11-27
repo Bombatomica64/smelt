@@ -152,10 +152,24 @@ fn immediate_post_dominators_with(
             }
         }
     }
+    // The blocks with a path to the exit. One without (an infinite loop, or
+    // every path ends in a neutral block) keeps the full set, which holds the
+    // exit too, so the set cannot answer this.
+    let mut reaches_exit = vec![false; nodes];
+    reaches_exit[exit] = true;
+    let mut grew = true;
+    while grew {
+        grew = false;
+        for node in 0..blocks {
+            if !reaches_exit[node] && successors[node].iter().any(|next| reaches_exit[*next]) {
+                reaches_exit[node] = true;
+                grew = true;
+            }
+        }
+    }
     (0..blocks)
         .map(|node| {
-            // A block that cannot reach the exit keeps the full set.
-            if !post[node].contains(exit) {
+            if !reaches_exit[node] {
                 return None;
             }
             (0..blocks)

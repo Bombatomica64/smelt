@@ -385,3 +385,39 @@ fn rejoined_branch_emission_grows_linearly() {
         );
     }
 }
+
+/// A `switch` whose cases all return, two of whose labels share a case body
+/// holding a loop (es-toolkit's `compat/array/some`). Every path from it ends
+/// in an arm's own `return`, so with those neutral no block reaches the
+/// function's exit and there is no join: the post-dominator sets stay full,
+/// and a full set also holds the exit node, so the old "can it reach the
+/// exit" test passed and the per-branch table named a block inside the loop
+/// (`edge from block 9 back to block 6 closes a cycle no loop was opened
+/// for`). The arms keep their own emission.
+#[test]
+fn switch_whose_cases_all_return_keeps_its_loops() {
+    let source = source_for(
+        r"
+export function some(source: number[], predicate: string | number): boolean {
+  switch (typeof predicate) {
+    case 'number':
+    case 'string': {
+      for (let i = 0; i < source.length; i++) {
+        if (source[i] > 2) {
+          return true;
+        }
+      }
+      return false;
+    }
+  }
+  return true;
+}
+",
+    );
+    let emitted = program_body(&source);
+    assert_eq!(
+        emitted.matches("loop {").count(),
+        2,
+        "each arm sharing the case body keeps its loop:\n{emitted}"
+    );
+}

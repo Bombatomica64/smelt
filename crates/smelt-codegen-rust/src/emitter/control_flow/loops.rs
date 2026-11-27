@@ -1360,9 +1360,33 @@ impl FunctionEmitter<'_> {
                 *slot &= *member;
             }
         }
-        // Every path from the starts ends in a neutral `return`/`throw`:
-        // nothing rejoins (and the full set would name an arbitrary block).
-        if !start_set.get(exit).copied().unwrap_or(false) {
+        // Every path from the starts ends in a neutral `return`/`throw` (or
+        // cycles): nothing rejoins, and the full set, which holds the exit
+        // too, would name an arbitrary block.
+        let mut reaches_exit = vec![false; width];
+        if let Some(slot) = reaches_exit.get_mut(exit) {
+            *slot = true;
+        }
+        let mut grew = true;
+        while grew {
+            grew = false;
+            for (node, next_nodes) in region_successors.iter().enumerate() {
+                if !reaches_exit.get(node).copied().unwrap_or(true)
+                    && next_nodes
+                        .iter()
+                        .any(|next| reaches_exit.get(*next).copied().unwrap_or(false))
+                {
+                    if let Some(slot) = reaches_exit.get_mut(node) {
+                        *slot = true;
+                    }
+                    grew = true;
+                }
+            }
+        }
+        if !starts
+            .iter()
+            .any(|start| reaches_exit.get(node_of(*start)).copied().unwrap_or(false))
+        {
             return None;
         }
         // The immediate post-dominator is the post-dominator that is itself
