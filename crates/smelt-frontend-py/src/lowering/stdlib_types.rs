@@ -86,6 +86,10 @@ impl ModuleBuilder<'_> {
         {
             return self.python_text_expr(operand, false, span, body).map(Some);
         }
+        // `bool(x)` is `x`'s truth test, whatever its type.
+        if op == PrimitiveCastOp::ToBool {
+            return self.python_truth(operand, span, body).map(Some);
+        }
         if !matches!(operand_kind, Some(Type::Bool | Type::PyInt | Type::Float | Type::PyStr)) {
             return Err(SmeltError::unsupported(
                 self.span(call.arguments.args[0].range()),
@@ -270,7 +274,8 @@ impl ModuleBuilder<'_> {
     /// Parse Python `key=` and `reverse=` sort keyword arguments.
     ///
     /// A `key` lambda or local callable lowers to a closure mapping one list
-    /// item to a scalar sort value; `key=None` is treated as absent. `reverse`
+    /// item to an orderable sort value (a scalar or a tuple of orderable
+    /// values); `key=None` is treated as absent. `reverse`
     /// accepts only boolean literals because non-literal flags would need
     /// runtime branching that the sort lowering does not model yet.
     fn sort_keyword_arguments(
@@ -289,13 +294,12 @@ impl ModuleBuilder<'_> {
                     }
                     let callback =
                         self.python_callback_argument(&keyword.value, &[element_ty], body)?;
-                    if !matches!(
-                        self.ctx.krate.types.get(callback.return_ty),
-                        Some(Type::Bool | Type::PyInt | Type::Float | Type::PyStr)
-                    ) {
+                    // A tuple key (`key=lambda p: (p.a, -p.b)`) orders
+                    // lexicographically, as Python's tuples do.
+                    if !self.is_python_orderable(callback.return_ty) {
                         return Err(SmeltError::unsupported(
                             self.span(keyword.range),
-                            "sort key must return bool, int, float, or str",
+                            "sort key must return bool, int, float, str, or a tuple of them",
                         ));
                     }
                     key = Some(callback.expr);
@@ -365,12 +369,18 @@ impl ModuleBuilder<'_> {
         if name.id.as_str() != "enumerate" {
             return Ok(None);
         }
-        if call.arguments.args.len() != 1 || !call.arguments.keywords.is_empty() {
-            return Err(SmeltError::unsupported(
-                self.span(call.range()),
-                "enumerate() currently supports exactly one iterable argument and no start",
-            ));
-        }
+        // `enumerate(xs)`, `enumerate(xs, start)` or `enumerate(xs, start=n)`.
+        let start_arg = match (call.arguments.args.as_ref(), call.arguments.keywords.as_ref()) {
+            ([_], []) => None,
+            ([_, start], []) => Some(start),
+            ([_], [keyword]) if keyword.arg.as_ref().is_some_and(|arg| arg.as_str() == "start") => Some(&keyword.value),
+            _ => {
+                return Err(SmeltError::unsupported(
+                    self.span(call.range()),
+                    "enumerate() takes one iterable and an optional start",
+                ));
+            }
+        };
         let raw_iter = self.expression(&call.arguments.args[0], body)?;
         let list = self.for_iterable(raw_iter, body);
         let list_ty = Self::expr_ty(body, list);
@@ -385,11 +395,11 @@ impl ModuleBuilder<'_> {
         let int_ty = self.intern_type(Type::PyInt);
         let tuple_ty = self.intern_type(Type::Tuple(vec![int_ty, item_ty]));
         let ty = self.intern_type(Type::List(tuple_ty));
-        Ok(Some(body.push_expr(HirExpr {
-            kind: ExprKind::ListEnumerate { list },
-            ty,
-            span: self.span(call.range()),
-        })))
+        let span = self.span(call.range());
+        let enumerated = body.push_expr(HirExpr { kind: ExprKind::ListEnumerate { list }, ty, span });
+        start_arg.map_or(Ok(Some(enumerated)), |start| {
+            self.enumerate_from(enumerated, start, item_ty, span, body).map(Some)
+        })
     }
 
     /// Lower Python `zip(left, right)` as a materialized list of pair tuples.

@@ -19,7 +19,8 @@
 //
 // Which ones are stored to is decided before any class is lowered, by a scan
 // of the whole module (`ClassAttributeStores`), so a method lowered before a
-// later write still reads the live value.
+// later write still reads the live value. The same scan records the module's
+// class hierarchy, which `type(x).__name__` reads (`lowering/type_name.rs`).
 //
 // Instance shadowing: `self.count = v` at the top level of `__init__`
 // declares an instance attribute (`implicit_constructor_fields`, which takes
@@ -39,6 +40,9 @@ struct ClassAttributeStores {
     stores: HashSet<(String, String)>,
     /// Every name some class of the module lists as a base.
     bases: HashSet<String>,
+    /// Each class of the module, by name, with the names of its bases, in
+    /// source order.
+    class_bases: Vec<(String, Vec<String>)>,
     /// The enclosing class names while walking, innermost last.
     classes: Vec<String>,
 }
@@ -70,11 +74,14 @@ impl<'a> ruff_python_ast::visitor::Visitor<'a> for ClassAttributeStores {
     fn visit_stmt(&mut self, stmt: &'a Stmt) {
         match stmt {
             Stmt::ClassDef(class) => {
+                let mut named_bases = Vec::new();
                 for base_expr in class.bases() {
                     if let Expr::Name(base_name) = base_expr {
                         self.bases.insert(base_name.id.as_str().to_owned());
+                        named_bases.push(base_name.id.as_str().to_owned());
                     }
                 }
+                self.class_bases.push((class.name.as_str().to_owned(), named_bases));
                 self.classes.push(class.name.as_str().to_owned());
                 ruff_python_ast::visitor::walk_stmt(self, stmt);
                 self.classes.pop();
@@ -117,6 +124,7 @@ impl ModuleBuilder<'_> {
         }
         self.class_attribute_stores = stores.stores;
         self.subclassed_names = stores.bases;
+        self.module_class_bases = stores.class_bases;
     }
 
     /// Lower the class variables of `class`'s body (every `NAME = <literal>`

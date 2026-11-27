@@ -581,18 +581,30 @@ impl ModuleBuilder<'_> {
                 // A bare `NAME = <literal>` in a non-enum class body declares a
                 // class variable, already lowered by `class_variables` above.
                 Stmt::Assign(_) if !is_int_enum => {}
-                Stmt::FunctionDef(func) => {
-                    let method_name = func.name.as_str();
+                Stmt::FunctionDef(source_func) => {
                     if materialized.is_some()
-                        && matches!(method_name, "__init_subclass__" | "__set_name__")
+                        && matches!(source_func.name.as_str(), "__init_subclass__" | "__set_name__")
                     {
                         continue;
                     }
-                    if self.is_abstractmethod(class, func)? {
+                    // An `@abstractmethod` is declared abstract (the class
+                    // cannot be constructed) and is also an ordinary method:
+                    // Python gives it a body a subclass reaches through
+                    // `super()`, and a call through the abstract class
+                    // dispatches to the subclass's override like any
+                    // overridden method. A stub body (`...`, `pass`, a
+                    // docstring) is never reached that way and lowers as
+                    // `raise NotImplementedError`.
+                    let stubbed;
+                    let func = if self.is_abstractmethod(class, source_func)? {
                         *kind = ClassKind::Abstract;
-                        abstract_methods.push(self.abstract_method_sig(func)?);
-                        continue;
-                    }
+                        abstract_methods.push(self.abstract_method_sig(source_func)?);
+                        stubbed = self.abstract_method_with_body(class, source_func)?;
+                        &stubbed
+                    } else {
+                        source_func
+                    };
+                    let method_name = func.name.as_str();
                     // A slot pre-reserved by `reserve_class_method_slots` is
                     // overwritten in place so forward references resolved during
                     // an earlier sibling body keep a valid `ItemId`.
@@ -1430,6 +1442,31 @@ impl ModuleBuilder<'_> {
         Ok(Some(pair))
     }
 
+    /// `func` without its `@abstractmethod` decorator, and with a stub body
+    /// (only `...`, `pass` or a docstring) replaced by
+    /// `raise NotImplementedError`; any other body is kept.
+    fn abstract_method_with_body(&self, class: &StmtClassDef, func: &StmtFunctionDef) -> Result<StmtFunctionDef, SmeltError> {
+        let scope = EvalScope::ClassBody { class_start: class.range.start(), at: func.range.start() };
+        let owner = format!("method '{}'", func.name);
+        let mut decorators = Vec::new();
+        for decorator in &func.decorator_list {
+            if self.denoted_stdlib_name(&decorator.expression, scope, &owner)? != Some(StdlibName::AbstractMethod) {
+                decorators.push(decorator.clone());
+            }
+        }
+        let stub = func.body.iter().all(|statement| match statement {
+            Stmt::Pass(_) => true,
+            Stmt::Expr(expr) => matches!(expr.value.as_ref(), Expr::EllipsisLiteral(_) | Expr::StringLiteral(_)),
+            _ => false,
+        });
+        let mut lowered = func.clone();
+        lowered.decorator_list = decorators.into();
+        if stub {
+            lowered.body = vec![self.synthesized_stmt("raise NotImplementedError", func.range)?].into();
+        }
+        Ok(lowered)
+    }
+
     /// Lower an abstract Python method declaration to a HIR method signature.
     fn abstract_method_sig(&mut self, func: &StmtFunctionDef) -> Result<MethodSig, SmeltError> {
         let span = self.span(func.range);
@@ -1736,7 +1773,7 @@ impl ModuleBuilder<'_> {
     /// declaration order.
     ///
     /// The reservation set mirrors the main class-body loop exactly: it skips
-    /// `@abstractmethod`, `__init__`/`__new__` (constructor-shaped), materialized
+    /// `__init__`/`__new__` (constructor-shaped), materialized
     /// descriptor callables (property getters/setters), and — under a
     /// materialized class — the `__init_subclass__`/`__set_name__` hooks. Each
     /// remaining instance method is registered in [`Self::class_methods`]; each
@@ -1751,18 +1788,27 @@ impl ModuleBuilder<'_> {
     ) -> Result<HashMap<u32, ItemId>, SmeltError> {
         let mut slots: HashMap<u32, ItemId> = HashMap::new();
         for body_stmt in &class.body {
-            let Stmt::FunctionDef(func) = body_stmt else {
+            let Stmt::FunctionDef(source_func) = body_stmt else {
                 continue;
             };
-            let method_name = func.name.as_str();
             if materialized_hooks_skipped
-                && matches!(method_name, "__init_subclass__" | "__set_name__")
+                && matches!(source_func.name.as_str(), "__init_subclass__" | "__set_name__")
             {
                 continue;
             }
-            if self.is_abstractmethod(class, func)? || self.is_materialized_descriptor_callable(func) {
+            if self.is_materialized_descriptor_callable(source_func) {
                 continue;
             }
+            // An `@abstractmethod` is reserved as the ordinary method the main
+            // pass lowers it to (without the decorator).
+            let stripped;
+            let func = if self.is_abstractmethod(class, source_func)? {
+                stripped = self.abstract_method_with_body(class, source_func)?;
+                &stripped
+            } else {
+                source_func
+            };
+            let method_name = func.name.as_str();
             let is_static = Self::is_staticmethod(func);
             // `__init__`/`__new__` are constructor-shaped and are not exposed
             // through the method registries; leave them to the main pass.

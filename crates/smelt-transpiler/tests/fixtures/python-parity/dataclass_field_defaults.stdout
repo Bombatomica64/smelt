@@ -1,0 +1,9 @@
+factory runs
+factory runs
+factory runs
+Pt(x=1, y=0, tags=[], scores={'start': 0}, label='pt') True 3
+[] ['t'] {'start': 0} pt
+Pt(x=5, y=6, tags=['a'], scores={'k': 1}, label='r')
+True False
+False True
+True False

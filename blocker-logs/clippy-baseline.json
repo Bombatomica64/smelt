@@ -17,7 +17,7 @@
     },
     "smelt-frontend-py": {
       "clippy::as_conversions": 2,
-      "clippy::collapsible_if": 4,
+      "clippy::collapsible_if": 3,
       "clippy::shadow_reuse": 20,
       "clippy::shadow_unrelated": 27
     },

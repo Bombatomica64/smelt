@@ -326,5 +326,6 @@ mod name_resolution_tests;
 mod packages_tests;
 mod pytest_tests;
 mod specialization_tests;
+mod sweep_round3_tests;
 #[cfg(feature = "ty")]
 mod ty_resolution_tests;

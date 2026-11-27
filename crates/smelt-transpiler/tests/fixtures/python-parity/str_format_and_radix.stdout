@@ -1,0 +1,13 @@
+1     r l  |
+a-b-a
+Ann is 007
+'q' s 3.142 1,234,567
+{literal} [1, 2]
+tick 1
+tick 2
+21
+pi=  3.14   |
+True    1
+0xff -0xff 0b101 0b0 0o10 -0o11 0x56bc75e2d63100000
+3.14     42 7   s   True
+['A', 'b', 'B', 'c'] ['B', 'A', 'C', 'B'] c
