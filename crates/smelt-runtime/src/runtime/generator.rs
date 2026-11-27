@@ -59,6 +59,13 @@ impl<Y, R: Clone + Default, N: Default> SmeltGenerator<Y, R, N> {
     fn collect_yields(&self) -> Vec<Y> { let mut items = Vec::new(); while let SmeltGeneratorResult::Yielded(value) = self.resume(SmeltGeneratorCommand::Next(N::default())) { items.push(value); } items }
     //~ [`Self::collect_yields`] that returns a throw from the body instead of
     //~ unwinding, so a `try` around `[...gen]` catches it.
+    //~ At most `count` yields, then close the generator (`IteratorClose`:
+    //~ resume it with `Return`, which runs its pending `finally` blocks or a
+    //~ hand-written iterator's `return()`), as array destructuring without a
+    //~ rest element does (`const [a, b] = it`). One that completed first is
+    //~ not closed. A throw from the body or the close is returned.
+    #[allow(dead_code)]
+    fn try_take_yields(&self, count: usize) -> Result<Vec<Y>, Box<dyn ::std::error::Error>> { let mut items = Vec::new(); while items.len() < count { match self.try_resume(SmeltGeneratorCommand::Next(N::default()))? { SmeltGeneratorResult::Yielded(value) => items.push(value), SmeltGeneratorResult::Complete(_) => return Ok(items) } } self.try_resume(SmeltGeneratorCommand::Return(R::default()))?; Ok(items) }
     #[allow(dead_code)]
     fn try_collect_yields(&self) -> Result<Vec<Y>, Box<dyn ::std::error::Error>> { let mut items = Vec::new(); while let SmeltGeneratorResult::Yielded(value) = self.try_resume(SmeltGeneratorCommand::Next(N::default()))? { items.push(value); } Ok(items) }
 }

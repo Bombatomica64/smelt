@@ -216,6 +216,9 @@ impl ModuleBuilder<'_> {
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let value = self.argument_with_hint_unadjusted(argument, body, type_hint)?;
         let value = self.absent_static_at_slot(value, type_hint, body);
+        // A hand-written iterator for an `Iterator<T>` parameter, or an
+        // iterable for an `Iterable<T>` one, as `expression_with_hint`.
+        let value = self.iterator_value_at_slot(value, type_hint, body)?;
         Ok(self.kept_map_literal_at_record(argument.span(), value, body))
     }
 

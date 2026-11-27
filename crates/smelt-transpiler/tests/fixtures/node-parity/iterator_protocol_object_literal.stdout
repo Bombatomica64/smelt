@@ -1,0 +1,19 @@
+for 3
+for 2
+for 1
+break 5
+break 4
+closed at 2
+closed at 6
+first 7
+closed at 1
+boom 2
+4,3,2,1
+2,1
+closed at 7
+destructured 9 8
+3 2|1
+faulty 0
+faulty 1
+next failed
+2 4 6

@@ -493,6 +493,9 @@ impl FunctionEmitter<'_> {
                 self.type_id(Type::Unknown)?,
             ),
             Rvalue::GeneratorCollect { generator } => self.generator_collect_call(generator)?,
+            Rvalue::GeneratorTake { generator, count } => {
+                self.generator_take_call(generator, *count)?
+            }
             Rvalue::GeneratorDelegate { generator } => {
                 self.generator_delegate_call(generator, dest_ty)?
             }

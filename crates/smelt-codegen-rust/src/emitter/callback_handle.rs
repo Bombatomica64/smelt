@@ -16,10 +16,15 @@ impl FunctionEmitter<'_> {
     ///
     /// A fallible body returns `Result<_, Box<dyn std::error::Error>>`, so a
     /// throwing call inside it can forward the error with `?` instead of
-    /// aborting the process with `panic!`. Generators are excluded: their `?`
-    /// would target the generator step's output type rather than the body's.
+    /// aborting the process with `panic!`. A synchronous generator that can
+    /// throw is such a body too: its `genawaiter` producer answers
+    /// `Result<R, Box<dyn Error>>` (`sync_generator_resume_closure`), so the
+    /// throw ends the generator and `try_resume` hands it to the consumer, as
+    /// a `throw` statement in the body does; a panic instead unwound through
+    /// the producer and poisoned it for the consumer's closing `return()`.
+    /// Async generators are excluded: their `?` would target the step future.
     pub(super) fn body_can_propagate_error(&self) -> bool {
-        self.function.can_throw && !self.function.is_generator
+        self.function.can_throw && !(self.function.is_generator && self.function.is_async)
     }
 
     /// Return whether the *emitted Rust value* for `callee` carries the inherent

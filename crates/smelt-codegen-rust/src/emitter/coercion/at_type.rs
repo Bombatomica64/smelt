@@ -791,6 +791,30 @@ impl FunctionEmitter<'_> {
                 element_text = element_text.delimited()
             )));
         }
+        // An iterator step at another step type (`entries().next()` read as
+        // `IteratorYieldResult<[number, string]>`): each arm's payload is
+        // converted to the target's yield or return type.
+        if let (
+            Some(&Type::GeneratorResult {
+                yield_ty: source_yield,
+                return_ty: source_return,
+            }),
+            Some(&Type::GeneratorResult {
+                yield_ty: target_yield,
+                return_ty: target_return,
+            }),
+        ) = (self.mir.types.get(source), self.mir.types.get(target))
+        {
+            let value = RustExpr::path("smelt_value");
+            let yielded = self.rendered_at_type(&value, source_yield, target_yield, scope)?;
+            let completed = self.rendered_at_type(&value, source_return, target_return, scope)?;
+            return Ok(RustExpr::atom(format!(
+                "match {value_text} {{ SmeltGeneratorResult::Yielded(smelt_value) => SmeltGeneratorResult::Yielded({yielded}), SmeltGeneratorResult::Complete(smelt_value) => SmeltGeneratorResult::Complete({completed}) }}",
+                value_text = value_text.delimited(),
+                yielded = yielded.delimited(),
+                completed = completed.delimited()
+            )));
+        }
         if let (Some(Type::Tuple(source_items)), Some(Type::Tuple(target_items))) =
             (self.mir.types.get(source), self.mir.types.get(target))
             && source_items.len() == target_items.len()

@@ -504,8 +504,11 @@ impl RuntimeDemand {
             }
             Rvalue::GeneratorNext { .. }
             | Rvalue::GeneratorCollect { .. }
+            | Rvalue::GeneratorTake { .. }
             | Rvalue::GeneratorDone { .. }
             | Rvalue::GeneratorValue { .. }
+            | Rvalue::GeneratorYielded { .. }
+            | Rvalue::GeneratorCompleted { .. }
             | Rvalue::GeneratorDelegate { .. }
             | Rvalue::ClosureCallSpread { .. }
             | Rvalue::ClosureCallRest { .. }

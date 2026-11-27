@@ -1077,6 +1077,12 @@ impl ModuleBuilder<'_> {
             }
             [argument] => {
                 let argument_value = self.argument(argument, body)?;
+                // An object gives its members through `[Symbol.iterator]()`.
+                let argument_value = self.iterated_value(
+                    argument_value,
+                    self.span(argument.span().start, argument.span().end),
+                    body,
+                )?;
                 let argument_raw_ty = Self::expr_ty(body, argument_value);
                 let argument_ty = self.type_param_constraint_or_self(argument_raw_ty);
                 // `new Set(iterable)` accepts arrays directly. Optional iterables
@@ -1359,6 +1365,9 @@ impl ModuleBuilder<'_> {
             }
             [argument] if !matches!(argument, Argument::SpreadElement(_)) => {
                 let value = self.argument(argument, body)?;
+                // An object gives its entries through `[Symbol.iterator]()`.
+                let span = self.span(argument.span().start, argument.span().end);
+                let value = self.iterated_value(value, span, body)?;
                 return self.map_from_iterable(value, new_expr.span, body).map(Some);
             }
             _ => {

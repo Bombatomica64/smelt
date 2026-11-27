@@ -53,8 +53,19 @@ impl ModuleBuilder<'_> {
                 Some(returned) => self.ts_type_to_hir(returned)?,
                 None => self.ctx.krate.types.intern(Type::None),
             };
+            // An iterator interface's open `TNext` is `undefined`, as the
+            // same annotation gives any other function (so the generator
+            // flows into an `Iterator<T>` slot as the type it has there);
+            // `Generator<T>`'s stays the erased resume channel.
             let next_ty = match args.get(2) {
                 Some(resumed) => self.ts_type_to_hir(resumed)?,
+                None if matches!(
+                    name.name.as_str(),
+                    "Iterator" | "IterableIterator" | "Iterable"
+                ) =>
+                {
+                    self.ctx.krate.types.intern(Type::None)
+                }
                 None => self.erase(ErasureReason::UnfilledGeneric),
             };
             return Ok(self.ctx.krate.types.intern(Type::Generator {
@@ -374,6 +385,58 @@ impl ModuleBuilder<'_> {
             ("Promise", [item]) => {
                 let lowered_item = self.ts_type_to_hir(item)?;
                 Ok(self.ctx.krate.types.intern(Type::Future(lowered_item)))
+            }
+            // The lib's synchronous iterator interfaces are the object a
+            // `for...of` drives: `next()` answering `IteratorResult<T, R>`,
+            // and `return()` on early exit. Smelt's typed iterator is the
+            // generator carrier (`SmeltGenerator<T, R, N>`, a shared handle
+            // to one `next` state machine), so `Iterator<T, R, N>` is that
+            // type; a hand-written iterator object reaches it through the
+            // adapter of `lowering::stmt::iterator_protocol`. The lib's `any`
+            // defaults are `undefined`: a `TReturn` the source leaves open is
+            // the `undefined` a hand-written `{ done: true }` step carries, and
+            // a `TNext` it leaves open is the nothing `for...of` passes to
+            // `next()` (see `docs/design/iterator-protocol.md`).
+            ("Iterator" | "IterableIterator" | "IteratorObject", [yielded, rest @ ..])
+                if rest.len() <= 2 =>
+            {
+                let yield_ty = self.ts_type_to_hir(yielded)?;
+                let return_ty = match rest.first() {
+                    Some(returned) => self.ts_type_to_hir(returned)?,
+                    None => self.ctx.krate.types.intern(Type::None),
+                };
+                let next_ty = match rest.get(1) {
+                    Some(resumed) => self.ts_type_to_hir(resumed)?,
+                    None => self.ctx.krate.types.intern(Type::None),
+                };
+                Ok(self.ctx.krate.types.intern(Type::Generator {
+                    is_async: false,
+                    yield_ty,
+                    return_ty,
+                    next_ty,
+                }))
+            }
+            // A step of that protocol, `{ value: T, done: false }` or
+            // `{ value: R, done: true }`: the step type `next()` answers
+            // (`SmeltGeneratorResult<T, R>`), whichever iterator produced it.
+            ("IteratorResult", [yielded, rest @ ..]) if rest.len() <= 1 => {
+                let yield_ty = self.ts_type_to_hir(yielded)?;
+                let return_ty = match rest.first() {
+                    Some(returned) => self.ts_type_to_hir(returned)?,
+                    None => self.ctx.krate.types.intern(Type::None),
+                };
+                Ok(self.ctx.krate.types.intern(Type::GeneratorResult {
+                    yield_ty,
+                    return_ty,
+                }))
+            }
+            ("IteratorYieldResult", [yielded]) => {
+                let yield_ty = self.ts_type_to_hir(yielded)?;
+                let return_ty = self.ctx.krate.types.intern(Type::None);
+                Ok(self.ctx.krate.types.intern(Type::GeneratorResult {
+                    yield_ty,
+                    return_ty,
+                }))
             }
             (kind @ ("Generator" | "AsyncGenerator"), [yielded]) => {
                 let yield_ty = self.ts_type_to_hir(yielded)?;

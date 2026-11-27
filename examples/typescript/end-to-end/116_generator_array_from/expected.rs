@@ -2747,6 +2747,8 @@ impl<Y, R: Clone + Default, N: Default> SmeltGenerator<Y, R, N> {
     #[allow(dead_code)]
     fn collect_yields(&self) -> Vec<Y> { let mut items = Vec::new(); while let SmeltGeneratorResult::Yielded(value) = self.resume(SmeltGeneratorCommand::Next(N::default())) { items.push(value); } items }
     #[allow(dead_code)]
+    fn try_take_yields(&self, count: usize) -> Result<Vec<Y>, Box<dyn ::std::error::Error>> { let mut items = Vec::new(); while items.len() < count { match self.try_resume(SmeltGeneratorCommand::Next(N::default()))? { SmeltGeneratorResult::Yielded(value) => items.push(value), SmeltGeneratorResult::Complete(_) => return Ok(items) } } self.try_resume(SmeltGeneratorCommand::Return(R::default()))?; Ok(items) }
+    #[allow(dead_code)]
     fn try_collect_yields(&self) -> Result<Vec<Y>, Box<dyn ::std::error::Error>> { let mut items = Vec::new(); while let SmeltGeneratorResult::Yielded(value) = self.try_resume(SmeltGeneratorCommand::Next(N::default()))? { items.push(value); } Ok(items) }
 }
 pub struct SmeltAsyncGenerator<Y, R, N> {

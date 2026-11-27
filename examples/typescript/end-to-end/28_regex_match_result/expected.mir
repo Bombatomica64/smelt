@@ -99,7 +99,7 @@ fn main (FuncId(0)) -> None
   bb15:
     %36 = copy %10
     %37 = copy %36.field7
-    %38 = call @console_log(copy %37.field18) -> bb16
+    %38 = call @console_log(copy %37.field19) -> bb16
   bb16:
     %39 = copy %10
     %40 = move %39?.[1.0]

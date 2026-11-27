@@ -38,12 +38,11 @@ impl ModuleBuilder<'_> {
         };
         if !matches!(source_arg, Argument::ObjectExpression(_)) {
             let source = self.argument(source_arg, body)?;
-            let source_ty = self.type_param_constraint_or_self(Self::expr_ty(body, source));
-            // `Array.from(view)` is the view's elements, decoded by the family
-            // rather than read back out of an erased record. Asked before the
-            // arms below, whose class fallback erases.
             let span = self.span(call.span.start, call.span.end);
-            self.refuse_hand_written_iterator(source, span, body)?;
+            // An object is read through its `[Symbol.iterator]()`: a
+            // generator, or a hand-written iterator driven as one.
+            let source = self.iterated_value(source, span, body)?;
+            let source_ty = self.type_param_constraint_or_self(Self::expr_ty(body, source));
             // `Array.from(view)` is the view's elements, decoded by the family
             // rather than read back out of an erased record. Asked before
             // `array_from_elements`, whose class fallback erases.
@@ -142,18 +141,6 @@ impl ModuleBuilder<'_> {
         span: Span,
         body: &mut Body,
     ) -> smelt_hir::ExprId {
-        // An object is read through its `[Symbol.iterator]()` generator.
-        if let Some(generator) = self.class_iterator_generator(source, span, body)
-            && let Some(Type::Generator { yield_ty, .. }) = self
-                .ctx
-                .krate
-                .types
-                .get(Self::expr_ty(body, generator))
-                .cloned()
-        {
-            let ty = self.ctx.krate.types.intern(Type::List(yield_ty));
-            return Self::generator_items_expr(generator, ty, span, body);
-        }
         match self.ctx.krate.types.get(source_ty).cloned() {
             Some(Type::List(_)) if mapped => source,
             Some(Type::List(item_ty)) => {
