@@ -1629,7 +1629,7 @@ impl<'builder> ModuleBuilder<'builder> {
             Self::vitest_spy_on_call,
             Self::vitest_mock_handle_method_call,
             Self::vitest_fake_timer_call,
-            Self::date_fns_timezone_context_call,
+            Self::timezone_context_call,
             Self::sinon_fake_timers_call,
             Self::structured_clone_call,
             Self::uri_encode_call,
@@ -1671,7 +1671,7 @@ impl<'builder> ModuleBuilder<'builder> {
             // through it, and the two `node:http` receivers with methods of their
             // own must claim those names first.
             Self::http_create_server_call,
-            Self::hono_node_serve_call,
+            Self::fetch_server_adapter_serve_call,
             Self::dispatch_http_server_method,
             Self::dispatch_server_response_method,
             Self::dispatch_sqlite_method,

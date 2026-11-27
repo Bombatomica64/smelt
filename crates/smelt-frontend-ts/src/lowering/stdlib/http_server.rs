@@ -76,7 +76,9 @@ impl ModuleBuilder<'_> {
         })))
     }
 
-    /// Lower `serve(options, onListen?)` from `@hono/node-server`.
+    /// Lower `serve(options, onListen?)` of a fetch-server adapter
+    /// ([`smelt_stdlib::HostModuleId::FetchServerAdapter`], `@hono/node-server`
+    /// in the registry): serving any fetch entry point on `node:http`.
     ///
     /// The adapter's whole job, done natively: a `node:http` server whose
     /// handler converts each request to a fetch `Request`, calls
@@ -89,34 +91,39 @@ impl ModuleBuilder<'_> {
     /// more than the request (Hono's `app.fetch(request, env?, executionCtx?)`)
     /// and answers a `Response` or a promise of one, and codegen calls it the
     /// way the adapter does .
-    pub(in crate::lowering) fn hono_node_serve_call(
+    pub(in crate::lowering) fn fetch_server_adapter_serve_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         if self.host_module_export_path(&call.callee)
             != Some((
-                smelt_stdlib::HostModuleId::HonoNodeServer,
+                smelt_stdlib::HostModuleId::FetchServerAdapter,
                 "serve".to_owned(),
             ))
         {
             return Ok(None);
         }
         let span = self.span(call.span.start, call.span.end);
+        let module = smelt_stdlib::HostModuleId::FetchServerAdapter.specifier();
         let (options, on_listen) = match call.arguments.as_slice() {
             [options] => (options, None),
             [options, on_listen] => (options, Some(on_listen)),
             _ => {
                 return Err(SmeltError::unsupported(
                     span,
-                    "`serve` from @hono/node-server is modeled as `serve(options)` or `serve(options, onListen)`",
+                    format!(
+                        "`serve` from {module} is modeled as `serve(options)` or `serve(options, onListen)`"
+                    ),
                 ));
             }
         };
         let Some(Expression::ObjectExpression(options)) = options.as_expression() else {
             return Err(SmeltError::unsupported(
                 span,
-                "`serve` from @hono/node-server is modeled with its options written as an object literal",
+                format!(
+                    "`serve` from {module} is modeled with its options written as an object literal"
+                ),
             ));
         };
         let mut fetch = None;
@@ -144,7 +151,7 @@ impl ModuleBuilder<'_> {
                     return Err(SmeltError::unsupported(
                         span,
                         format!(
-                            "the `{other}` option of `serve` from @hono/node-server is not modeled; `fetch`, `port` and `hostname` are"
+                            "the `{other}` option of `serve` from {module} is not modeled; `fetch`, `port` and `hostname` are"
                         ),
                     ));
                 }
@@ -153,7 +160,7 @@ impl ModuleBuilder<'_> {
         let Some(fetch) = fetch else {
             return Err(SmeltError::unsupported(
                 span,
-                "`serve` from @hono/node-server needs a `fetch` handler",
+                format!("`serve` from {module} needs a `fetch` handler"),
             ));
         };
         if !matches!(

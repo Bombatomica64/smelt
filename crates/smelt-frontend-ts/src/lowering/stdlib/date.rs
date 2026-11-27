@@ -614,31 +614,34 @@ impl ModuleBuilder<'_> {
         ))
     }
 
-    /// Lower `tz(zone)` from `@date-fns/tz` to its date-context function value.
-    pub(in crate::lowering) fn date_fns_timezone_context_call(
+    /// Lower `tz(zone)` of a time-zone-context package
+    /// ([`smelt_stdlib::HostModuleId::TimeZoneContext`], `@date-fns/tz` in the
+    /// registry) to its date-context function value.
+    pub(in crate::lowering) fn timezone_context_call(
         &mut self,
         call: &CallExpression<'_>,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         if self.host_module_export_path(&call.callee)
-            != Some((smelt_stdlib::HostModuleId::DateFnsTz, "tz".to_owned()))
+            != Some((smelt_stdlib::HostModuleId::TimeZoneContext, "tz".to_owned()))
         {
             return Ok(None);
         }
+        let module = smelt_stdlib::HostModuleId::TimeZoneContext.specifier();
         let [timezone] = call.arguments.as_slice() else {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
-                "@date-fns/tz tz(...) requires exactly one time zone string",
+                format!("{module} tz(...) requires exactly one time zone string"),
             ));
         };
         let timezone = self.argument(timezone, body)?;
         if self.ctx.krate.types.get(Self::expr_ty(body, timezone)) != Some(&Type::String) {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
-                "@date-fns/tz tz(...) requires a time zone string",
+                format!("{module} tz(...) requires a time zone string"),
             ));
         }
-        let unknown = self.erase_with(ErasureReason::UntypedPackage, "@date-fns/tz");
+        let unknown = self.erase_with(ErasureReason::UntypedPackage, module);
         let ty = self
             .ctx
             .krate

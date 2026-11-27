@@ -266,19 +266,22 @@ impl SmeltError {
         }
     }
 
-    /// Error for Django model inheritance, which is not supported.
-    pub(crate) fn django_unsupported(span: Span, class_name: &str) -> Self {
+    /// Error for a class whose base is a framework class Smelt cannot express
+    /// (`package_shims`): its metaclass or descriptor protocol has no HIR form.
+    pub(crate) fn unsupported_framework_base(
+        span: Span,
+        class_name: &str,
+        base: &package_shims::UnsupportedFrameworkBase,
+    ) -> Self {
         Self {
-            code: "smelt::django-unsupported",
+            code: "smelt::unsupported-framework-base",
             category: DiagnosticCategory::UnsupportedLowering,
             span,
             message: format!(
-                "class '{class_name}' inherits from a Django model — Django ORM is not supported"
+                "class '{class_name}' inherits from `{}` — {} is not supported",
+                base.qualified_name, base.framework
             ),
-            note: Some(
-                "Django's Model metaclass and descriptor protocol cannot be expressed in smelt HIR."
-                    .to_owned(),
-            ),
+            note: Some(base.reason.to_owned()),
         }
     }
 
@@ -484,6 +487,7 @@ fn is_generated_stub_file(path: &str, source: &str) -> bool {
 pub(crate) mod helpers;
 pub(crate) mod lowering;
 pub(crate) mod name_resolution;
+pub(crate) mod package_shims;
 #[doc(hidden)]
 pub mod test_support;
 pub(crate) mod ty_resolve;

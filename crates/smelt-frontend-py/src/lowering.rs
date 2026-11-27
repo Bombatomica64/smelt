@@ -33,8 +33,8 @@ use smelt_stdlib::RuleId;
 
 use crate::helpers::{
     collect_bitor_parts, decorator_frozen_kwarg, decorator_simple_name, dotted_name,
-    expr_kind_name, expr_simple_name, expr_type_name, is_django_model_base, is_stub_body,
-    range_to_span, stmt_kind_name, two_type_args,
+    expr_kind_name, expr_simple_name, expr_type_name, is_stub_body, range_to_span, stmt_kind_name,
+    two_type_args,
 };
 use crate::name_resolution::{EvalScope, ModuleBindings, StdlibMatch, StdlibName};
 use crate::{HirCtx, SmeltError, test_support};
