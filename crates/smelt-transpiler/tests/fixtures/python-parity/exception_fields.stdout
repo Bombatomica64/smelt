@@ -1,0 +1,16 @@
+ok a/ok
+not found: a/missing 404 1 404 for a/missing ('404 for a/missing',) NotFound('404 for a/missing')
+http: 503 True 503 for a/down [HttpError('503 for a/down')]
+coded: 7 none 7 (7,) Coded(7)
+coded: 9 x pretty<9> (9, 'x') Pretty(9, 'x')
+coded: 3 none wrapped pretty<3> (3,) Wrapped(3)
+parse: } unexpected '}' ("unexpected '}'",)
+other: 'k' Plain('k') ('k',)
+app error: 404 for b/missing NotFound('404 for b/missing') True
+re-raised: 404 c/missing
+raise e keeps identity: 9
+translated: 503 e/down (503, 'e/down')
+held: True 500 for f/held
+generic: wrapped pretty<3> Wrapped(3) (3,)
+generic: 404 for g/missing NotFound('404 for g/missing') ('404 for g/missing',)
+generic: 'k' Plain('k') ('k',)

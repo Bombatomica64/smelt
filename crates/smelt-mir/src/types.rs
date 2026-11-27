@@ -383,6 +383,14 @@ pub enum MirClassProtocol {
         /// MIR function implementing the protocol.
         method: FuncId,
     },
+    /// A Python exception class (`smelt_hir::ClassProtocol::PyException`).
+    PyException {
+        /// The builtin exception class the class's topmost program base
+        /// derives from.
+        builtin_base: Symbol,
+        /// MIR function reading the instance's `args`.
+        args: FuncId,
+    },
 }
 
 /// MIR representation of a materialized typed descriptor.

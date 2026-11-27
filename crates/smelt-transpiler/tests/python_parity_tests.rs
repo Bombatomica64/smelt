@@ -590,3 +590,45 @@ fn abstract_classes_and_type_names() -> TestResult {
 fn dataclass_field_defaults() -> TestResult {
     verify_python_parity("dataclass_field_defaults")
 }
+
+/// User exception classes with fields, methods and `__str__` overrides
+/// (`docs/design/python-exceptions.md`): `except C as e` binds the typed
+/// instance (`e.status`, `e.retryable()`), a base clause catches a subclass
+/// and keeps its class, a re-raise keeps the same instance, `args` follows
+/// `CPython`'s two writers (`BaseException.__new__` and `__init__`), and an
+/// untyped `except Exception` shows the class's own `str`/`repr`.
+/// Requirements: `CPython`'s output.
+#[test]
+fn exception_fields() -> TestResult {
+    verify_python_parity("exception_fields")
+}
+
+/// A method or constructor parameter's default is the callee's: an omitted
+/// argument takes it (silent-wrong before: the type's zero value), and a
+/// mutable default is shared by every call omitting it. Requirements:
+/// `CPython`'s output.
+#[test]
+fn method_default_params() -> TestResult {
+    verify_python_parity("method_default_params")
+}
+
+/// One fallibility per override family: a raising base method with a
+/// non-raising override (and the reverse, and an ABC's stub with a concrete
+/// override) called from an inherited method compiles for every class and
+/// raises exactly where `CPython` does (E0277 before: `?` on a non-`Result`).
+/// Requirements: `CPython`'s output.
+#[test]
+fn override_fallibility() -> TestResult {
+    verify_python_parity("override_fallibility")
+}
+
+/// A class named like a runtime tuple impl's type parameter (`A`..`F`) or a
+/// prelude type compiles (E0530 before: the impls bound tuple elements to
+/// patterns spelled like the class), and `type(x).__name__` / `isinstance`
+/// four levels deep name the runtime class (E0034 before: a leaf's cell
+/// implements several ancestors' `smelt_class_name`). Requirements:
+/// `CPython`'s output.
+#[test]
+fn short_class_names() -> TestResult {
+    verify_python_parity("short_class_names")
+}

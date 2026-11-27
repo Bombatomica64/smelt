@@ -342,6 +342,7 @@ impl<'a> CrateBuilder<'a, FreeFunctionsWritten> {
     fn emit_class_impls(mut self) -> Result<CrateBuilder<'a, ClassImplsWritten>, EmitError> {
         let needs_unknown = self.needs_unknown;
         let (mir, context, out) = (self.mir, self.context, &mut self.out);
+        let class_name_roots = crate::class_polymorphism::class_name_hierarchies(mir);
         // The claim order is also the declaration order: one `impl` per class
         // identity (see `names::type_claim_order`).
         for decl in crate::names::type_claim_order(mir) {
@@ -494,6 +495,18 @@ impl<'a> CrateBuilder<'a, FreeFunctionsWritten> {
             {
                 out.push_str(&methods);
             }
+            // A handle of a polymorphic hierarchy names its runtime class
+            // through one inherent method, so a body re-emitted into a leaf
+            // whose cell implements several ancestors' cell traits stays
+            // unambiguous (`crate::class_polymorphism::class_name_method`).
+            if let Some(method) = crate::class_polymorphism::class_name_method(
+                mir,
+                context,
+                &class_name_roots,
+                class.name,
+            )? {
+                out.push_str(&method);
+            }
             // A class of a polymorphic hierarchy erases itself through one
             // inherent method its cell's `into_smelt_unknown_as_concrete` calls
             // (`crate::class_polymorphism`).
@@ -574,6 +587,25 @@ impl<'a> CrateBuilder<'a, FreeFunctionsWritten> {
             for protocol in &class.protocols {
                 match protocol {
                     MirClassProtocol::Str { .. } | MirClassProtocol::Repr { .. } => {}
+                    MirClassProtocol::PyException { builtin_base, args } => {
+                        let getter = mir
+                            .functions
+                            .get(id_index(
+                                args.0,
+                                "exception args getter index does not fit usize",
+                            )?)
+                            .ok_or_else(|| EmitError::new("exception args getter is missing"))?;
+                        out.push_str(&emitter::py_text_protocol::python_exception_impl_text(
+                            mir,
+                            context,
+                            class.name,
+                            &name,
+                            &impl_generics,
+                            &type_args,
+                            *builtin_base,
+                            getter,
+                        )?);
+                    }
                     MirClassProtocol::Add { method } => {
                         let function = mir
                             .functions

@@ -29,8 +29,75 @@ struct CrateThrowFacts {
     throwing: Vec<bool>,
 }
 
+/// One override family: each member's function index and whether it is an
+/// abstract stub.
+type Family = Vec<(usize, bool)>;
+
+/// Override families by (hierarchy root, method name) symbol id.
+type FamilyTable = std::collections::BTreeMap<(u32, u32), Family>;
+
+/// The instance methods of each class hierarchy that share a name: one
+/// override family, as function indices.
+///
+/// A method body is emitted once per class that has it (an inherited body is
+/// re-emitted into each subclass's impl), and a call `self.f()` in it resolves
+/// to that class's own `f`. Every member of a family must therefore agree on
+/// whether it returns a `Result`: a body compiled against a throwing base `f`
+/// applies `?` to whatever `f` the subclass has. Families never span two
+/// hierarchies (a hierarchy is the classes connected through `base`).
+///
+/// Each member is paired with whether it is an abstract method's stub (a
+/// method an abstract class declares abstract): no dispatch reaches a stub,
+/// because its class is never instantiated and every concrete class overrides
+/// it, so a raising stub body (Python's `raise NotImplementedError`) does not
+/// make its family throw. A re-emitted body calling the stub on `self` adapts
+/// to the infallible override (`emitter::call`, `inherited_self_call`).
+fn override_families(mir: &Mir) -> Vec<Family> {
+    let root_of = |class: &crate::MirClass| {
+        let mut current = class;
+        let mut seen = std::collections::HashSet::from([current.name]);
+        while let Some(base) = current
+            .base
+            .and_then(|base| mir.classes.iter().find(|candidate| candidate.name == base))
+        {
+            if !seen.insert(base.name) {
+                break;
+            }
+            current = base;
+        }
+        current.name
+    };
+    // Keyed by (hierarchy root, method name) symbol ids, in a stable order.
+    let mut families: FamilyTable = std::collections::BTreeMap::new();
+    for class in &mir.classes {
+        let root = root_of(class);
+        for method in &class.methods {
+            let Some(index) = usize::try_from(method.0).ok() else {
+                continue;
+            };
+            let Some(function) = mir.functions.get(index) else {
+                continue;
+            };
+            let stub = class.is_abstract
+                && class
+                    .abstract_methods
+                    .iter()
+                    .any(|signature| signature.name == function.name);
+            let family = families.entry((root.0, function.name.0)).or_default();
+            if !family.iter().any(|(member, _)| *member == index) {
+                family.push((index, stub));
+            }
+        }
+    }
+    families
+        .into_values()
+        .filter(|family| family.len() > 1)
+        .collect()
+}
+
 /// Marks functions that can reach an uncaught throw directly or through calls.
 pub(in crate::lower) fn propagate_throwing_functions(mir: &mut Mir) {
+    let families = override_families(mir);
     loop {
         // A method reached through an optional chain is an `Rvalue`, not a call
         // terminator, so the statement rule below resolves it against the class
@@ -67,6 +134,29 @@ pub(in crate::lower) fn propagate_throwing_functions(mir: &mut Mir) {
             if can_throw {
                 function.can_throw = true;
                 changed = true;
+            }
+        }
+
+        // One override family, one answer (see `override_families`).
+        for family in &families {
+            let throws = family.iter().any(|(index, stub)| {
+                !stub
+                    && mir
+                        .functions
+                        .get(*index)
+                        .is_some_and(|function| function.can_throw && !function.is_generator)
+            });
+            if !throws {
+                continue;
+            }
+            for (index, _) in family {
+                if let Some(function) = mir.functions.get_mut(*index)
+                    && !function.can_throw
+                    && !function.is_generator
+                {
+                    function.can_throw = true;
+                    changed = true;
+                }
             }
         }
 

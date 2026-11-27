@@ -17,6 +17,7 @@ pub mod host_modules;
 pub mod host_object;
 pub mod js_regex;
 pub mod math;
+pub mod py_exceptions;
 pub mod recognition;
 pub mod rules;
 pub mod runtime_symbols;

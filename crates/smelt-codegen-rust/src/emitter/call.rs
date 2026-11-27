@@ -969,6 +969,12 @@ impl FunctionEmitter<'_> {
                     call = call.delimited()
                 ))
             };
+            if self.inherited_self_call_is_infallible(function, receiver) {
+                return Ok(RenderedCall::propagating(RustExpr::atom(format!(
+                    "Ok::<_, Box<dyn std::error::Error>>({})",
+                    call.delimited()
+                ))));
+            }
             return Ok(RenderedCall::propagating_if(
                 call,
                 self.call_is_throwing(function),
@@ -1347,5 +1353,61 @@ impl FunctionEmitter<'_> {
             )?,
             self.function_value_call_is_fallible(function),
         ))
+    }
+}
+
+impl FunctionEmitter<'_> {
+    /// Whether a call of the method `callee` on `self` reaches an override
+    /// that cannot throw although `callee` can: in a body re-emitted into a
+    /// subclass's `impl` (`EmitRole::InheritedCopy`), or in a method item of a
+    /// subclass whose body is a base method's (the alias a `super()` call
+    /// reaches), `self.f()` resolves to the emitting class's own `f`.
+    ///
+    /// Override
+    /// families agree on fallibility (`smelt_mir`'s throwing pass), except an
+    /// abstract method's stub, which no dispatch reaches and which may raise
+    /// (`raise NotImplementedError`) while every override is infallible. The
+    /// call then answers the override's plain value, which the caller wraps
+    /// in `Ok` so the call keeps the `Result` shape its MIR terminator has.
+    fn inherited_self_call_is_infallible(&self, callee: &MirFunction, receiver: &Operand) -> bool {
+        let owner = match (&self.role, self.function.origin) {
+            (emit_role::EmitRole::InheritedCopy { owner, .. }, _) => *owner,
+            (emit_role::EmitRole::Own { .. }, HirOrigin::ClassMethod { class, .. }) => class,
+            _ => return false,
+        };
+        if !self.call_is_throwing(callee) {
+            return false;
+        }
+        let receives_self = matches!(
+            receiver,
+            Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))
+                if self.function.params.first() == Some(local)
+        );
+        if !receives_self {
+            return false;
+        }
+        let HirOrigin::ClassMethod { method, .. } = callee.origin else {
+            return false;
+        };
+        let mut current = Some(owner);
+        let mut seen = HashSet::new();
+        while let Some(class_name) = current {
+            if !seen.insert(class_name) {
+                return false;
+            }
+            let Some(class) = crate::classes::find_class(self.mir, class_name) else {
+                return false;
+            };
+            let own = class.methods.iter().find_map(|id| {
+                let found = self.mir.functions.get(usize::try_from(id.0).ok()?)?;
+                matches!(found.origin, HirOrigin::ClassMethod { method: own, .. } if own == method)
+                    .then_some(found)
+            });
+            if let Some(found) = own {
+                return !self.call_is_throwing(found);
+            }
+            current = class.base;
+        }
+        false
     }
 }

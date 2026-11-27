@@ -222,6 +222,19 @@ pub enum ClassProtocol {
         /// Method implementing the protocol.
         method: ItemId,
     },
+    /// A Python exception class: an instance can be raised, caught by an
+    /// `except` naming the class or any base, and recovered from the caught
+    /// exception (`docs/design/python-exceptions.md`). The class's chain is its
+    /// own name and its program bases, then `builtin_base` and the builtin
+    /// classes above it.
+    PyException {
+        /// The builtin exception class the class's topmost program base
+        /// derives from (`Exception`, `ValueError`, ...).
+        builtin_base: Symbol,
+        /// The synthesized getter of the instance's `args`, defined on the
+        /// class's topmost program base.
+        args: ItemId,
+    },
 }
 
 /// A typed materialized descriptor member.

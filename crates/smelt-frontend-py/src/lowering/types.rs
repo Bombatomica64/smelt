@@ -547,8 +547,9 @@ impl ModuleBuilder<'_> {
         if let Some(alias) = self.type_aliases.get(name) {
             return Ok(alias.ty);
         }
-        // Every exception class shares one type; see `py_exception_type`.
-        if self.exception_class_chain(name).is_some() {
+        // Every builtin exception class shares one type (see
+        // `py_exception_type`); a user exception class is an ordinary class.
+        if self.exception_class_chain(name).is_some() && !self.exception_classes.contains_key(name) {
             return Ok(self.py_exception_type());
         }
         match name {

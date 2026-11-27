@@ -679,6 +679,13 @@ fn lower_class_table_entry(
                     .get(method)
                     .copied()
                     .map(|function| crate::MirClassProtocol::Repr { method: function }),
+                smelt_hir::ClassProtocol::PyException { builtin_base, args } => item_functions
+                    .get(args)
+                    .copied()
+                    .map(|getter| crate::MirClassProtocol::PyException {
+                        builtin_base: *builtin_base,
+                        args: getter,
+                    }),
             })
             .collect(),
         statics_of: class.statics_of,
