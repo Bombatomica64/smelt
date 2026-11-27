@@ -4727,13 +4727,12 @@ pub(crate) fn pick(sync: bool) -> SmeltUnion4 {
     if sync {
     let _smelt_tmp_2: Cell = Cell::new(1.0);
     _smelt_tmp_1 = SmeltUnion4::M0(_smelt_tmp_2);
-    return _smelt_tmp_1;
     } else {
     let _smelt_tmp_3: Cell = Cell::new(2.0);
     let _smelt_tmp_4: SmeltFuture<Cell> = SmeltFuture::resolved(_smelt_tmp_3);
     _smelt_tmp_1 = SmeltUnion4::M1(_smelt_tmp_4);
-    return _smelt_tmp_1;
     }
+    return _smelt_tmp_1;
 }
 
 pub(crate) fn pick_number(sync: bool) -> SmeltUnion7 {

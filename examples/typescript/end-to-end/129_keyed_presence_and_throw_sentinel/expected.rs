@@ -5144,20 +5144,17 @@ impl TrieNode {
     _smelt_tmp_22.insert(token.clone(), _smelt_tmp_23.clone());
     node.0.borrow_mut().children = _smelt_tmp_22;
     next = Some(_smelt_tmp_23);
-    node = next.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_6 = _smelt_tmp_6 + 1;
     } else {
+    }
     node = next.clone().expect("optional value was absent after narrowing");
     _smelt_tmp_6 = _smelt_tmp_6 + 1;
     continue;
     }
-    }
     if node.0.borrow().terminal.clone() {
     return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltSymbol::from_spelling("Symbol()@237").clone().into_smelt_unknown()));
-    } else {
+    }
     node.0.borrow_mut().terminal = true;
     return Ok(());
-    }
     }
     /// Prototype-carried members of this class, as receiver-bound erased functions.
     #[allow(dead_code)]
@@ -5322,7 +5319,7 @@ impl Router {
     if _smelt_tmp_24 {
     let _smelt_tmp_25: UnsupportedPathError = UnsupportedPathError::new(Some(path.clone()));
     return Err::<_, Box<dyn std::error::Error>>(smelt_throw({ let smelt_object_value = _smelt_tmp_25; let smelt_struct_value = smelt_object_value.clone(); SmeltUnknown::Object(SmeltObject::lazy_with_id(smelt_reference_object_identity(&smelt_struct_value.0), { let smelt_lazy_handle = smelt_struct_value.clone(); move || { let smelt_object_value = smelt_lazy_handle; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = Vec::new(); if smelt_object_value.0.borrow().name.clone() != "Error" { smelt_object_entries.push(("name".to_owned(), SmeltUnknown::String((smelt_object_value.0.borrow().name.clone()).into()))); } smelt_object_entries.push(("message".to_owned(), SmeltUnknown::String((smelt_object_value.0.borrow().message.clone()).into()))); if let Some(smelt_value) = smelt_object_value.0.borrow().stack.clone() { smelt_object_entries.push(("stack".to_owned(), SmeltUnknown::String(smelt_value.into()))); } smelt_object_entries.push(("cause".to_owned(), smelt_object_value.0.borrow().cause.clone())); smelt_object_entries.push(("__smelt_error".to_owned(), SmeltUnknown::String("Error".into()))); smelt_object_entries.push(("__smelt_class".to_owned(), SmeltUnknown::String("UnsupportedPathError".into()))); smelt_object_entries } }).smelt_with_origin(smelt_struct_value.clone())) }));
-    } else {
+    }
     _smelt_tmp_26 = self.0.borrow().routes.clone();
     _smelt_tmp_27 = _smelt_tmp_26.get(&method.clone()).unwrap_or(SmeltRecord::new()).contains_key(&path);
     _smelt_tmp_28 = !(_smelt_tmp_27);
@@ -5348,7 +5345,6 @@ impl Router {
     _smelt_tmp_40 = { let smelt_push_item = _smelt_tmp_39; _smelt_tmp_37.borrow_mut().push(smelt_push_item); _smelt_tmp_37.len() as f64 };
     self.0.borrow_mut().log = Into::<SmeltList<_>>::into(_smelt_tmp_37);
     return Ok(());
-    }
     }
     /// Prototype-carried members of this class, as receiver-bound erased functions.
     #[allow(dead_code)]

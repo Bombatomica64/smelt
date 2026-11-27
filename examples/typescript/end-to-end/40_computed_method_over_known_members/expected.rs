@@ -811,21 +811,18 @@ pub(crate) fn read(body: Body, key: JsString) -> JsString {
     if _smelt_tmp_2 {
     let _smelt_tmp_4: JsString = body.json();
     _smelt_tmp_3 = _smelt_tmp_4;
-    return _smelt_tmp_3;
     } else {
     _smelt_tmp_5 = key == "text";
     if _smelt_tmp_5 {
     let _smelt_tmp_7: JsString = body.text();
     _smelt_tmp_6 = _smelt_tmp_7;
-    _smelt_tmp_3 = _smelt_tmp_6;
-    return _smelt_tmp_3;
     } else {
     let _smelt_tmp_8: JsString = body.raw();
     _smelt_tmp_6 = _smelt_tmp_8;
+    }
     _smelt_tmp_3 = _smelt_tmp_6;
+    }
     return _smelt_tmp_3;
-    }
-    }
 }
 
 pub(crate) fn count(counter: Counter, key: JsString) -> f64 {
@@ -834,10 +831,9 @@ pub(crate) fn count(counter: Counter, key: JsString) -> f64 {
     if _smelt_tmp_2 {
     let _smelt_tmp_4: f64 = counter.head();
     _smelt_tmp_3 = _smelt_tmp_4;
-    return _smelt_tmp_3;
     } else {
     let _smelt_tmp_5: f64 = counter.tail();
     _smelt_tmp_3 = _smelt_tmp_5;
-    return _smelt_tmp_3;
     }
+    return _smelt_tmp_3;
 }

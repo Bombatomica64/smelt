@@ -4747,11 +4747,10 @@ impl Request {
     }
     fn __smelt_get_context(&self) -> Result<JsString, Box<dyn std::error::Error>> {
     let _smelt_tmp_1: bool = self._context.clone().clone().is_some_and(|value| !value.is_empty());
-    if _smelt_tmp_1 {
-    return Ok(self._context.clone().unwrap_or_else(|| JsString::new()));
-    } else {
+    if !(_smelt_tmp_1) {
     return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::Object(SmeltObject::from_unknown_record((SmeltRecord::from([(JsString::from("__smelt_error"), SmeltUnknown::String("Error".into())), (JsString::from("message"), SmeltUnknown::String("no context".into())), (JsString::from("stack"), SmeltUnknown::Undefined), (JsString::from("cause"), SmeltUnknown::Undefined)])).clone()))));
     }
+    return Ok(self._context.clone().unwrap_or_else(|| JsString::new()));
     }
     /// Prototype-carried members of this class, as receiver-bound erased functions.
     #[allow(dead_code)]

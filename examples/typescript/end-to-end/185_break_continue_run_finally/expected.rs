@@ -4757,9 +4757,8 @@ pub(crate) fn loop_inside_try() -> Result<(), Box<dyn std::error::Error>> {
     _smelt_tmp_17 = { let smelt_push_item = JsString::from("outer finally"); _smelt_tmp_16.borrow_mut().push(smelt_push_item); _smelt_tmp_16.len() as f64 };
     if _smelt_tmp_2 {
     return Err::<_, Box<dyn std::error::Error>>(smelt_throw(smelt_pending_thrown));
-    } else {
-    return Ok(());
     }
+    return Ok(());
 }
 
 pub(crate) fn break_from_catch() -> Result<(), Box<dyn std::error::Error>> {

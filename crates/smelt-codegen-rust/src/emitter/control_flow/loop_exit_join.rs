@@ -237,9 +237,9 @@ impl FunctionEmitter<'_> {
         chain.get(furthest).map(|join| (*join, furthest, rejoined))
     }
 
-    /// Whether the code from `join` on reads the result of a call or `await`
-    /// in the region from `starts` up to `join` (a loop and its exit region,
-    /// or the arms of a branch).
+    /// Whether the code from `join` on reads the result of a call or `await`,
+    /// or the `catch` binding of one, in the region from `starts` up to `join`
+    /// (a loop and its exit region, or the arms of a branch).
     ///
     /// Such a result is bound (`let`) inside the labelled block or arm where
     /// its call is emitted, and would be out of scope at the join after it.
@@ -263,8 +263,12 @@ impl FunctionEmitter<'_> {
             else {
                 continue;
             };
-            if let Terminator::Call { dest, .. } | Terminator::Await { dest, .. } = terminator {
+            if let Terminator::Call { dest, unwind, .. } | Terminator::Await { dest, unwind, .. } =
+                terminator
+            {
                 results.push(*dest);
+                // A `catch` binding is bound (`let`) in the call's `Err` arm.
+                results.extend(unwind.and_then(|handler| handler.exception_local));
             }
             pending.extend(
                 control_flow_successors(terminator)

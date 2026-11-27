@@ -5283,14 +5283,13 @@ impl App {
     let _smelt_tmp_2: bool = !(self.0.borrow()._routes.clone().is_some());
     if _smelt_tmp_2 {
     return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::Object(SmeltObject::from_unknown_record((SmeltRecord::from([(JsString::from("__smelt_error"), SmeltUnknown::String("Error".into())), (JsString::from("message"), SmeltUnknown::String("sealed".into())), (JsString::from("stack"), SmeltUnknown::Undefined), (JsString::from("cause"), SmeltUnknown::Undefined)])).clone()))));
-    } else {
+    }
     _smelt_tmp_5 = Into::<SmeltList<_>>::into(self.0.borrow()._routes.clone().clone().expect("optional value was absent after narrowing"));
     _smelt_tmp_6 = { let smelt_push_item = route.clone(); _smelt_tmp_5.borrow_mut().push(smelt_push_item); _smelt_tmp_5.len() as f64 };
     self.0.borrow_mut()._routes = Some(_smelt_tmp_5);
     _smelt_tmp_7 = Into::<SmeltList<_>>::into(self.0.borrow()._routes.clone().clone().expect("optional value was absent after narrowing"));
     _smelt_tmp_8 = _smelt_tmp_7.len() as f64;
     return Ok(_smelt_tmp_8);
-    }
     }
     fn routes(&self) -> JsString {
     smelt_reset_this();

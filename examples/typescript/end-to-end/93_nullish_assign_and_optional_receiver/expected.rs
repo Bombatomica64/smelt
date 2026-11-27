@@ -1320,10 +1320,6 @@ impl Bag {
     let _smelt_tmp_6: bool = !(self.0.borrow().current.clone().is_none());
     if _smelt_tmp_6 {
     _smelt_tmp_7 = self.0.borrow().current.clone();
-    headers = _smelt_tmp_7;
-    _smelt_tmp_11 = headers.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_12 = _smelt_tmp_11.set(&name.clone(), &value.clone());
-    return;
     } else {
     __smelt_logical_3 = SmeltHeaders::new();
     _smelt_tmp_9 = self.0.borrow().prepared.clone().is_none();
@@ -1335,11 +1331,11 @@ impl Bag {
     __smelt_logical_3 = self.0.borrow().prepared.clone().clone().expect("optional value was absent after narrowing");
     }
     _smelt_tmp_7 = Some(__smelt_logical_3);
+    }
     headers = _smelt_tmp_7;
     _smelt_tmp_11 = headers.clone().expect("optional value was absent after narrowing");
     _smelt_tmp_12 = _smelt_tmp_11.set(&name.clone(), &value.clone());
     return;
-    }
     }
     fn peek(&self, name: JsString) -> JsString {
     let headers: Option<SmeltHeaders>;
