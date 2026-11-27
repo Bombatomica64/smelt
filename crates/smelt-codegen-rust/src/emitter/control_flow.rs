@@ -237,8 +237,10 @@ impl FunctionEmitter<'_> {
     /// Emits a basic block after recursion-depth accounting has been applied.
     fn emit_block_body(&self, block: &BasicBlock, out: &mut String) -> Result<(), EmitError> {
         if let Some((_, exit_block)) = self.call_condition_loop(block, &[])? {
-            self.emit_call_condition_loop(block, exit_block, out)?;
-            return self.emit_block(self.block(exit_block)?, out);
+            let exit_join = self.loop_exit_join(block.id, exit_block, None);
+            let used_join = self.emit_call_condition_loop(block, exit_block, exit_join, out)?;
+            let next = self.emit_loop_exit_region(used_join, exit_block, out)?;
+            return self.emit_block(self.block(next)?, out);
         }
 
         if let Some((cond, repeat_block, exit_block, repeat_when_true)) =
@@ -288,8 +290,18 @@ impl FunctionEmitter<'_> {
         if let Some((decision, body_entry, exit_entry, body_is_then)) =
             self.compound_while(block, &[])?
         {
-            self.emit_compound_while(block, decision, body_entry, exit_entry, body_is_then, out)?;
-            return self.emit_block(self.block(exit_entry)?, out);
+            let exit_join = self.loop_exit_join(block.id, exit_entry, None);
+            let used_join = self.emit_compound_while(
+                block,
+                decision,
+                body_entry,
+                exit_entry,
+                body_is_then,
+                exit_join,
+                out,
+            )?;
+            let next = self.emit_loop_exit_region(used_join, exit_entry, out)?;
+            return self.emit_block(self.block(next)?, out);
         }
 
         if let Some((cond, then_block, else_block, cond_statement_idx)) =

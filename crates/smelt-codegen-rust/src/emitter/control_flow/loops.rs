@@ -638,7 +638,9 @@ impl FunctionEmitter<'_> {
     /// }` (with the arms swapped when the body is the decision's else branch) so
     /// the body's back-edge to the header becomes a natural loop iteration that
     /// re-evaluates the full compound condition. The caller continues at
-    /// `exit_entry`, the loop exit continuation, which it emits next.
+    /// `exit_entry`, the loop exit continuation, which it emits next, through
+    /// `emit_loop_exit_region` with the exit join (`loop_exit_join`) answered
+    /// here when an edge used it.
     pub(super) fn emit_compound_while(
         &self,
         block: &BasicBlock,
@@ -646,8 +648,9 @@ impl FunctionEmitter<'_> {
         body_entry: smelt_mir::BlockId,
         exit_entry: smelt_mir::BlockId,
         body_is_then: bool,
+        exit_join: Option<smelt_mir::BlockId>,
         out: &mut String,
-    ) -> Result<(), EmitError> {
+    ) -> Result<Option<smelt_mir::BlockId>, EmitError> {
         let cond_text = {
             let Some(Terminator::Switch { cond, .. }) = &self.block(decision)?.terminator else {
                 return Err(EmitError::new("compound while decision must be a switch"));
@@ -657,7 +660,7 @@ impl FunctionEmitter<'_> {
         let loop_declared = self.declared_scope();
         let open_loop = self
             .flow
-            .open_loop(block.id, None, Some(exit_entry), None, out.len());
+            .open_loop(block.id, None, Some(exit_entry), exit_join, out.len());
         out.push_str("    loop {\n");
         self.emit_condition_region(block, decision, out, &mut BlockIdSet::default())?;
         out.push_str(&format!(
@@ -687,9 +690,9 @@ impl FunctionEmitter<'_> {
             out.push_str("    }\n");
         }
         out.push_str("    }\n");
-        open_loop.close(out);
+        let used_join = open_loop.close(out);
         loop_declared.close();
-        Ok(())
+        Ok(used_join)
     }
 
     /// Emits a block's statements until reaching a goto to the stop target.
@@ -1365,8 +1368,18 @@ impl FunctionEmitter<'_> {
                 &mut BlockIdSet::default(),
             )
         {
-            self.emit_compound_while(block, decision, body_entry, exit_entry, body_is_then, out)?;
-            self.emit_after_nested_loop(exit_entry, stop, exit, out, visited)?;
+            let exit_join = self.loop_exit_join(block.id, exit_entry, Some(stop));
+            let used_join = self.emit_compound_while(
+                block,
+                decision,
+                body_entry,
+                exit_entry,
+                body_is_then,
+                exit_join,
+                out,
+            )?;
+            let next = self.emit_loop_exit_region(used_join, exit_entry, out)?;
+            self.emit_after_nested_loop(next, stop, exit, out, visited)?;
             return Ok(true);
         }
 
@@ -1494,8 +1507,10 @@ impl FunctionEmitter<'_> {
             ) else {
                 return Ok(false);
             };
-            self.emit_call_condition_loop(block, break_block, out)?;
-            self.emit_after_nested_loop(exit_block, stop, exit, out, visited)?;
+            let exit_join = self.nested_loop_exit_join(block.id, break_block, exit_block, stop);
+            let used_join = self.emit_call_condition_loop(block, break_block, exit_join, out)?;
+            let next = self.emit_loop_exit_region(used_join, exit_block, out)?;
+            self.emit_after_nested_loop(next, stop, exit, out, visited)?;
             return Ok(true);
         }
 
@@ -1561,17 +1576,19 @@ impl FunctionEmitter<'_> {
     /// temporaries belong to the iteration. From the header's terminator on the
     /// ordinary loop-branch walker does the rest: an edge back to `block` is
     /// `continue`, an edge to `break_block` is `break`, and a call inside a
-    /// `try` forks through its handler.
+    /// `try` forks through its handler. Answers the exit join an edge used, as
+    /// [`Self::emit_compound_while`] does.
     pub(super) fn emit_call_condition_loop(
         &self,
         block: &BasicBlock,
         break_block: smelt_mir::BlockId,
+        exit_join: Option<smelt_mir::BlockId>,
         out: &mut String,
-    ) -> Result<(), EmitError> {
+    ) -> Result<Option<smelt_mir::BlockId>, EmitError> {
         let loop_declared = self.declared_scope();
-        let open_loop = self
-            .flow
-            .open_loop(block.id, None, Some(break_block), None, out.len());
+        let open_loop =
+            self.flow
+                .open_loop(block.id, None, Some(break_block), exit_join, out.len());
         out.push_str("    loop {\n");
         for statement in &block.statements {
             self.emit_statement_for_block(block, statement, out)?;
@@ -1622,9 +1639,9 @@ impl FunctionEmitter<'_> {
             }
         }
         out.push_str("    }\n");
-        open_loop.close(out);
+        let used_join = open_loop.close(out);
         loop_declared.close();
-        Ok(())
+        Ok(used_join)
     }
 
     /// The block a nested loop's body `break`s to, or `None` when the loop

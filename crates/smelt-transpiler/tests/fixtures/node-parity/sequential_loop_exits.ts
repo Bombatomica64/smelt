@@ -94,6 +94,31 @@ function inClosure(): number {
   return sum(2) + sum(1);
 }
 
+function conditionForms(limit: number): string {
+  let log = "";
+  let i = 0;
+  for (let round = 0; round < 2; round++) {
+    try {
+      while (i < limit && log.length < 50) { i++; log += risky(i); }
+      log += "+";
+    } catch (error) {
+      log += "x";
+    } finally {
+      log += ";";
+    }
+    try {
+      while (risky(i) < limit) { i++; log += i; }
+      log += "+";
+    } catch (error) {
+      log += "x";
+    } finally {
+      log += ";";
+    }
+    i = round;
+  }
+  return log;
+}
+
 console.log(sequentialForOf());
 console.log(throwingNext());
 console.log(earlyReturn(2));
@@ -102,3 +127,5 @@ console.log(whileInTryFinally(0));
 console.log(whileInTryFinally(6));
 console.log(nestedInOuterLoop());
 console.log(inClosure());
+console.log(conditionForms(3));
+console.log(conditionForms(9));

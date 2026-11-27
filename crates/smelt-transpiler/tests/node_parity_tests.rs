@@ -2249,8 +2249,9 @@ fn discriminated_union_narrowing() -> TestResult {
 
 /// Loops whose body leaves them other than through their exit, in sequence:
 /// `for...of` over generators (a throwing `next()`, `break`, an early `return`)
-/// in a function, in a closure and nested in an outer loop, and a `while` with
-/// code after it in `try`/`catch`/`finally`. Their shared continuation is now
+/// in a function, in a closure and nested in an outer loop, and a `while`
+/// (plain, compound or call condition) with code after it in
+/// `try`/`catch`/`finally`. Their shared continuation is now
 /// emitted once behind a labelled exit block (`loop_exit_join`); every path
 /// must still run the same code in the same order, closing each generator.
 #[test]

@@ -152,7 +152,8 @@ export function run(seed: number): number {{
 
 /// The loop shapes whose early exits rejoin past the loop: a `for...of` over
 /// a generator in a function, in a closure, and nested in an outer loop, and
-/// a `while` with code after it inside `try`/`finally`.
+/// a `while` (plain, with a compound condition, with a call as condition)
+/// with code after it inside `try`/`finally`.
 fn loop_exit_programs(n: usize) -> Vec<(&'static str, String)> {
     let for_of = "  for (const digit of digits(3)) { total += digit; }\n";
     vec![
@@ -178,6 +179,22 @@ fn loop_exit_programs(n: usize) -> Vec<(&'static str, String)> {
             generator_loops(
                 n,
                 "  try { while (i < 3) { i++; total += risky(i); } total += 1; } finally { total += 2; }\n",
+                "{}",
+            ),
+        ),
+        (
+            "compound-condition while in try/finally",
+            generator_loops(
+                n,
+                "  try { while (i < 3 && total < 100000) { i++; total += risky(i); } total += 1; } finally { total += 2; }\n",
+                "{}",
+            ),
+        ),
+        (
+            "call-condition while in try/finally",
+            generator_loops(
+                n,
+                "  try { while (risky(i) < 3) { i++; total += risky(i); } total += 1; } finally { total += 2; }\n",
                 "{}",
             ),
         ),
