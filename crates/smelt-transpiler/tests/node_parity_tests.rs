@@ -2211,6 +2211,52 @@ fn iterator_protocol_infinite() -> TestResult {
     verify_node_parity("iterator_protocol_infinite")
 }
 
+/// An unannotated method, static method, getter, async method, abstract
+/// override or function declaration returns the type TypeScript inferred
+/// from its body, as an unannotated function expression already did.
+#[test]
+fn inferred_method_returns() -> TestResult {
+    verify_node_parity("inferred_method_returns")?;
+    // Type preservation, on the same source: each method's Rust signature
+    // spells the checker's inferred return. Before, every one of them
+    // returned `SmeltUnknown` (`missing-annotation`).
+    let fixtures = workspace_root()?.join("crates/smelt-transpiler/tests/fixtures/node-parity");
+    let project = TempProject::new()?;
+    let root = project.path();
+    fs::create_dir_all(root.join("src"))?;
+    fs::copy(
+        fixtures.join("inferred_method_returns.ts"),
+        root.join("src/main.ts"),
+    )?;
+    fs::write(
+        root.join("Smelt.toml"),
+        "[project]\nname = \"inferred-returns\"\nversion = \"0.1.0\"\n\n[sources]\nentries = [\"src/main.ts\"]\n\n[output]\ntarget = \"./dist\"\nbuild = false\n",
+    )?;
+    smelt_in(root, &["build"])?;
+    let mut source = String::new();
+    for entry in fs::read_dir(root.join("dist/src"))? {
+        source.push_str(&fs::read_to_string(entry?.path())?);
+    }
+    for signature in [
+        "fn who(&self) -> JsString",
+        "fn to_string(&self) -> JsString",
+        "fn pair(&self, x: f64) -> SmeltList<f64>",
+        "fn maybe(&self, flag: bool) -> Option<JsString>",
+        "fn later(&self, x: f64) -> SmeltFuture<f64>",
+        "fn bump() -> f64",
+        "fn __smelt_get_size(&self) -> f64",
+        "fn area(&self) -> f64",
+        "fn describe(&self) -> Result<JsString,",
+        "fn scaled(xs: SmeltList<f64>, k: f64) -> SmeltList<f64>",
+    ] {
+        ensure(
+            source.contains(signature),
+            format!("missing typed signature `{signature}`"),
+        )?;
+    }
+    Ok(())
+}
+
 /// A discriminant comparison (`s.kind === "circle"`, `!==`, `switch` arms,
 /// grouped labels, `default`, a failed `in`) narrows a union to the arms
 /// whose literal field admits the value, for interface and anonymous arms,

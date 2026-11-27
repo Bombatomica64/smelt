@@ -1,0 +1,5 @@
+base Base(base) 3|6 4 base undefined
+derived:base Base(derived:base) 3|6 4 base undefined
+3 2
+6 [ 3, 6 ] area 2.3
+later 42

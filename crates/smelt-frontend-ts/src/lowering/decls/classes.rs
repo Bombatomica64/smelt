@@ -579,6 +579,7 @@ impl ModuleBuilder<'_> {
                                         this.ts_type_to_hir(&annotation.type_annotation)
                                     })
                                     .transpose()?
+                                    .or_else(|| this.checker_method_return_type(method))
                                     .unwrap_or_else(|| {
                                         this.erase(ErasureReason::MissingAnnotation)
                                     });
@@ -1003,9 +1004,11 @@ impl ModuleBuilder<'_> {
                                             let read_ty = match method.value.return_type.as_ref() {
                                                 Some(annotation) => this
                                                     .ts_type_to_hir(&annotation.type_annotation)?,
-                                                None => {
-                                                    this.erase(ErasureReason::MissingAnnotation)
-                                                }
+                                                None => this
+                                                    .checker_method_return_type(method)
+                                                    .unwrap_or_else(|| {
+                                                        this.erase(ErasureReason::MissingAnnotation)
+                                                    }),
                                             };
                                             if let Some(existing) = source_descriptors
                                                 .iter_mut()

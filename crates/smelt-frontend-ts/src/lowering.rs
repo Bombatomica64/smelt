@@ -596,6 +596,27 @@ pub fn predeclare_type_declarations_with_path(
     path: &str,
     ctx: &mut HirCtx,
 ) -> Result<(), Vec<SmeltError>> {
+    predeclare_type_declarations_with_facts(source, file_id, path, ctx, None)
+}
+
+/// [`predeclare_type_declarations_with_path`] with the TypeScript checker's
+/// facts for the crate, which the full lowering of the same module reads too.
+///
+/// A predeclared class method surface is what a module lowered before the
+/// class (an import cycle) sees; without the facts an unannotated method's
+/// return erased there although the full lowering takes the checker's
+/// inferred return (`checker_declaration_return_type`).
+///
+/// # Errors
+///
+/// Returns parse diagnostics when the source is not valid TypeScript.
+pub fn predeclare_type_declarations_with_facts(
+    source: &str,
+    file_id: FileId,
+    path: &str,
+    ctx: &mut HirCtx,
+    ts_facts: Option<&smelt_ts_model::TsTypeFacts>,
+) -> Result<(), Vec<SmeltError>> {
     if is_generated_declaration_file(path, source) {
         return Ok(());
     }
@@ -631,6 +652,7 @@ pub fn predeclare_type_declarations_with_path(
         Vec::new(),
     );
     builder.read_program_facts(&parsed.program);
+    builder.ts_facts = ts_facts.filter(|facts| facts.has_file(path));
     // Import provenance first: every surface below may name an imported
     // ambiguous type, and only provenance lets it ask the rename map for the
     // exporting module's rendering (see `predeclare_import_provenance`).

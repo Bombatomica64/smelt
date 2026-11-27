@@ -4634,12 +4634,12 @@ impl SmeltFromUnknown for SmeltHeaders {
 // @smelt:prelude-end — generated program below
 
 #[derive(Clone)]
-pub enum SmeltUnion8 {
+pub enum SmeltUnion6 {
     M0(SmeltList<(JsString, JsString)>),
     M1(SmeltRecord<JsString, JsString>),
     M2(SmeltHeaders),
 }
-impl IntoSmeltUnknown for SmeltUnion8 {
+impl IntoSmeltUnknown for SmeltUnion6 {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         match self {
             Self::M0(value) => SmeltList::clone(&value).into_live_smelt_unknown(),
@@ -4648,7 +4648,7 @@ impl IntoSmeltUnknown for SmeltUnion8 {
         }
     }
 }
-impl SmeltUnion8 {
+impl SmeltUnion6 {
     fn from_smelt_unknown(value: SmeltUnknown) -> Self {
         if let SmeltUnknown::Object(smelt_host) = &value { if let Some(smelt_origin) = smelt_host.smelt_origin::<SmeltHeaders>() { return Self::M2(smelt_origin); } }
         if matches!(value, SmeltUnknown::Array(_)) { return Self::M0({ let smelt_item = |smelt_value: SmeltUnknown| if let SmeltUnknown::Array(smelt_tuple_values) = smelt_value.clone() { (match smelt_tuple_values.get(0).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::String(smelt_value) => smelt_value, smelt_other => JsString::from(match smelt_other { SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_symbol_to_string(&smelt_value), SmeltUnknown::Number(smelt_value) => smelt_number_to_string(smelt_value), SmeltUnknown::Bool(smelt_value) => smelt_value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) }, match smelt_tuple_values.get(1).cloned().unwrap_or(SmeltUnknown::Null).clone() { SmeltUnknown::String(smelt_value) => smelt_value, smelt_other => JsString::from(match smelt_other { SmeltUnknown::String(smelt_value) => smelt_value.to_string(), SmeltUnknown::Symbol(smelt_value) => smelt_symbol_to_string(&smelt_value), SmeltUnknown::Number(smelt_value) => smelt_number_to_string(smelt_value), SmeltUnknown::Bool(smelt_value) => smelt_value.to_string(), SmeltUnknown::Null | SmeltUnknown::Undefined => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned(), SmeltUnknown::Promise(_) => "[object Promise]".to_owned() }) }) } else { panic!("unknown is not tuple") }; { let smelt_src = value.clone().into_smelt_unknown(); match smelt_src { SmeltUnknown::Null | SmeltUnknown::Undefined => SmeltList::new(Vec::new()), SmeltUnknown::Array(smelt_values) => match smelt_values.live_list() { Some(smelt_live) => smelt_live, None => { let smelt_list_id = smelt_values.id; let smelt_list = SmeltList::with_id(smelt_list_id, smelt_values.into_iter().map(|smelt_value| smelt_item(smelt_value)).collect::<Vec<_>>()); smelt_array_props_adopt(smelt_list_id, &smelt_list.storage()); smelt_list } }, SmeltUnknown::String(smelt_value) => SmeltList::new(smelt_value.code_point_strings().into_iter().map(|smelt_ch| smelt_item(SmeltUnknown::String(smelt_ch))).collect::<Vec<_>>()), SmeltUnknown::Object(smelt_value) => if let Some(smelt_bytes) = smelt_host_buffer_elements(&SmeltUnknown::Object(smelt_value.clone())) { SmeltList::new(smelt_bytes.into_iter().map(|smelt_value| smelt_item(smelt_value)).collect::<Vec<_>>()) } else if let Some(smelt_args) = smelt_arguments_elements(&smelt_value) { SmeltList::new(smelt_args.into_iter().map(|smelt_value| smelt_item(smelt_value)).collect::<Vec<_>>()) } else if let Some(SmeltUnknown::Array(pairs)) = smelt_value.get("__smelt_map") { SmeltList::new(pairs.into_vec().into_iter().map(|smelt_value| smelt_item(smelt_value)).collect::<Vec<_>>()) } else if let Some(SmeltUnknown::Array(members)) = smelt_value.get("__smelt_set") { SmeltList::new(members.into_vec().into_iter().map(|smelt_value| smelt_item(smelt_value)).collect::<Vec<_>>()) } else { match smelt_value.get("__smelt_symbol_iterator") { Some(SmeltUnknown::Function(iterator)) => SmeltList::new(smelt_unknown_iterator_items(iterator(vec![]).unwrap_or(SmeltUnknown::Null)).into_iter().map(|smelt_value| smelt_item(smelt_value)).collect::<Vec<_>>()), _ => panic!("unknown is not iterable") } }, _ => panic!("unknown is not iterable") } } }); }
@@ -4656,25 +4656,25 @@ impl SmeltUnion8 {
         Self::M2(<SmeltHeaders as SmeltFromUnknown>::smelt_from_unknown(value.clone()))
     }
 }
-impl PartialEq for SmeltUnion8 {
+impl PartialEq for SmeltUnion6 {
     fn eq(&self, other: &Self) -> bool {
         self.clone().into_smelt_unknown() == other.clone().into_smelt_unknown()
     }
 }
-impl SmeltFromUnknown for SmeltUnion8 {
+impl SmeltFromUnknown for SmeltUnion6 {
     const HOLDS_RECORD: bool = true;
     fn smelt_from_unknown(value: SmeltUnknown) -> Self { Self::from_smelt_unknown(value) }
 }
-impl SmeltJsKeyEq for SmeltUnion8 {
+impl SmeltJsKeyEq for SmeltUnion6 {
     fn same_js_key(&self, other: &Self) -> bool { self.clone().into_smelt_unknown().same_js_key(&other.clone().into_smelt_unknown()) }
     fn js_key_hash(&self) -> Option<u64> { self.clone().into_smelt_unknown().js_key_hash() }
 }
-impl ::std::fmt::Debug for SmeltUnion8 {
+impl ::std::fmt::Debug for SmeltUnion6 {
     fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
         ::std::fmt::Debug::fmt(&self.clone().into_smelt_unknown(), formatter)
     }
 }
-impl Default for SmeltUnion8 {
+impl Default for SmeltUnion6 {
     fn default() -> Self {
         Self::M0(SmeltList::new(Vec::<(JsString, JsString)>::new()))
     }
@@ -4690,22 +4690,22 @@ fn main() {
     let mimes: SmeltRecord<JsString, JsString> = SmeltRecord::from([(JsString::from("json"), JsString::from("application/json")), (JsString::from("text"), JsString::from("text/plain"))]);
     let declared: JsString = mimes.get(&JsString::from("json")).expect("missing field").clone();
     let _smelt_tmp_3: SmeltRecord<JsString, JsString> = SmeltRecord::from([(JsString::from("Content-Type"), declared)]);
-    let _smelt_tmp_4: JsString = header_of(SmeltUnion8::M1(_smelt_tmp_3), JsString::from("content-type"));
+    let _smelt_tmp_4: JsString = header_of(SmeltUnion6::M1(_smelt_tmp_3), JsString::from("content-type"));
     let _ = { println!("{}", _smelt_tmp_4); };
     _smelt_tmp_6 = (JsString::from("x-kind"), JsString::from("pairs"));
     _smelt_tmp_7 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<(JsString, JsString)> = vec![_smelt_tmp_6.clone()]; smelt_list_items }));
-    let _smelt_tmp_8: JsString = header_of(SmeltUnion8::M0(_smelt_tmp_7), JsString::from("x-kind"));
+    let _smelt_tmp_8: JsString = header_of(SmeltUnion6::M0(_smelt_tmp_7), JsString::from("x-kind"));
     let _ = { println!("{}", _smelt_tmp_8); };
     _smelt_tmp_10 = SmeltRecord::from([(JsString::from("x-kind"), JsString::from("record"))]);
-    let _smelt_tmp_11: JsString = header_of(SmeltUnion8::M1(_smelt_tmp_10), JsString::from("x-kind"));
+    let _smelt_tmp_11: JsString = header_of(SmeltUnion6::M1(_smelt_tmp_10), JsString::from("x-kind"));
     let _ = { println!("{}", _smelt_tmp_11); };
     _smelt_tmp_13 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("x-kind"), JsString::from("headers")]; smelt_list_items }));
     _smelt_tmp_14 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltList<JsString>> = vec![_smelt_tmp_13.clone()]; smelt_list_items }));
     _smelt_tmp_15 = SmeltHeaders::from_pairs(_smelt_tmp_14.to_vec().into_iter().filter_map(|smelt_pair| { let smelt_pair = smelt_pair.to_vec(); Some((smelt_pair.first()?.clone(), smelt_pair.get(1)?.clone())) }).collect::<Vec<_>>());
-    let _smelt_tmp_16: JsString = header_of(SmeltUnion8::M2(_smelt_tmp_15), JsString::from("x-kind"));
+    let _smelt_tmp_16: JsString = header_of(SmeltUnion6::M2(_smelt_tmp_15), JsString::from("x-kind"));
     let _ = { println!("{}", _smelt_tmp_16); };
     _smelt_tmp_18 = SmeltRecord::from([(JsString::from("Content-Type"), mimes.get(&JsString::from("text")).expect("missing field").clone())]);
-    let _smelt_tmp_19: JsString = header_of(SmeltUnion8::M1(_smelt_tmp_18), JsString::from("x-missing"));
+    let _smelt_tmp_19: JsString = header_of(SmeltUnion6::M1(_smelt_tmp_18), JsString::from("x-missing"));
     let _ = { println!("{}", _smelt_tmp_19); };
     return;
 }
@@ -4717,8 +4717,8 @@ fn main() {
 
 use super::*;
 
-pub(crate) fn header_of(init: SmeltUnion8, name: JsString) -> JsString {
-    let copied: SmeltHeaders = match init.clone() { SmeltUnion8::M0(smelt_headers_init) => SmeltHeaders::from_pairs(smelt_headers_init.to_vec().into_iter().map(|smelt_pair| (smelt_pair.0, smelt_pair.1)).collect::<Vec<_>>()), SmeltUnion8::M1(smelt_headers_init) => SmeltHeaders::from_pairs(smelt_headers_init.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<_>>()), SmeltUnion8::M2(smelt_headers_init) => SmeltHeaders::from_pairs(smelt_headers_init.entries_sorted()) };
+pub(crate) fn header_of(init: SmeltUnion6, name: JsString) -> JsString {
+    let copied: SmeltHeaders = match init.clone() { SmeltUnion6::M0(smelt_headers_init) => SmeltHeaders::from_pairs(smelt_headers_init.to_vec().into_iter().map(|smelt_pair| (smelt_pair.0, smelt_pair.1)).collect::<Vec<_>>()), SmeltUnion6::M1(smelt_headers_init) => SmeltHeaders::from_pairs(smelt_headers_init.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<_>>()), SmeltUnion6::M2(smelt_headers_init) => SmeltHeaders::from_pairs(smelt_headers_init.entries_sorted()) };
     let _smelt_tmp_4: Option<JsString> = (copied.get(&name.clone())).map(JsString::from);
     let _smelt_tmp_5: JsString = _smelt_tmp_4.clone().unwrap_or(JsString::from("none"));
     return _smelt_tmp_5;

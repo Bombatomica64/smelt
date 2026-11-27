@@ -106,11 +106,13 @@ impl SeededLowering {
     /// This gives strongly connected import components the same declaration
     /// visibility as TypeScript: a barrel cycle may affect runtime
     /// initialization order, but it does not hide a type alias declared by
-    /// another module.
+    /// another module. `ts_facts` are the checker facts the module lowerings
+    /// read, so a predeclared surface takes the same inferred types.
     pub(super) fn predeclare(
         mut self,
         sources: &[&ManifestSource],
         file_ids: &[FileId],
+        ts_facts: Option<&smelt_ts_model::TsTypeFacts>,
     ) -> Result<PredeclaredLowering, Box<dyn std::error::Error>> {
         // Unique-symbol consts first, for EVERY source: a class surface below
         // may key a member by a symbol another module (possibly one ordered
@@ -129,11 +131,12 @@ impl SeededLowering {
         for (source, file_id) in sources.iter().zip(file_ids) {
             if source.lang.is_typescript() {
                 let path = source.path.display().to_string();
-                smelt_frontend_ts::predeclare_type_declarations_with_path(
+                smelt_frontend_ts::predeclare_type_declarations_with_facts(
                     &source.source,
                     *file_id,
                     &path,
                     &mut self.ts,
+                    ts_facts,
                 )
                 .map_err(|errors| {
                     io::Error::new(
@@ -323,7 +326,7 @@ mod tests {
         laid.path = directory.path().join("index.js");
 
         let seed = ManifestSeed::scan(&[&laid], &["index".to_owned()], HashSet::new());
-        let lowering = SeededLowering::new(seed).predeclare(&[&laid], &[FileId(0)])?;
+        let lowering = SeededLowering::new(seed).predeclare(&[&laid], &[FileId(0)], None)?;
         let path = laid.path.display().to_string();
         let symbols = lowering.ts.predeclared_unique_symbols.get(&path);
         if symbols.is_some_and(|names| names.contains_key("tag")) {

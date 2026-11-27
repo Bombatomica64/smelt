@@ -276,6 +276,109 @@ impl ModuleBuilder<'_> {
         lowered
     }
 
+    /// The return the checker inferred for an unannotated function
+    /// DECLARATION or METHOD, the counterpart of
+    /// [`Self::checker_function_return_type`] for function expressions.
+    ///
+    /// `class Base { who() { return "base"; } }` declares no return, and
+    /// lowering it at the erased `missing-annotation` type made every caller
+    /// read `who()` through `SmeltUnknown`. TypeScript inferred the return
+    /// from the body; that type is what an annotation spelling it would give,
+    /// so it stands in for the annotation. The checker types the function
+    /// node itself or its name (`name` is the declaration's identifier or
+    /// the method's key), tried in that order.
+    ///
+    /// Generators keep their own carrier inference (`inferred_generator_type`)
+    /// and get `None`, as does a return naming a type parameter
+    /// ([`Self::without_type_params`]) and any answer
+    /// `checker_function_return_type` declines: the checker's `any` (a recursive function is `any` until
+    /// annotated, and `tsc` itself rejects that under `noImplicitAny`),
+    /// `unknown`, a generic signature, or a type that does not re-spell here.
+    pub(in crate::lowering) fn checker_declaration_return_type(
+        &mut self,
+        function: &oxc::ast::ast::Function<'_>,
+        name: Option<oxc::span::Span>,
+    ) -> Option<TypeId> {
+        if function.generator {
+            return None;
+        }
+        let spans = [
+            Some((function.span.start, function.span.end)),
+            name.map(|span| (span.start, span.end)),
+        ];
+        let records_before = self.ctx.krate.erasures.len();
+        let found = spans
+            .into_iter()
+            .flatten()
+            .find_map(|(start, end)| self.checker_function_return_type(start, end));
+        self.without_type_params(found, records_before)
+    }
+
+    /// `ty`, unless it mentions a type parameter; then `None`, dropping the
+    /// erasure records made since `records_before`.
+    ///
+    /// A declaration's inferred return that names its class's or its own
+    /// type parameters (`Record<string, Matcher<T>>`) would be substituted
+    /// at each call by the class instantiation, and a call on a generic
+    /// class expression substituted it differently from the emitted method
+    /// (hono's `RegExpRouterWithMatcherExport<T>`: E0308). Such a return
+    /// keeps the previous lowering; only concrete returns are taken.
+    fn without_type_params(&mut self, ty: Option<TypeId>, records_before: usize) -> Option<TypeId> {
+        match ty {
+            Some(ty) if self.type_mentions_type_param(ty) => {
+                self.ctx.krate.erasures.truncate(records_before);
+                None
+            }
+            other => other,
+        }
+    }
+
+    /// The return an unannotated class METHOD takes from the checker: the
+    /// single inferred-return rule every method site asks (class methods,
+    /// abstract and reassigned-method signatures, accessors).
+    ///
+    /// [`Self::checker_declaration_return_type`] for a method, getter
+    /// included: what `class C { get n() { return 1; } }` reads is the type
+    /// the checker gives the accessor's key (`number`), as it is for any
+    /// property, while a method's key is typed as the method. A setter
+    /// returns nothing and gets `None`.
+    pub(in crate::lowering) fn checker_method_return_type(
+        &mut self,
+        method: &oxc::ast::ast::MethodDefinition<'_>,
+    ) -> Option<TypeId> {
+        use oxc::span::GetSpan;
+        let key = method.key.span();
+        match method.kind {
+            oxc::ast::ast::MethodDefinitionKind::Set => None,
+            oxc::ast::ast::MethodDefinitionKind::Get => {
+                if method.value.generator || method.value.r#async {
+                    return None;
+                }
+                let records_before = self.ctx.krate.erasures.len();
+                let lowered = self
+                    .checker_binding_type(key.start, key.end)
+                    .filter(|ty| !self.type_mentions_never(*ty));
+                if lowered.is_none() {
+                    self.ctx.krate.erasures.truncate(records_before);
+                }
+                self.without_type_params(lowered, records_before)
+            }
+            // One rule, read three ways off the checker's inferred result: a
+            // generator's `Generator<Y, R, N>` (`checker_method_generator_type`),
+            // an iterator-protocol method's structural result read as the
+            // `Iterator<T, R>`/`IteratorResult<T, R>` it implements
+            // (`checker_method_protocol_type`), else the inferred return.
+            oxc::ast::ast::MethodDefinitionKind::Method
+            | oxc::ast::ast::MethodDefinitionKind::Constructor => {
+                if method.value.generator {
+                    return self.checker_method_generator_type(method);
+                }
+                self.checker_method_protocol_type(method)
+                    .or_else(|| self.checker_declaration_return_type(&method.value, Some(key)))
+            }
+        }
+    }
+
     /// Whether `ty` mentions a union anywhere (an optional is not one).
     fn type_mentions_union(&self, ty: TypeId) -> bool {
         match self.ctx.krate.types.get(ty) {
