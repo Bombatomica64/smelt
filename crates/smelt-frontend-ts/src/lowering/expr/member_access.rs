@@ -1168,9 +1168,9 @@ impl ModuleBuilder<'_> {
         // symbol keys included, so its value form is the same adapter; its
         // `(string | symbol)[]` answer keeps erased elements, as the call's does.
         if self.names_host(object.name.as_str(), "Reflect") && member.property.name == "ownKeys" {
-            let key_ty = self.erase_with(ErasureReason::UnmodeledType, "Reflect.ownKeys key");
-            let keys_ty = self.ctx.krate.types.intern(Type::List(key_ty));
-            return Some(self.object_static_closure(member, 1, keys_ty, outer_body));
+            let own_key_ty = self.erase_with(ErasureReason::UnmodeledType, "Reflect.ownKeys key");
+            let own_keys_list_ty = self.ctx.krate.types.intern(Type::List(own_key_ty));
+            return Some(self.object_static_closure(member, 1, own_keys_list_ty, outer_body));
         }
         if !self.names_host(object.name.as_str(), "Object") {
             return None;
