@@ -971,7 +971,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Whether a computed key is `Symbol.iterator`.
-    fn is_symbol_iterator_key(&self, key: &PropertyKey<'_>) -> bool {
+    pub(in crate::lowering) fn is_symbol_iterator_key(&self, key: &PropertyKey<'_>) -> bool {
         matches!(
             key,
             PropertyKey::StaticMemberExpression(member)
