@@ -118,25 +118,6 @@ pub fn rebuild_optional(
     ty
 }
 
-/// The single absence `ty` admits as a one-layer optional, or `None` for a
-/// non-optional type and for one that admits both absences (whose two layers
-/// each have their own).
-#[must_use]
-pub fn sole_absence(types: &TypeInterner, ty: TypeId) -> Option<Absence> {
-    match types.get(ty) {
-        Some(Type::Optional(inner, absence)) if !matches!(types.get(*inner), Some(Type::Optional(_, other)) if other != absence) => {
-            Some(*absence)
-        }
-        _ => None,
-    }
-}
-
-/// Return whether `ty` is represented as an optional/nullish value.
-#[must_use]
-pub fn is_optional_like(types: &TypeInterner, ty: TypeId) -> bool {
-    matches!(types.get(ty), Some(Type::Optional(..)))
-}
-
 /// Return the non-nullish part of an optional or `None`-containing union.
 pub fn non_nullish_type(types: &mut TypeInterner, ty: TypeId) -> Option<TypeId> {
     match types.get(ty).cloned() {

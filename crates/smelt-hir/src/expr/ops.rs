@@ -866,7 +866,13 @@ impl RequestInitMember {
     pub const fn field_name(self) -> &'static str {
         match self {
             Self::ReferrerPolicy => "referrer_policy",
-            other => other.property_name(),
+            other @ (Self::Cache
+            | Self::Credentials
+            | Self::Integrity
+            | Self::Keepalive
+            | Self::Mode
+            | Self::Redirect
+            | Self::Referrer) => other.property_name(),
         }
     }
 

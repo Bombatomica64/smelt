@@ -324,7 +324,16 @@ fn integral_constant(constant: &Constant) -> Option<i128> {
             )]
             Some(*value as i128)
         }
-        _ => None,
+        Constant::Bool(_)
+        | Constant::Int(_)
+        | Constant::Float(_)
+        | Constant::BigInt(_)
+        | Constant::PyInt(_)
+        | Constant::String(_)
+        | Constant::StringUnits(_)
+        | Constant::Symbol(_)
+        | Constant::Undefined
+        | Constant::None => None,
     }
 }
 
@@ -1083,7 +1092,20 @@ impl Analysis<'_> {
             BinOp::NotEq | BinOp::StrictNotEq | BinOp::JsStrictNotEq | BinOp::JsLooseNotEq => {
                 (exclude_point(left, right), exclude_point(right, left))
             }
-            _ => (left, right),
+            BinOp::Add
+            | BinOp::Sub
+            | BinOp::Mul
+            | BinOp::Div
+            | BinOp::Rem
+            | BinOp::And
+            | BinOp::Or
+            | BinOp::Shl
+            | BinOp::Shr
+            | BinOp::UShr
+            | BinOp::BitAnd
+            | BinOp::BitOr
+            | BinOp::BitXor
+            | BinOp::IMul => (left, right),
         };
         if left.is_empty() || right.is_empty() {
             return None;
@@ -1665,7 +1687,15 @@ fn negative_constant_magnitude(operand: &Operand) -> Option<i64> {
     };
     let value = match constant {
         Constant::Int(value) => i128::from(*value),
-        other => integral_constant(other)?,
+        other @ (Constant::Bool(_)
+        | Constant::Float(_)
+        | Constant::BigInt(_)
+        | Constant::PyInt(_)
+        | Constant::String(_)
+        | Constant::StringUnits(_)
+        | Constant::Symbol(_)
+        | Constant::Undefined
+        | Constant::None) => integral_constant(other)?,
     };
     (value < 0).then(|| i64::try_from(-value).ok()).flatten()
 }

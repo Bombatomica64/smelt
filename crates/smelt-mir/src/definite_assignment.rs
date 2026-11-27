@@ -11,8 +11,7 @@
 //! * `may`: assigned on SOME path into the block (the meet is union).
 //!
 //! A read of a local in `must` is definitely assigned; one in `may` but not in
-//! `must` is possibly unassigned; one in neither is definitely unassigned
-//! ([`ReadState`]).
+//! `must` is possibly unassigned; one in neither is definitely unassigned.
 //!
 //! # Edges
 //!
@@ -52,17 +51,6 @@ pub struct Assigned {
     may: HashSet<LocalId>,
 }
 
-/// How a read of one local relates to the paths that reach it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ReadState {
-    /// Every path into the read assigns the local first.
-    Assigned,
-    /// Some path does and some path does not.
-    MaybeUnassigned,
-    /// No path does: the read always finds the local unassigned.
-    Unassigned,
-}
-
 impl Assigned {
     /// The facts on entry: exactly `defs` are assigned.
     fn entry(defs: impl IntoIterator<Item = LocalId>) -> Self {
@@ -78,18 +66,6 @@ impl Assigned {
     #[must_use]
     pub fn is_assigned(&self, local: LocalId) -> bool {
         self.must.contains(&local)
-    }
-
-    /// How a read of `local` at this point relates to its assignments.
-    #[must_use]
-    pub fn state_of(&self, local: LocalId) -> ReadState {
-        if self.must.contains(&local) {
-            ReadState::Assigned
-        } else if self.may.contains(&local) {
-            ReadState::MaybeUnassigned
-        } else {
-            ReadState::Unassigned
-        }
     }
 
     /// Records that `local` is assigned from this point on.

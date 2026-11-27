@@ -1103,7 +1103,12 @@ impl LoweringCtx<'_> {
                 smelt_hir::Item::Class(class_item) if class_item.name == base => class_item
                     .constructor
                     .and_then(|constructor| self.item_functions.get(&constructor).copied()),
-                _ => None,
+                smelt_hir::Item::Function(_)
+                | smelt_hir::Item::Class(_)
+                | smelt_hir::Item::Interface(_)
+                | smelt_hir::Item::TypeAlias(_)
+                | smelt_hir::Item::Const(_)
+                | smelt_hir::Item::MutableGlobal(_) => None,
             })
             .ok_or_else(|| {
                 let name = self.krate.symbols.get(base).unwrap_or("<unknown>");

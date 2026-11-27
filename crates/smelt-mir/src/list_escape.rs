@@ -984,7 +984,13 @@ impl<'a> BodyWalk<'a> {
             Some(&Place::Field { base, .. } | &Place::Index { base, .. }) if self.is_list(base) => {
                 self.touch(base);
             }
-            _ => {}
+            // Nothing to track: a constant, a non-list local or base, or a place
+            // rooted at a module global (no local is involved). Spelled out so a
+            // new place form must be classified here, not silently skipped.
+            Some(
+                Place::Local(_) | Place::Field { .. } | Place::Index { .. } | Place::Global { .. },
+            )
+            | None => {}
         }
     }
 
@@ -1000,7 +1006,13 @@ impl<'a> BodyWalk<'a> {
             Some(&Place::Field { base, .. } | &Place::Index { base, .. }) if self.is_list(base) => {
                 self.touch(base);
             }
-            _ => {}
+            // Nothing to track: a constant, a non-list local or base, or a place
+            // rooted at a module global (no local is involved). Spelled out so a
+            // new place form must be classified here, not silently skipped.
+            Some(
+                Place::Local(_) | Place::Field { .. } | Place::Index { .. } | Place::Global { .. },
+            )
+            | None => {}
         }
     }
 
@@ -1032,7 +1044,13 @@ impl<'a> BodyWalk<'a> {
             Some(&Place::Field { base, .. } | &Place::Index { base, .. }) if self.is_list(base) => {
                 self.touch(base);
             }
-            _ => {}
+            // Nothing to track: a constant, a non-list local or base, or a place
+            // rooted at a module global (no local is involved). Spelled out so a
+            // new place form must be classified here, not silently skipped.
+            Some(
+                Place::Local(_) | Place::Field { .. } | Place::Index { .. } | Place::Global { .. },
+            )
+            | None => {}
         }
     }
 
