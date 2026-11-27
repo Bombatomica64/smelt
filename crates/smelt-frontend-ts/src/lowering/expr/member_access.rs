@@ -9,7 +9,7 @@ use crate::lowering::js_text::js_str_text;
 use oxc::ast::ast::{Argument, ChainElement, Expression};
 use oxc::span::GetSpan;
 use smelt_hir::{
-    Body, DictProjectionOp, ErasureReason, Expr, ExprKind, FunctionType, Item, Literal, LocalDecl,
+    BinOp, Body, DictProjectionOp, ErasureReason, Expr, ExprKind, FunctionType, Item, Literal, LocalDecl,
     NumericPredicateOp, Param, Span, Stmt, Type, UnknownKind,
 };
 
@@ -650,6 +650,9 @@ impl ModuleBuilder<'_> {
         if let Some(expr) = self.object_static_function_member(member, body) {
             return Ok(self.name_builtin_static_function_value(member, expr, body));
         }
+        if let Some(expr) = self.json_static_function_member(member, body) {
+            return Ok(self.name_builtin_static_function_value(member, expr, body));
+        }
         if let Some(expr) = self.object_static_member(member, body) {
             return Ok(expr);
         }
@@ -1214,7 +1217,40 @@ impl ModuleBuilder<'_> {
             "entries" if arity == 1 => Some(DictProjectionOp::Entries),
             _ => None,
         };
-        let result = if let Some(op) = projection {
+        // `Object.is` and `Object.hasOwn` run their direct calls' ops over
+        // the parameters: `SameValue` equality, the own-key check.
+        let same_value_or_own_key = match (member.property.name.as_str(), params.as_slice()) {
+            ("is" | "hasOwn", [first, second]) => {
+                let read = |closure_body: &mut Body, param: &Param| {
+                    closure_body.push_expr(Expr {
+                        kind: ExprKind::Local(param.local),
+                        ty: param.ty,
+                        span,
+                    })
+                };
+                let lhs = read(&mut closure_body, first);
+                let rhs = read(&mut closure_body, second);
+                if member.property.name == "is" {
+                    Some(closure_body.push_expr(Expr {
+                        kind: ExprKind::BinOp {
+                            op: BinOp::StrictEq,
+                            lhs,
+                            rhs,
+                        },
+                        ty: return_ty,
+                        span,
+                    }))
+                } else {
+                    self.object_has_own_expr(member.span, &mut closure_body, lhs, rhs)
+                        .ok()
+                        .flatten()
+                }
+            }
+            _ => None,
+        };
+        let result = if let Some(result) = same_value_or_own_key {
+            result
+        } else if let Some(op) = projection {
             let string_ty = self.ctx.krate.types.intern(Type::String);
             let dict_ty = self.ctx.krate.types.intern(Type::Dict(string_ty, unknown));
             let argument_local = params.first().map_or_else(

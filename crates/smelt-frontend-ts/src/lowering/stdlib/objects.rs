@@ -1226,7 +1226,7 @@ impl ModuleBuilder<'_> {
             };
             let dict = self.argument(dict_argument, body)?;
             let key = self.argument(key_argument, body)?;
-            return self.object_has_own_expr(call, body, dict, key);
+            return self.object_has_own_expr(call.span, body, dict, key);
         }
         if let Expression::Identifier(object) = &member.object
             && self.names_host(object.name.as_str(), "Object")
@@ -1240,7 +1240,7 @@ impl ModuleBuilder<'_> {
             };
             let dict = self.argument(dict_argument, body)?;
             let key = self.argument(key_argument, body)?;
-            return self.object_has_own_expr(call, body, dict, key);
+            return self.object_has_own_expr(call.span, body, dict, key);
         }
         if matches!(
             member.property.name.as_str(),
@@ -1254,7 +1254,7 @@ impl ModuleBuilder<'_> {
             };
             let dict = self.expression(&member.object, body)?;
             let key = self.argument(key_argument, body)?;
-            return self.object_has_own_expr(call, body, dict, key);
+            return self.object_has_own_expr(call.span, body, dict, key);
         }
         Ok(None)
     }
@@ -1296,10 +1296,11 @@ impl ModuleBuilder<'_> {
         )
     }
 
-    /// Build a HIR expression for a TypeScript record key ownership check.
+    /// Build a HIR expression for a TypeScript record key ownership check
+    /// (`Object.hasOwn(dict, key)` spanning `call_span`).
     pub(in crate::lowering) fn object_has_own_expr(
         &mut self,
-        call: &oxc::ast::ast::CallExpression<'_>,
+        call_span: oxc::span::Span,
         body: &mut Body,
         mut dict: smelt_hir::ExprId,
         mut key: smelt_hir::ExprId,
@@ -1314,7 +1315,7 @@ impl ModuleBuilder<'_> {
             dict = body.push_expr(Expr {
                 kind: ExprKind::TypeAssert { value: dict },
                 ty: inner,
-                span: self.span(call.span.start, call.span.end),
+                span: self.span(call_span.start, call_span.end),
             });
             dict_shape_ty = self.type_param_constraint_or_self(inner);
         }
@@ -1341,7 +1342,7 @@ impl ModuleBuilder<'_> {
                 Some(Type::Int | Type::Float)
             )
         {
-            let span = self.span(call.span.start, call.span.end);
+            let span = self.span(call_span.start, call_span.end);
             let unknown_ty = self.erase_with(ErasureReason::ByName, "array named property");
             dict = body.push_expr(Expr {
                 kind: ExprKind::UnknownCast {
@@ -1354,7 +1355,7 @@ impl ModuleBuilder<'_> {
             dict_shape_ty = unknown_ty;
         }
         if matches!(self.ctx.krate.types.get(dict_shape_ty), Some(Type::List(_))) {
-            let span = self.span(call.span.start, call.span.end);
+            let span = self.span(call_span.start, call_span.end);
             let float_ty = self.ctx.krate.types.intern(Type::Float);
             let bool_ty = self.ctx.krate.types.intern(Type::Bool);
             let len = body.push_expr(Expr {
@@ -1412,7 +1413,7 @@ impl ModuleBuilder<'_> {
                 return Ok(Some(body.push_expr(Expr {
                     kind: ExprKind::Literal(Literal::Bool(false)),
                     ty: bool_ty,
-                    span: self.span(call.span.start, call.span.end),
+                    span: self.span(call_span.start, call_span.end),
                 })));
             }
             Some(Type::TypeParam { .. } | Type::Class { .. }) => {
@@ -1428,7 +1429,7 @@ impl ModuleBuilder<'_> {
                         target,
                     },
                     ty: target,
-                    span: self.span(call.span.start, call.span.end),
+                    span: self.span(call_span.start, call_span.end),
                 });
                 key_ty
             }
@@ -1452,13 +1453,13 @@ impl ModuleBuilder<'_> {
                         target,
                     },
                     ty: target,
-                    span: self.span(call.span.start, call.span.end),
+                    span: self.span(call_span.start, call_span.end),
                 });
                 key_ty
             }
             _ => {
                 return Err(SmeltError::unsupported(
-                    self.span(call.span.start, call.span.end),
+                    self.span(call_span.start, call_span.end),
                     "object key ownership checks require a record receiver",
                 ));
             }
@@ -1475,7 +1476,7 @@ impl ModuleBuilder<'_> {
                     lookup: PropertyLookup::Own,
                 },
                 ty: self.ctx.krate.types.intern(Type::Bool),
-                span: self.span(call.span.start, call.span.end),
+                span: self.span(call_span.start, call_span.end),
             })));
         }
         if Self::expr_ty(body, key) != key_ty
@@ -1484,12 +1485,12 @@ impl ModuleBuilder<'_> {
             key = body.push_expr(Expr {
                 kind: ExprKind::TypeAssert { value: key },
                 ty: key_ty,
-                span: self.span(call.span.start, call.span.end),
+                span: self.span(call_span.start, call_span.end),
             });
         }
         if Self::expr_ty(body, key) != key_ty {
             return Err(SmeltError::unsupported(
-                self.span(call.span.start, call.span.end),
+                self.span(call_span.start, call_span.end),
                 "object key ownership checks require a key matching the record key type",
             ));
         }
@@ -1501,7 +1502,7 @@ impl ModuleBuilder<'_> {
                 lookup: PropertyLookup::Own,
             },
             ty,
-            span: self.span(call.span.start, call.span.end),
+            span: self.span(call_span.start, call_span.end),
         })))
     }
 

@@ -1,0 +1,13 @@
+stringify 3
+{"a":1,"b":[true,null]}
+{
+  "a": 1
+}
+undefined
+[10,20]
+parse 2
+3
+true
+stringify 3 parse 2
+is 2 true true false
+hasOwn 2 true false
