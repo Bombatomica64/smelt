@@ -290,7 +290,9 @@ export function run(seed: number): number {{
 ///   leaves the function constrains no join: `branch_rejoin_post_dominator`);
 /// * a `try`/`catch`, `try`/`finally` in a loop body (`throwing_loop_join`);
 /// * an `if`/`else` whose arm calls a function inside a `try`
-///   (`emit_switch_at_post_dominator`: the `if` rejoins after the `try`).
+///   (`emit_switch_at_post_dominator`: the `if` rejoins after the `try`);
+/// * an `if`/`else` whose arm may throw or return (`2^n`: a `throw`, or a
+///   `return` inside one arm, ended the paths a post-dominator must meet).
 fn branch_rejoin_programs(n: usize) -> Vec<(String, String)> {
     let shapes = [
         (
@@ -316,6 +318,14 @@ fn branch_rejoin_programs(n: usize) -> Vec<(String, String)> {
         (
             "try/finally",
             "  try { total = risky(total); } finally { total += {i}; }\n",
+        ),
+        (
+            "if/else whose arm may throw",
+            "  if (total % 2 === 0) { if (total > 1e9) { throw new Error('x'); } total += {i}; } else { total -= 1; }\n",
+        ),
+        (
+            "if/else whose arm may return",
+            "  if (total % 2 === 0) { if (total > 1e9) { return -{i}; } total += {i}; } else { total -= 1; }\n",
         ),
         (
             "if/else chain with calls inside try",

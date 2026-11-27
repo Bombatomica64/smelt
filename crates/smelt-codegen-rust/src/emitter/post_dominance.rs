@@ -197,10 +197,7 @@ impl FunctionEmitter<'_> {
     /// without crossing `boundaries` or the branch itself) is emitted only
     /// inside that arm, so treating it as neutral never duplicates it. The
     /// usual table (`immediate_post_dominator_past_throws`) answers first;
-    /// the per-branch table is computed only when an arm returns early, and
-    /// only for a `match`: a two-way branch with an arm that returns
-    /// (`if (c) return a; ..`) is structured by `emit_switch`'s own rules
-    /// (`if c { return a } else { .. }`), which already emit the rest once.
+    /// the per-branch table is computed only when an arm returns early.
     pub(super) fn branch_rejoin_post_dominator(
         &self,
         branch: smelt_mir::BlockId,
@@ -209,14 +206,6 @@ impl FunctionEmitter<'_> {
     ) -> Option<smelt_mir::BlockId> {
         if let Some(join) = self.immediate_post_dominator_past_throws(branch) {
             return Some(join);
-        }
-        if !matches!(
-            self.block(branch)
-                .ok()
-                .and_then(|block| block.terminator.as_ref()),
-            Some(Terminator::Match { .. })
-        ) {
-            return None;
         }
         let exclusive = self.arm_exclusive_terminators(Some(branch), arms, boundaries);
         if exclusive.is_empty() {

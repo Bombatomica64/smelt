@@ -432,6 +432,9 @@ const hits = values.filter((value) => selected.has(value));
     );
 }
 
+/// Expectation corrected (branch rejoin at the post-dominator): the old text nested the rest of the
+/// body in the `else` of a branch whose arm throws/returns; the same statements now follow the `if`
+/// once. Behaviour is unchanged.
 #[test]
 fn emits_python_pytest_function_as_rust_test() {
     let source = source_for_py_path(
@@ -449,9 +452,8 @@ def test_truth():
 let _smelt_tmp_0: bool = !(true);
 if _smelt_tmp_0 {
 return Err::<_, Box<dyn std::error::Error>>(std::io::Error::new(std::io::ErrorKind::Other, format!("{}", "assertion failed".to_owned())).into());
-} else {
-return Ok(());
 }
+return Ok(());
 }"#
     );
 }

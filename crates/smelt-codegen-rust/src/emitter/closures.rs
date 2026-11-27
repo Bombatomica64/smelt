@@ -1709,8 +1709,8 @@ impl FunctionEmitter<'_> {
     /// (the two of an `if`, or every target of a `match`) rejoin, when the
     /// branch can be emitted as one structured `if`/`match` followed by that
     /// block: its immediate post-dominator `J` over the paths that do not
-    /// throw (nor, for a `match`, return from inside one arm:
-    /// [`Self::branch_rejoin_post_dominator`]). An arm that throws or returns
+    /// throw, nor return from inside one arm
+    /// ([`Self::branch_rejoin_post_dominator`]). An arm that throws or returns
     /// says so explicitly (`return`), as the statement form needs.
     ///
     /// `None` keeps the per-path emission, which is right when there is

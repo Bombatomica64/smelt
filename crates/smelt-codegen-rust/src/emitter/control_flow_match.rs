@@ -96,10 +96,9 @@ impl FunctionEmitter<'_> {
     /// and it once after the branch.
     ///
     /// The join is the block's immediate post-dominator over the paths that
-    /// do not `throw` (nor, for a `match`, `return` from inside one arm:
-    /// [`Self::branch_rejoin_post_dominator`]): an arm that throws leaves
-    /// through its own `return Err(..)` and constrains nothing, as for a
-    /// `try`. `None`
+    /// do not `throw`, nor `return` from inside one arm
+    /// ([`Self::branch_rejoin_post_dominator`]): such an arm leaves through
+    /// its own `return` and constrains nothing, as for a `try`. `None`
     /// keeps the per-arm emission when there is no such block, or when it is
     /// not inside the region being emitted:
     /// * it is an open loop's header, continue target, exit or exit join, or a
