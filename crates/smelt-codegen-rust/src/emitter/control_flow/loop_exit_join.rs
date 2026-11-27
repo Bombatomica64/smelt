@@ -267,8 +267,14 @@ impl FunctionEmitter<'_> {
                 terminator
             {
                 results.push(*dest);
-                // A `catch` binding is bound (`let`) in the call's `Err` arm.
-                results.extend(unwind.and_then(|handler| handler.exception_local));
+                // A `catch` binding not declared yet is bound (`let`) in the
+                // call's `Err` arm; a declared one (a `finally`'s pending
+                // throw) is only assigned there.
+                results.extend(
+                    unwind
+                        .and_then(|handler| handler.exception_local)
+                        .filter(|local| !self.is_local_declared(*local)),
+                );
             }
             pending.extend(
                 control_flow_successors(terminator)

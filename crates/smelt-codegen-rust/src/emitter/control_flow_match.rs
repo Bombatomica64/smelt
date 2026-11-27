@@ -80,9 +80,9 @@ impl FunctionEmitter<'_> {
         // scope HERE so a join emitted below keeps its declarations.
         match_declared.close();
         out.push_str("    }\n");
-        if let Some(MatchJoin::Hoisted(join) | MatchJoin::Region(join)) = join {
+        if let Some(MatchJoin::Hoisted(rejoin) | MatchJoin::Region(rejoin)) = join {
             // Control resumes at the shared join; its tail decides divergence.
-            self.emit_block(self.block(join)?, out)?;
+            self.emit_block(self.block(rejoin)?, out)?;
         } else {
             self.flow
                 .record(flow_state::Flow::from_diverges(arms_diverge));
@@ -279,9 +279,9 @@ impl FunctionEmitter<'_> {
                 self.emit_block_as_match_arm(block, out)?;
                 Ok(self.flow.last_flow())
             }
-            Some(MatchJoin::Region(join)) => {
-                if block.id != join {
-                    self.emit_block_until_goto(block, join, RegionExit::Join, out)?;
+            Some(MatchJoin::Region(rejoin)) => {
+                if block.id != rejoin {
+                    self.emit_block_until_goto(block, rejoin, RegionExit::Join, out)?;
                 }
                 Ok(self.flow.last_flow())
             }
