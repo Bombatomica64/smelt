@@ -438,17 +438,7 @@ impl ModuleBuilder<'_> {
                                     continue;
                                 }
                                 if evaluation.is_some() {
-                                    // A function-valued static stays unemitted, as on
-                                    // the module-global path below.
-                                    if !matches!(
-                                        property.value,
-                                        Some(
-                                            Expression::FunctionExpression(_)
-                                                | Expression::ArrowFunctionExpression(_)
-                                        )
-                                    ) {
-                                        frame_fields.push(this.evaluation_static_field(property)?);
-                                    }
+                                    frame_fields.push(this.evaluation_static_field(property)?);
                                     continue;
                                 }
                                 // A `static NAME: T = <literal>` declares a class-level
@@ -459,29 +449,9 @@ impl ModuleBuilder<'_> {
                                     source_static_fields.push(static_field);
                                     continue;
                                 }
-                                // A static field initialized to a function or arrow
-                                // expression (`static c = function () {};`) is a static
-                                // *callable* member, not a data constant. Materializing it
-                                // as an associated function needs the static-method
-                                // lowering path, which is not wired to property
-                                // initializers yet; until then the field is not emitted
-                                // rather than blocking the whole class. This keeps classes
-                                // that merely *carry* such a member lowerable (its value is
-                                // a function, never a data value read back structurally);
-                                // an actual `Class.c(...)` use would fail at the call site
-                                // rather than silently reading a wrong value.
-                                if matches!(
-                                    property.value,
-                                    Some(
-                                        Expression::FunctionExpression(_)
-                                            | Expression::ArrowFunctionExpression(_)
-                                    )
-                                ) {
-                                    continue;
-                                }
                                 // Any other initializer (`static count = compute()`,
                                 // `static items: string[] = []`, `static next =
-                                // Box.count + 1`) is evaluated once, when the class
+                                // Box.count + 1`, `static f = () => 1`) is evaluated once, when the class
                                 // definition runs, with `this` bound to the class:
                                 // the field gets storage whose lazy initializer is
                                 // that expression, lowered once the class exists.

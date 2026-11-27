@@ -7,11 +7,16 @@
 //! operand provably holds one closure definition is a compile-time string, the
 //! constant a hand port would write.
 //!
+//! A read off a class field or a module global (a static field) holds the
+//! closure every store into that slot creates, when the stores agree
+//! ([`super::slot_function_names`]).
+//!
 //! A read whose operand's closure is not statically known (a function
 //! parameter, a list element, a local reassigned to different functions) has no
 //! name storage in a typed `Rc<dyn Fn>` or `&dyn Fn` handle, so it answers the
 //! empty string, the name of an anonymous function.
 
+use super::slot_function_names::{FunctionSlot, SlotFunctions};
 use super::*;
 use crate::rust::RustExpr;
 
@@ -62,14 +67,13 @@ impl FunctionEmitter<'_> {
     /// ([`Self::static_function_value`]).
     fn static_function_name(&self, operand: &Operand) -> Result<Option<String>, EmitError> {
         Ok(match self.static_function_value(operand)? {
-            Some(StaticFunction::Closure(closure)) => Some(
-                closure
-                    .name
-                    .and_then(|name| self.symbol_source_name(name).ok())
-                    .unwrap_or_default()
-                    .to_owned(),
-            ),
-            Some(StaticFunction::Method { base, field }) => self.method_value_name(base, field)?,
+            Some(StaticFunction::Closure(closure)) => Some(self.closure_source_name(closure)),
+            Some(StaticFunction::Method { base, field }) => match self.method_value_name(base, field)? {
+                Some(name) => Some(name),
+                None => self
+                    .field_slot_closure(base, field)?
+                    .map(|closure| self.closure_source_name(closure)),
+            },
             None => None,
         })
     }
@@ -82,7 +86,10 @@ impl FunctionEmitter<'_> {
     ) -> Result<Option<usize>, EmitError> {
         Ok(match self.static_function_value(operand)? {
             Some(StaticFunction::Closure(closure)) => Some(closure_length(closure)),
-            Some(StaticFunction::Method { .. }) | None => None,
+            Some(StaticFunction::Method { base, field }) => self
+                .field_slot_closure(base, field)?
+                .map(closure_length),
+            None => None,
         })
     }
 
@@ -118,10 +125,61 @@ impl FunctionEmitter<'_> {
                 Some(Rvalue::Use(Operand::Copy(source) | Operand::Move(source))) => {
                     place = source.clone();
                 }
+                Some(Rvalue::GlobalGet { global }) => {
+                    return Ok(self
+                        .slot_closure(FunctionSlot::Global(*global))
+                        .map(StaticFunction::Closure));
+                }
                 _ => return Ok(None),
             }
         }
         Ok(None)
+    }
+
+    /// The closure every store into `slot` creates, when they agree on one
+    /// ([`super::slot_function_names`]).
+    fn slot_closure(&self, slot: FunctionSlot) -> Option<&MirClosure> {
+        let id = self
+            .context
+            .slot_functions
+            .get_or_init(|| SlotFunctions::of(self.mir))
+            .closure(slot)?;
+        self.mir.closures.get(usize::try_from(id.0).ok()?)
+    }
+
+    /// The closure a data field of a class instance holds (`k.handler`, or
+    /// `K.handler` on a per-evaluation statics frame), when every store into
+    /// the field agrees on one.
+    ///
+    /// Only a class's own declared field counts: an interface or object-literal
+    /// record can be written through an erased live view, a store no MIR body
+    /// spells.
+    fn field_slot_closure(
+        &self,
+        base: LocalId,
+        field: Symbol,
+    ) -> Result<Option<&MirClosure>, EmitError> {
+        let base_ty = self.local_decl(base)?.ty;
+        let Some(Type::Class { name, .. }) = self.mir.types.get(base_ty) else {
+            return Ok(None);
+        };
+        if !self.mir.has_class(*name)
+            || self.is_interface_record_type(base_ty)
+            || self.is_erased_class_type(base_ty)
+            || !self.class_has_named_field(base_ty, field)
+        {
+            return Ok(None);
+        }
+        Ok(self.slot_closure(FunctionSlot::Field(field)))
+    }
+
+    /// A closure's `Function.prototype.name` (`""` when anonymous).
+    fn closure_source_name(&self, closure: &MirClosure) -> String {
+        closure
+            .name
+            .and_then(|name| self.symbol_source_name(name).ok())
+            .unwrap_or_default()
+            .to_owned()
     }
 
     /// The name of a method read off a class instance (`k.m`): the method's

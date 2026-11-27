@@ -139,6 +139,7 @@ mod fixed_int;
 mod flow_state;
 mod function_item;
 mod function_name;
+mod slot_function_names;
 mod helper_reservation;
 mod local_binding;
 mod url;
@@ -291,6 +292,9 @@ pub(crate) struct EmitContext {
     /// (`Rvalue::ConstructLike`), which is what a class's erased `constructor`
     /// entry is for; computed on first ask.
     pub(crate) constructs_like: std::cell::OnceCell<bool>,
+    /// The closure each function-typed slot provably holds, computed on first
+    /// ask ([`slot_function_names`]).
+    slot_functions: std::cell::OnceCell<slot_function_names::SlotFunctions>,
     /// See [`crate::generic_lifting::ErasedArgumentMemo`].
     erased_arguments: crate::generic_lifting::ErasedArgumentMemo,
     /// What this program demands of the runtime, computed once.
@@ -503,6 +507,7 @@ impl EmitContext {
             union_return_bindings: ::std::cell::RefCell::default(),
             union_arm_params: ::std::cell::RefCell::default(),
             constructs_like: ::std::cell::OnceCell::new(),
+            slot_functions: ::std::cell::OnceCell::new(),
             erased_arguments: ::std::cell::RefCell::default(),
             generic_functions: RefCell::new(HashSet::new()),
             generic_reads: RefCell::new(HashSet::new()),
