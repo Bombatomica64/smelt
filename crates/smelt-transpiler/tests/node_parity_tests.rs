@@ -2257,6 +2257,8 @@ fn discriminated_union_narrowing() -> TestResult {
 #[test]
 fn sequential_loop_exits() -> TestResult {
     verify_node_parity("sequential_loop_exits")
+}
+
 /// Unannotated protocol methods take the iterator type the TypeScript checker
 /// infers from their result's structure (`checker_types::iterator_shape`): a
 /// `[Symbol.iterator]()` answering an object literal `{ next, return }` (whose
