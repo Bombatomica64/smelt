@@ -603,15 +603,21 @@ impl ModuleBuilder<'_> {
         let span = self.span(member.span.start, member.span.end);
         match member.property.name.as_str() {
             "stringify" => {
-                let value_ty =
-                    self.erase_at(ErasureReason::RuntimeNarrowing, span, "JSON.stringify value");
+                let value_ty = self.erase_at(
+                    ErasureReason::RuntimeNarrowing,
+                    span,
+                    "JSON.stringify value",
+                );
                 let replacer_ty = self.erase_at(
                     ErasureReason::RuntimeNarrowing,
                     span,
                     "JSON.stringify replacer",
                 );
-                let space_ty =
-                    self.erase_at(ErasureReason::RuntimeNarrowing, span, "JSON.stringify space");
+                let space_ty = self.erase_at(
+                    ErasureReason::RuntimeNarrowing,
+                    span,
+                    "JSON.stringify space",
+                );
                 let string_ty = self.ctx.krate.types.intern(Type::String);
                 let text_ty = self
                     .ctx
@@ -678,10 +684,14 @@ impl ModuleBuilder<'_> {
         let Some(Type::Function(function)) = self.ctx.krate.types.get(expr.ty).cloned() else {
             return closure;
         };
-        expr.ty = self.ctx.krate.types.intern(Type::Function(smelt_hir::FunctionType {
-            required_params: Some(required),
-            ..function
-        }));
+        expr.ty = self
+            .ctx
+            .krate
+            .types
+            .intern(Type::Function(smelt_hir::FunctionType {
+                required_params: Some(required),
+                ..function
+            }));
         closure
     }
 }

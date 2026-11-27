@@ -68,12 +68,14 @@ impl FunctionEmitter<'_> {
     fn static_function_name(&self, operand: &Operand) -> Result<Option<String>, EmitError> {
         Ok(match self.static_function_value(operand)? {
             Some(StaticFunction::Closure(closure)) => Some(self.closure_source_name(closure)),
-            Some(StaticFunction::Method { base, field }) => match self.method_value_name(base, field)? {
-                Some(name) => Some(name),
-                None => self
-                    .field_slot_closure(base, field)?
-                    .map(|closure| self.closure_source_name(closure)),
-            },
+            Some(StaticFunction::Method { base, field }) => {
+                match self.method_value_name(base, field)? {
+                    Some(name) => Some(name),
+                    None => self
+                        .field_slot_closure(base, field)?
+                        .map(|closure| self.closure_source_name(closure)),
+                }
+            }
             None => None,
         })
     }
@@ -86,9 +88,9 @@ impl FunctionEmitter<'_> {
     ) -> Result<Option<usize>, EmitError> {
         Ok(match self.static_function_value(operand)? {
             Some(StaticFunction::Closure(closure)) => Some(closure_length(closure)),
-            Some(StaticFunction::Method { base, field }) => self
-                .field_slot_closure(base, field)?
-                .map(closure_length),
+            Some(StaticFunction::Method { base, field }) => {
+                self.field_slot_closure(base, field)?.map(closure_length)
+            }
             None => None,
         })
     }

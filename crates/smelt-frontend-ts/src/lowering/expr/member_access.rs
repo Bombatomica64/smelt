@@ -9,8 +9,8 @@ use crate::lowering::js_text::js_str_text;
 use oxc::ast::ast::{Argument, ChainElement, Expression};
 use oxc::span::GetSpan;
 use smelt_hir::{
-    BinOp, Body, DictProjectionOp, ErasureReason, Expr, ExprKind, FunctionType, Item, Literal, LocalDecl,
-    NumericPredicateOp, Param, Span, Stmt, Type, UnknownKind,
+    BinOp, Body, DictProjectionOp, ErasureReason, Expr, ExprKind, FunctionType, Item, Literal,
+    LocalDecl, NumericPredicateOp, Param, Span, Stmt, Type, UnknownKind,
 };
 
 impl ModuleBuilder<'_> {

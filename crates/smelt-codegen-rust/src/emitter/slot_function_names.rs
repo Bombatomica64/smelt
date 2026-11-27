@@ -46,8 +46,8 @@ use std::collections::HashMap;
 
 use smelt_hir::Symbol;
 use smelt_mir::{
-    BasicBlock, ClosureId, Constant, GlobalProjection, LocalId, Mir, MirGlobalInit, Operand,
-    Place, Rvalue, Statement, Terminator,
+    BasicBlock, ClosureId, Constant, GlobalProjection, LocalId, Mir, MirGlobalInit, Operand, Place,
+    Rvalue, Statement, Terminator,
 };
 
 /// How many `a = b` copies are followed back to a closure definition.
@@ -190,10 +190,11 @@ fn returned_closure(mir: &Mir, blocks: &[BasicBlock]) -> SlotContents {
             let returned = operand_closure(mir, blocks, operand);
             contents = Some(match (contents, returned) {
                 (None, returned) => returned,
-                (
-                    Some(SlotContents::Closures(seen, first)),
-                    SlotContents::Closures(name, _),
-                ) if seen == name => SlotContents::Closures(name, first),
+                (Some(SlotContents::Closures(seen, first)), SlotContents::Closures(name, _))
+                    if seen == name =>
+                {
+                    SlotContents::Closures(name, first)
+                }
                 _ => SlotContents::Unknown,
             });
         }
@@ -221,7 +222,9 @@ fn operand_closure(mir: &Mir, blocks: &[BasicBlock], operand: &Operand) -> SlotC
     for _ in 0..COPY_CHAIN_LIMIT {
         match single_assigned_value(blocks, local) {
             Some(Rvalue::Closure { id, .. }) => return closure_contents(mir, *id),
-            Some(Rvalue::Use(Operand::Copy(Place::Local(source)) | Operand::Move(Place::Local(source)))) => {
+            Some(Rvalue::Use(
+                Operand::Copy(Place::Local(source)) | Operand::Move(Place::Local(source)),
+            )) => {
                 local = *source;
             }
             _ => return SlotContents::Unknown,
