@@ -59,7 +59,7 @@
 #[path = "harness/mod.rs"]
 mod harness;
 
-use harness::{emit_program, run_generated_tests};
+use harness::{emit_program, run_generated_tests_plus};
 use std::{
     path::{Path, PathBuf},
     sync::atomic::{AtomicUsize, Ordering},
@@ -98,7 +98,13 @@ fn run_fixture(source: &str, crate_name: &str, probe: &str) {
     let outcome = std::panic::catch_unwind(|| {
         emit_program(source, crate_name, &crate_dir);
         append_probe(&crate_dir, probe);
-        run_generated_tests(&crate_dir, &target_dir);
+        // The probe is Rust, so its `#[test]`s are counted from its own text.
+        run_generated_tests_plus(
+            source,
+            probe.matches("#[test]").count(),
+            &crate_dir,
+            &target_dir,
+        );
     });
     // The scratch root holds a whole nested cargo target directory, so it is
     // removed on the FAILURE path too: leaving one behind per failing case is
