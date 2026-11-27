@@ -46,42 +46,6 @@ impl ModuleBuilder<'_> {
         })))
     }
 
-    /// Lower a qualified static-field read `Class.NAME` to its literal value.
-    ///
-    /// Returns `None` when the attribute does not name a class-level static
-    /// field, so the caller can fall through to the ordinary attribute path.
-    fn class_static_member_expression(
-        &self,
-        attr: &ruff_python_ast::ExprAttribute,
-        body: &mut Body,
-    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        let Some((class_name, member)) = self.class_member_path(attr) else {
-            return Ok(None);
-        };
-        let Some(class_item) = self.items.get(class_name).copied() else {
-            return Ok(None);
-        };
-        let Item::Class(class) = self.item_ref(class_item) else {
-            return Ok(None);
-        };
-        let Some(field) = class
-            .static_fields
-            .iter()
-            .find(|field| self.ctx.krate.symbols.get(field.name) == Some(member))
-        else {
-            return Ok(None);
-        };
-        let Some(value) = field.value.clone() else {
-            return Ok(None);
-        };
-        let ty = field.ty;
-        Ok(Some(body.push_expr(HirExpr {
-            kind: ExprKind::Literal(value),
-            ty,
-            span: self.span(attr.range),
-        })))
-    }
-
     /// Resolve a class's `@staticmethod` item by name from its class item.
     fn class_static_method_item(
         &self,

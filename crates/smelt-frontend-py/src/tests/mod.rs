@@ -315,6 +315,7 @@ mod basic_tests;
 mod builtins_sets_tests;
 mod category_tests;
 mod class_tests;
+mod class_variable_tests;
 mod collections_a_tests;
 mod collections_b_tests;
 mod collections_reject_a_tests;
