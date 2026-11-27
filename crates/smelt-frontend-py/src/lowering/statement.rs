@@ -85,6 +85,9 @@ impl ModuleBuilder<'_> {
                     );
                     return Ok(());
                 }
+                if let Some(result) = self.class_variable_assign(target_expr, &s.value, body, block) {
+                    return result;
+                }
                 let target = self.expression(target_expr, body)?;
                 let target = Self::subscript_store_target(target, body);
                 let value = self.expression(&s.value, body)?;
@@ -95,6 +98,7 @@ impl ModuleBuilder<'_> {
             // `x += value` — augmented assignment.
             Stmt::AugAssign(aug) => self
                 .module_variable_aug_assign(aug, body, block)
+                .or_else(|| self.class_variable_aug_assign(aug, body, block))
                 .unwrap_or_else(|| self.aug_assign(aug, body, block)),
 
             Stmt::Global(global) => self.global_statement(global),

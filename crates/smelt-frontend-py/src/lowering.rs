@@ -146,6 +146,12 @@ pub(crate) struct ModuleBuilder<'ctx> {
     class_static_methods: HashMap<String, HashMap<String, ItemId>>,
     /// Class fields keyed by class name while a class body is being lowered.
     class_fields: HashMap<String, Vec<Field>>,
+    /// `(receiver, attribute)` for every attribute store in the module whose
+    /// receiver is a name (`cls` recorded as its class); see
+    /// `lowering/class_variables.rs`.
+    class_attribute_stores: HashSet<(String, String)>,
+    /// Every name a class of this module lists as a base.
+    subclassed_names: HashSet<String>,
     /// Module-level type aliases (`Result: TypeAlias = Ok | Err`) by source name.
     type_aliases: HashMap<String, TypeAliasDef>,
     /// Names declared by `TypeVar`/`ParamSpec`/`TypeVarTuple`, in source order.
@@ -402,6 +408,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
             class_methods,
             class_static_methods,
             class_fields: HashMap::new(),
+            class_attribute_stores: HashSet::new(),
+            subclassed_names: HashSet::new(),
             type_aliases: HashMap::new(),
             type_param_names: Vec::new(),
             module_namespaces,
@@ -476,6 +484,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
         self.replay_unattributed_output(&mut body);
         self.collect_exception_classes(module);
+        self.collect_class_attribute_stores(module);
 
         // Pass 1 — collect top-level function/class declarations so later
         // statements can reference them in calls. Each statement pass 1 takes
@@ -657,6 +666,8 @@ include!("lowering/default_params.rs");
 // Host-runtime specialization manifest consumption.
 include!("lowering/specialization.rs");
 include!("lowering/class.rs");
+// Class-body variables: constants and live class-level storage.
+include!("lowering/class_variables.rs");
 // Class initializer synthesis helpers.
 include!("lowering/class_init.rs");
 // Function signature and pytest parametrization helpers.

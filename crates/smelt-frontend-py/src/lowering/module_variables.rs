@@ -511,32 +511,45 @@ impl ModuleBuilder<'_> {
             return None;
         };
         let ty = global.ty;
+        Some(self.global_aug_assign(item, ty, aug, "module variable", body, block))
+    }
+
+    /// Lower `target op= value` on the global `item` of type `ty` (a module
+    /// variable or a class variable, named `what` in diagnostics): read it,
+    /// apply the operator Python's way, store the result back.
+    #[expect(clippy::too_many_arguments, reason = "the global, its type, the statement and where the store goes")]
+    fn global_aug_assign(
+        &mut self,
+        item: ItemId,
+        ty: TypeId,
+        aug: &StmtAugAssign,
+        what: &str,
+        body: &mut Body,
+        block: smelt_hir::BlockId,
+    ) -> Result<(), SmeltError> {
         let span = self.span(aug.range);
-        let result = (|| {
-            let current = body.push_expr(HirExpr { kind: ExprKind::GlobalGet { item }, ty, span });
-            let rhs = self.expression(&aug.value, body)?;
-            if let Some(update) = self.set_in_place_update(aug.op, current, rhs, span, body)? {
-                body.push_stmt_to_block(block, HirStmt::Expr(update));
-                return Ok(());
-            }
-            if self.list_in_place_update(aug.op, current, rhs, span, body, block)? {
-                return Ok(());
-            }
-            let op = Self::python_arithmetic_op(aug.op).ok_or_else(|| {
-                SmeltError::unsupported(span, format!("augmented assignment operator '{:?}' is not supported", aug.op))
-            })?;
-            let compound = self.python_arithmetic(op, current, rhs, span, body)?;
-            if Self::expr_ty(body, compound) != ty {
-                return Err(SmeltError::unsupported(
-                    span,
-                    "this augmented assignment changes the type of a module variable; declare its wider type",
-                ));
-            }
-            let set = body.push_expr(HirExpr { kind: ExprKind::GlobalSet { item, value: compound }, ty, span });
-            body.push_stmt_to_block(block, HirStmt::Expr(set));
-            Ok(())
-        })();
-        Some(result)
+        let current = body.push_expr(HirExpr { kind: ExprKind::GlobalGet { item }, ty, span });
+        let rhs = self.expression(&aug.value, body)?;
+        if let Some(update) = self.set_in_place_update(aug.op, current, rhs, span, body)? {
+            body.push_stmt_to_block(block, HirStmt::Expr(update));
+            return Ok(());
+        }
+        if self.list_in_place_update(aug.op, current, rhs, span, body, block)? {
+            return Ok(());
+        }
+        let op = Self::python_arithmetic_op(aug.op).ok_or_else(|| {
+            SmeltError::unsupported(span, format!("augmented assignment operator '{:?}' is not supported", aug.op))
+        })?;
+        let compound = self.python_arithmetic(op, current, rhs, span, body)?;
+        if Self::expr_ty(body, compound) != ty {
+            return Err(SmeltError::unsupported(
+                span,
+                format!("this augmented assignment changes the type of a {what}; declare its wider type"),
+            ));
+        }
+        let set = body.push_expr(HirExpr { kind: ExprKind::GlobalSet { item, value: compound }, ty, span });
+        body.push_stmt_to_block(block, HirStmt::Expr(set));
+        Ok(())
     }
 
     /// `global NAME, …` in a function: later writes of those names store the

@@ -181,6 +181,9 @@ impl ModuleBuilder<'_> {
                 if receiver_ty == self.py_exception_type() {
                     return self.exception_attribute_expr(receiver, attr, body);
                 }
+                if let Some(read) = self.instance_class_variable_read(attr, receiver_ty, body)? {
+                    return Ok(read);
+                }
                 let field = self.intern_name(attr.attr.as_str());
                 let field_ty = self.field_type(receiver_ty, field)?;
                 Ok(body.push_expr(HirExpr {

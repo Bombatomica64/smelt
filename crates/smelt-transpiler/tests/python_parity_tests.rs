@@ -517,3 +517,15 @@ fn optional_none_argument() -> TestResult {
 fn extrema_key() -> TestResult {
     verify_python_parity("extrema_key")
 }
+
+/// Class variables (`count = 0` in a class body): read through the class, an
+/// instance or `cls`; stored through the class or `cls` (`+=`, `*=`, `=`) as
+/// one value every instance sees; inherited reads through a subclass; and an
+/// instance attribute bound in `__init__` shadowing a class variable of the
+/// same name while `Class.name` keeps the class value. Requirements:
+/// `CPython`'s output; a stored class variable is typed storage of its
+/// literal's type (`SmeltPyInt`, `f64`, `String`), an unstored one a constant.
+#[test]
+fn class_variables() -> TestResult {
+    verify_python_parity("class_variables")
+}

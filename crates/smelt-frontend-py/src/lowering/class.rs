@@ -485,7 +485,6 @@ impl ModuleBuilder<'_> {
         let mut constructor_id: Option<ItemId> = None;
         let mut method_ids: Vec<ItemId> = Vec::new();
         let mut static_methods: Vec<ItemId> = Vec::new();
-        let mut static_fields_out: Vec<smelt_hir::StaticField> = Vec::new();
         let class_item_id = self.ctx.krate.push_item(Item::Class(Class {
             name: class_sym,
             span,
@@ -528,6 +527,11 @@ impl ModuleBuilder<'_> {
                 .push(field.clone());
             fields.push(field);
         }
+
+        // Class variables are registered on the class item before any method
+        // body is lowered, so `Class.NAME` / `self.NAME` in a method resolve.
+        let static_fields_out = self.class_variables(class, is_int_enum, hir_module)?;
+        self.set_class_static_fields(class_item_id, static_fields_out.clone());
 
         for body_stmt in &class.body {
             match body_stmt {
@@ -575,20 +579,8 @@ impl ModuleBuilder<'_> {
                 // skipped at module level.
                 Stmt::Assign(assign) if is_class_metadata_assignment(assign) => {}
                 // A bare `NAME = <literal>` in a non-enum class body declares a
-                // class variable (a static member shared by the class). Lower it
-                // to a materialized static field resolvable via `Class.NAME`.
-                Stmt::Assign(assign) if !is_int_enum => {
-                    if let Some(static_field) = self.class_var_static_field(assign)? {
-                        static_fields_out.push(static_field);
-                    } else {
-                        return Err(SmeltError::unsupported(
-                            self.span(assign.range),
-                            format!(
-                                "class '{class_name_str}': class-level assignment must be a single name bound to a literal"
-                            ),
-                        ));
-                    }
-                }
+                // class variable, already lowered by `class_variables` above.
+                Stmt::Assign(_) if !is_int_enum => {}
                 Stmt::FunctionDef(func) => {
                     let method_name = func.name.as_str();
                     if materialized.is_some()
@@ -963,6 +955,19 @@ impl ModuleBuilder<'_> {
             })
             .collect();
 
+        // Class variables by name, with their literal's type: an instance
+        // attribute `__init__` binds over one of them shadows it, and takes
+        // its type when the assigned value's own type is not knowable here.
+        let mut class_variable_types: HashMap<&str, TypeId> = HashMap::new();
+        for statement in &class.body {
+            if let Stmt::Assign(assign) = statement
+                && let [Expr::Name(target)] = assign.targets.as_slice()
+                && let Some((_, ty)) = self.class_var_literal(assign.value.as_ref())?
+            {
+                class_variable_types.insert(target.id.as_str(), ty);
+            }
+        }
+
         let mut collected: Vec<Field> = Vec::new();
         for initializer in initializers {
             // Parameter name -> declared type, skipping `self` / `cls`.
@@ -998,8 +1003,13 @@ impl ModuleBuilder<'_> {
             }
 
             for statement in &initializer.body {
-                let Some((field_name, field_ty)) =
-                    self.constructor_field_declaration(statement, &receivers, &param_types)?
+                let Some((field_name, field_ty)) = self.constructor_field_declaration(
+                    statement,
+                    &receivers,
+                    &param_types,
+                    class.name.as_str(),
+                    &class_variable_types,
+                )?
                 else {
                     continue;
                 };
@@ -1030,12 +1040,18 @@ impl ModuleBuilder<'_> {
     ///
     /// Returns the field name and its type for the two typed assignment shapes
     /// described on [`Self::implicit_constructor_fields`], and `None` for any
-    /// statement that does not declare a field with a knowable type.
+    /// statement that does not declare a field with a knowable type. An
+    /// attribute shadowing a class variable has that variable's type when the
+    /// value's own is not knowable before lowering, and `self.x = Class.var`
+    /// takes the class variable's type.
+    #[expect(clippy::too_many_arguments, reason = "one statement and the four facts about its class it is read against")]
     fn constructor_field_declaration(
         &mut self,
         statement: &Stmt,
         receivers: &HashSet<&str>,
         param_types: &HashMap<&str, TypeId>,
+        class_name: &str,
+        class_variable_types: &HashMap<&str, TypeId>,
     ) -> Result<Option<(String, TypeId)>, SmeltError> {
         /// `<instance>.<name>` as an assignment target, or `None` otherwise.
         fn self_field_target<'a>(target: &'a Expr, receivers: &HashSet<&str>) -> Option<&'a str> {
@@ -1068,8 +1084,30 @@ impl ModuleBuilder<'_> {
                 let Some(field_name) = self_field_target(target, receivers) else {
                     return Ok(None);
                 };
+                // `self.x = Class.var`: a class variable of this class (not
+                // registered yet) or of a class lowered before it.
+                let class_variable_value = match assign.value.as_ref() {
+                    Expr::Attribute(value) => match value.value.as_ref() {
+                        Expr::Name(owner) if owner.id.as_str() == class_name => {
+                            class_variable_types.get(value.attr.as_str()).copied()
+                        }
+                        Expr::Name(owner) => self
+                            .items
+                            .get(owner.id.as_str())
+                            .and_then(|item| match self.item_ref(*item) {
+                                Item::Class(class) => Some(class.name),
+                                _ => None,
+                            })
+                            .and_then(|class_sym| self.class_variable(class_sym, value.attr.as_str()))
+                            .map(|(field, _)| field.ty),
+                        _ => None,
+                    },
+                    _ => None,
+                };
                 Ok(self
                     .constructor_value_type(assign.value.as_ref(), param_types)
+                    .or(class_variable_value)
+                    .or_else(|| class_variable_types.get(field_name).copied())
                     .map(|field_ty| (field_name.to_owned(), field_ty)))
             }
             _ => Ok(None),
