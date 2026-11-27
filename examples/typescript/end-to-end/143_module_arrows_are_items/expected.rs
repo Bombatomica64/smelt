@@ -5248,43 +5248,9 @@ pub(crate) fn scan__module_main(url: JsString, key: Option<JsString>, multiple: 
     if _smelt_tmp_28 {
     _smelt_tmp_30 = -1.0;
     _smelt_tmp_29 = { let smelt_lhs: f64 = next; let smelt_rhs: f64 = _smelt_tmp_30; !(smelt_lhs == smelt_rhs || (smelt_is_number_hole(smelt_lhs) && smelt_is_number_hole(smelt_rhs))) };
-    if _smelt_tmp_29 {
-    eq = -1.0;
-    } else {
-    }
-    if encoded {
-    out = out + &JsString::from("%");
-    } else {
-    }
-    _smelt_tmp_34 = -1.0;
-    _smelt_tmp_35 = { let smelt_lhs: f64 = eq; let smelt_rhs: f64 = _smelt_tmp_34; (smelt_lhs == smelt_rhs || (smelt_is_number_hole(smelt_lhs) && smelt_is_number_hole(smelt_rhs))) };
-    if _smelt_tmp_35 {
-    if encoded {
-    out = out + &JsString::from("?");
-    } else {
-    }
-    } else {
-    }
-    _smelt_tmp_37 = multiple.clone().clone().unwrap_or(false);
-    if _smelt_tmp_37 {
-    out = out + &JsString::from("m");
-    } else {
-    }
-    _smelt_tmp_39 = index + 1.0;
-    _smelt_tmp_40 = -1.0;
-    _smelt_tmp_41 = { let smelt_lhs: f64 = next; let smelt_rhs: f64 = _smelt_tmp_40; (smelt_lhs == smelt_rhs || (smelt_is_number_hole(smelt_lhs) && smelt_is_number_hole(smelt_rhs))) };
-    if _smelt_tmp_41 {
-    _smelt_tmp_42 = None::<f64>;
-    } else {
-    _smelt_tmp_42 = Some(next);
-    }
-    _smelt_tmp_43 = { let smelt_len_units = url.len(); { let smelt_start = { let smelt_len = smelt_len_units as i64; let smelt_index = _smelt_tmp_39 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }; url.slice(smelt_start, smelt_start.saturating_add({ let smelt_len = smelt_len_units as i64; let smelt_index = _smelt_tmp_42.unwrap_or(smelt_len_units as f64) as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }.saturating_sub({ let smelt_len = smelt_len_units as i64; let smelt_index = _smelt_tmp_39 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }))) } };
-    _smelt_tmp_44 = _smelt_tmp_43 + &JsString::from(";");
-    out = out + &_smelt_tmp_44;
-    index = next;
-    continue;
     } else {
     _smelt_tmp_29 = false;
+    }
     if _smelt_tmp_29 {
     eq = -1.0;
     } else {
@@ -5320,7 +5286,6 @@ pub(crate) fn scan__module_main(url: JsString, key: Option<JsString>, multiple: 
     out = out + &_smelt_tmp_44;
     index = next;
     continue;
-    }
     }
     return Some(out);
 }

@@ -6076,16 +6076,9 @@ pub(crate) fn describe_items() -> JsString {
     item = items.borrow().get(_smelt_tmp_7).cloned().unwrap_or_else(|| Default::default());
     if item.0.borrow().enabled.clone() {
     _smelt_tmp_10 = true;
-    if _smelt_tmp_10 {
-    _smelt_tmp_12 = item.0.borrow().id.clone() * 10.0;
-    item.0.borrow_mut().id = _smelt_tmp_12;
-    } else {
-    }
-    total = total + item.0.borrow().id.clone();
-    _smelt_tmp_7 = _smelt_tmp_7 + 1;
-    continue;
     } else {
     _smelt_tmp_10 = item.0.borrow().id.clone() > 2.0;
+    }
     if _smelt_tmp_10 {
     _smelt_tmp_12 = item.0.borrow().id.clone() * 10.0;
     item.0.borrow_mut().id = _smelt_tmp_12;
@@ -6094,7 +6087,6 @@ pub(crate) fn describe_items() -> JsString {
     total = total + item.0.borrow().id.clone();
     _smelt_tmp_7 = _smelt_tmp_7 + 1;
     continue;
-    }
     }
     _smelt_tmp_14 = JsString::new() + &JsString::from(smelt_number_to_string(total));
     _smelt_tmp_15 = _smelt_tmp_14 + &JsString::from(":");

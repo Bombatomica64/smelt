@@ -4713,6 +4713,7 @@ pub(crate) fn loop_inside_try() -> Result<(), Box<dyn std::error::Error>> {
     smelt_pending_thrown = SmeltUnknown::Undefined;
     _smelt_tmp_2 = false;
     i = 0;
+    'smelt_exit_5: {
     loop {
     _smelt_tmp_3 = i < 3;
     if !(_smelt_tmp_3) { break; }
@@ -4733,13 +4734,7 @@ pub(crate) fn loop_inside_try() -> Result<(), Box<dyn std::error::Error>> {
     if _smelt_tmp_5 {
     smelt_pending_thrown = smelt_pending_thrown_1;
     _smelt_tmp_2 = true;
-    _smelt_tmp_16 = Into::<SmeltList<_>>::into(SMELT_GLOBAL_LOG_0.with(|smelt_value| smelt_value.borrow().clone()));
-    _smelt_tmp_17 = { let smelt_push_item = JsString::from("outer finally"); _smelt_tmp_16.borrow_mut().push(smelt_push_item); _smelt_tmp_16.len() as f64 };
-    if _smelt_tmp_2 {
-    return Err::<_, Box<dyn std::error::Error>>(smelt_throw(smelt_pending_thrown));
-    } else {
-    return Ok(());
-    }
+    break 'smelt_exit_5;
     } else {
     i = i + 1;
     continue;
@@ -4748,6 +4743,7 @@ pub(crate) fn loop_inside_try() -> Result<(), Box<dyn std::error::Error>> {
     }
     _smelt_tmp_14 = Into::<SmeltList<_>>::into(SMELT_GLOBAL_LOG_0.with(|smelt_value| smelt_value.borrow().clone()));
     _smelt_tmp_15 = { let smelt_push_item = JsString::from("still in try"); _smelt_tmp_14.borrow_mut().push(smelt_push_item); _smelt_tmp_14.len() as f64 };
+    }
     _smelt_tmp_16 = Into::<SmeltList<_>>::into(SMELT_GLOBAL_LOG_0.with(|smelt_value| smelt_value.borrow().clone()));
     _smelt_tmp_17 = { let smelt_push_item = JsString::from("outer finally"); _smelt_tmp_16.borrow_mut().push(smelt_push_item); _smelt_tmp_16.len() as f64 };
     if _smelt_tmp_2 {

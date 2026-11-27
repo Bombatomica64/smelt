@@ -5136,12 +5136,10 @@ pub(crate) fn keep<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 's
     _smelt_tmp_8 = pred(&item);
     if _smelt_tmp_8 {
     _smelt_tmp_9 = { let smelt_push_item = item; kept.borrow_mut().push(smelt_push_item); kept.len() as f64 };
-    _smelt_tmp_5 = _smelt_tmp_5 + 1;
-    continue;
     } else {
+    }
     _smelt_tmp_5 = _smelt_tmp_5 + 1;
     continue;
-    }
     }
     return kept;
 }

@@ -320,6 +320,13 @@ return;
     );
 }
 
+/// Corrected expectation (loop-body branches rejoin). Old: the loop's update
+/// and `continue` were written into both arms of the body's `if`. New: the
+/// arms rejoin and the update follows the `if` once, as a loop-body branch
+/// reached by `emit_loop_branch_inner` already did (`emit_loop_branch_at_join`);
+/// the walker after a nested loop doubled the rest of the body per sequential
+/// `for...of` without it. Every path runs the same statements in the same
+/// order. Evidence: Node-parity fixture `sequential_loop_exits`.
 #[test]
 fn emits_loop_with_join_blocks_as_loop() {
     let source = source_for(
@@ -363,15 +370,13 @@ count = out.get(&value);
 _smelt_tmp_9 = count.clone().is_none();
 if _smelt_tmp_9 {
 _smelt_tmp_10 = { (out).insert(value, 1.0); (out).clone() };
-_smelt_tmp_5 = _smelt_tmp_5 + 1;
-continue;
 } else {
 _smelt_tmp_11 = count.clone().expect("optional value was absent after narrowing");
 _smelt_tmp_12 = _smelt_tmp_11 + 1.0;
 _smelt_tmp_13 = { (out).insert(value, _smelt_tmp_12); (out).clone() };
+}
 _smelt_tmp_5 = _smelt_tmp_5 + 1;
 continue;
-}
 }
 _smelt_tmp_14 = out.into_iter().map(|(smelt_key, smelt_value)| (smelt_key.clone(), smelt_value)).collect::<SmeltRecord<JsString, f64>>();
 return _smelt_tmp_14;
@@ -1215,6 +1220,13 @@ return _smelt_tmp_5;
     );
 }
 
+/// Corrected expectation (loop-body branches rejoin). Old: the loop's update
+/// and `continue` were written into both arms of the body's `if`. New: the
+/// arms rejoin and the update follows the `if` once, as a loop-body branch
+/// reached by `emit_loop_branch_inner` already did (`emit_loop_branch_at_join`);
+/// the walker after a nested loop doubled the rest of the body per sequential
+/// `for...of` without it. Every path runs the same statements in the same
+/// order. Evidence: Node-parity fixture `sequential_loop_exits`.
 #[test]
 fn loop_body_if_guard_condition_renders_at_bool_type() {
     // An `if`-guard nested inside a for-of loop
@@ -1255,12 +1267,10 @@ _smelt_tmp_6 = part.clone().clone().is_some_and(|value| !value.is_empty());
 if _smelt_tmp_6 {
 _smelt_tmp_7 = part.clone().expect("optional value was absent after narrowing");
 out = out + &_smelt_tmp_7;
-_smelt_tmp_3 = _smelt_tmp_3 + 1;
-continue;
 } else {
+}
 _smelt_tmp_3 = _smelt_tmp_3 + 1;
 continue;
-}
 }
 return out;
 }"#

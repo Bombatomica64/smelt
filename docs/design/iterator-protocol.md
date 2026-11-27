@@ -131,5 +131,7 @@ the declared `T`/`R` (refused when not assignable). Nothing erases: the iterator
 * `obj[Symbol.iterator]()` on an instance whose class declares it is the typed method call (it was an erased value
   call, which could not land in a typed `Iterator<T>`).
 
-Known and unrelated: lowering a function with many sequential `for...of` loops over generators takes time exponential
-in their number (each loop's `try`/`finally` continuation is duplicated; 6 loops take ~90 s on `main`).
+Fixed separately: emitting a function with many sequential `for...of` loops over generators took time exponential
+in their number (the `next()` call's handler leaves the loop for the `finally`, and each such exit re-emitted the
+rest of the function: 6 loops took ~90 s). The Rust emitter now rejoins a loop's early exits at their common
+post-dominator behind a labelled block (`smelt-codegen-rust` `control_flow/loop_exit_join.rs`).

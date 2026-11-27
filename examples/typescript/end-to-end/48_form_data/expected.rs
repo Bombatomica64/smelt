@@ -5868,8 +5868,6 @@ smelt_local.block_on(&smelt_runtime, async move {
     if _smelt_tmp_68 {
     _smelt_tmp_69 = match entry { SmeltUnion12::M0(value) => value, _ => unreachable!("union guard selected an excluded member") };
     let _ = { println!("{} {}", JsString::from("text"), _smelt_tmp_69); };
-    _smelt_tmp_65 = _smelt_tmp_65 + 1;
-    continue;
     } else {
     _smelt_tmp_71 = match entry.clone() { SmeltUnion12::M1(value) => value, _ => unreachable!("union guard selected an excluded member") };
     _smelt_tmp_72 = JsString::from(_smelt_tmp_71.file_name());
@@ -5881,9 +5879,9 @@ smelt_local.block_on(&smelt_runtime, async move {
     let mut _smelt_tmp_78: SmeltFuture<JsString> = { let smelt_blob = _smelt_tmp_77.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(JsString::from(smelt_blob.to_text())) })) };
     _smelt_tmp_79 = _smelt_tmp_78.await?;
     let _ = { println!("{} {} {} {} {}", JsString::from("file"), _smelt_tmp_72, _smelt_tmp_74, smelt_console_number(_smelt_tmp_76), _smelt_tmp_79); };
+    }
     _smelt_tmp_65 = _smelt_tmp_65 + 1;
     continue;
-    }
     }
     _smelt_tmp_81 = SmeltRecord::from([(JsString::from("content-type"), JsString::from("application/x-www-form-urlencoded"))]);
     urlencoded = SmeltResponse::from_parts(200.0, JsString::new(), SmeltHeaders::from_pairs(_smelt_tmp_81.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<_>>()), SmeltBody::from_text(&JsString::from("a=1&b=hello+world&a=2")));
@@ -5928,8 +5926,6 @@ smelt_local.block_on(&smelt_runtime, async move {
     if _smelt_tmp_111 {
     _smelt_tmp_112 = match value_2 { SmeltUnion12::M0(value) => value, _ => unreachable!("union guard selected an excluded member") };
     let _ = { println!("{} {} {}", name_2, JsString::from("text"), _smelt_tmp_112); };
-    _smelt_tmp_106 = _smelt_tmp_106 + 1;
-    continue;
     } else {
     _smelt_tmp_114 = match value_2.clone() { SmeltUnion12::M1(value) => value, _ => unreachable!("union guard selected an excluded member") };
     _smelt_tmp_115 = JsString::from(_smelt_tmp_114.file_name());
@@ -5941,9 +5937,9 @@ smelt_local.block_on(&smelt_runtime, async move {
     let mut _smelt_tmp_121: SmeltFuture<JsString> = { let smelt_blob = _smelt_tmp_120.clone(); SmeltFuture::from_future(Box::pin(async move { Ok::<_, Box<dyn std::error::Error>>(JsString::from(smelt_blob.to_text())) })) };
     _smelt_tmp_122 = _smelt_tmp_121.await?;
     let _ = { println!("{} {} {} {} {} {}", name_2, JsString::from("file"), _smelt_tmp_115, _smelt_tmp_117, smelt_console_number(_smelt_tmp_119), _smelt_tmp_122); };
+    }
     _smelt_tmp_106 = _smelt_tmp_106 + 1;
     continue;
-    }
     }
     _smelt_tmp_124 = SmeltRecord::from([(JsString::from("content-type"), JsString::from("text/plain"))]);
     _smelt_tmp_125 = SmeltResponse::from_parts(200.0, JsString::new(), SmeltHeaders::from_pairs(_smelt_tmp_124.iter().map(|(smelt_name, smelt_value)| (smelt_name.clone(), smelt_value.clone())).collect::<Vec<_>>()), SmeltBody::from_text(&JsString::from("plain")));

@@ -8,6 +8,7 @@ use crate::rust::RustExpr;
 mod assign;
 mod calls;
 mod cfg_paths;
+mod loop_exit_join;
 mod loops;
 mod switch;
 
@@ -197,9 +198,14 @@ impl FunctionEmitter<'_> {
         let latch = latch_block.map(|latch| self.block(latch)).transpose()?;
         let else_ = self.block(else_block)?;
         let loop_declared = self.declared_scope();
-        let open_loop = self
-            .flow
-            .open_loop(block.id, latch_block, Some(else_block), out.len());
+        let exit_join = self.loop_exit_join(block.id, else_block, None);
+        let open_loop = self.flow.open_loop(
+            block.id,
+            latch_block,
+            Some(else_block),
+            exit_join,
+            out.len(),
+        );
         self.open_while_loop(block, cond, cond_statement_idx, out)?;
         self.emit_block_until_goto(
             then,
@@ -215,16 +221,26 @@ impl FunctionEmitter<'_> {
             }
         }
         out.push_str("    }\n");
-        open_loop.close(out);
+        let used_join = open_loop.close(out);
         loop_declared.close();
-        self.emit_block(else_, out)
+        let next = self.emit_loop_exit_region(used_join, else_block, out)?;
+        self.emit_block(
+            if next == else_block {
+                else_
+            } else {
+                self.block(next)?
+            },
+            out,
+        )
     }
 
     /// Emits a basic block after recursion-depth accounting has been applied.
     fn emit_block_body(&self, block: &BasicBlock, out: &mut String) -> Result<(), EmitError> {
         if let Some((_, exit_block)) = self.call_condition_loop(block, &[])? {
-            self.emit_call_condition_loop(block, exit_block, out)?;
-            return self.emit_block(self.block(exit_block)?, out);
+            let exit_join = self.loop_exit_join(block.id, exit_block, None);
+            let used_join = self.emit_call_condition_loop(block, exit_block, exit_join, out)?;
+            let next = self.emit_loop_exit_region(used_join, exit_block, out)?;
+            return self.emit_block(self.block(next)?, out);
         }
 
         if let Some((cond, repeat_block, exit_block, repeat_when_true)) =
@@ -233,9 +249,10 @@ impl FunctionEmitter<'_> {
             let repeated = self.block(repeat_block)?;
             let exit = self.block(exit_block)?;
             let loop_declared = self.declared_scope();
-            let open_loop = self
-                .flow
-                .open_loop(block.id, None, Some(exit_block), out.len());
+            let exit_join = self.loop_exit_join(block.id, exit_block, None);
+            let open_loop =
+                self.flow
+                    .open_loop(block.id, None, Some(exit_block), exit_join, out.len());
             out.push_str("    loop {\n");
             for statement in &block.statements {
                 self.emit_statement_for_block(block, statement, out)?;
@@ -254,9 +271,17 @@ impl FunctionEmitter<'_> {
                 out,
             )?;
             out.push_str("    }\n");
-            open_loop.close(out);
+            let used_join = open_loop.close(out);
             loop_declared.close();
-            return self.emit_block(exit, out);
+            let next = self.emit_loop_exit_region(used_join, exit_block, out)?;
+            return self.emit_block(
+                if next == exit_block {
+                    exit
+                } else {
+                    self.block(next)?
+                },
+                out,
+            );
         }
 
         // A compound short-circuit `while` header is recognized before the
@@ -265,8 +290,18 @@ impl FunctionEmitter<'_> {
         if let Some((decision, body_entry, exit_entry, body_is_then)) =
             self.compound_while(block, &[])?
         {
-            self.emit_compound_while(block, decision, body_entry, exit_entry, body_is_then, out)?;
-            return self.emit_block(self.block(exit_entry)?, out);
+            let exit_join = self.loop_exit_join(block.id, exit_entry, None);
+            let used_join = self.emit_compound_while(
+                block,
+                decision,
+                body_entry,
+                exit_entry,
+                body_is_then,
+                exit_join,
+                out,
+            )?;
+            let next = self.emit_loop_exit_region(used_join, exit_entry, out)?;
+            return self.emit_block(self.block(next)?, out);
         }
 
         if let Some((cond, then_block, else_block, cond_statement_idx)) =

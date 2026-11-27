@@ -13,8 +13,16 @@
 use super::*;
 use smelt_mir::{BlockId, Terminator};
 
-/// `continue outer` runs the outer update and continues the OUTER loop by
-/// label; the inner loop is a real loop of its own.
+/// `continue outer` runs the outer update and continues the OUTER loop; the
+/// inner loop is a real loop of its own.
+///
+/// Corrected expectation (exit join). Old: the jump had to be a labelled
+/// `continue 'smelt_loop_N` after the outer update. New: it may instead leave
+/// the inner loop by `break 'smelt_exit_N`, out of a labelled block whose end
+/// is followed by the outer update (`loop_exit_join`: the update is where the
+/// inner loop's early exit and its normal exit rejoin). Both run the update
+/// and then the outer loop's next iteration, which is the requirement; the
+/// `labeled_statements` Node-parity program checks the run.
 #[test]
 fn continue_outer_through_the_latch_is_a_labelled_continue() {
     let source = source_for(
@@ -32,19 +40,41 @@ export function pairs(n: number): string {
 ",
     );
     let body = emitted_function_body(&source, "fn pairs(");
-    let label = body
+    if let Some(label) = body
         .lines()
         .find_map(|line| line.trim().strip_suffix(": loop {").map(str::to_owned))
-        .unwrap_or_else(|| panic!("the outer loop carries a label:\n{body}"));
-    let continue_outer = format!("continue {label};");
-    assert!(body.contains(&continue_outer), "{body}");
-    // The jump runs the outer update first: `a + 1.0` precedes it.
-    let jump = body.find(&continue_outer).unwrap_or_default();
-    assert!(
-        body.get(..jump)
-            .is_some_and(|before| before.contains("a + 1.0")),
-        "{body}"
-    );
+    {
+        let continue_outer = format!("continue {label};");
+        assert!(body.contains(&continue_outer), "{body}");
+        // The jump runs the outer update first: `a + 1.0` precedes it.
+        let jump = body.find(&continue_outer).unwrap_or_default();
+        assert!(
+            body.get(..jump)
+                .is_some_and(|before| before.contains("a + 1.0")),
+            "{body}"
+        );
+    } else {
+        let label = body
+            .lines()
+            .find_map(|line| line.trim().strip_suffix(": {").map(str::to_owned))
+            .unwrap_or_else(|| panic!("the jump names the outer loop or its exit:\n{body}"));
+        let leave = format!("break {label};");
+        let jump = body
+            .find(&leave)
+            .unwrap_or_else(|| panic!("the inner loop leaves by {leave}:\n{body}"));
+        // The block it leaves ends right before the outer update, which
+        // then ends the outer iteration.
+        let after = body.get(jump..).unwrap_or_default();
+        let update = after
+            .find("a = a + 1.0;")
+            .unwrap_or_else(|| panic!("{body}"));
+        assert!(
+            after.get(..update).is_some_and(|between| {
+                between.matches('}').count() >= 1 && !between.contains("b = 0.0")
+            }),
+            "{body}"
+        );
+    }
     // The inner loop is a loop, so its own back edge has its own header.
     assert!(
         body.matches("loop {").count() + body.matches("while ").count() >= 2,

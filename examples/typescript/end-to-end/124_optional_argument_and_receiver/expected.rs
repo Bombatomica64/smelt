@@ -4594,47 +4594,9 @@ fn main() {
     _smelt_tmp_20 = w.clone().expect("optional value was absent after narrowing");
     _smelt_tmp_21 = -1.0;
     _smelt_tmp_19 = ({ let smelt_len = _smelt_tmp_20.len() as i64; let smelt_index = _smelt_tmp_21 as i64; let smelt_normalized = if smelt_index < 0 { smelt_len + smelt_index } else { smelt_index }; usize::try_from(smelt_normalized).ok() }).and_then(|smelt_index| _smelt_tmp_20.char_at(smelt_index));
-    _smelt_tmp_23 = w.clone().is_none();
-    _smelt_tmp_24 = !(_smelt_tmp_23);
-    if _smelt_tmp_24 {
-    _smelt_tmp_26 = w.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_27 = { let smelt_len_units = _smelt_tmp_26.len(); { let smelt_start = { let smelt_len = smelt_len_units as i64; let smelt_index = 1.0 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }; _smelt_tmp_26.slice(smelt_start, smelt_start.saturating_add(smelt_len_units.saturating_sub({ let smelt_len = smelt_len_units as i64; let smelt_index = 1.0 as i64; if smelt_index < 0 { (smelt_len + smelt_index).clamp(0, smelt_len) as usize } else { smelt_index.clamp(0, smelt_len) as usize } }))) } };
-    _smelt_tmp_25 = Some(_smelt_tmp_27);
-    } else {
-    _smelt_tmp_25 = None::<JsString>;
-    }
-    _smelt_tmp_28 = w.clone().is_none();
-    _smelt_tmp_29 = !(_smelt_tmp_28);
-    if _smelt_tmp_29 {
-    _smelt_tmp_31 = w.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_30 = Some(_smelt_tmp_31.to_upper_case());
-    } else {
-    _smelt_tmp_30 = None::<JsString>;
-    }
-    _smelt_tmp_33 = w.clone().is_none();
-    _smelt_tmp_34 = !(_smelt_tmp_33);
-    if _smelt_tmp_34 {
-    _smelt_tmp_36 = w.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_37 = _smelt_tmp_36.index_of(&JsString::from("x"), 0).map_or(-1.0, |smelt_index| smelt_index as f64);
-    _smelt_tmp_35 = Some(_smelt_tmp_37);
-    } else {
-    _smelt_tmp_35 = None::<f64>;
-    }
-    _smelt_tmp_38 = w.clone().is_none();
-    _smelt_tmp_39 = !(_smelt_tmp_38);
-    if _smelt_tmp_39 {
-    _smelt_tmp_42 = w.clone().expect("optional value was absent after narrowing");
-    _smelt_tmp_43 = JsString::from("/");
-    _smelt_tmp_44 = _smelt_tmp_42.starts_with(&_smelt_tmp_43);
-    _smelt_tmp_40 = Some(_smelt_tmp_44);
-    } else {
-    _smelt_tmp_40 = None::<bool>;
-    }
-    let _ = { println!("{} {} {} {} {}", match &_smelt_tmp_19 { Some(smelt_value) => format!("{}", smelt_value), None => "undefined".to_owned() }, match &_smelt_tmp_25 { Some(smelt_value) => format!("{}", smelt_value), None => "undefined".to_owned() }, match &_smelt_tmp_30 { Some(smelt_value) => format!("{}", smelt_value), None => "undefined".to_owned() }, match &_smelt_tmp_35 { Some(smelt_value) => format!("{}", smelt_value), None => "undefined".to_owned() }, match &_smelt_tmp_40 { Some(smelt_value) => format!("{}", smelt_value), None => "undefined".to_owned() }); };
-    _smelt_tmp_14 = _smelt_tmp_14 + 1;
-    continue;
     } else {
     _smelt_tmp_19 = None::<JsString>;
+    }
     _smelt_tmp_23 = w.clone().is_none();
     _smelt_tmp_24 = !(_smelt_tmp_23);
     if _smelt_tmp_24 {
@@ -4674,7 +4636,6 @@ fn main() {
     let _ = { println!("{} {} {} {} {}", match &_smelt_tmp_19 { Some(smelt_value) => format!("{}", smelt_value), None => "undefined".to_owned() }, match &_smelt_tmp_25 { Some(smelt_value) => format!("{}", smelt_value), None => "undefined".to_owned() }, match &_smelt_tmp_30 { Some(smelt_value) => format!("{}", smelt_value), None => "undefined".to_owned() }, match &_smelt_tmp_35 { Some(smelt_value) => format!("{}", smelt_value), None => "undefined".to_owned() }, match &_smelt_tmp_40 { Some(smelt_value) => format!("{}", smelt_value), None => "undefined".to_owned() }); };
     _smelt_tmp_14 = _smelt_tmp_14 + 1;
     continue;
-    }
     }
     return;
 }

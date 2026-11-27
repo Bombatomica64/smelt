@@ -822,17 +822,13 @@ fn main() {
     _smelt_tmp_24 = { let smelt_push_item = _smelt_tmp_23; out.borrow_mut().push(smelt_push_item); out.len() as f64 };
     i_1 = i_1 + 1;
     }
-    _smelt_tmp_62 = i as f64;
-    _smelt_tmp_26 = JsString::from("/") + &JsString::from(smelt_number_to_string(_smelt_tmp_62));
-    _smelt_tmp_27 = { let smelt_push_item = _smelt_tmp_26; out.borrow_mut().push(smelt_push_item); out.len() as f64 };
-    i = i + 1;
     } else {
+    }
     _smelt_tmp_62 = i as f64;
     _smelt_tmp_26 = JsString::from("/") + &JsString::from(smelt_number_to_string(_smelt_tmp_62));
     _smelt_tmp_27 = { let smelt_push_item = _smelt_tmp_26; out.borrow_mut().push(smelt_push_item); out.len() as f64 };
     i = i + 1;
     continue;
-    }
     }
     _smelt_tmp_29 = JsString::join(out.borrow().iter(), &JsString::from(","));
     let _ = { println!("{}", _smelt_tmp_29); };
@@ -854,11 +850,10 @@ fn main() {
     total = total + _smelt_tmp_64;
     j = j + 1;
     }
-    k = k + 1;
     } else {
+    }
     k = k + 1;
     continue;
-    }
     }
     let _ = { println!("{}", smelt_console_number(total)); };
     x = JsString::from("outer");
@@ -879,6 +874,8 @@ fn main() {
     _smelt_tmp_49 = r == 1;
     if _smelt_tmp_49 {
     _smelt_tmp_50 = { let smelt_push_item = JsString::from("last"); seen.borrow_mut().push(smelt_push_item); seen.len() as f64 };
+    } else {
+    }
     _smelt_tmp_51 = Into::<SmeltList<_>>::into(rows.borrow().get(j_1).cloned().unwrap_or_else(|| SmeltList::new(Vec::<JsString>::new())));
     _smelt_tmp_52 = 0;
     loop {
@@ -889,36 +886,13 @@ fn main() {
     _smelt_tmp_55 = p == "*";
     if _smelt_tmp_55 {
     _smelt_tmp_56 = { let smelt_push_item = JsString::from("star"); seen.borrow_mut().push(smelt_push_item); seen.len() as f64 };
-    _smelt_tmp_52 = _smelt_tmp_52 + 1;
-    continue;
     } else {
     _smelt_tmp_57 = { let smelt_push_item = p; seen.borrow_mut().push(smelt_push_item); seen.len() as f64 };
+    }
     _smelt_tmp_52 = _smelt_tmp_52 + 1;
     continue;
-    }
     }
     j_1 = j_1 + 1;
-    } else {
-    _smelt_tmp_51 = Into::<SmeltList<_>>::into(rows.borrow().get(j_1).cloned().unwrap_or_else(|| SmeltList::new(Vec::<JsString>::new())));
-    _smelt_tmp_52 = 0;
-    loop {
-    _smelt_tmp_53 = _smelt_tmp_51.len();
-    _smelt_tmp_54 = _smelt_tmp_52 < _smelt_tmp_53;
-    if !(_smelt_tmp_54) { break; }
-    p = _smelt_tmp_51.borrow().get(_smelt_tmp_52).cloned().unwrap_or_else(|| JsString::new());
-    _smelt_tmp_55 = p == "*";
-    if _smelt_tmp_55 {
-    _smelt_tmp_56 = { let smelt_push_item = JsString::from("star"); seen.borrow_mut().push(smelt_push_item); seen.len() as f64 };
-    _smelt_tmp_52 = _smelt_tmp_52 + 1;
-    continue;
-    } else {
-    _smelt_tmp_57 = { let smelt_push_item = p; seen.borrow_mut().push(smelt_push_item); seen.len() as f64 };
-    _smelt_tmp_52 = _smelt_tmp_52 + 1;
-    continue;
-    }
-    }
-    j_1 = j_1 + 1;
-    }
     }
     r = r + 1;
     }

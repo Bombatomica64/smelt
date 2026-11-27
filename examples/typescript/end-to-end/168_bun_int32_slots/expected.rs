@@ -1293,16 +1293,12 @@ pub(crate) fn count(text: JsString, needle: JsString) -> i32 {
     _smelt_tmp_12 = _smelt_tmp_11 + 1.0;
     _smelt_tmp_13 = ({ let smelt_bit_lhs = { let smelt_bit_v = (_smelt_tmp_12 as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; let smelt_bit_rhs = { let smelt_bit_v = (0.0 as f64).trunc(); if smelt_bit_v.is_finite() { smelt_bit_v.trunc().rem_euclid(4294967296.0) as u32 as i32 } else { 0_i32 } }; (smelt_bit_lhs | smelt_bit_rhs) as f64 });
     hits = _smelt_tmp_13 as i32;
-    _smelt_tmp_15 = i as f64;
-    _smelt_tmp_16 = _smelt_tmp_15 + 1.0;
-    i = _smelt_tmp_16 as i32;
-    continue;
     } else {
+    }
     _smelt_tmp_15 = i as f64;
     _smelt_tmp_16 = _smelt_tmp_15 + 1.0;
     i = _smelt_tmp_16 as i32;
     continue;
-    }
     }
     _smelt_tmp_18 = hits as f64;
     _smelt_tmp_19 = _smelt_tmp_18 as i32;
