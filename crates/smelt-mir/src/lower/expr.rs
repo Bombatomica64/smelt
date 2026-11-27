@@ -1395,7 +1395,8 @@ impl LoweringCtx<'_> {
                 | ExprKind::TupleIndex { .. }
                 | ExprKind::TypeAssert { .. }
                 | ExprKind::UnknownCast { .. }
-        ) {
+        ) || !self.asserted_place_root(expr_id)?
+        {
             return Ok((self.lower_expr(expr_id)?, None));
         }
 
@@ -1436,6 +1437,36 @@ impl LoweringCtx<'_> {
             Operand::Copy(Place::Local(local)),
             Some((place, local, place_ty)),
         ))
+    }
+
+    /// Whether `expr_id`, seen through the transparent `TypeAssert` /
+    /// `UnknownCast` wrappers, is rooted at something `lower_place` can
+    /// write: a local, a projection or a module global.
+    ///
+    /// An asserted VALUE (`m.get(k)!.push(x)`: a non-null assertion over a
+    /// map read) is not: it is mutated as the value it reads, as a call's
+    /// result (`f().push(x)`) is. That is the write JavaScript makes when the
+    /// receiver is a shared handle (a list, a map, a set, a class instance:
+    /// the read answers the stored object itself); nothing is stored back.
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "every expression kind not named here is a value, never a place root"
+    )]
+    fn asserted_place_root(&self, expr_id: ExprId) -> Result<bool, LowerError> {
+        let expr = self.hir_expr(expr_id)?;
+        Ok(match &expr.kind {
+            ExprKind::TypeAssert { value } | ExprKind::UnknownCast { value, .. } => {
+                self.asserted_place_root(*value)?
+            }
+            ExprKind::Local(_)
+            | ExprKind::Field { .. }
+            | ExprKind::Index { .. }
+            | ExprKind::TupleIndex { .. }
+            | ExprKind::OptionalField { .. }
+            | ExprKind::OptionalIndex { .. }
+            | ExprKind::GlobalGet { .. } => true,
+            _ => false,
+        })
     }
 
     /// Commits every copied projection of a place write back through its own

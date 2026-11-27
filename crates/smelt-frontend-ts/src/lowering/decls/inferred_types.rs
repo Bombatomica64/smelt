@@ -5,6 +5,7 @@
 use crate::lowering::body_arena::BodyArena;
 use crate::lowering::erasure::NotNewErasure;
 use crate::lowering::{GeneratorYieldAccumulator, ModuleBuilder};
+use oxc::span::GetSpan;
 use smelt_hir::{Body, ErasureReason, ExprKind, Stmt, Type};
 
 impl ModuleBuilder<'_> {
@@ -91,6 +92,70 @@ impl ModuleBuilder<'_> {
                 return Some(next_ty);
             }
             self.ctx.krate.erasures.truncate(records_before);
+        }
+        None
+    }
+
+    /// The generator type of an unannotated generator METHOD
+    /// (`*[Symbol.iterator]() { yield 1; }`), as the checker infers it.
+    ///
+    /// A method's signature is collected before its body is lowered (same-class
+    /// calls and `for-of`/spread over an instance read it), so the body-driven
+    /// [`Self::inferred_generator_type`] that an unannotated generator
+    /// `function` takes is not available yet; the checker's inferred
+    /// `Generator<Y, R, N>` is the type an annotation spelling it would give.
+    /// Its yield and return types must be concrete (else `None`, and the
+    /// method keeps its erased return); a `next` type the checker leaves
+    /// `unknown` (no `yield` result is used) is the erased resume channel, as
+    /// in [`Self::inferred_generator_type`].
+    pub(in crate::lowering) fn checker_method_generator_type(
+        &mut self,
+        method: &oxc::ast::ast::MethodDefinition<'_>,
+    ) -> Option<smelt_hir::TypeId> {
+        if !method.value.generator {
+            return None;
+        }
+        // The checker types a method at its declaration name: the key, which
+        // for a computed key (`[Symbol.iterator]`) is the bracketed name
+        // around the key expression oxc spans.
+        let key = method.key.span();
+        let key_span = if method.computed {
+            (key.start.saturating_sub(1), key.end.saturating_add(1))
+        } else {
+            (key.start, key.end)
+        };
+        let spans = [key_span, (method.value.span.start, method.value.span.end)];
+        for (start, end) in spans {
+            let records_before = self.ctx.krate.erasures.len();
+            let Some(returned) = self.checker_function_return_type(start, end) else {
+                continue;
+            };
+            let Some(Type::Generator {
+                yield_ty,
+                return_ty,
+                next_ty,
+                ..
+            }) = self.ctx.krate.types.get(returned).cloned()
+            else {
+                self.ctx.krate.erasures.truncate(records_before);
+                continue;
+            };
+            if self.type_mentions_unknown(yield_ty) || self.type_mentions_unknown(return_ty) {
+                self.ctx.krate.erasures.truncate(records_before);
+                continue;
+            }
+            self.ctx.krate.erasures.truncate(records_before);
+            let next_ty = if self.type_mentions_unknown(next_ty) {
+                self.erase(ErasureReason::MissingAnnotation)
+            } else {
+                next_ty
+            };
+            return Some(self.ctx.krate.types.intern(Type::Generator {
+                is_async: method.value.r#async,
+                yield_ty,
+                return_ty,
+                next_ty,
+            }));
         }
         None
     }

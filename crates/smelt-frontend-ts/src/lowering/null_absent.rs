@@ -163,6 +163,8 @@ impl ModuleBuilder<'_> {
     /// - A class instance whose class has a `toString` method of its own (or
     ///   inherited) is converted by calling it, as `ToPrimitive` does: the
     ///   result is `x.toString()`.
+    /// - A list of such class instances converts as the list of their
+    ///   strings (`${[p, q]}` is `p.toString() + "," + q.toString()`).
     /// - An `Optional` whose checker type admits only `null` reads its absent
     ///   case as `"null"`: `x ?? "null"` for a string and
     ///   `x !== undefined ? String(x) : "null"`, with `x` bound once,
@@ -216,6 +218,19 @@ impl ModuleBuilder<'_> {
                 ty: return_ty,
                 span: self.span(start, end),
             });
+        }
+        // An array's string is its elements' strings joined with `,`, so a
+        // list of such class instances converts each through its `toString`.
+        if let Some(Type::List(item_ty)) = self.ctx.krate.types.get(operand_ty).cloned()
+            && matches!(self.ctx.krate.types.get(item_ty), Some(Type::Class { .. }))
+            && self.declares_to_string(item_ty)
+        {
+            return self.list_items_to_string(
+                operand,
+                item_ty,
+                oxc::span::Span::new(start, end),
+                body,
+            );
         }
         if !matches!(
             self.ctx.krate.types.get(operand_ty),

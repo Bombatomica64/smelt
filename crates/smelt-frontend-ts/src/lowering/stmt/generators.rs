@@ -329,6 +329,56 @@ impl ModuleBuilder<'_> {
         }))
     }
 
+    /// Refuse to iterate `value` when its class declares a `[Symbol.iterator]`
+    /// method that is not a zero-argument synchronous generator: a method
+    /// returning a hand-written iterator object (`{ next: () => .. }`).
+    ///
+    /// Only a generator is modelled as the iterator ([`Self::class_iterator_generator`]);
+    /// any other iterator object would otherwise reach the paths for an
+    /// erased value, which iterate the instance itself as one item where
+    /// JavaScript drives `next()` until `done`. So the shape is reported, not
+    /// run wrong.
+    ///
+    /// # Errors
+    /// Unsupported, for such a class.
+    pub(in crate::lowering) fn refuse_hand_written_iterator(
+        &mut self,
+        value: smelt_hir::ExprId,
+        span: smelt_hir::Span,
+        body: &Body,
+    ) -> Result<(), SmeltError> {
+        let value_ty = Self::expr_ty(body, value);
+        if !matches!(self.ctx.krate.types.get(value_ty), Some(Type::Class { .. })) {
+            return Ok(());
+        }
+        let iterator = self.intern_symbol_key("__smelt_symbol_iterator");
+        let records_before = self.ctx.krate.erasures.len();
+        let hand_written = match self.class_field_type(value_ty, iterator) {
+            Ok(iterator_ty) => match self.ctx.krate.types.get(iterator_ty) {
+                Some(Type::Function(function)) => {
+                    !(function.params.is_empty()
+                        && matches!(
+                            self.ctx.krate.types.get(function.return_ty),
+                            Some(Type::Generator {
+                                is_async: false,
+                                ..
+                            })
+                        ))
+                }
+                _ => false,
+            },
+            Err(_) => false,
+        };
+        self.ctx.krate.erasures.truncate(records_before);
+        if hand_written {
+            return Err(SmeltError::unsupported(
+                span,
+                "iterating an object whose `[Symbol.iterator]()` returns a hand-written iterator (not a generator) is not lowered yet",
+            ));
+        }
+        Ok(())
+    }
+
     /// Lower a generator `next`, `return`, or `throw` call, resuming the generator.
     pub(in crate::lowering) fn generator_next_call(
         &mut self,

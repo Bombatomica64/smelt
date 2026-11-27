@@ -43,6 +43,7 @@ impl ModuleBuilder<'_> {
             // rather than read back out of an erased record. Asked before the
             // arms below, whose class fallback erases.
             let span = self.span(call.span.start, call.span.end);
+            self.refuse_hand_written_iterator(source, span, body)?;
             // `Array.from(view)` is the view's elements, decoded by the family
             // rather than read back out of an erased record. Asked before
             // `array_from_elements`, whose class fallback erases.

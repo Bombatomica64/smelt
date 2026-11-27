@@ -524,10 +524,9 @@ impl FunctionEmitter<'_> {
         };
         Ok(match op {
             smelt_hir::NumericPredicateOp::IsFinite => method("is_finite"),
-            smelt_hir::NumericPredicateOp::IsInteger => RustExpr::loose(format!(
-                "{operand_expr}.fract() == 0.0",
-                operand_expr = operand_expr.tight()
-            )),
+            smelt_hir::NumericPredicateOp::IsInteger => {
+                RustExpr::loose(format!("{fract} == 0.0", fract = method("fract").tight()))
+            }
             // `Number.isSafeInteger(x)` is `Number.isInteger(x)` narrowed to the
             // range a double represents exactly. The operand is bound once so a
             // side-effecting expression is not evaluated twice.

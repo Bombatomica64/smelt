@@ -85,8 +85,13 @@ impl ModuleBuilder<'_> {
                 // (or any non-numeric value) also stops implicit auto-increment
                 // in TypeScript, but since we could not fold it we leave the
                 // counter untouched and let downstream code report the gap.
-                let Some(value) = self.enum_member_initializer_literal(initializer, &members)
+                let Some(value) =
+                    self.enum_member_initializer_literal(&enum_name, initializer, &members)
                 else {
+                    self.enum_unfolded_members
+                        .entry(enum_name.clone())
+                        .or_default()
+                        .push(member_name.into_owned());
                     continue;
                 };
                 value
@@ -278,18 +283,35 @@ impl ModuleBuilder<'_> {
     /// caller can skip registering the member.
     fn enum_member_initializer_literal(
         &mut self,
+        enum_name: &str,
         initializer: &Expression<'_>,
         members: &std::collections::HashMap<String, ConstLiteral>,
     ) -> Option<ConstLiteral> {
-        // `A = 1, B = A`: a bare identifier that names an earlier member folds
-        // to that member's value. Checked before the general folder so an
-        // enum-local name shadows any module const with the same spelling.
-        if let Expression::Identifier(ident) = initializer
-            && let Some(value) = members.get(ident.name.as_str())
-        {
-            return Some(value.clone());
+        // `A = 1, B = A, AB = A | B`: a name of an earlier member, bare or
+        // qualified by the enum (`F.A`), folds to that member's value anywhere
+        // in the initializer. The scope is consulted before every other name
+        // (`resolve_const_literal_by_name`), so an enum-local name shadows a
+        // module const with the same spelling, as in TypeScript.
+        let previous = self
+            .enum_folding_scope
+            .replace((enum_name.to_owned(), members.clone()));
+        let value = self.literal_const_expression(initializer).ok();
+        self.enum_folding_scope = previous;
+        value
+    }
+
+    /// The value of member `name` of the `enum` being folded, when `enum_name`
+    /// is that enum (`None` for a bare name) and the member is folded already.
+    pub(in crate::lowering) fn enum_folding_member(
+        &self,
+        enum_name: Option<&str>,
+        name: &str,
+    ) -> Option<ConstLiteral> {
+        let (folding, members) = self.enum_folding_scope.as_ref()?;
+        if enum_name.is_some_and(|enum_name| enum_name != folding) {
+            return None;
         }
-        self.literal_const_expression(initializer).ok()
+        members.get(name).cloned()
     }
 
     /// Return the source spelling of a supported enum member name.

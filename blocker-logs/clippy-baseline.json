@@ -51,7 +51,7 @@
       "clippy::shadow_same": 1,
       "clippy::shadow_unrelated": 6,
       "clippy::unreachable": 2,
-      "clippy::use_debug": 2,
+      "clippy::use_debug": 1,
       "clippy::wildcard_enum_match_arm": 15,
       "trivial_casts": 1
     },
