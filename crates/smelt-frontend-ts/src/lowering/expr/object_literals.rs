@@ -7,7 +7,7 @@ use crate::lowering::js_text::{js_str_literal, js_str_text};
 use crate::lowering::peel::{Wrappers, peel};
 use crate::lowering::{
     Body, Expr, ExprKind, Expression, Field, FunctionType, HashSet, Literal, LogicalOperator,
-    ModuleBuilder, ObjectPropertyKind, PropertyKey, PropertyKind, SmeltError, Statement, Type,
+    ModuleBuilder, ObjectPropertyKind, PropertyKey, PropertyKind, SmeltError, Type,
 };
 use oxc::span::GetSpan;
 use smelt_hir::ErasureReason;
@@ -705,21 +705,13 @@ impl ModuleBuilder<'_> {
         }
     }
 
-    /// Report whether a function body references the implicit `arguments`
-    /// binding.
+    /// Lower an object property value.
     ///
-    /// Used to decide whether a zero-parameter object-method function expression
-    /// must be lowered as a real function value (which establishes the
-    /// array-like `arguments` object) rather than collapsed into a getter return
-    /// expression.
-    pub(in crate::lowering) fn function_body_references_arguments(
-        &self,
-        function_body: &oxc::ast::ast::FunctionBody<'_>,
-    ) -> bool {
-        self.source_facts.mentions(function_body.span, "arguments")
-    }
-
-    /// Lower an object property value, treating zero-argument getters as field values.
+    /// A `function` value is always a function the property holds:
+    /// `{ k: function () { return v; } }` makes `o.k` a function and `o.k()`
+    /// the call, exactly like the method shorthand `{ k() { return v; } }`.
+    /// Only a `get` accessor runs on the read, and that is a separate property
+    /// kind lowered by the object-literal caller.
     pub(in crate::lowering) fn object_property_value_expr(
         &mut self,
         property: &oxc::ast::ast::ObjectProperty<'_>,
@@ -727,49 +719,7 @@ impl ModuleBuilder<'_> {
         type_hint: Option<smelt_hir::TypeId>,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         if let Expression::FunctionExpression(function) = &property.value {
-            // Only a plain zero-parameter `function` value can be read as a
-            // getter-style field. A generator returns an iterator when *called*
-            // and its body never runs on the read, so collapsing it would drop
-            // the function entirely.
-            if !function.params.items.is_empty()
-                || function.params.rest.is_some()
-                || function.generator
-                || function.r#async
-            {
-                return self.function_expression_value(function, type_hint, property.span, body);
-            }
-            let Some(function_body) = &function.body else {
-                return Err(SmeltError::unsupported(
-                    self.span(function.span.start, function.span.end),
-                    "object getter functions must have a body",
-                ));
-            };
-            // A zero-parameter `function` value that references its own
-            // `arguments` binding is a real function, not a collapsible getter:
-            // collapsing it to the bare return expression would lower
-            // `arguments` against the enclosing scope (where it is unavailable).
-            // Lower it as a genuine function-expression value instead, which
-            // establishes the array-like `arguments` object for the body.
-            if self.function_body_references_arguments(function_body) {
-                return self.function_expression_value(function, type_hint, property.span, body);
-            }
-            // The getter collapse only applies to `{ k: function () { return v; } }`,
-            // whose single return expression IS the field's value. Any other body
-            // is a function the property holds, so it lowers as a function value —
-            // fabricating `null` here erased the function, and code that asks
-            // `typeof value === 'function'` (es-toolkit's JSON validators) then
-            // saw a null field instead of the function the source wrote.
-            let [Statement::ReturnStatement(statement)] = function_body.statements.as_slice()
-            else {
-                return self.function_expression_value(function, type_hint, property.span, body);
-            };
-            let Some(argument) = &statement.argument else {
-                return Err(SmeltError::unsupported(
-                    self.span(statement.span.start, statement.span.end),
-                    "object getter functions must return a value",
-                ));
-            };
-            return self.expression_with_hint(argument, body, type_hint);
+            return self.function_expression_value(function, type_hint, property.span, body);
         }
         if matches!(&property.value, Expression::Identifier(identifier) if identifier.name == "undefined")
             && type_hint.is_none()

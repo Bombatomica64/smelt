@@ -4,7 +4,7 @@
     "values": {
       "concrete": 14370,
       "generic": 370,
-      "erased": 6924
+      "erased": 6926
     },
     "reads": {
       "concrete": 366,
@@ -10783,7 +10783,7 @@
       "values": {
         "concrete": 1027,
         "generic": 0,
-        "erased": 405
+        "erased": 407
       },
       "reads": {
         "concrete": 5,

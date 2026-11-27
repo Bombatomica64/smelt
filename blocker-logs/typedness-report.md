@@ -121,6 +121,43 @@ rule for a wrong expectation.
   had: the `number` was wrong for the values the source admits. Any other rise
   still blocks.
 
+### Corrected expectation: object-literal `function` values (2026-11-27)
+
+`--update-baseline` refused the rise, so this correction was applied by hand to
+one es-toolkit record and the total, in the commit that changed the lowering
+(#534), under the verification-contract rule for a wrong expectation.
+
+- **Old requirement**: a zero-parameter `function` property value whose body is
+  a single `return v;` (`{ k: function () { return v; } }`) was collapsed into
+  the field value `v`, as if it were a `get` accessor. Its body ran once, while
+  the literal was built.
+- **Source evidence**: in JavaScript only a `get` accessor runs on the read; a
+  `function` value is a function the property holds, so `typeof o.k` is
+  `"function"` and the body runs on each `o.k()`. The collapse made
+  `{ k: function () { return 1 } }` throw "value is not a function" on `o.k()`,
+  and with an explicit `this:` parameter it ran the body inline and kept a no-op
+  (node-parity fixture `object_literal_function_values`).
+- **New requirement**: the property value always lowers through
+  `function_expression_value`, the path the method shorthand takes: reading it
+  yields a function, each call runs the body with the object as `this`, and the
+  field keeps its contextual function type.
+- **Accepted record** (values erased, before -> after):
+  `src/predicate/isEqualWith.spec.ts` 405 -> 407; total 6924 -> 6926. The only
+  changed source is `let primitive: any; const object = { toString: function ()
+  { return primitive; } };` (lines 751-756 at the pinned ref): the function now
+  exists as a value, and it and its body's result are typed by the declared
+  `any` (`Rc<dyn Fn() -> SmeltUnknown>`). Concrete values stay 1027. Before,
+  the field held the `any` itself, which was already erased. No other es-toolkit
+  file changes its generated Rust (besides union numbering); the examples corpus
+  and the other five pinned corpora are unchanged. The frontend's erasure sidecar
+  records that return as `missing-annotation`, because the shared
+  function-expression path declines the checker's `any`
+  (`checker_function_return_type`); the value it erases is the source `any`.
+- **Why the guarantee is preserved**: no value lost a type it had. The two new
+  erased values exist because the function the source wrote now exists, and
+  their type is the source's `any`, a real dynamic boundary. The es-toolkit
+  SmeltUnknown avoidable count fell (12391 -> 12379). Any other rise still blocks.
+
 | Baseline | Corpus | CI |
 | --- | --- | --- |
 | `typedness-baseline.json` | `examples/typescript/end-to-end/*/input.ts` | blocking |
