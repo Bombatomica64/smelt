@@ -191,6 +191,18 @@ fn loop_exit_programs(n: usize) -> Vec<(&'static str, String)> {
             ),
         ),
         (
+            // Before the exit join this shape was refused ("closes a cycle
+            // outside the loop being emitted"), and overflowed the stack on
+            // the way there: the `catch` leaves the compound `while` for the
+            // outer loop's update.
+            "compound-condition while in try/catch in an outer loop",
+            generator_loops(
+                n,
+                "    try { while (i < 3 && total < 100000) { i++; total += risky(i); } } catch (error) { total -= 1; }\n",
+                "  for (let round = 0; round < 2; round++) {\n{}    i = round;\n  }",
+            ),
+        ),
+        (
             "call-condition while in try/finally",
             generator_loops(
                 n,

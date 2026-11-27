@@ -1359,16 +1359,22 @@ impl FunctionEmitter<'_> {
         if let Some(break_block) = break_target {
             boundary.push(break_block);
         }
+        // A body path that leaves the loop and rejoins its exit at the exit
+        // join (`loop_exit_join`, a `catch` past the loop) ends there, at the
+        // labelled block's end, so it does not count as reaching `stop`.
         if let Some((decision, body_entry, exit_entry, body_is_then)) =
             self.compound_while(block, &boundary)?
+            && let exit_join = self.loop_exit_join(block.id, exit_entry, Some(stop))
             && !self.block_reaches_target_avoiding(
                 body_entry,
                 stop,
-                &[block.id, exit_entry],
+                &[Some(block.id), Some(exit_entry), exit_join]
+                    .into_iter()
+                    .flatten()
+                    .collect::<Vec<_>>(),
                 &mut BlockIdSet::default(),
             )
         {
-            let exit_join = self.loop_exit_join(block.id, exit_entry, Some(stop));
             let used_join = self.emit_compound_while(
                 block,
                 decision,
