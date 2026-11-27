@@ -53,6 +53,8 @@ use smelt_ts_model::model::{TsObjectType, TsSymbolRef, TsTupleElement, TsTupleEl
 use smelt_ts_model::{TsTypeFacts, TsTypeId, TsTypeKind};
 
 use super::ModuleBuilder;
+
+mod iterator_shape;
 use super::literal_record_uses::{ArgumentUse, Disqualifier, LiteralDecision, SlotUse};
 
 /// The outermost kind of a value, as far as overload selection compares kinds
