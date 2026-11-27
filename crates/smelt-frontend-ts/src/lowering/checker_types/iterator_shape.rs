@@ -246,10 +246,10 @@ impl ModuleBuilder<'_> {
             ProtocolShape::Iterator => "Iterator",
             ProtocolShape::Step => "IteratorResult",
         };
-        let text = match return_text {
-            Some(returned) => format!("{name}<{yield_text}, {returned}>"),
-            None => format!("{name}<{yield_text}>"),
-        };
+        let text = return_text.map_or_else(
+            || format!("{name}<{yield_text}>"),
+            |completion| format!("{name}<{yield_text}, {completion}>"),
+        );
         let records_before = self.ctx.krate.erasures.len();
         let lowered = self.lower_respelled_annotation(&text, start, end);
         if lowered.is_none_or(|ty| self.type_mentions_unknown(ty)) {
