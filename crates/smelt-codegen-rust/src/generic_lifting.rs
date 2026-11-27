@@ -72,9 +72,9 @@ pub(crate) type ErasedArgumentMemo = RefCell<HashMap<FuncId, bool>>;
 /// call-site adapters render the callee's declared callback under the bindings
 /// that call site pinned.
 ///
-/// Only a **direct, required, borrowed, non-rest** `Type::Function` parameter
-/// can carry a type parameter into the emitted signature and still have every
-/// call site render an argument that matches it. See
+/// Only a **direct, required, non-rest** `Type::Function` parameter, borrowed
+/// or owned, can carry a type parameter into the emitted signature and still
+/// have every call site render an argument that matches it. See
 /// [`callback_occurrences_are_liftable`] for the rule and for why each excluded
 /// shape is excluded.
 ///
@@ -1721,12 +1721,12 @@ fn type_param_inferable_through_callback(
 ///   element type for the `None` and picks the erased one (`E0308`, and `E0631`
 ///   on the synthesized default closure). This is also exactly the shape
 ///   `emitter::callee_param_is_owned_callback_sink` classifies as an owned sink.
-/// * **owned or escaping** — the emitter's ownership fixpoint decided this
-///   parameter is stored, returned or captured, so it lowers to an owned
-///   `Rc<dyn Fn(..)>` with a `'static` bound rather than a borrowed `&dyn Fn`.
-///   The borrowed-callback argument ladder in `emitter::call` — the one that
-///   renders the substituted adapter — declines those positions, so the
-///   substituted signature would be met with an erased argument.
+/// * **owned or escaping** is allowed since the async-callback rule: the
+///   emitter's ownership fixpoint decided this parameter is stored, returned,
+///   captured or awaited across, so it lowers to an owned `Rc<dyn Fn(..)>`;
+///   its call sites adapt the argument to the instantiated slot
+///   (`StaticArgumentKind::OwnedGenericCallback`, see
+///   [`owned_callback_param_is_liftable`]).
 /// * **nested inside a container, or inside another function type** — the
 ///   occurrence is behind a wrapper the adapter renderers do not walk into, so
 ///   the callee would advertise `T` in a position no call site substitutes.
@@ -1765,7 +1765,15 @@ fn callback_occurrences_are_liftable(
         // eligible shape. The shape half of the rule lives in
         // `callback_param_shape_is_liftable` so the Increment-2 renderer asks
         // exactly this question and the two cannot grow two notions of it.
-        if !callback_param_shape_is_liftable(mir, function, owned, index, *param) {
+        // An owned callback may carry `name` unless the function also RETURNS
+        // a callable mentioning it (`keepCallback<T>(.., cb): (v: T) =>
+        // boolean { return cb; }`): the returned value keeps the declared
+        // `Fn(&T)` ABI while the caller's local expects the instantiated
+        // `Fn(f64)`, and no return-side ABI bridge is emitted (E0308).
+        let borrowed = callback_param_shape_is_liftable(mir, function, owned, index, *param);
+        let owned_liftable = owned_callback_param_is_liftable(mir, function, owned, index, *param)
+            && !type_param_in_callback(mir, function.return_ty, name);
+        if !borrowed && !owned_liftable {
             return false;
         }
         let Some(Type::Function(callback)) = mir.types.get(local.ty) else {
@@ -1841,6 +1849,41 @@ pub(crate) fn callback_param_shape_is_liftable(
         return false;
     }
     !owned.contains(&(function.id, param))
+}
+
+/// Whether parameter `index` is an **owned**, direct, required, non-rest
+/// `Type::Function` parameter: the second shape a callback occurrence of a
+/// type parameter may take.
+///
+/// An owned callback (stored, returned, captured, or held across an `await`:
+/// every callback of an `async fn`, whose future is `'static`) is emitted as
+/// `Rc<dyn Fn(&T) -> ..>`, and the lifted `T` already carries `'static`. Its
+/// call sites render the argument through
+/// `StaticArgumentKind::OwnedGenericCallback`, which adapts it to the slot
+/// instantiated at that site and bridges it to the declared ABI, so the
+/// substituted signature is met (`firstOf<T>(xs: T[], f: (x: T) =>
+/// Promise<boolean>)` emits `first_of<T>(.., f: Rc<dyn Fn(&T) -> ..>)`). A
+/// function that also returns a callable mentioning `T` still demotes (see
+/// [`callback_occurrences_are_liftable`]): the returned value would need a
+/// return-side ABI bridge. The
+/// borrowed shape stays [`callback_param_shape_is_liftable`], which alone
+/// drives the `&F{n}` rendering.
+fn owned_callback_param_is_liftable(
+    mir: &Mir,
+    function: &MirFunction,
+    owned: &HashSet<(FuncId, LocalId)>,
+    index: usize,
+    param: LocalId,
+) -> bool {
+    let Ok(local_index) = id_index(param.0, "local index does not fit usize") else {
+        return false;
+    };
+    let Some(local) = function.locals.get(local_index) else {
+        return false;
+    };
+    matches!(mir.types.get(local.ty), Some(Type::Function(_)))
+        && function.rest != Some(index)
+        && owned.contains(&(function.id, param))
 }
 
 /// The generated `F{n}` type-parameter name for each callback parameter of a

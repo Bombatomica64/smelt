@@ -1205,9 +1205,39 @@ export function useDefault(): number {
 }
 
 #[test]
-fn owned_callback_type_param_demotes() {
-    // A callback classified as escaping lowers to an owned `Rc<dyn Fn(..)>`. The borrowed-callback
-    // ladder declines that position, so a generic signature would meet an erased argument.
+fn owned_callback_type_param_lifts() {
+    // A callback classified as escaping lowers to an owned `Rc<dyn Fn(..)>`, and it now carries
+    // the function's type parameter.
+    //
+    // Old requirement: an owned callback demoted the whole function to erasure, because the
+    // borrowed-callback ladder declined that position and a generic signature would have met an
+    // erased argument at its call sites.
+    // New requirement: the function stays generic (`Rc<dyn Fn(&T) -> String>`). Its call sites
+    // adapt the argument to the slot instantiated there and bridge it to the declared ABI
+    // (`StaticArgumentKind::OwnedGenericCallback`), so the substituted signature is met.
+    // Evidence: node-parity `async_generic_callbacks` compiles and prints what Node prints for
+    // stored (`memoize`) and awaited (`firstOf`, `countAsync`, a lifted caller forwarding its `T`)
+    // owned callbacks, and asserts these generic signatures.
+    let source = source_for(
+        r"
+export function memo<T>(seed: T, f: (x: T) => string): () => string {
+  return () => f(seed);
+}
+",
+    );
+
+    assert_eq!(
+        rust_items(&source, &["sig memo"]),
+        r"fn memo<T: Clone + Default + 'static>(seed: T, f: ::std::rc::Rc<dyn Fn(&T) -> JsString>) -> ::std::rc::Rc<dyn Fn() -> JsString>"
+    );
+}
+
+#[test]
+fn returned_owned_callback_type_param_demotes() {
+    // An owned callback that is also RETURNED at a type mentioning `T` keeps the erased
+    // representation: the returned value would keep the declared `Fn(&T)` ABI while the caller's
+    // local is the instantiated `Fn(f64)` (node-parity `generics_behaviour`'s `keepCallback`), and
+    // no return-side ABI bridge exists.
     let source = source_for(
         r"
 export function keep<T>(x: T, cb: (v: T) => boolean): (v: T) => boolean {

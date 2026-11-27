@@ -344,7 +344,7 @@ impl FunctionEmitter<'_> {
     /// way round (parameters are contravariant). A nested callable return is
     /// bridged in the same direction as the slot. No value is converted, so no
     /// type is erased: both sides are the same Rust types up to `&`.
-    fn slot_abi_bridge(
+    pub(super) fn slot_abi_bridge(
         &self,
         value_text: &RustExpr,
         (from_ty, from_env): (TypeId, &TypeSubstitution<'_>),

@@ -2353,3 +2353,65 @@ fn iterator_protocol_inferred() -> TestResult {
     }
     Ok(())
 }
+
+/// A generic function whose callback parameter is owned (held across an
+/// `await`, or stored) keeps its type parameter, and each call adapts its
+/// arrow to the slot instantiated there; a lifted caller forwards its own `T`.
+#[test]
+fn async_generic_callbacks() -> TestResult {
+    verify_node_parity("async_generic_callbacks")?;
+    // Type preservation, on the same source: each callee stays generic over
+    // `T` with its owned slot spelled `Rc<dyn Fn(&T) -> ..>`. Before, an owned
+    // callback demoted the whole function: `first_of(xs:
+    // SmeltList<SmeltUnknown>, f: Rc<dyn Fn(&SmeltUnknown) -> ..>)`.
+    let fixtures = workspace_root()?.join("crates/smelt-transpiler/tests/fixtures/node-parity");
+    let project = TempProject::new()?;
+    let root = project.path();
+    fs::create_dir_all(root.join("src"))?;
+    fs::copy(
+        fixtures.join("async_generic_callbacks.ts"),
+        root.join("src/main.ts"),
+    )?;
+    fs::write(
+        root.join("Smelt.toml"),
+        "[project]\nname = \"async-generic-callbacks\"\nversion = \"0.1.0\"\n\n[sources]\nentries = [\"src/main.ts\"]\n\n[output]\ntarget = \"./dist\"\nbuild = false\n",
+    )?;
+    smelt_in(root, &["build"])?;
+    let mut source = String::new();
+    for entry in fs::read_dir(root.join("dist/src"))? {
+        source.push_str(&fs::read_to_string(entry?.path())?);
+    }
+    for (name, slot) in [
+        (
+            "first_of",
+            "f: ::std::rc::Rc<dyn Fn(&T) -> SmeltFuture<bool>>",
+        ),
+        (
+            "count_async",
+            "f: ::std::rc::Rc<dyn Fn(&T, f64) -> SmeltFuture<bool>>",
+        ),
+        (
+            "any_of",
+            "f: ::std::rc::Rc<dyn Fn(&T) -> SmeltFuture<bool>>",
+        ),
+        ("memoize", "f: ::std::rc::Rc<dyn Fn(&T) -> JsString>"),
+    ] {
+        let signature = source
+            .lines()
+            .find(|line| line.contains(&format!("fn {name}<")))
+            .ok_or_else(|| format!("`{name}` did not keep its generics"))?;
+        ensure(
+            signature.contains(slot)
+                && ![
+                    "<SmeltUnknown",
+                    "SmeltUnknown>",
+                    "&SmeltUnknown",
+                    ": SmeltUnknown",
+                ]
+                .iter()
+                .any(|erased| signature.contains(erased)),
+            format!("`{name}` erased its owned callback: {signature}"),
+        )?;
+    }
+    Ok(())
+}
