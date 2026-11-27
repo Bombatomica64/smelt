@@ -151,29 +151,6 @@ pub(crate) fn decorator_frozen_kwarg(dec: &Decorator) -> bool {
     false
 }
 
-/// Detect Django model base classes: `models.Model`, `django.db.models.Model`, etc.
-pub(crate) fn is_django_model_base(expr: &Expr) -> bool {
-    match expr {
-        Expr::Attribute(a) => {
-            if a.attr.as_str() == "Model" {
-                return expr_chain_contains_name(&a.value, "models")
-                    || expr_chain_contains_name(&a.value, "django");
-            }
-            false
-        }
-        _ => false,
-    }
-}
-
-/// Return `true` if `expr` (an attribute chain) contains `name` anywhere.
-fn expr_chain_contains_name(expr: &Expr, name: &str) -> bool {
-    match expr {
-        Expr::Name(n) => n.id.as_str() == name,
-        Expr::Attribute(a) => a.attr.as_str() == name || expr_chain_contains_name(&a.value, name),
-        _ => false,
-    }
-}
-
 /// Spell a `Name` / `Attribute` chain as written (`abc.ABC`), for diagnostics.
 ///
 /// Returns `None` for any other expression shape.

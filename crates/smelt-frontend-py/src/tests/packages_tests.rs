@@ -81,16 +81,75 @@ d: Dog = Dog("Rex")
     Ok(())
 }
 
+/// A Django model is refused, found by what its base RESOLVES to.
+///
+/// Old requirement: any base spelled `X.Model` with `models` or `django`
+/// anywhere in the chain was refused as `smelt::django-unsupported`, even with
+/// no import (the fixture spelled an unbound `models.Model`), and a module's own
+/// `models.Model` was refused too. New requirement: the base must resolve to a
+/// framework class listed in `package_shims` (`django.db.models.Model`), so
+/// the fixture imports it as a Django program does, and the code names the
+/// general rule (`smelt::unsupported-framework-base`), not one library. The
+/// guarantee holds because name resolution follows the module's bindings: an
+/// unbound or locally defined `models` cannot resolve into `django`.
 #[test]
 fn django_model_rejected() -> TestResult {
     let source = py!(r"
+from django.db import models
+
 class MyModel(models.Model):
     name: str
 ");
     let mut ctx = HirCtx::new();
     let errors = lower_errors(source, &mut ctx)?;
     let error = first_error(&errors)?;
-    ensure_eq(&error.code, &"smelt::django-unsupported", "error code")?;
+    ensure_eq(
+        &error.code,
+        &"smelt::unsupported-framework-base",
+        "error code",
+    )?;
+    ensure(
+        error.message.contains("django.db.models.Model"),
+        "the diagnostic names the resolved definition",
+    )?;
+    Ok(())
+}
+
+/// An aliased import reaches the same framework base: the spelling plays no part.
+#[test]
+fn aliased_django_model_base_rejected() -> TestResult {
+    let source = py!(r"
+from django.db.models import Model as Base
+
+class MyModel(Base):
+    name: str
+");
+    let mut ctx = HirCtx::new();
+    let errors = lower_errors(source, &mut ctx)?;
+    let error = first_error(&errors)?;
+    ensure_eq(
+        &error.code,
+        &"smelt::unsupported-framework-base",
+        "error code",
+    )?;
+    Ok(())
+}
+
+/// A module's own `models.Model` is an ordinary base, whatever it is called.
+///
+/// The old spelling test refused this program as a Django model.
+#[test]
+fn a_local_models_namespace_is_not_a_framework_base() -> TestResult {
+    let source = py!(r"
+class models:
+    class Model:
+        pass
+
+class MyModel(models.Model):
+    pass
+");
+    let mut ctx = HirCtx::new();
+    lower_module(source, &mut ctx)?;
     Ok(())
 }
 

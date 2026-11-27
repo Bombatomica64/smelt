@@ -92,8 +92,10 @@ pub struct HostExport {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 #[non_exhaustive]
 pub enum HostModuleId {
-    /// `@date-fns/tz`.
-    DateFnsTz,
+    /// A package whose `tz(zone)` answers a date context for an IANA time zone
+    /// (`@date-fns/tz`). Lowering models the operation (`DateTimezoneContext`,
+    /// on `chrono-tz`); the specifier spelling lives only in [`HOST_MODULES`].
+    TimeZoneContext,
     /// `node:buffer`.
     Buffer,
     /// `node:crypto`.
@@ -102,8 +104,12 @@ pub enum HostModuleId {
     Events,
     /// `node:http`.
     Http,
-    /// `@hono/node-server`: serving a fetch handler on `node:http`.
-    HonoNodeServer,
+    /// A Node adapter whose `serve({ fetch, port, hostname }, onListen)` serves
+    /// a fetch handler (`(request) => Response`) on a `node:http` server
+    /// (`@hono/node-server`). Lowering models the operation
+    /// (`HttpCreateFetchServer`) for any fetch entry point; the specifier
+    /// spelling lives only in [`HOST_MODULES`].
+    FetchServerAdapter,
     /// `node:path` on the POSIX profile, and `node:path/posix`.
     ///
     /// One identity for both: the profile Smelt compiles for is POSIX, where
@@ -178,9 +184,9 @@ const HTTP_CLIENT_REASON: &str =
 /// Reason text shared by the `node:sqlite` surface.
 const SQLITE_REASON: &str = "only `DatabaseSync` (`exec`, `prepare`, `close`) and `StatementSync` (`all`, `get`, `run`) from node:sqlite are modeled";
 
-/// Reason text for the `@hono/node-server` exports beyond `serve`.
-const HONO_NODE_SERVER_REASON: &str =
-    "only `serve({ fetch, port, hostname }, onListen)` from @hono/node-server is modeled";
+/// Reason text for the fetch-server adapter exports beyond `serve`.
+const FETCH_SERVER_ADAPTER_REASON: &str =
+    "only `serve({ fetch, port, hostname }, onListen)` of a fetch-server adapter is modeled";
 
 /// Reason text for the `WebCrypto` members that are still declared.
 ///
@@ -241,7 +247,7 @@ pub const HOST_MODULES: &[HostModule] = &[
     // `chrono-tz` timezone value; it is here (rather than as a name test inside
     // import lowering) so package spellings live in exactly one registry.
     HostModule {
-        id: HostModuleId::DateFnsTz,
+        id: HostModuleId::TimeZoneContext,
         specifiers: &["@date-fns/tz"],
         exports: &[
             modeled_value("tz"),
@@ -313,13 +319,13 @@ pub const HOST_MODULES: &[HostModule] = &[
     // which the runtime implements natively on the `node:http` server
     // (`HttpCreateFetchServer`), the Bun model.
     HostModule {
-        id: HostModuleId::HonoNodeServer,
+        id: HostModuleId::FetchServerAdapter,
         specifiers: &["@hono/node-server"],
         exports: &[
             modeled_value("serve"),
-            declared_value("createAdaptorServer", HONO_NODE_SERVER_REASON),
-            declared_value("getRequestListener", HONO_NODE_SERVER_REASON),
-            declared_class("RequestError", HONO_NODE_SERVER_REASON),
+            declared_value("createAdaptorServer", FETCH_SERVER_ADAPTER_REASON),
+            declared_value("getRequestListener", FETCH_SERVER_ADAPTER_REASON),
+            declared_class("RequestError", FETCH_SERVER_ADAPTER_REASON),
         ],
     },
     HostModule {
@@ -356,6 +362,21 @@ pub fn host_module(specifier: &str) -> Option<&'static HostModule> {
     HOST_MODULES
         .iter()
         .find(|module| module.specifiers.contains(&specifier))
+}
+
+impl HostModuleId {
+    /// The module's canonical specifier (the first one [`HOST_MODULES`] lists),
+    /// for diagnostics: lowering names a module through this, so a package
+    /// spelling is written once, in the registry.
+    #[must_use]
+    pub fn specifier(self) -> &'static str {
+        HOST_MODULES
+            .iter()
+            .find(|module| module.id == self)
+            .and_then(|module| module.specifiers.first())
+            .copied()
+            .unwrap_or("<unregistered host module>")
+    }
 }
 
 /// Return the identity of the host module a specifier names, if modeled.
@@ -408,6 +429,16 @@ pub fn host_value_blocker(specifier: &str, name: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every registered module names itself by its first specifier, so lowering
+    /// can quote a package without spelling it.
+    #[test]
+    fn every_module_id_answers_its_registered_specifier() {
+        for module in HOST_MODULES {
+            assert_eq!(Some(&module.id.specifier()), module.specifiers.first());
+            assert_eq!(host_module_id(module.id.specifier()), Some(module.id));
+        }
+    }
 
     /// Both the `node:`-prefixed and bare spellings name the same module.
     #[test]

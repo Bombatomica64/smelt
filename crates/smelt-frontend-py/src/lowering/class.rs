@@ -333,8 +333,21 @@ impl ModuleBuilder<'_> {
         bases.base = match positional.as_slice() {
             [] => None,
             [(base_expr, denoted)] => {
-                if is_django_model_base(base_expr) && materialized.is_none() {
-                    return Err(SmeltError::django_unsupported(span, class_name_str));
+                if materialized.is_none() {
+                    let resolution = self
+                        .bindings
+                        .resolve(ruff_python_ast::helpers::map_subscript(base_expr), scope);
+                    if let Some(framework) = resolution
+                        .as_ref()
+                        .and_then(|found| found.qualified_name())
+                        .and_then(crate::package_shims::unsupported_framework_base)
+                    {
+                        return Err(SmeltError::unsupported_framework_base(
+                            span,
+                            class_name_str,
+                            framework,
+                        ));
+                    }
                 }
                 bases.is_int_enum = *denoted == Some(StdlibName::IntEnum);
                 // A modeled standard-library base is recorded under its own

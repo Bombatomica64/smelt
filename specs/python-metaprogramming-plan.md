@@ -19,8 +19,9 @@ the same philosophy mypy/ty use, but stricter. Concretely:
     → `unsupported_decorator`), and `class.rs:431` (a second decorator check).
 - **Metaclasses** — `class X(metaclass=M)` → hard error
   `SmeltError::no_metaclass` (`lowering/class.rs:52`).
-- **Django models / descriptor protocol** — explicit hard error
-  `SmeltError::django_unsupported` (`lib.rs:162`).
+- **Framework bases with a metaclass / descriptor protocol** (Django models) —
+  hard error `SmeltError::unsupported_framework_base`, keyed on the resolved
+  qualified name through the `package_shims.rs` table.
 - **Function decorators** — matched ad-hoc in `lowering/function.rs` (e.g.
   `fixture`, `parametrize` for tests); a scattered set of `match
   decorator_simple_name(...)` arms (`function.rs:58`, `:117`).
@@ -28,7 +29,7 @@ the same philosophy mypy/ty use, but stricter. Concretely:
   — **not modeled at all**; lowers as ordinary calls/attribute access and fails
   on anything dynamic.
 - The error helpers are all in `crates/smelt-frontend-py/src/lib.rs`
-  (`unsupported`, `no_metaclass`, `unsupported_decorator`, `django_unsupported`),
+  (`unsupported`, `no_metaclass`, `unsupported_decorator`, `unsupported_framework_base`),
   category `DiagnosticCategory::UnsupportedLowering`, code `smelt::unsupported-py`
   / `smelt::no-metaclass`.
 
