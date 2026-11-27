@@ -566,3 +566,132 @@ impl ModuleBuilder<'_> {
         matches!(self.ctx.krate.types.get(ty), Some(Type::Class { .. }))
     }
 }
+
+impl ModuleBuilder<'_> {
+    /// `JSON.stringify` / `JSON.parse` read as values (`const s =
+    /// JSON.stringify`): a first-class closure that runs the op the direct
+    /// call lowers to, reporting the builtin's own `name` and `length`
+    /// ([`Self::name_builtin_static_function_value`]).
+    ///
+    /// * `JSON.stringify` is `(value, replacer?, space?)`: the serializer
+    ///   inspects each argument's runtime kind (any value; a function or a key
+    ///   array or nothing; a number or a string or nothing), so the parameters
+    ///   are the tagged value at that runtime-narrowing boundary, the two
+    ///   trailing ones optional. The text is `string | undefined`, as for a
+    ///   direct call on a value whose type does not rule out `undefined`.
+    /// * `JSON.parse` is `(text: string)` answering the parsed JSON value,
+    ///   which only the text decides (the direct call's `external-type`
+    ///   boundary). A reviver is not supported here, as on the direct call.
+    ///
+    /// Behavioral requirement: a call through the value answers what the
+    /// direct call with the same arguments answers. Type preservation: the
+    /// closure's parameter and result types are the ones the direct call
+    /// gives its arguments and result at an erased argument.
+    ///
+    /// Returns `None` for any other member, or when `JSON` is shadowed.
+    pub(in crate::lowering) fn json_static_function_member(
+        &mut self,
+        member: &oxc::ast::ast::StaticMemberExpression<'_>,
+        outer_body: &mut Body,
+    ) -> Option<smelt_hir::ExprId> {
+        let Expression::Identifier(object) = &member.object else {
+            return None;
+        };
+        if !self.names_host(object.name.as_str(), "JSON") {
+            return None;
+        }
+        let span = self.span(member.span.start, member.span.end);
+        match member.property.name.as_str() {
+            "stringify" => {
+                let value_ty = self.erase_at(
+                    ErasureReason::RuntimeNarrowing,
+                    span,
+                    "JSON.stringify value",
+                );
+                let replacer_ty = self.erase_at(
+                    ErasureReason::RuntimeNarrowing,
+                    span,
+                    "JSON.stringify replacer",
+                );
+                let space_ty = self.erase_at(
+                    ErasureReason::RuntimeNarrowing,
+                    span,
+                    "JSON.stringify space",
+                );
+                let string_ty = self.ctx.krate.types.intern(Type::String);
+                let text_ty = self
+                    .ctx
+                    .krate
+                    .types
+                    .intern(Type::Optional(string_ty, smelt_hir::Absence::Undefined));
+                let closure = self.builtin_closure_expression(
+                    ("value", value_ty),
+                    &[("replacer", replacer_ty), ("space", space_ty)],
+                    text_ty,
+                    span,
+                    outer_body,
+                    false,
+                    |body, value, extra| {
+                        let text = body.push_expr(Expr {
+                            kind: ExprKind::JsonStringify {
+                                value,
+                                replacer: extra.first().copied(),
+                            },
+                            ty: text_ty,
+                            span,
+                        });
+                        let space = extra.get(1).copied().unwrap_or(text);
+                        ExprKind::JsonIndent { text, space }
+                    },
+                );
+                Some(self.require_leading_closure_params(closure, 1, outer_body))
+            }
+            "parse" => {
+                let string_ty = self.ctx.krate.types.intern(Type::String);
+                let value_ty = self.json_parse_fallback_type();
+                Some(self.builtin_unary_closure_expression_with_throw(
+                    string_ty,
+                    value_ty,
+                    span,
+                    outer_body,
+                    true,
+                    |text| ExprKind::JsonParse { text, target: None },
+                ))
+            }
+            _ => None,
+        }
+    }
+
+    /// Mark only the first `required` parameters of a synthesized closure
+    /// value as required, so a call through it may omit the trailing ones
+    /// (they read `undefined`), in its expression and its function type.
+    fn require_leading_closure_params(
+        &mut self,
+        closure: smelt_hir::ExprId,
+        required: usize,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let Some(expr) = usize::try_from(closure.0)
+            .ok()
+            .and_then(|index| body.exprs.get_mut(index))
+        else {
+            return closure;
+        };
+        let ExprKind::Closure(closure_expr) = &mut expr.kind else {
+            return closure;
+        };
+        closure_expr.required_params = Some(required);
+        let Some(Type::Function(function)) = self.ctx.krate.types.get(expr.ty).cloned() else {
+            return closure;
+        };
+        expr.ty = self
+            .ctx
+            .krate
+            .types
+            .intern(Type::Function(smelt_hir::FunctionType {
+                required_params: Some(required),
+                ..function
+            }));
+        closure
+    }
+}

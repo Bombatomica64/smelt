@@ -1745,6 +1745,52 @@ impl ModuleBuilder<'_> {
         })
     }
 
+    /// Synthesize a parameterless closure value whose body returns an
+    /// expression of `kind` typed `return_ty`: the value form of a nullary
+    /// builtin (`const now = Date.now`).
+    pub(in crate::lowering) fn builtin_nullary_closure_expression(
+        &mut self,
+        return_ty: smelt_hir::TypeId,
+        span: Span,
+        outer_body: &mut Body,
+        kind: ExprKind,
+    ) -> smelt_hir::ExprId {
+        let mut closure_body = Body::new(None, span);
+        let result = closure_body.push_expr(Expr {
+            kind,
+            ty: return_ty,
+            span,
+        });
+        closure_body.push_stmt(Stmt::Return(Some(result)));
+        let body = self.ctx.krate.push_body(closure_body);
+        let closure_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
+            params: Vec::new(),
+            rest: None,
+            required_params: None,
+            mutable_params: Vec::new(),
+            return_ty,
+            is_async: false,
+            may_throw: false,
+        }));
+        outer_body.push_expr(Expr {
+            kind: ExprKind::Closure(smelt_hir::ClosureExpr {
+                params: Vec::new(),
+                rest: None,
+                required_params: None,
+                return_ty,
+                captures: Vec::new(),
+                body,
+                name: None,
+                length: None,
+                function_item: None,
+                this_binding: smelt_hir::ClosureThis::Own,
+                span,
+            }),
+            ty: closure_ty,
+            span,
+        })
+    }
+
     /// Read the declared return type of a synthesized closure value expression.
     ///
     /// Callback positions need the callback's return type to type the array

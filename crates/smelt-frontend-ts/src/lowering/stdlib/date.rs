@@ -659,3 +659,26 @@ impl ModuleBuilder<'_> {
         })))
     }
 }
+
+impl ModuleBuilder<'_> {
+    /// `Date.now` read as a value (`const now = Date.now`): a parameterless
+    /// closure running the op the direct `Date.now()` call lowers to, so a call
+    /// through the copy reads the same clock and answers the same integer
+    /// milliseconds. Returns `None` for any other member, or when `Date` is
+    /// shadowed.
+    pub(in crate::lowering) fn date_static_function_member(
+        &mut self,
+        member: &oxc::ast::ast::StaticMemberExpression<'_>,
+        outer_body: &mut Body,
+    ) -> Option<smelt_hir::ExprId> {
+        let Expression::Identifier(object) = &member.object else {
+            return None;
+        };
+        if !self.names_host(object.name.as_str(), "Date") || member.property.name != "now" {
+            return None;
+        }
+        let span = self.span(member.span.start, member.span.end);
+        let ty = self.ctx.krate.types.intern(Type::Int);
+        Some(self.builtin_nullary_closure_expression(ty, span, outer_body, ExprKind::DateNow))
+    }
+}

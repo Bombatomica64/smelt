@@ -1167,12 +1167,19 @@ export function build(): number {
 }
 
 /// A static field initialized to a function or arrow expression
-/// (`static c = function () {};`) is a static callable member, not a data
-/// constant. Materializing it as an associated function needs the static-method
-/// lowering path, which is not wired to property initializers yet; until then
-/// the field is skipped rather than blocking the whole class, so a class that
-/// merely carries such a member still lowers (es-toolkit's `cloneDeep` spec
-/// declares `class Foo { static c = function () {}; }`).
+/// (`static c = function () {};`) is a static field whose value is a function.
+///
+/// Old requirement: the field was skipped (not materialized), so a class that
+/// merely carries such a member still lowered (es-toolkit's `cloneDeep` spec
+/// declares `class Foo { static c = function () {}; }`). That left every use
+/// wrong: `Foo.c()` threw "value is not a function" at run time and
+/// `Foo.c.name` read `undefined`, where Node calls the function and prints
+/// `"c"`.
+///
+/// New requirement: the field is an ordinary static field, typed by its
+/// function value and given storage the class definition initializes, exactly
+/// as any other static initializer (`static count = compute()`); the class
+/// still lowers. Evidence: `node-parity/function_valued_class_fields.ts`.
 #[test]
 fn lowers_class_carrying_static_function_field() -> Result<(), String> {
     let mut ctx = HirCtx::new();
@@ -1199,17 +1206,27 @@ export class Widget {
             _ => None,
         })
         .ok_or_else(|| "missing Widget class".to_owned())?;
-    // The instance data fields survive; the function-valued statics are not
-    // materialized as static fields (they are skipped, not stored as data).
+    // The instance data fields survive, and each function-valued static is a
+    // static field of function type with storage.
     ensure!(
         widget.fields.len() == 2,
         "expected two instance fields, got {}",
         widget.fields.len()
     );
+    let statics: Vec<_> = widget
+        .static_fields
+        .iter()
+        .map(|field| {
+            (
+                ctx.krate.symbols.get(field.name).unwrap_or_default(),
+                matches!(ctx.krate.types.get(field.ty), Some(Type::Function(_))),
+                field.storage.is_some(),
+            )
+        })
+        .collect();
     ensure!(
-        widget.static_fields.is_empty(),
-        "function-valued static fields should not be materialized as data static fields, got {}",
-        widget.static_fields.len()
+        statics == [("make", true, true), ("build", true, true)],
+        "expected function-typed static fields `make` and `build` with storage, got {statics:?}"
     );
     Ok(())
 }

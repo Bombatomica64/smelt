@@ -1611,12 +1611,6 @@ impl ModuleBuilder<'_> {
                 let Some(value) = property.value.as_ref().filter(|_| property.r#static) else {
                     continue;
                 };
-                if matches!(
-                    value,
-                    Expression::FunctionExpression(_) | Expression::ArrowFunctionExpression(_)
-                ) {
-                    continue;
-                }
                 let name = self.property_key_symbol(&property.key)?;
                 let Some(field) = fields.iter().find(|field| field.name == name) else {
                     continue;
