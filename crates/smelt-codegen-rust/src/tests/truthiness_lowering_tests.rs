@@ -22,6 +22,13 @@ use super::{rust_fn, source_for};
 /// runtime's `smelt_missing::<T>()`, the `undefined` of `T`'s carrier (the
 /// number hole at `number`), as the typed `number[]` read does. Evidence:
 /// Node-parity fixture `generic_missing_element`; the guard's arms are unchanged.
+/// Corrected expectation (loop-body branches rejoin). Old: the loop's update
+/// and `continue` were written into both arms of the body's `if`. New: the
+/// arms rejoin and the update follows the `if` once, as a loop-body branch
+/// reached by `emit_loop_branch_inner` already did (`emit_loop_branch_at_join`);
+/// the walker after a nested loop doubled the rest of the body per sequential
+/// `for...of` without it. Every path runs the same statements in the same
+/// order. Evidence: Node-parity fixture `sequential_loop_exits`.
 #[test]
 fn a_generic_condition_is_tested_rather_than_folded_to_true() {
     let source = source_for(
@@ -55,12 +62,10 @@ item = items.borrow().get(_smelt_tmp_4).cloned().unwrap_or_else(|| smelt_missing
 _smelt_tmp_7 = match ((item.clone()).into_smelt_unknown()) { SmeltUnknown::Null | SmeltUnknown::Undefined => false, SmeltUnknown::Bool(smelt_value) => smelt_value, SmeltUnknown::Number(smelt_value) => smelt_value != 0.0 && !smelt_value.is_nan(), SmeltUnknown::String(smelt_value) => !smelt_value.is_empty(), SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => true };
 if _smelt_tmp_7 {
 _smelt_tmp_8 = { let smelt_push_item = item; out.borrow_mut().push(smelt_push_item); out.len() as f64 };
-_smelt_tmp_4 = _smelt_tmp_4 + 1;
-continue;
 } else {
+}
 _smelt_tmp_4 = _smelt_tmp_4 + 1;
 continue;
-}
 }
 return out;
 }"
