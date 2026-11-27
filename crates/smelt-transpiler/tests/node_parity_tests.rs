@@ -2209,6 +2209,8 @@ fn iterator_protocol_iterable_iterator() -> TestResult {
 #[test]
 fn iterator_protocol_infinite() -> TestResult {
     verify_node_parity("iterator_protocol_infinite")
+}
+
 /// A discriminant comparison (`s.kind === "circle"`, `!==`, `switch` arms,
 /// grouped labels, `default`, a failed `in`) narrows a union to the arms
 /// whose literal field admits the value, for interface and anonymous arms,
