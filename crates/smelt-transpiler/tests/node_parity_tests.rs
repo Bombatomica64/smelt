@@ -2209,4 +2209,38 @@ fn iterator_protocol_iterable_iterator() -> TestResult {
 #[test]
 fn iterator_protocol_infinite() -> TestResult {
     verify_node_parity("iterator_protocol_infinite")
+/// A discriminant comparison (`s.kind === "circle"`, `!==`, `switch` arms,
+/// grouped labels, `default`, a failed `in`) narrows a union to the arms
+/// whose literal field admits the value, for interface and anonymous arms,
+/// string, number and boolean discriminants; an arm whose field is a plain
+/// `string` is never ruled out.
+#[test]
+fn discriminated_union_narrowing() -> TestResult {
+    verify_node_parity("discriminated_union_narrowing")?;
+    // Type preservation, on the same source: every narrowed read projects
+    // the arm (`SmeltUnionN::M0(value) => value` then `.r`) instead of
+    // reading the field through the erased value, so the program holds no
+    // `SmeltUnknown` at all. Before, `s.r` became
+    // `smelt_get_unknown_field(&s.clone().into_smelt_unknown(), "r")`.
+    let fixtures = workspace_root()?.join("crates/smelt-transpiler/tests/fixtures/node-parity");
+    let project = TempProject::new()?;
+    let root = project.path();
+    fs::create_dir_all(root.join("src"))?;
+    fs::copy(
+        fixtures.join("discriminated_union_narrowing.ts"),
+        root.join("src/main.ts"),
+    )?;
+    fs::write(
+        root.join("Smelt.toml"),
+        "[project]\nname = \"du-narrowing\"\nversion = \"0.1.0\"\n\n[sources]\nentries = [\"src/main.ts\"]\n\n[output]\ntarget = \"./dist\"\nbuild = false\n",
+    )?;
+    smelt_in(root, &["build"])?;
+    let program = fs::read_to_string(root.join("dist/src/source_main.rs"))?;
+    for line in program.lines() {
+        ensure(
+            !line.contains("SmeltUnknown") && !line.contains("smelt_get_unknown_field"),
+            format!("erased read in a narrowed branch: {line}"),
+        )?;
+    }
+    Ok(())
 }

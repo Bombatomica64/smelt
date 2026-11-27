@@ -6030,26 +6030,26 @@ fn __smelt_from_unknown_record_1(smelt_value: SmeltUnknown) -> Square {
 use super::*;
 
 pub(crate) fn area(shape: SmeltUnion2) -> f64 {
-    let _smelt_tmp_2: f64;
+    let _smelt_tmp_2: Circle;
     let _smelt_tmp_3: f64;
-    let _smelt_tmp_4: f64;
+    let _smelt_tmp_4: Circle;
     let _smelt_tmp_5: f64;
     let _smelt_tmp_6: f64;
-    let _smelt_tmp_7: f64;
-    let _smelt_tmp_8: f64;
+    let _smelt_tmp_7: Square;
+    let _smelt_tmp_8: Square;
     let _smelt_tmp_9: f64;
     let _smelt_tmp_1: bool = match &shape { SmeltUnion2::M0(smelt_union_arm) => smelt_union_arm.kind.clone(), SmeltUnion2::M1(smelt_union_arm) => smelt_union_arm.kind.clone() } == "circle";
     if _smelt_tmp_1 {
-    _smelt_tmp_2 = match smelt_get_unknown_field(&shape.clone().into_smelt_unknown(), "radius").clone() { SmeltUnknown::Number(smelt_value) => smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get("__smelt_date") { Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }, SmeltUnknown::String(smelt_value) => smelt_js_string_to_number(&smelt_value), SmeltUnknown::Bool(smelt_value) => if smelt_value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN };
-    _smelt_tmp_3 = 3.141592653589793 * _smelt_tmp_2;
-    _smelt_tmp_4 = match smelt_get_unknown_field(&shape.clone().into_smelt_unknown(), "radius").clone() { SmeltUnknown::Number(smelt_value) => smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get("__smelt_date") { Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }, SmeltUnknown::String(smelt_value) => smelt_js_string_to_number(&smelt_value), SmeltUnknown::Bool(smelt_value) => if smelt_value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN };
-    _smelt_tmp_5 = _smelt_tmp_3 * _smelt_tmp_4;
+    _smelt_tmp_2 = match shape.clone() { SmeltUnion2::M0(value) => value, _ => unreachable!("union guard selected an excluded member") };
+    _smelt_tmp_3 = 3.141592653589793 * _smelt_tmp_2.radius;
+    _smelt_tmp_4 = match shape.clone() { SmeltUnion2::M0(value) => value, _ => unreachable!("union guard selected an excluded member") };
+    _smelt_tmp_5 = _smelt_tmp_3 * _smelt_tmp_4.radius;
     _smelt_tmp_6 = smelt_math_round(_smelt_tmp_5);
     return _smelt_tmp_6;
     } else {
-    _smelt_tmp_7 = match smelt_get_unknown_field(&shape.clone().into_smelt_unknown(), "side").clone() { SmeltUnknown::Number(smelt_value) => smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get("__smelt_date") { Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }, SmeltUnknown::String(smelt_value) => smelt_js_string_to_number(&smelt_value), SmeltUnknown::Bool(smelt_value) => if smelt_value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN };
-    _smelt_tmp_8 = match smelt_get_unknown_field(&shape.clone().into_smelt_unknown(), "side").clone() { SmeltUnknown::Number(smelt_value) => smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get("__smelt_date") { Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }, SmeltUnknown::String(smelt_value) => smelt_js_string_to_number(&smelt_value), SmeltUnknown::Bool(smelt_value) => if smelt_value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN };
-    _smelt_tmp_9 = _smelt_tmp_7 * _smelt_tmp_8;
+    _smelt_tmp_7 = match shape.clone() { SmeltUnion2::M1(value) => value, _ => unreachable!("union guard selected an excluded member") };
+    _smelt_tmp_8 = match shape.clone() { SmeltUnion2::M1(value) => value, _ => unreachable!("union guard selected an excluded member") };
+    _smelt_tmp_9 = _smelt_tmp_7.side * _smelt_tmp_8.side;
     return _smelt_tmp_9;
     }
 }

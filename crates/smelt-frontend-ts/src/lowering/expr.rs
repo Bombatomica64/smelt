@@ -10,7 +10,7 @@ mod conditional;
 mod dispatch;
 mod logical;
 pub(in crate::lowering) mod member_access;
-mod object_literals;
+pub(in crate::lowering) mod object_literals;
 mod operators;
 mod references;
 mod templates;

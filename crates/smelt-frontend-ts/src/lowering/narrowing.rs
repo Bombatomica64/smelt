@@ -92,6 +92,10 @@ impl ModuleBuilder<'_> {
             out.insert(name, target);
         } else if let Some((name, target)) = self.falsy_optional_object_guard(expression, body) {
             out.insert(name, target);
+        } else if let Some((name, target)) = self.in_operator_inverse_guard(expression, body) {
+            out.insert(name, target);
+        } else if let Some((name, target)) = self.discriminant_inverse_guard(expression, body) {
+            out.insert(name, target);
         } else if let Some((name, target)) = self.typeof_inverse_guard(expression, body) {
             out.insert(name, target);
         } else if let Some((name, target)) = self.instanceof_inverse_guard(expression, body) {

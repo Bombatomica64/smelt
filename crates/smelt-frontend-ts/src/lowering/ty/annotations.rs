@@ -176,7 +176,16 @@ impl ModuleBuilder<'_> {
                 // `null` apart from `undefined` (`Type::Optional`'s tag).
                 let (mut admits_undefined, mut admits_null) = (false, false);
                 for member in &union.types {
-                    let mut member_ty = self.ts_type_to_hir(member)?;
+                    // A direct object-literal arm may be a discriminated arm
+                    // (`anonymous_record_literal_type`); nested literals are not.
+                    let arm_literal = match member {
+                        TSType::TSTypeLiteral(literal) => Some(literal.span.start),
+                        _ => None,
+                    };
+                    let previous_arm = std::mem::replace(&mut self.union_arm_literal, arm_literal);
+                    let member_ty = self.ts_type_to_hir(member);
+                    self.union_arm_literal = previous_arm;
+                    let mut member_ty = member_ty?;
                     let (member_undefined, member_null) =
                         self.ts_member_absences(member, member_ty);
                     admits_undefined |= member_undefined;

@@ -12,7 +12,9 @@
 //!
 //! The rule, stated once: a plain-data type literal (named property
 //! signatures only: no index signature, call or construct signature, or
-//! method) whose fields do not share one value type lowers to a synthesized
+//! method) whose fields do not share one value type, or that is a union arm
+//! with a required literal-typed field (a discriminant such as `kind: "b"`,
+//! whose literal a `Dict` value type cannot carry), lowers to a synthesized
 //! interface, exactly as the alias spelling `type O = { … }` does. Its name is
 //! derived from the structure, so the same shape written in several places, in
 //! one file or in several, shares one generated struct.
@@ -47,7 +49,8 @@ impl ModuleBuilder<'_> {
     /// `fields` are the literal's fields as `type_literal_fields` returned them
     /// (the declared type, not yet wrapped in `Optional` for an optional
     /// field). Returns `None`, leaving the caller's
-    /// `Dict` lowering in charge, when the fields share one value type or when
+    /// `Dict` lowering in charge, when the fields share one value type and
+    /// the literal is no discriminated union arm, or when
     /// the literal declares anything other than named property signatures. A
     /// literal whose fields mention type parameters yields a generic struct
     /// reference (see the module docs).
@@ -67,11 +70,6 @@ impl ModuleBuilder<'_> {
             if !value_tys.contains(&ty) {
                 value_tys.push(ty);
             }
-        }
-        if value_tys.len() < 2
-            && self.uniform_literal_lowering == super::super::UniformLiteralLowering::Dictionary
-        {
-            return None;
         }
         let plain_properties = literal.members.iter().all(|member| {
             matches!(member, TSSignature::TSPropertySignature(prop)
@@ -112,6 +110,24 @@ impl ModuleBuilder<'_> {
                 ))
             })
             .collect();
+        // A union arm with a required literal-typed field (`kind: "b"`) is a
+        // discriminated arm: the `Dict` spelling keeps only the field's
+        // primitive, so `e.kind === "b"` could no longer tell the arms of
+        // `{ kind: "a"; n: number } | { kind: "b"; msg: string }` apart and
+        // every narrowed read erased. Such an arm keeps its own struct,
+        // carrying the literal in its decode facts, even when every field
+        // shares one value type. Outside a union (an options bag `{ width?:
+        // "narrow" | "wide" }`) a literal field discriminates nothing.
+        let has_discriminant = self.union_arm_literal == Some(literal.span.start)
+            && decode_facts
+                .iter()
+                .any(|facts| !facts.literals.is_empty() && !facts.may_be_absent);
+        if value_tys.len() < 2
+            && !has_discriminant
+            && self.uniform_literal_lowering == super::super::UniformLiteralLowering::Dictionary
+        {
+            return None;
+        }
         let minted = self.anonymous_record_name(&fields, &decode_facts);
         let name = self.intern_synthesized_type_name(&minted);
         let name_text = minted.as_str().to_owned();
