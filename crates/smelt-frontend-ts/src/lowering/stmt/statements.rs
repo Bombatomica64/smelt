@@ -416,6 +416,7 @@ impl ModuleBuilder<'_> {
                     // generator (`class_iterator_generator`).
                     let right_span =
                         this.span(for_stmt.right.span().start, for_stmt.right.span().end);
+                    this.refuse_hand_written_iterator(iter, right_span, body)?;
                     if let Some(generator) = this.class_iterator_generator(iter, right_span, body) {
                         iter = generator;
                     }

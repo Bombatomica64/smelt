@@ -24,7 +24,19 @@ impl fmt::Display for CompileError {
     /// Writes the failing stage and its errors.
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Lower(errors) => write!(formatter, "MIR lowering failed:\n{errors:#?}"),
+            // One line per error, its message and source byte range: an
+            // internal limit reached by valid source reads as a diagnostic,
+            // not as a dump of the error structure.
+            Self::Lower(errors) => {
+                write!(formatter, "MIR lowering failed:")?;
+                for error in errors {
+                    write!(formatter, "\n  {}", error.message)?;
+                    if let Some(span) = error.span {
+                        write!(formatter, " (bytes {}..{})", span.start, span.end)?;
+                    }
+                }
+                Ok(())
+            }
             Self::Optimize(error) => write!(formatter, "{error}"),
             Self::Validation(errors) => write!(formatter, "MIR validation failed:\n{errors:#?}"),
         }

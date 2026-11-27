@@ -699,6 +699,9 @@ impl ModuleBuilder<'_> {
         &self,
         name: &str,
     ) -> Option<ConstLiteral> {
+        if let Some(value) = self.enum_folding_member(None, name) {
+            return Some(value);
+        }
         if let Some(value) = self.consts.literal(name) {
             return Some(value.clone());
         }
@@ -911,13 +914,17 @@ impl ModuleBuilder<'_> {
                 literal: Literal::Float(-number),
                 ty: self.ctx.krate.types.intern(Type::Float),
             }),
+            (UnaryOperator::BitwiseNot, Literal::Float(number)) => Ok(ConstLiteral {
+                literal: Literal::Float(f64::from(!js_to_int32(number))),
+                ty: self.ctx.krate.types.intern(Type::Float),
+            }),
             (UnaryOperator::LogicalNot, Literal::Bool(value)) => Ok(ConstLiteral {
                 literal: Literal::Bool(!value),
                 ty: self.ctx.krate.types.intern(Type::Bool),
             }),
             _ => Err(SmeltError::unsupported(
                 self.span(unary.span.start, unary.span.end),
-                "exported const unary expressions currently support numeric plus, numeric negation, and boolean not",
+                "exported const unary expressions currently support numeric plus, numeric negation, bitwise not, and boolean not",
             )),
         }
     }
@@ -949,8 +956,11 @@ impl ModuleBuilder<'_> {
         // another foldable const expression resolves to the member's
         // const-folded value.
         if let Expression::Identifier(object) = &member.object
-            && let Some(value) =
-                self.enum_member_literal(object.name.as_str(), member.property.name.as_str())
+            && let Some(value) = self
+                .enum_folding_member(Some(object.name.as_str()), member.property.name.as_str())
+                .or_else(|| {
+                    self.enum_member_literal(object.name.as_str(), member.property.name.as_str())
+                })
         {
             return Ok(value);
         }
@@ -998,10 +1008,27 @@ impl ModuleBuilder<'_> {
                     BinaryOperator::Division => lhs / rhs,
                     BinaryOperator::Remainder => lhs % rhs,
                     BinaryOperator::Exponential => lhs.powf(rhs),
+                    // Bitwise operators work on the operands' ToInt32 (the
+                    // shift count on its low five bits); `>>>` reads the left
+                    // operand as ToUint32 and answers an unsigned value.
+                    BinaryOperator::BitwiseOR => f64::from(js_to_int32(lhs) | js_to_int32(rhs)),
+                    BinaryOperator::BitwiseAnd => f64::from(js_to_int32(lhs) & js_to_int32(rhs)),
+                    BinaryOperator::BitwiseXOR => f64::from(js_to_int32(lhs) ^ js_to_int32(rhs)),
+                    BinaryOperator::ShiftLeft => {
+                        f64::from(js_to_int32(lhs).wrapping_shl(js_to_int32(rhs).cast_unsigned()))
+                    }
+                    BinaryOperator::ShiftRight => {
+                        f64::from(js_to_int32(lhs).wrapping_shr(js_to_int32(rhs).cast_unsigned()))
+                    }
+                    BinaryOperator::ShiftRightZeroFill => f64::from(
+                        js_to_int32(lhs)
+                            .cast_unsigned()
+                            .wrapping_shr(js_to_int32(rhs).cast_unsigned()),
+                    ),
                     _ => {
                         return Err(SmeltError::unsupported(
                             self.span(binary.span.start, binary.span.end),
-                            "exported numeric const expressions support arithmetic operators only",
+                            "exported numeric const expressions support arithmetic and bitwise operators only",
                         ));
                     }
                 };
@@ -1301,4 +1328,21 @@ impl ModuleBuilder<'_> {
     }
 
     // Continued in the next split builder file.
+}
+
+/// JavaScript's `ToInt32`: `value` truncated toward zero and wrapped modulo `2^32`
+/// into the signed 32-bit range; `NaN` and the infinities are 0.
+fn js_to_int32(value: f64) -> i32 {
+    if !value.is_finite() {
+        return 0;
+    }
+    let wrapped = value.trunc().rem_euclid(4_294_967_296.0);
+    #[expect(
+        clippy::as_conversions,
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "`wrapped` is an integer in [0, 2^32), so it is a `u32` exactly"
+    )]
+    let bits = wrapped as u32;
+    bits.cast_signed()
 }

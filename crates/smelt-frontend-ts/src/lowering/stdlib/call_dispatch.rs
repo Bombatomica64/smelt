@@ -838,6 +838,24 @@ impl<'builder> ModuleBuilder<'builder> {
             .then_some(kept.expr)
     }
 
+    /// Keep `expr`, the lowering of the receiver node `expression`, for every
+    /// later unhinted lowering of that node while the innermost call lowers
+    /// (see [`KeptReceiver`]).
+    pub(in crate::lowering) fn keep_receiver(
+        &mut self,
+        expression: &Expression<'_>,
+        expr: smelt_hir::ExprId,
+        body: &Body,
+    ) {
+        if let Some(slot) = self.kept_receivers.last_mut() {
+            *slot = Some(KeptReceiver {
+                node: std::ptr::from_ref(expression).addr(),
+                expr,
+                exprs_after: body.exprs.len(),
+            });
+        }
+    }
+
     /// Drop every kept receiver a roll-back to `exprs` expressions discards.
     pub(in crate::lowering) fn discard_kept_receivers_after(&mut self, exprs: usize) {
         for slot in &mut self.kept_receivers {
@@ -892,6 +910,9 @@ impl<'builder> ModuleBuilder<'builder> {
             return Ok(expr);
         }
         if let Some(expr) = self.dispatch_builtin_call(call, body)? {
+            return Ok(expr);
+        }
+        if let Some(expr) = self.record_object_prototype_call(call, body)? {
             return Ok(expr);
         }
         if let Some(expr) = self.immediately_invoked_function_call(call, body)? {

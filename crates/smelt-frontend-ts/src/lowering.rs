@@ -892,6 +892,16 @@ struct ModuleBuilder<'ctx> {
     /// pairs in declaration order, the entries of the enum object's reverse
     /// mapping (`Color[0] === "Red"`).
     enum_reverse_names: HashMap<String, Vec<(f64, String)>>,
+    /// The `enum` whose member initializers are being folded, with the members
+    /// folded so far: while it is set, a bare member name (`AB = A | B`) and a
+    /// qualified self-reference (`AB = F.A | F.B`) inside any foldable
+    /// initializer resolve to those values, as TypeScript's constant enum
+    /// expressions do (`decls/enums.rs`).
+    enum_folding_scope: Option<(String, HashMap<String, ConstLiteral>)>,
+    /// Members of each `enum` declared in this module whose initializer does
+    /// not fold to a constant (TypeScript's computed members, `B = s.length`),
+    /// so a read of one reports that cause instead of an unresolved name.
+    enum_unfolded_members: HashMap<String, Vec<String>>,
     /// Declarations and reads of this module, from its AST.
     source_facts: source_facts::SourceFacts,
     /// Which unannotated literal bindings of this module may lower to a

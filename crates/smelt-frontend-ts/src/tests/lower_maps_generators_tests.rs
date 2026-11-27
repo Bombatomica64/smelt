@@ -1736,3 +1736,42 @@ export function check(): boolean { return run() instanceof Promise; }
     );
     Ok(())
 }
+
+/// A computed enum member (an initializer that is not a constant expression)
+/// is reported as that, not as an unresolved enum name; its folded siblings
+/// still read.
+#[test]
+fn rejects_computed_enum_member_by_cause() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let errors = lowering_errors(
+        ts!("const s = \"abc\";\nenum E { A = 1, B = s.length }\nconsole.log(E.A, E.B);\n"),
+        &mut ctx,
+    )?;
+    assert_unsupported_ts(&errors, "enum member `E.B` is computed")?;
+    if errors
+        .iter()
+        .any(|error| format!("{error:?}").contains("unresolved identifier"))
+    {
+        return Err(format!("the enum name must resolve: {errors:?}"));
+    }
+    Ok(())
+}
+
+/// Iterating an instance whose `[Symbol.iterator]()` returns a hand-written
+/// iterator object is refused, by `for-of`, spread and `Array.from` alike,
+/// rather than iterating the instance itself as one item.
+#[test]
+fn rejects_hand_written_iterator_object() -> Result<(), String> {
+    let class = "class C {\n  constructor(private n: number) {}\n  [Symbol.iterator](): Iterator<number> {\n    let n = this.n;\n    return { next: () => (n > 0 ? { value: n--, done: false } : { value: 0, done: true }) };\n  }\n}\n";
+    for use_site in [
+        "for (const v of new C(3)) console.log(v);\n",
+        "console.log([...new C(3)].length);\n",
+        "console.log(Array.from(new C(3)).length);\n",
+    ] {
+        let mut ctx = HirCtx::new();
+        let source = format!("{class}{use_site}");
+        let errors = lowering_errors(&source, &mut ctx)?;
+        assert_unsupported_ts(&errors, "returns a hand-written iterator")?;
+    }
+    Ok(())
+}

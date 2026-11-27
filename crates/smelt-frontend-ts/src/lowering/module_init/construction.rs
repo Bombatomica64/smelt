@@ -103,6 +103,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
             receiver_frames: Vec::new(),
             kept_receivers: Vec::new(),
             enum_reverse_names: HashMap::new(),
+            enum_folding_scope: None,
+            enum_unfolded_members: HashMap::new(),
             source_facts: super::super::source_facts::SourceFacts::default(),
             literal_record_uses: super::super::literal_record_uses::LiteralRecordUses::default(),
             uniform_literal_lowering: super::super::UniformLiteralLowering::Dictionary,

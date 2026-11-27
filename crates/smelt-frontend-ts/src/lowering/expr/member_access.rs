@@ -379,6 +379,11 @@ impl ModuleBuilder<'_> {
         if let Some(folded) = self.object_const_literal_member(member, body) {
             return Ok(folded);
         }
+        // Before the general paths, whose prototype-method fallback below
+        // would replace an enum's own diagnostic with one about its name.
+        if let Some(expr) = self.enum_member_read(member, body)? {
+            return Ok(expr);
+        }
         match self.static_member_with_absent_fallback(member, body, true, true, false) {
             Ok(read) => {
                 let read = self.checker_narrowed_member_read(member.span, read, body);
@@ -629,7 +634,7 @@ impl ModuleBuilder<'_> {
         if let Some(expr) = self.function_static_property_read(member, body)? {
             return Ok(expr);
         }
-        if let Some(expr) = self.enum_member_read(member, body) {
+        if let Some(expr) = self.enum_member_read(member, body)? {
             return Ok(expr);
         }
         if let Some(expr) = self.symbol_static_member(member, body) {
@@ -1089,25 +1094,48 @@ impl ModuleBuilder<'_> {
     /// A read of a known member therefore inlines the same numeric or string
     /// literal a manual `const` would, so ordinary enum usage compiles without a
     /// dedicated enum type. Returns `None` for a non-enum receiver or an
-    /// unknown member so the caller continues with the general member paths.
+    /// unknown member so the caller continues with the general member paths
+    /// (a namespace merged into the enum declares the other names).
+    ///
+    /// # Errors
+    /// A member of an enum declared in this module whose initializer is not a
+    /// constant Smelt folds (a TypeScript computed member) is unsupported,
+    /// reported as that rather than as an unresolved enum name.
     pub(in crate::lowering) fn enum_member_read(
         &self,
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
         body: &mut Body,
-    ) -> Option<smelt_hir::ExprId> {
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         if member.optional {
-            return None;
+            return Ok(None);
         }
         let Expression::Identifier(object) = &member.object else {
-            return None;
+            return Ok(None);
         };
-        let value =
-            self.enum_member_literal(object.name.as_str(), member.property.name.as_str())?;
-        Some(body.push_expr(Expr {
+        let property = member.property.name.as_str();
+        let Some(value) = self.enum_member_literal(object.name.as_str(), property) else {
+            if let crate::lowering::resolve::ValueBinding::Enum(binding) =
+                self.resolve_value(object.name.as_str())
+                && self
+                    .enum_unfolded_members
+                    .get(binding.name())
+                    .is_some_and(|members| members.iter().any(|name| name == property))
+            {
+                return Err(SmeltError::unsupported(
+                    self.span(member.span.start, member.span.end),
+                    format!(
+                        "enum member `{}.{property}` is computed: its initializer is not a constant expression Smelt can fold",
+                        object.name
+                    ),
+                ));
+            }
+            return Ok(None);
+        };
+        Ok(Some(body.push_expr(Expr {
             kind: ExprKind::Literal(value.literal),
             ty: value.ty,
             span: self.span(member.span.start, member.span.end),
-        }))
+        })))
     }
 
     /// Lower supported well-known `Symbol.<name>` member reads.

@@ -1,0 +1,8 @@
+[object Object] [object Object]
+[object Object] [object Object] [object Object] true
+[object Object] true
+P(3);P(4) P(3)
+P(3),P(4) P(3),P(4) P(3)
+Q1+Q2 Q5
+caught negative
+[object Object]

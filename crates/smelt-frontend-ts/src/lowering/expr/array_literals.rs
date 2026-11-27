@@ -530,6 +530,7 @@ impl ModuleBuilder<'_> {
                 .match_array_view(spread_value, element_span, body)
                 .unwrap_or(spread_value);
             // An object spreads through its `[Symbol.iterator]()` generator.
+            self.refuse_hand_written_iterator(spread_value, element_span, body)?;
             let spread_value = self
                 .class_iterator_generator(spread_value, element_span, body)
                 .unwrap_or(spread_value);
@@ -576,6 +577,7 @@ impl ModuleBuilder<'_> {
                     // (`[...view, 0]`): convert it to its elements here, before
                     // the pieces are unified, so the list stays numeric.
                     let element_span = self.span(spread.span.start, spread.span.end);
+                    self.refuse_hand_written_iterator(spread_value, element_span, body)?;
                     let spread_value = self
                         .class_iterator_generator(spread_value, element_span, body)
                         .unwrap_or(spread_value);

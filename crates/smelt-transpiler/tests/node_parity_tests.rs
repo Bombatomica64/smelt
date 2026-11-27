@@ -2134,3 +2134,50 @@ fn function_expression_inferred_return() -> TestResult {
 fn rest_parameter_fixed_slot() -> TestResult {
     verify_node_parity("rest_parameter_fixed_slot")
 }
+
+/// `Object.freeze(o)` and `Object.defineProperty(o, symbolKey, d)` answer
+/// their target with its own type (they answered `null`); a target that is
+/// not a plain name is evaluated once, before the other arguments.
+#[test]
+fn object_metadata_answers_target() -> TestResult {
+    verify_node_parity("object_metadata_answers_target")
+}
+
+/// An enum member initialised from earlier members, bare or qualified by the
+/// enum, folds through the bitwise operators (`AB = A | B`), as TypeScript's
+/// constant enum expressions do; the enum vanished before.
+#[test]
+fn enum_constant_expressions() -> TestResult {
+    verify_node_parity("enum_constant_expressions")
+}
+
+/// `Number.isInteger(5.0)` on a float literal compiles (its receiver is
+/// called through `f64::`, as the other predicates already were).
+#[test]
+fn number_predicates_on_literals() -> TestResult {
+    verify_node_parity("number_predicates_on_literals")
+}
+
+/// An unannotated generator method (`*[Symbol.iterator]() { yield i; }`)
+/// returns the generator type the checker infers; its erased return did
+/// not compile.
+#[test]
+fn generator_method_inferred_type() -> TestResult {
+    verify_node_parity("generator_method_inferred_type")
+}
+
+/// A mutating call on a value read out of a map (`m.get(k)!.push(x)`)
+/// changes the stored list; it was an internal MIR error.
+#[test]
+fn map_read_mutation() -> TestResult {
+    verify_node_parity("map_read_mutation")
+}
+
+/// `toString()`/`valueOf()` on a record reach `Object.prototype` (the call
+/// threw `value is not a function`), and `join` / `ToString` of an array of
+/// instances whose class defines `toString` call it (join was refused, a
+/// template answered `[object Object]`).
+#[test]
+fn object_prototype_to_string() -> TestResult {
+    verify_node_parity("object_prototype_to_string")
+}

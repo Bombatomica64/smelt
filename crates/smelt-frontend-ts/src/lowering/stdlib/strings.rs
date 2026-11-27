@@ -1056,7 +1056,24 @@ impl ModuleBuilder<'_> {
                 ));
             }
         };
-        let Some(Type::List(item_ty)) = self.ctx.krate.types.get(items_ty) else {
+        let Some(Type::List(element_ty)) = self.ctx.krate.types.get(items_ty).cloned() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "array join requires an array receiver",
+            ));
+        };
+        // Items of a class with a `toString` of its own join as the strings
+        // it answers: `join` takes each non-nullish element through
+        // `ToString`, which calls that method (as `${p}` and `String(p)` do).
+        if matches!(
+            self.ctx.krate.types.get(element_ty),
+            Some(Type::Class { .. })
+        ) && self.declares_to_string(element_ty)
+        {
+            items = self.list_items_to_string(items, element_ty, call.span, body);
+        }
+        let joined_ty = Self::expr_ty(body, items);
+        let Some(Type::List(item_ty)) = self.ctx.krate.types.get(joined_ty) else {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
                 "array join requires an array receiver",
@@ -1094,6 +1111,96 @@ impl ModuleBuilder<'_> {
             ty: string_ty,
             span: self.span(call.span.start, call.span.end),
         })))
+    }
+
+    /// `items.map(item => item.toString())` over a list of class instances
+    /// whose class declares a zero-argument `toString`: the list of the
+    /// strings `ToString` gives its elements, typed as that method returns.
+    pub(in crate::lowering) fn list_items_to_string(
+        &mut self,
+        items: smelt_hir::ExprId,
+        item_ty: smelt_hir::TypeId,
+        source_span: oxc::span::Span,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let span = self.span(source_span.start, source_span.end);
+        let method = self.intern_source_name("toString");
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let return_ty = self
+            .resolve_method(item_ty, method, source_span)
+            .map_or(string_ty, |(return_ty, _)| return_ty);
+        let item_name = self.intern_synthesized_name("__smelt_item");
+        let mut closure_body = Body::new(None, span);
+        let item_local = closure_body.push_local(smelt_hir::LocalDecl {
+            name: Some(item_name),
+            ty: item_ty,
+            mutable: false,
+            span,
+        });
+        closure_body.params.push(item_local);
+        let item = closure_body.push_expr(Expr {
+            kind: ExprKind::Local(item_local),
+            ty: item_ty,
+            span,
+        });
+        let text = closure_body.push_expr(Expr {
+            kind: ExprKind::Method {
+                receiver: item,
+                method,
+                args: Vec::new(),
+            },
+            ty: return_ty,
+            span,
+        });
+        closure_body.push_stmt(smelt_hir::Stmt::Return(Some(text)));
+        let body_id = self.ctx.krate.push_body(closure_body);
+        let closure_ty = self
+            .ctx
+            .krate
+            .types
+            .intern(Type::Function(smelt_hir::FunctionType {
+                params: vec![item_ty],
+                rest: None,
+                required_params: None,
+                mutable_params: Vec::new(),
+                return_ty,
+                is_async: false,
+                // MIR marks a closure whose body can throw (a throwing
+                // `toString`), as it does for every lowered arrow.
+                may_throw: false,
+            }));
+        let callback = body.push_expr(Expr {
+            kind: ExprKind::Closure(smelt_hir::ClosureExpr {
+                params: vec![smelt_hir::Param {
+                    name: item_name,
+                    local: item_local,
+                    ty: item_ty,
+                    span,
+                }],
+                rest: None,
+                required_params: None,
+                return_ty,
+                captures: Vec::new(),
+                body: body_id,
+                name: None,
+                length: None,
+                function_item: None,
+                this_binding: smelt_hir::ClosureThis::Own,
+                span,
+            }),
+            ty: closure_ty,
+            span,
+        });
+        let ty = self.ctx.krate.types.intern(Type::List(return_ty));
+        body.push_expr(Expr {
+            kind: ExprKind::ListCallback {
+                op: smelt_hir::ListCallbackOp::Map,
+                list: items,
+                callback,
+            },
+            ty,
+            span,
+        })
     }
 
     /// The elements of a tuple receiver as a list `join` can take, or `None`

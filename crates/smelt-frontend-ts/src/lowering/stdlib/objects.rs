@@ -6,8 +6,8 @@ use crate::lowering::erasure::NotNewErasure;
 use oxc::ast::ast::{Argument, Expression};
 use oxc::syntax::operator::{BinaryOperator, LogicalOperator};
 use smelt_hir::{
-    BinOp, Body, DictProjectionOp, ErasureReason, Expr, ExprKind, Literal, PropertyLookup, Span,
-    Type, UnknownKind,
+    BinOp, Body, DictProjectionOp, ErasureReason, Expr, ExprKind, Literal, LocalDecl, Pattern,
+    PropertyLookup, Span, Type, UnknownKind,
 };
 
 impl ModuleBuilder<'_> {
@@ -757,14 +757,53 @@ impl ModuleBuilder<'_> {
                 span,
             })));
         }
-        for argument in &call.arguments {
+        // `Object.freeze(o)` and `Object.defineProperty(o, key, d)` (a key the
+        // descriptor path above declined, such as a symbol) answer their target
+        // object, as JavaScript does. The metadata itself is not modelled: a
+        // write to a frozen object is a `tsc` error (`Readonly<T>`), and a
+        // symbol-keyed property is invisible to the string-keyed shapes.
+        // The answer keeps the target's own type, never `null` nor an erasure.
+        let [target, rest @ ..] = call.arguments.as_slice() else {
+            return Ok(None);
+        };
+        let target_expression = target.as_expression();
+        let target = self.argument(target, body)?;
+        if rest.is_empty() {
+            return Ok(Some(target));
+        }
+        if let Some(expression @ Expression::Identifier(_)) = target_expression {
+            // A plain name is read again after the other arguments, as the
+            // `setPrototypeOf` branch does, so the answer is that binding.
+            for argument in rest {
+                let _ = self.argument(argument, body)?;
+            }
+            return self.expression(expression, body).map(Some);
+        }
+        // Any other target is evaluated once, before the other arguments, and
+        // held in a compiler local the call answers.
+        let ty = Self::expr_ty(body, target);
+        let local = body.push_local(LocalDecl {
+            name: None,
+            ty,
+            mutable: false,
+            span,
+        });
+        let pat = body.push_pattern(Pattern::Binding(local));
+        self.push_stmt_to_sink(
+            body,
+            smelt_hir::Stmt::Let {
+                pat,
+                ty,
+                value: Some(target),
+            },
+        );
+        for argument in rest {
             let _ = self.argument(argument, body)?;
         }
-        let ty = self.erase_with(ErasureReason::UntypedBuiltin, "Object metadata mutation");
         Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::None),
+            kind: ExprKind::Local(local),
             ty,
-            span: self.span(call.span.start, call.span.end),
+            span,
         })))
     }
 
@@ -1257,6 +1296,61 @@ impl ModuleBuilder<'_> {
             return self.object_has_own_expr(call.span, body, dict, key);
         }
         Ok(None)
+    }
+
+    /// `record.toString()`, `record.toLocaleString()` and `record.valueOf()`
+    /// with no arguments, on a plain record (`Type::Dict`) whose type does not
+    /// declare the member: the call reaches `Object.prototype`, as `tsc` types
+    /// it. `toString`/`toLocaleString` answer the record's `ToString`
+    /// (`String(record)`, `"[object Object]"`), `valueOf` the record itself.
+    ///
+    /// Without this the call read an own property of that name off the record
+    /// and called it, which throws (`value is not a function`) for every
+    /// record that, like any object literal, has no such own property. Any
+    /// other receiver declines here, keeping its lowered receiver for the
+    /// route that claims the call.
+    pub(in crate::lowering) fn record_object_prototype_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        let property = member.property.name.as_str();
+        if member.optional
+            || call.optional
+            || !call.arguments.is_empty()
+            || !matches!(property, "toString" | "toLocaleString" | "valueOf")
+        {
+            return Ok(None);
+        }
+        if let Some(receiver_ty) = self.static_receiver_type(&member.object, body)
+            && !matches!(self.ctx.krate.types.get(receiver_ty), Some(Type::Dict(..)))
+        {
+            return Ok(None);
+        }
+        let receiver = self.expression(&member.object, body)?;
+        let receiver_ty = Self::expr_ty(body, receiver);
+        let method = self.intern_source_name(property);
+        if !matches!(self.ctx.krate.types.get(receiver_ty), Some(Type::Dict(..)))
+            || self.receiver_owns_member(receiver_ty, method)
+        {
+            self.keep_receiver(&member.object, receiver, body);
+            return Ok(None);
+        }
+        if property == "valueOf" {
+            return Ok(Some(receiver));
+        }
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::PrimitiveCast {
+                op: smelt_hir::PrimitiveCastOp::ToString,
+                operand: receiver,
+            },
+            ty: string_ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
     }
 
     /// Return true for either unbound own-key probe on `Object.prototype`.
