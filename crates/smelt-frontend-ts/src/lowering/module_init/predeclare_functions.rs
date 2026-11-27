@@ -273,7 +273,14 @@ impl ModuleBuilder<'_> {
         };
         let return_ty = self
             .function_return_type_or_overload(function, name_text)
-            .unwrap_or_else(|_| {
+            .ok()
+            .or_else(|| {
+                self.checker_declaration_return_type(
+                    function,
+                    function.id.as_ref().map(|id| id.span),
+                )
+            })
+            .unwrap_or_else(|| {
                 let span = self.span(function.span.start, function.span.end);
                 self.erase_at(ErasureReason::MissingAnnotation, span, "function return")
             });
@@ -603,7 +610,14 @@ impl ModuleBuilder<'_> {
         }
         let return_ty = self
             .function_return_type_or_overload(function, name_text)
-            .unwrap_or_else(|_| {
+            .ok()
+            .or_else(|| {
+                self.checker_declaration_return_type(
+                    function,
+                    function.id.as_ref().map(|id| id.span),
+                )
+            })
+            .unwrap_or_else(|| {
                 let span = self.span(function.span.start, function.span.end);
                 self.erase_at(ErasureReason::MissingAnnotation, span, "function return")
             });

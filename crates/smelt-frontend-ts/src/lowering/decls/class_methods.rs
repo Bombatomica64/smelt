@@ -149,8 +149,7 @@ impl ModuleBuilder<'_> {
                 self.function_return_annotation_type(&method.value, &annotation.type_annotation)
             })
             .transpose()?
-            .or_else(|| self.checker_method_generator_type(method))
-            .or_else(|| self.checker_method_protocol_type(method))
+            .or_else(|| self.checker_method_return_type(method))
             .unwrap_or_else(|| {
                 let unknown = self.erase(ErasureReason::MissingAnnotation);
                 if method.value.r#async {
@@ -663,8 +662,7 @@ impl ModuleBuilder<'_> {
                             )
                         })
                         .transpose()?
-                        .or_else(|| this.checker_method_generator_type(method))
-                        .or_else(|| this.checker_method_protocol_type(method))
+                        .or_else(|| this.checker_method_return_type(method))
                         .unwrap_or_else(|| {
                             let unknown = this.erase(ErasureReason::MissingAnnotation);
                             if method.value.r#async && !method.value.generator {

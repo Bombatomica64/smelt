@@ -22,7 +22,8 @@ impl ModuleBuilder<'_> {
     /// signature the method itself declares, so a call through the field keeps
     /// the parameter and return types the source wrote rather than widening to
     /// the runtime carrier. Parameters and the return follow the same
-    /// annotation-or-`Unknown` rules as an abstract method signature.
+    /// annotation, checker-inferred return, or `Unknown` rules as an abstract
+    /// method signature.
     ///
     /// The method's own type parameters are in scope only while its signature
     /// lowers, so that a later item of the module does not resolve a same-named
@@ -48,6 +49,7 @@ impl ModuleBuilder<'_> {
             .as_ref()
             .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
             .transpose()?
+            .or_else(|| self.checker_method_return_type(method))
             .unwrap_or_else(|| {
                 let unknown = self.erase(ErasureReason::MissingAnnotation);
                 if method.value.r#async {

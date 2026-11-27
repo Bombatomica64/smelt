@@ -348,10 +348,13 @@ pub(crate) struct ReadyLowering {
 /// Runs what every lowering does first, in the order it must happen: the
 /// seed scan, then the predeclaration pass, so no module body lowers before
 /// the crate-wide facts exist.
-fn prepare_run(run: &ManifestLowering) -> Result<Prepared<'_>, Box<dyn std::error::Error>> {
+fn prepare_run<'run>(
+    run: &'run ManifestLowering,
+    ts_facts: Option<&smelt_ts_model::TsTypeFacts>,
+) -> Result<Prepared<'run>, Box<dyn std::error::Error>> {
     let ordered = run.sources.iter().collect::<Vec<_>>();
     let seed = ManifestSeed::scan(&ordered, &run.module_names, run.outside_crate.clone());
-    let lowering = SeededLowering::new(seed).predeclare(&ordered, &run.file_ids)?;
+    let lowering = SeededLowering::new(seed).predeclare(&ordered, &run.file_ids, ts_facts)?;
     Ok(Prepared { ordered, lowering })
 }
 
@@ -364,7 +367,7 @@ fn lower_run(
         let Prepared {
             ordered,
             mut lowering,
-        } = prepare_run(run)?;
+        } = prepare_run(run, inputs.ts_facts)?;
         let mut modules = Vec::new();
         for ((source, file_id), name) in ordered.iter().zip(&run.file_ids).zip(&run.module_names) {
             let module = lowering
@@ -430,7 +433,7 @@ impl ReadyLowering {
         let Prepared {
             ordered,
             lowering: predeclared,
-        } = prepare_run(&self.run)?;
+        } = prepare_run(&self.run, self.ts_check.facts.as_ref())?;
         let inputs = self.module_inputs();
         let mut lowering = RecoverableLowering::new(predeclared);
         let mut diagnostics = Vec::new();
