@@ -97,3 +97,36 @@ console.log(unwrap({ ok: true, value: 21 }), unwrap({ ok: false, error: "boom" }
 console.log(lvl({ level: 1, a: "x" }), lvl({ level: 2, b: 2 }));
 console.log(label({ name: "ada", age: 36 }), label({ id: 7 }));
 console.log(loose({ kind: "circle", r: 1 }), loose({ kind: "circle", note: "n" }), loose({ kind: "sq", note: "n" }));
+
+// A nested literal argument picks its arm inside a nested field union.
+type Input =
+  | { type: "a"; value: { type: "img"; src: string } | { type: "text"; content: string; size: number } }
+  | { type: "b"; value: number };
+function show(input: Input): string {
+  if (input.type === "b") return "b " + (input.value + 1);
+  const v = input.value;
+  return v.type === "img" ? "img " + v.src : "text " + v.content + "/" + v.size;
+}
+console.log(show({ type: "a", value: { type: "img", src: "cat.png" } }), show({ type: "a", value: { type: "text", size: 2, content: "yo" } }), show({ type: "b", value: 41 }));
+
+// A key an arm does not declare rules that arm out (excess property), and
+// an optional literal field discriminates too.
+type Rej = { tag: "rej"; fields: string[] } | { tag: "rej" };
+function rej(r: Rej): string {
+  return "fields" in r ? "fields " + r.fields.length : "bare";
+}
+type Opt = { mode?: "one" } | { mode: "two"; extra: number };
+function opt(o: Opt): string {
+  if (o.mode === "two") return "two+" + o.extra;
+  return "one or none: " + (o.mode ?? "none");
+}
+console.log(rej({ tag: "rej", fields: ["a", "b"] }), rej({ tag: "rej" }), opt({}), opt({ mode: "one" }), opt({ mode: "two", extra: 3 }));
+
+// `in` with a camelCase key narrows by the key's source spelling.
+interface Responder { getResponse(): string }
+interface Plain { message: string }
+function respond(e: Responder | Plain): string {
+  if ("getResponse" in e) return e.getResponse();
+  return "plain " + e.message;
+}
+console.log(respond({ getResponse: () => "resp" }), respond({ message: "m" }));

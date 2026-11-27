@@ -137,9 +137,9 @@ impl ModuleBuilder<'_> {
         Some((name.to_owned(), narrowed))
     }
 
-    /// Whether every value of interface arm `member` carries own property
-    /// `field`: the interface declares it and its decode facts say it can
-    /// never be absent.
+    /// Whether every value of interface arm `member` carries property
+    /// `field`: the interface declares it as a method, or as a field its
+    /// decode facts say can never be absent.
     fn arm_always_has_field(&self, member: smelt_hir::TypeId, field: &str) -> bool {
         let Some(Type::Class { name, .. }) = self.ctx.krate.types.get(member) else {
             return false;
@@ -147,6 +147,15 @@ impl ModuleBuilder<'_> {
         let Some(interface) = self.find_interface(*name) else {
             return false;
         };
+        // A declared method is always present (an optional method is a
+        // function-typed field, judged below).
+        if interface
+            .methods
+            .iter()
+            .any(|method| self.ctx.krate.symbols.source(method.name) == Some(field))
+        {
+            return true;
+        }
         interface.fields.iter().any(|candidate| {
             self.ctx.krate.symbols.source(candidate.name) == Some(field)
                 && !candidate.optional

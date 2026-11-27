@@ -175,11 +175,34 @@ impl ModuleBuilder<'_> {
                 // Which absent values the union admits, so the result keeps
                 // `null` apart from `undefined` (`Type::Optional`'s tag).
                 let (mut admits_undefined, mut admits_null) = (false, false);
+                // A direct object-literal arm of a union with another
+                // non-nullish arm may be a discriminated arm
+                // (`anonymous_record_literal_type`); nested literals are not,
+                // and `{ a: 1 } | undefined` discriminates nothing.
+                let value_arms = union
+                    .types
+                    .iter()
+                    .filter(|member| {
+                        !matches!(
+                            member,
+                            TSType::TSNullKeyword(_)
+                                | TSType::TSUndefinedKeyword(_)
+                                | TSType::TSVoidKeyword(_)
+                        )
+                    })
+                    .count();
+                // The union is discriminated when one of its object-literal
+                // arms has a literal-typed property; then EVERY object-literal
+                // arm keeps its own record, since a union mixing a `Dict` arm
+                // with record arms has no concrete representation.
+                let discriminated = value_arms > 1
+                    && union.types.iter().any(|member| {
+                        matches!(member, TSType::TSTypeLiteral(literal)
+                            if Self::type_literal_has_literal_property(literal))
+                    });
                 for member in &union.types {
-                    // A direct object-literal arm may be a discriminated arm
-                    // (`anonymous_record_literal_type`); nested literals are not.
                     let arm_literal = match member {
-                        TSType::TSTypeLiteral(literal) => Some(literal.span.start),
+                        TSType::TSTypeLiteral(literal) if discriminated => Some(literal.span.start),
                         _ => None,
                     };
                     let previous_arm = std::mem::replace(&mut self.union_arm_literal, arm_literal);

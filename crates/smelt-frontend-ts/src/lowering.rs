@@ -915,7 +915,7 @@ struct ModuleBuilder<'ctx> {
     uniform_literal_lowering: UniformLiteralLowering,
     /// The span start of the object type literal being lowered as a direct
     /// arm of a union annotation (`{ kind: "b"; msg: string } | ...`), if
-    /// any. Such an arm with a required literal-typed field is a
+    /// any. Such an arm with a literal-typed field is a
     /// discriminated arm and keeps its own record even when its fields share
     /// one value type (`anonymous_record_literal_type`).
     union_arm_literal: Option<u32>,

@@ -122,15 +122,56 @@ impl ModuleBuilder<'_> {
                 Ok(self.erase(ErasureReason::ByName))
             }
             Type::Union(items) => {
-                let matches = items
-                    .iter()
-                    .filter_map(|item| self.class_field_type(*item, field).ok())
-                    .collect::<Vec<_>>();
+                // An arm that does not declare the field contributes nothing:
+                // TypeScript only allows the read on arms that have it (the
+                // union was narrowed, or the field is optional elsewhere), so
+                // probing such an arm must neither record a `by-name`
+                // erasure nor add `Unknown` to the read's type.
+                let mut matches = Vec::new();
+                for item in &items {
+                    let records_before = self.ctx.krate.erasures.len();
+                    let Ok(ty) = self.class_field_type(*item, field) else {
+                        continue;
+                    };
+                    if matches!(self.ctx.krate.types.get(ty), Some(Type::Unknown))
+                        && self.interface_arm_lacks_member(*item, field)
+                    {
+                        self.ctx.krate.erasures.truncate(records_before);
+                        continue;
+                    }
+                    matches.push(ty);
+                }
                 match matches.as_slice() {
                     [single] => Ok(*single),
                     [] => Ok(self.erase(ErasureReason::ByName)),
                     [first, rest @ ..] if rest.iter().all(|item| item == first) => Ok(*first),
                     _ => {
+                        // Arms storing one type `T` up to optionality (`mode?:
+                        // "one"` on one arm, `mode: "two"` on another) read as
+                        // that optional, `Optional<String>`: the union
+                        // `Optional<String> | String` has no concrete
+                        // representation and erased the read.
+                        let (mut admits_undefined, mut admits_null) = (false, false);
+                        let mut bases = Vec::new();
+                        for item in &matches {
+                            let (base, undefined, null) = smelt_hir::type_normalize::peel_optional(
+                                &self.ctx.krate.types,
+                                *item,
+                            );
+                            admits_undefined |= undefined;
+                            admits_null |= null;
+                            if !bases.contains(&base) {
+                                bases.push(base);
+                            }
+                        }
+                        if let [base] = bases.as_slice() {
+                            return Ok(smelt_hir::type_normalize::rebuild_optional(
+                                &mut self.ctx.krate.types,
+                                *base,
+                                admits_undefined,
+                                admits_null,
+                            ));
+                        }
                         let mut union_items = Vec::new();
                         for item in matches {
                             if !union_items.contains(&item) {
@@ -696,5 +737,27 @@ impl ModuleBuilder<'_> {
         // a same-named parameter of another declaration (`sumBy`'s `T` seen
         // inside `meanBy<T>`) is a different type and is out of scope.
         self.types.param_type(spelling) != Some(ty)
+    }
+
+    /// Whether union arm `item` is a plain interface (no heritage) that
+    /// declares neither a field nor a method named `field`: a read of
+    /// `field` can never land on such an arm's own data.
+    fn interface_arm_lacks_member(
+        &self,
+        item: smelt_hir::TypeId,
+        field: smelt_hir::Symbol,
+    ) -> bool {
+        let Some(Type::Class { name, .. }) = self.ctx.krate.types.get(item) else {
+            return false;
+        };
+        let Some(interface) = self.find_interface(*name) else {
+            return false;
+        };
+        interface.extends.is_empty()
+            && !interface
+                .fields
+                .iter()
+                .any(|candidate| candidate.name == field)
+            && !interface.methods.iter().any(|method| method.name == field)
     }
 }

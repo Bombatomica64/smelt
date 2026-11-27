@@ -1653,18 +1653,20 @@ impl FunctionEmitter<'_> {
     /// the type the source gave it instead of being erased and looked up by
     /// name at run time.
     ///
-    /// Returns `None` unless every arm declares the property at ONE type. Arms
-    /// that disagree on the field's type would need the field's own union, which
-    /// this rule does not mint; the caller keeps its existing path for those.
+    /// Returns `None` unless every arm declares the property at ONE type, or
+    /// at `T` on some arms and one `Option<T>` on the others
+    /// ([`Self::concrete_union_field_read_ty`]). Arms that disagree otherwise
+    /// would need the field's own union, which this rule does not mint; the
+    /// caller keeps its existing path for those.
     pub(super) fn concrete_union_field_read_expr(
         &self,
         base: LocalId,
         field: Symbol,
     ) -> Result<Option<RustExpr>, EmitError> {
         let base_ty = self.local_decl(base)?.ty;
-        if self.concrete_union_field_ty(base_ty, field).is_none() {
+        let Some((_, wrapped)) = self.concrete_union_field_read_ty(base_ty, field) else {
             return Ok(None);
-        }
+        };
         let Some(members) = self.concrete_union_members(base_ty) else {
             return Ok(None);
         };
@@ -1680,9 +1682,11 @@ impl FunctionEmitter<'_> {
                 } else {
                     format!("smelt_union_arm.{field_name}")
                 };
-                Ok(format!(
-                    "{union_enum_name}::M{index}(smelt_union_arm) => {read}.clone()"
-                ))
+                Ok(if wrapped.get(index).copied().unwrap_or(false) {
+                    format!("{union_enum_name}::M{index}(smelt_union_arm) => Some({read}.clone())")
+                } else {
+                    format!("{union_enum_name}::M{index}(smelt_union_arm) => {read}.clone()")
+                })
             })
             .collect::<Result<Vec<_>, EmitError>>()?
             .join(", ");
@@ -2096,6 +2100,54 @@ impl FunctionEmitter<'_> {
             "match &{receiver_text} {{ {arms} }}",
             receiver_text = receiver_text.tight()
         ))))
+    }
+
+    /// The type a READ of `field` through a generated union has, and which
+    /// arms wrap their value in `Some` to reach it.
+    ///
+    /// [`Self::concrete_union_field_ty`] when every arm stores one type
+    /// (nothing wraps). Otherwise, when the arms store `T` and one
+    /// `Option<T>` (`{ mode?: "one" } | { mode: "two" }`), the read is
+    /// `Option<T>` and each `T` arm is `Some(..)`: a present value read
+    /// through the optional view, as the source's `"one" | "two" |
+    /// undefined`. Writes keep the one-type rule (TypeScript writes such a
+    /// property at the intersection of the arms' types).
+    pub(super) fn concrete_union_field_read_ty(
+        &self,
+        union_ty: TypeId,
+        field: Symbol,
+    ) -> Option<(TypeId, Vec<bool>)> {
+        if let Some(ty) = self.concrete_union_field_ty(union_ty, field) {
+            return Some((ty, Vec::new()));
+        }
+        let members = self.concrete_union_members(union_ty)?;
+        let field_tys = members
+            .iter()
+            .map(|member| self.class_named_field_ty(*member, field))
+            .collect::<Option<Vec<_>>>()?;
+        let mut optional: Option<(TypeId, TypeId)> = None;
+        for ty in &field_tys {
+            if let Some(Type::Optional(inner, _)) = self.mir.types.get(*ty) {
+                match optional {
+                    Some((previous, _)) if previous != *ty => return None,
+                    _ => optional = Some((*ty, *inner)),
+                }
+            }
+        }
+        let (optional_ty, inner) = optional?;
+        let wrapped = field_tys
+            .iter()
+            .map(|ty| {
+                if *ty == optional_ty {
+                    Some(false)
+                } else if *ty == inner {
+                    Some(true)
+                } else {
+                    None
+                }
+            })
+            .collect::<Option<Vec<_>>>()?;
+        Some((optional_ty, wrapped))
     }
 
     /// Resolve the one type every arm of a concrete union gives a named field.

@@ -12,8 +12,8 @@
 //!
 //! The rule, stated once: a plain-data type literal (named property
 //! signatures only: no index signature, call or construct signature, or
-//! method) whose fields do not share one value type, or that is a union arm
-//! with a required literal-typed field (a discriminant such as `kind: "b"`,
+//! method) whose fields do not share one value type, or that is an arm of a
+//! discriminated union (an arm has a literal-typed field such as `kind: "b"`,
 //! whose literal a `Dict` value type cannot carry), lowers to a synthesized
 //! interface, exactly as the alias spelling `type O = { … }` does. Its name is
 //! derived from the structure, so the same shape written in several places, in
@@ -110,18 +110,17 @@ impl ModuleBuilder<'_> {
                 ))
             })
             .collect();
-        // A union arm with a required literal-typed field (`kind: "b"`) is a
-        // discriminated arm: the `Dict` spelling keeps only the field's
-        // primitive, so `e.kind === "b"` could no longer tell the arms of
-        // `{ kind: "a"; n: number } | { kind: "b"; msg: string }` apart and
-        // every narrowed read erased. Such an arm keeps its own struct,
-        // carrying the literal in its decode facts, even when every field
-        // shares one value type. Outside a union (an options bag `{ width?:
-        // "narrow" | "wide" }`) a literal field discriminates nothing.
-        let has_discriminant = self.union_arm_literal == Some(literal.span.start)
-            && decode_facts
-                .iter()
-                .any(|facts| !facts.literals.is_empty() && !facts.may_be_absent);
+        // An object-literal arm of a discriminated union (one of whose arms
+        // has a literal-typed field, `kind: "b"` or `type?: "one"`) keeps its
+        // own struct, carrying the literal in its decode facts, even when
+        // every field shares one value type: the `Dict` spelling keeps only
+        // the field's primitive, so `e.kind === "b"` could no longer tell the
+        // arms of `{ kind: "a"; n: number } | { kind: "b"; msg: string }`
+        // apart and every narrowed read erased, and a union mixing `Dict` and
+        // record arms has no concrete representation. Outside such a union
+        // (an options bag `{ width?: "narrow" | "wide" }`) a literal field
+        // discriminates nothing. The union decides (`ts_type_to_hir`).
+        let has_discriminant = self.union_arm_literal == Some(literal.span.start);
         if value_tys.len() < 2
             && !has_discriminant
             && self.uniform_literal_lowering == super::super::UniformLiteralLowering::Dictionary
