@@ -354,7 +354,7 @@ pub fn validate(krate: &Crate) -> Vec<ValidationError> {
             (None, true) => errors.push(ValidationError {
                 message: format!("body {body_idx} is async but has no async state machine"),
             }),
-            _ => {}
+            (Some(_), true) | (None, false) => {}
         }
         if let Some(machine) = body.async_state_machine() {
             // The machine is derived from the body's awaits when the frontend

@@ -97,16 +97,6 @@ pub fn storage_key_for_spelling(spelling: &str) -> Option<String> {
     storage_key(spelling.strip_prefix("Symbol.")?)
 }
 
-/// Every `(value spelling, storage key)` pair, for emitters that need the whole
-/// table (the generated Rust prelude renders it as a `match`).
-#[must_use]
-pub fn spelling_key_pairs() -> Vec<(String, String)> {
-    WELL_KNOWN_SYMBOL_NAMES
-        .iter()
-        .filter_map(|name| Some((value_spelling(name)?, storage_key(name)?)))
-        .collect()
-}
-
 /// Lower-case an ASCII `camelCase` symbol name into `snake_case`.
 ///
 /// Well-known symbol names are fixed ASCII identifiers (`asyncIterator`,

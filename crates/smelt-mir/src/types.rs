@@ -208,7 +208,10 @@ impl Mir {
     /// `closure.id` as [`Self::push_function`] does.
     ///
     /// The id saturates to `u32::MAX` if the count does not fit in `u32`.
-    pub fn push_closure(&mut self, mut closure: MirClosure) -> ClosureId {
+    /// Lowering builds closures through its own table, so only tests that
+    /// assemble MIR by hand call this.
+    #[cfg(test)]
+    pub(crate) fn push_closure(&mut self, mut closure: MirClosure) -> ClosureId {
         let id = ClosureId(len_to_u32(self.closures.len(), "MIR closure count"));
         closure.id = id;
         self.closures.push(closure);

@@ -546,69 +546,12 @@ pub(crate) fn crate_name_violation(name: &str) -> Option<String> {
     if RESERVED.contains(&target.as_str()) {
         return Some(format!("`{target}` is the name of a Rust sysroot crate"));
     }
-    if is_rust_keyword(&target) {
+    // One keyword list for the whole workspace: the emitter renames the same
+    // words, so a crate name and an identifier cannot disagree on what is reserved.
+    if smelt_codegen_rust::is_rust_keyword(&target) {
         return Some(format!("`{target}` is a Rust keyword"));
     }
     None
-}
-
-/// Whether `word` is a Rust keyword of the 2024 edition (strict, reserved or
-/// weak-but-unusable as a crate name), which Cargo refuses as a target name.
-fn is_rust_keyword(word: &str) -> bool {
-    matches!(
-        word,
-        "as" | "async"
-            | "await"
-            | "break"
-            | "const"
-            | "continue"
-            | "crate"
-            | "dyn"
-            | "else"
-            | "enum"
-            | "extern"
-            | "false"
-            | "fn"
-            | "for"
-            | "gen"
-            | "if"
-            | "impl"
-            | "in"
-            | "let"
-            | "loop"
-            | "match"
-            | "mod"
-            | "move"
-            | "mut"
-            | "pub"
-            | "ref"
-            | "return"
-            | "self"
-            | "Self"
-            | "static"
-            | "struct"
-            | "super"
-            | "trait"
-            | "true"
-            | "type"
-            | "unsafe"
-            | "use"
-            | "where"
-            | "while"
-            | "abstract"
-            | "become"
-            | "box"
-            | "do"
-            | "final"
-            | "macro"
-            | "override"
-            | "priv"
-            | "try"
-            | "typeof"
-            | "unsized"
-            | "virtual"
-            | "yield"
-    )
 }
 
 /// Output configuration from the [output] section.

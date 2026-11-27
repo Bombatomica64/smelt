@@ -707,23 +707,12 @@ impl<'a> MirBody<'a> {
     pub fn local_decl(self, local: LocalId) -> Option<&'a LocalDecl> {
         self.view().local_decl(local)
     }
-
-    /// The locals bound before the entry block runs: the parameters and, in a
-    /// closure, every capture's target local.
-    pub fn defined_on_entry(self) -> impl Iterator<Item = LocalId> + 'a {
-        self.params.iter().copied().chain(
-            self.captures
-                .iter()
-                .filter_map(|capture| capture.target_local),
-        )
-    }
 }
 
 /// A mutable view of one body: its locals and blocks may be rewritten, its
 /// owner, parameters and entry may not.
 ///
-/// Yielded by [`crate::Mir::bodies_mut`], the one walk over every function and
-/// closure body that a rewriting pass uses.
+/// Made by `MirFunction::as_mir_body_mut` and `MirClosure::as_mir_body_mut`.
 #[derive(Debug)]
 pub struct MirBodyMut<'a> {
     /// The table entry this body belongs to.
@@ -749,14 +738,6 @@ impl crate::Mir {
             .iter()
             .map(MirFunction::as_mir_body)
             .chain(self.closures.iter().map(MirClosure::as_mir_body))
-    }
-
-    /// [`Self::bodies`], mutably.
-    pub fn bodies_mut(&mut self) -> impl Iterator<Item = MirBodyMut<'_>> {
-        self.functions
-            .iter_mut()
-            .map(MirFunction::as_mir_body_mut)
-            .chain(self.closures.iter_mut().map(MirClosure::as_mir_body_mut))
     }
 
     /// The body `owner` names, if it is in range.

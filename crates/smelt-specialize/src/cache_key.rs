@@ -256,14 +256,6 @@ impl CacheKeyInput {
             native_adapter_versions: Vec::new(),
         }
     }
-
-    /// This input with the batch's native adapters, as `(id, version)`.
-    #[must_use]
-    pub fn with_native_adapters(mut self, mut versions: Vec<(String, String)>) -> Self {
-        versions.sort();
-        self.native_adapter_versions = versions;
-        self
-    }
 }
 
 /// Hex-encoded SHA-256 key for one specialization process and manifest.

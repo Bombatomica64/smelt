@@ -36,7 +36,6 @@
     },
     "smelt-hir": {
       "clippy::panic": 1,
-      "clippy::wildcard_enum_match_arm": 1,
       "unused_qualifications": 2
     },
     "smelt-mir": {
@@ -52,7 +51,7 @@
       "clippy::shadow_unrelated": 6,
       "clippy::unreachable": 2,
       "clippy::use_debug": 1,
-      "clippy::wildcard_enum_match_arm": 15,
+      "clippy::wildcard_enum_match_arm": 11,
       "trivial_casts": 1
     },
     "smelt-runtime": {

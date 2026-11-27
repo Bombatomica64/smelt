@@ -129,7 +129,11 @@ fn is_emitter_member_name(name: &str) -> bool {
 /// keeps a declaration and its references agreeing without knowing which
 /// edition introduced the word. The weak keywords (`union`, `raw`, `safe`,
 /// `macro_rules`) remain valid identifiers and are deliberately absent.
-pub(crate) fn is_rust_keyword(name: &str) -> bool {
+///
+/// It is also the list the transpiler refuses as a crate or target name
+/// (Cargo rejects keywords there), so it is public and has one definition.
+#[must_use]
+pub fn is_rust_keyword(name: &str) -> bool {
     matches!(
         name,
         "as" | "break"
