@@ -2,10 +2,11 @@
 //! discriminant-property comparisons, in `if` conditions and `switch` arms.
 
 use crate::lowering::ModuleBuilder;
-use crate::lowering::js_text::js_str_text;
+use crate::lowering::expr::object_literals::literal_values_equal;
+use crate::lowering::js_text::{js_str_literal, js_str_text};
 use oxc::ast::ast::{Argument, Expression};
 use oxc::syntax::operator::BinaryOperator;
-use smelt_hir::{Body, ErasureReason, Type};
+use smelt_hir::{Body, ErasureReason, Literal, Type};
 
 impl ModuleBuilder<'_> {
     /// Recognize `Array.isArray(value)` guard expressions.
@@ -92,21 +93,101 @@ impl ModuleBuilder<'_> {
         Some((name.to_owned(), narrowed))
     }
 
+    /// The fact a FAILED `'field' in value` proves: `value` is none of the
+    /// union arms that always carry `field`.
+    ///
+    /// Only an interface arm whose field is required (its decode facts say it
+    /// cannot be absent) is ruled out; an optional field may be missing, and a
+    /// class arm or a dictionary may or may not hold the key, so they stay.
+    pub(in crate::lowering) fn in_operator_inverse_guard(
+        &mut self,
+        expression: &Expression<'_>,
+        body: &Body,
+    ) -> Option<(String, smelt_hir::TypeId)> {
+        let Expression::BinaryExpression(binary) = expression else {
+            return None;
+        };
+        if binary.operator != BinaryOperator::In {
+            return None;
+        }
+        let Expression::StringLiteral(field) = &binary.left else {
+            return None;
+        };
+        let Expression::Identifier(identifier) = &binary.right else {
+            return None;
+        };
+        let name = identifier.name.as_str();
+        let local = self.scope.lookup(name)?;
+        let ty = self
+            .narrowed_type(name)
+            .unwrap_or_else(|| Self::local_ty(body, local));
+        let field_name = js_str_text(field.value);
+        let Type::Union(items) = self.ctx.krate.types.get(ty)?.clone() else {
+            return None;
+        };
+        let retained = items
+            .iter()
+            .copied()
+            .filter(|item| !self.arm_always_has_field(*item, &field_name))
+            .collect::<Vec<_>>();
+        if retained.len() == items.len() {
+            return None;
+        }
+        let narrowed = self.intern_filtered_union(retained)?;
+        Some((name.to_owned(), narrowed))
+    }
+
+    /// Whether every value of interface arm `member` carries property
+    /// `field`: the interface declares it as a method, or as a field its
+    /// decode facts say can never be absent.
+    fn arm_always_has_field(&self, member: smelt_hir::TypeId, field: &str) -> bool {
+        let Some(Type::Class { name, .. }) = self.ctx.krate.types.get(member) else {
+            return false;
+        };
+        let Some(interface) = self.find_interface(*name) else {
+            return false;
+        };
+        // A declared method is always present (an optional method is a
+        // function-typed field, judged below).
+        if interface
+            .methods
+            .iter()
+            .any(|method| self.ctx.krate.symbols.source(method.name) == Some(field))
+        {
+            return true;
+        }
+        interface.fields.iter().any(|candidate| {
+            self.ctx.krate.symbols.source(candidate.name) == Some(field)
+                && !candidate.optional
+                && !matches!(
+                    self.ctx.krate.types.get(candidate.ty),
+                    Some(Type::Optional(..) | Type::Unknown)
+                )
+        }) && interface.decode_facts.iter().any(|facts| {
+            self.ctx.krate.symbols.source(facts.name) == Some(field) && !facts.may_be_absent
+        })
+    }
+
     /// Recognize `value.field === literal` discriminant guards.
     ///
     /// TypeScript discriminated unions are narrowed by comparing a shared
-    /// discriminant property against a literal. Smelt erases string/number
-    /// literal *types* to `String`/`Float`, so arms cannot be told apart by the
-    /// discriminant field's value type. What Smelt can prove structurally is
-    /// which arms even *carry* the accessed field: comparing `value.field` to a
-    /// literal is only meaningful for arms that expose `field`, so the true
-    /// branch narrows the union to those arms. This mirrors [`in_operator_guard`]
-    /// but keys off a property comparison rather than an `in` test.
+    /// discriminant property against a literal. HIR stores a literal-typed
+    /// field as its primitive, but each interface arm records the literals the
+    /// field admits in its decode facts (`kind: "circle"` admits `"circle"`).
+    /// The true branch keeps the arms that carry `field` and whose recorded
+    /// literals admit the compared value; an arm whose field records no
+    /// literal (a plain `string`) cannot be ruled out and stays. A `!==`/`!=`
+    /// comparison proves what the failed `===` proves (see
+    /// [`Self::discriminant_inverse_guard`]).
     ///
-    /// The narrowing is intentionally conservative: it only fires when at least
-    /// one union arm lacks the field (so the guard actually excludes a member).
-    /// When every arm carries the field the comparison proves nothing about the
-    /// union shape and no fact is recorded.
+    /// Requirements: the narrowed type is exactly the set of arms the source
+    /// value can still be at runtime under TypeScript's own narrowing (never
+    /// fewer, so a read through the narrowed type never projects an absent
+    /// arm), and a narrowed read is typed on the arm instead of erasing.
+    ///
+    /// The narrowing is intentionally conservative: it only fires when it
+    /// excludes at least one union arm. When every arm survives the comparison
+    /// proves nothing about the union shape and no fact is recorded.
     pub(in crate::lowering) fn property_equality_guard(
         &mut self,
         expression: &Expression<'_>,
@@ -115,54 +196,153 @@ impl ModuleBuilder<'_> {
         let Expression::BinaryExpression(binary) = expression else {
             return None;
         };
-        if !matches!(
-            binary.operator,
-            BinaryOperator::StrictEquality | BinaryOperator::Equality
-        ) {
-            return None;
+        match binary.operator {
+            BinaryOperator::StrictEquality | BinaryOperator::Equality => {
+                let (name, field_name, literal) = Self::member_literal_comparison(binary)?;
+                self.discriminant_narrowing(&name, &field_name, literal.as_slice(), true, body)
+            }
+            BinaryOperator::StrictInequality | BinaryOperator::Inequality => {
+                let (name, field_name, literal) = Self::member_literal_comparison(binary)?;
+                // `!==` against `null` is a presence test, not a discriminant.
+                literal.as_ref()?;
+                self.discriminant_narrowing(&name, &field_name, literal.as_slice(), false, body)
+            }
+            _ => None,
         }
-        let (name, field_name) = Self::member_literal_comparison(binary)?;
-        let local = self.scope.lookup(name.as_str())?;
+    }
+
+    /// The fact a FAILED `value.field === literal` proves (the `else` branch,
+    /// the code after `if (s.kind === "circle") return ...`), and what a
+    /// passing `value.field !== literal` proves.
+    ///
+    /// An arm is ruled out only when every literal its field admits equals the
+    /// compared value: `kind: "circle"` cannot be at `s` once `s.kind !==
+    /// "circle"`. An arm without the field, or whose field records no literal,
+    /// stays.
+    pub(in crate::lowering) fn discriminant_inverse_guard(
+        &mut self,
+        expression: &Expression<'_>,
+        body: &Body,
+    ) -> Option<(String, smelt_hir::TypeId)> {
+        let Expression::BinaryExpression(binary) = expression else {
+            return None;
+        };
+        let matched = match binary.operator {
+            BinaryOperator::StrictEquality | BinaryOperator::Equality => false,
+            BinaryOperator::StrictInequality | BinaryOperator::Inequality => true,
+            _ => return None,
+        };
+        let (name, field_name, literal) = Self::member_literal_comparison(binary)?;
+        literal.as_ref()?;
+        self.discriminant_narrowing(&name, &field_name, literal.as_slice(), matched, body)
+    }
+
+    /// Narrow local `name` by a test of its `field` against `literals`.
+    ///
+    /// `matched` true: the field equals one of `literals` (an empty slice is a
+    /// comparison whose value is not a discriminant literal, `=== null`, which
+    /// only proves the field is present). `matched` false: the field equals
+    /// none of them. `None` when `name` is no union local or no arm is ruled out.
+    pub(in crate::lowering) fn discriminant_narrowing(
+        &mut self,
+        name: &str,
+        field_name: &str,
+        literals: &[Literal],
+        matched: bool,
+        body: &Body,
+    ) -> Option<(String, smelt_hir::TypeId)> {
+        let local = self.scope.lookup(name)?;
         let ty = self
-            .narrowed_type(&name)
+            .narrowed_type(name)
             .unwrap_or_else(|| Self::local_ty(body, local));
-        // Only narrow when the comparison distinguishes union arms: some arm must
-        // carry the field and some other arm must not. `filtered_union_members`
-        // returns `None` for non-unions, so single concrete types are untouched.
+        // `filtered_union_members` returns `None` for non-unions, so single
+        // concrete types are untouched.
         let Type::Union(items) = self.ctx.krate.types.get(ty)?.clone() else {
             return None;
         };
-        let all_have_field = items.iter().all(|item| {
-            self.ctx
-                .krate
-                .types
-                .get(*item)
-                .is_some_and(|member| self.type_has_known_field(member, &field_name))
-        });
-        if all_have_field {
+        let keeps = |this: &Self, member: smelt_hir::TypeId| {
+            let Some(member_ty) = this.ctx.krate.types.get(member) else {
+                return true;
+            };
+            let admitted = this.arm_field_literals(member_ty, field_name);
+            if matched {
+                this.type_has_known_field(member_ty, field_name)
+                    && (literals.is_empty()
+                        || admitted.is_none_or(|admitted| {
+                            admitted.iter().any(|value| {
+                                literals
+                                    .iter()
+                                    .any(|literal| literal_values_equal(value, literal))
+                            })
+                        }))
+            } else {
+                !admitted.is_some_and(|admitted| {
+                    admitted.iter().all(|value| {
+                        literals
+                            .iter()
+                            .any(|literal| literal_values_equal(value, literal))
+                    })
+                })
+            }
+        };
+        if items.iter().all(|item| keeps(self, *item)) {
             return None;
         }
-        let retained = self
-            .filtered_union_members(ty, |member| self.type_has_known_field(member, &field_name))?;
+        let retained = items
+            .iter()
+            .copied()
+            .filter(|item| keeps(self, *item))
+            .collect::<Vec<_>>();
         let narrowed = self.intern_filtered_union(retained)?;
-        Some((name, narrowed))
+        Some((name.to_owned(), narrowed))
     }
 
-    /// Return the local name and property of a `value.field <op> literal` test.
+    /// The literals union arm `member` records for its `field` (`kind:
+    /// "circle"` gives `["circle"]`), or `None` when nothing pins the field's
+    /// value: no interface arm, no such field, or a field of a non-literal type.
+    fn arm_field_literals(&self, member: &Type, field: &str) -> Option<&[Literal]> {
+        let Type::Class { name, .. } = member else {
+            return None;
+        };
+        let interface = self.find_interface(*name)?;
+        interface
+            .decode_facts
+            .iter()
+            .find(|facts| {
+                !facts.literals.is_empty()
+                    && self.ctx.krate.symbols.source(facts.name) == Some(field)
+            })
+            .map(|facts| facts.literals.as_slice())
+    }
+
+    /// Return the local, the property and the compared literal of a
+    /// `value.field <op> literal` test.
     ///
     /// Recognizes both operand orders (`value.field === "x"` and
     /// `"x" === value.field`). Only static member access on a plain identifier
-    /// compared against a literal counts; anything else yields `None`.
+    /// compared against a literal counts; anything else yields `None`. The
+    /// literal is `None` for `null`, which is no discriminant value.
     fn member_literal_comparison(
         binary: &oxc::ast::ast::BinaryExpression<'_>,
-    ) -> Option<(String, String)> {
-        let member_side = Self::static_member_of_local(&binary.left)
-            .filter(|_| Self::is_comparison_literal(&binary.right))
-            .or_else(|| {
-                Self::static_member_of_local(&binary.right)
-                    .filter(|_| Self::is_comparison_literal(&binary.left))
-            })?;
-        Some(member_side)
+    ) -> Option<(String, String, Option<Literal>)> {
+        if let Some((name, field)) = Self::static_member_of_local(&binary.left)
+            && Self::is_comparison_literal(&binary.right)
+        {
+            return Some((name, field, Self::comparison_literal(&binary.right)));
+        }
+        let (name, field) = Self::static_member_of_local(&binary.right)?;
+        Self::is_comparison_literal(&binary.left)
+            .then(|| (name, field, Self::comparison_literal(&binary.left)))
+    }
+
+    /// The HIR literal of a discriminant comparison operand; `None` for `null`.
+    fn comparison_literal(expression: &Expression<'_>) -> Option<Literal> {
+        match expression {
+            Expression::StringLiteral(literal) => Some(js_str_literal(literal.value)),
+            Expression::NumericLiteral(literal) => Some(Literal::Float(literal.value)),
+            Expression::BooleanLiteral(literal) => Some(Literal::Bool(literal.value)),
+            _ => None,
+        }
     }
 
     /// Return `(local, property)` when an expression is `local.property`.
@@ -187,44 +367,34 @@ impl ModuleBuilder<'_> {
         )
     }
 
-    /// Compute the fact proven by a `switch (value.field)` discriminant.
+    /// Compute the fact one arm of a `switch (value.field)` proves.
     ///
-    /// Inside every labeled case a `switch (value.field)` proves that `value`
-    /// carries `field`, so the union narrows to arms exposing it. As with
-    /// [`property_equality_guard`], the fact is only recorded when it actually
-    /// excludes an arm (some union member lacks the field); otherwise the switch
-    /// proves nothing about the union shape. Returns `None` for non-union locals
-    /// and for discriminants that are not a plain `local.field` access.
+    /// `labels` are the arm's case labels (its own and those of the empty
+    /// cases grouped onto it): inside the arm `value.field` equals one of
+    /// them, so the union keeps the arms carrying `field` whose recorded
+    /// literals admit a label, as [`Self::property_equality_guard`] does for
+    /// one comparison. `default` arms pass `matched = false` with every label
+    /// of the switch: the field equals none of them. Returns `None` for
+    /// non-union locals, discriminants that are not a plain `local.field`
+    /// access, and facts that exclude no arm.
     pub(in crate::lowering) fn switch_discriminant_narrowing(
         &mut self,
         discriminant: &Expression<'_>,
+        labels: &[Literal],
+        matched: bool,
         body: &Body,
     ) -> Option<(String, smelt_hir::TypeId)> {
         let (name, field_name) = Self::static_member_of_local(discriminant)?;
-        let local = self.scope.lookup(name.as_str())?;
-        let ty = self
-            .narrowed_type(&name)
-            .unwrap_or_else(|| Self::local_ty(body, local));
-        let Type::Union(items) = self.ctx.krate.types.get(ty)?.clone() else {
-            return None;
-        };
-        let all_have_field = items.iter().all(|item| {
-            self.ctx
-                .krate
-                .types
-                .get(*item)
-                .is_some_and(|member| self.type_has_known_field(member, &field_name))
-        });
-        if all_have_field {
+        if !matched && labels.is_empty() {
             return None;
         }
-        let retained = self
-            .filtered_union_members(ty, |member| self.type_has_known_field(member, &field_name))?;
-        let narrowed = self.intern_filtered_union(retained)?;
-        Some((name, narrowed))
+        self.discriminant_narrowing(&name, &field_name, labels, matched, body)
     }
 
     /// Return whether a concrete type has a statically modeled property.
+    ///
+    /// `field` is the SOURCE spelling (`type`), compared with each field's
+    /// source name, not its Rust rendering (`type_`).
     fn type_has_known_field(&self, ty: &Type, field: &str) -> bool {
         match ty {
             Type::String | Type::List(_) | Type::Tuple(_) if field == "length" => true,
@@ -234,11 +404,11 @@ impl ModuleBuilder<'_> {
                 smelt_hir::Item::Class(class) if class.name == *name => class
                     .fields
                     .iter()
-                    .any(|candidate| self.ctx.krate.symbols.get(candidate.name) == Some(field)),
+                    .any(|candidate| self.ctx.krate.symbols.source(candidate.name) == Some(field)),
                 smelt_hir::Item::Interface(interface) if interface.name == *name => interface
                     .fields
                     .iter()
-                    .any(|candidate| self.ctx.krate.symbols.get(candidate.name) == Some(field)),
+                    .any(|candidate| self.ctx.krate.symbols.source(candidate.name) == Some(field)),
                 _ => false,
             }),
             _ => false,

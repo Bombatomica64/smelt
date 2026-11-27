@@ -1,0 +1,12 @@
+circle 12 12 round r=2 0
+rect 10 14 not round, kind rect 4
+tri 6 7 not round, kind tri 3
+n=42 en:HI
+value 42 error boom
+one x two 2.5
+ada/36 #7
+kind circle kind circle other sq
+img cat.png text yo/2 b 42
+fields 2 bare
+unnamed named unnamed
+resp plain m

@@ -87,6 +87,34 @@ impl ModuleBuilder<'_> {
         has_reference && has_object_literal_fields
     }
 
+    /// Whether a type literal declares a REQUIRED property whose type is a
+    /// literal or a union of literals (`kind: "a"`, `ok: true`, `level: 1 |
+    /// 2`): the discriminant of a discriminated union arm.
+    pub(in crate::lowering) fn type_literal_has_literal_property(
+        literal: &oxc::ast::ast::TSTypeLiteral<'_>,
+    ) -> bool {
+        fn is_literal(ty: &TSType<'_>) -> bool {
+            match ty {
+                TSType::TSLiteralType(literal) => !matches!(
+                    literal.literal,
+                    oxc::ast::ast::TSLiteral::TemplateLiteral(_)
+                ),
+                // A union admitting `null`/`undefined` is no discriminant: its
+                // empty value would be stored as `None` (see the caller).
+                TSType::TSUnionType(union) => union.types.iter().all(is_literal),
+                TSType::TSParenthesizedType(inner) => is_literal(&inner.type_annotation),
+                _ => false,
+            }
+        }
+        literal.members.iter().any(|member| {
+            matches!(member, TSSignature::TSPropertySignature(property)
+                if !property.optional && property
+                    .type_annotation
+                    .as_ref()
+                    .is_some_and(|annotation| is_literal(&annotation.type_annotation)))
+        })
+    }
+
     /// Convert an inline TypeScript object type into Smelt's record-like dict type.
     /// Whether every member of a type literal names an `Object.prototype`
     /// member, so that every object satisfies it (see `type_literal_to_hir`).

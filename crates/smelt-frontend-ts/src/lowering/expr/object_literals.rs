@@ -1184,12 +1184,27 @@ impl ModuleBuilder<'_> {
         entries: &[(smelt_hir::ExprId, smelt_hir::ExprId)],
         body: &Body,
     ) -> Option<smelt_hir::TypeId> {
+        // A field read over a union of records types as the union of each
+        // arm's field type, which nests (`(Img | User) | number` for `value`
+        // of `{ k: 'a'; value: Img | User } | { k: 'b'; value: number }`):
+        // the candidate arms are the records anywhere inside it.
+        let mut flat = Vec::new();
+        let mut pending = members.to_vec();
+        while let Some(member) = pending.pop() {
+            match self.ctx.krate.types.get(member) {
+                Some(Type::Union(inner)) => pending.extend(inner.iter().rev().copied()),
+                Some(Type::Optional(inner, _)) => pending.push(*inner),
+                _ if !flat.contains(&member) => flat.push(member),
+                _ => {}
+            }
+        }
         let mut fitting = Vec::new();
-        for member in members {
+        for member in &flat {
             if !matches!(self.ctx.krate.types.get(*member), Some(Type::Class { .. })) {
                 continue;
             }
             if self.record_literal_discriminants_match(*member, entries, body)
+                && self.record_literal_keys_declared(*member, entries, body)
                 && let Some(fit) = self.contextual_record_literal_member(*member, entries, body)
             {
                 fitting.push(fit);
@@ -1199,6 +1214,43 @@ impl ModuleBuilder<'_> {
             [single] => Some(*single),
             _ => None,
         }
+    }
+
+    /// Whether arm `member` declares every key the object literal writes.
+    ///
+    /// TypeScript's excess-property check rules an arm out of a fresh object
+    /// literal that writes a key the arm does not have:
+    /// `{ __typename: 'V', fields: [] }` against `{ __typename: 'V'; fields:
+    /// string[] } | { __typename: 'V' }` is only the first arm. An arm whose
+    /// members are not all known here (heritage, a non-interface) is not ruled
+    /// out by this check.
+    fn record_literal_keys_declared(
+        &self,
+        member: smelt_hir::TypeId,
+        entries: &[(smelt_hir::ExprId, smelt_hir::ExprId)],
+        body: &Body,
+    ) -> bool {
+        let Some(Type::Class { name, .. }) = self.ctx.krate.types.get(member) else {
+            return true;
+        };
+        let Some(interface) = self.find_interface(*name) else {
+            return true;
+        };
+        if !interface.extends.is_empty() {
+            return true;
+        }
+        entries.iter().all(|(key, _)| {
+            let Some(ExprKind::Literal(Literal::String(key))) =
+                body.expr_at(*key).map(|key| &key.kind)
+            else {
+                return true;
+            };
+            let declares = |symbol: smelt_hir::Symbol| {
+                self.ctx.krate.symbols.source(symbol) == Some(key.as_str())
+            };
+            interface.fields.iter().any(|field| declares(field.name))
+                || interface.methods.iter().any(|method| declares(method.name))
+        })
     }
 
     /// Whether every literal-valued entry of an object literal is admitted by

@@ -175,8 +175,51 @@ impl ModuleBuilder<'_> {
                 // Which absent values the union admits, so the result keeps
                 // `null` apart from `undefined` (`Type::Optional`'s tag).
                 let (mut admits_undefined, mut admits_null) = (false, false);
+                // A direct object-literal arm of a union with another
+                // non-nullish arm may be a discriminated arm
+                // (`anonymous_record_literal_type`); nested literals are not,
+                // and `{ a: 1 } | undefined` discriminates nothing.
+                let value_arms = union
+                    .types
+                    .iter()
+                    .filter(|member| {
+                        !matches!(
+                            member,
+                            TSType::TSNullKeyword(_)
+                                | TSType::TSUndefinedKeyword(_)
+                                | TSType::TSVoidKeyword(_)
+                        )
+                    })
+                    .count();
+                // The union is discriminated when every object-literal arm
+                // has a REQUIRED literal-typed property (`{ kind: "a"; .. } |
+                // { kind: "b"; .. }`); then each such arm keeps its own record.
+                // An arm whose discriminant is optional (`{ type?: "one" }`)
+                // keeps the dictionary, as do its sibling arms: a record field
+                // stores an absent property as `None`, so `{ type: undefined }`
+                // would lose the key `'type' in v` and pattern matchers test,
+                // and a union mixing `Dict` and record arms has no concrete
+                // representation.
+                let discriminated = value_arms > 1
+                    && union.types.iter().all(|member| match member {
+                        TSType::TSTypeLiteral(literal) => {
+                            Self::type_literal_has_literal_property(literal)
+                        }
+                        _ => true,
+                    })
+                    && union
+                        .types
+                        .iter()
+                        .any(|member| matches!(member, TSType::TSTypeLiteral(_)));
                 for member in &union.types {
-                    let mut member_ty = self.ts_type_to_hir(member)?;
+                    let arm_literal = match member {
+                        TSType::TSTypeLiteral(literal) if discriminated => Some(literal.span.start),
+                        _ => None,
+                    };
+                    let previous_arm = std::mem::replace(&mut self.union_arm_literal, arm_literal);
+                    let member_ty = self.ts_type_to_hir(member);
+                    self.union_arm_literal = previous_arm;
+                    let mut member_ty = member_ty?;
                     let (member_undefined, member_null) =
                         self.ts_member_absences(member, member_ty);
                     admits_undefined |= member_undefined;

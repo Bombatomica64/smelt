@@ -138,7 +138,9 @@ impl FunctionEmitter<'_> {
         if self.is_erased_unknown_rest_function(&slot_fn) {
             return Ok(None);
         }
-        let key = self.symbol_name(field.name)?;
+        // The object's entries are keyed by the JavaScript spelling
+        // (`getResponse`), not the Rust field name (`get_response`).
+        let key = self.symbol_source_name(field.name)?;
         let unknown_ty = self.type_id(Type::Unknown)?;
         let callee = self.rendered_at_type(
             &RustExpr::chain(format!("smelt_live_member(&smelt_slot_source, {key:?})")),

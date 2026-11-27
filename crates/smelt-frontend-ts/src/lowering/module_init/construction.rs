@@ -108,6 +108,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             source_facts: super::super::source_facts::SourceFacts::default(),
             literal_record_uses: super::super::literal_record_uses::LiteralRecordUses::default(),
             uniform_literal_lowering: super::super::UniformLiteralLowering::Dictionary,
+            union_arm_literal: None,
             literal_adoptions: HashMap::new(),
             asserted_call_return: None,
             erasure_anchor: Span::new(file_id, 0, 0),

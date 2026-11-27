@@ -494,13 +494,19 @@ impl ModuleBuilder<'_> {
                     return self.switch_fallthrough_statement(switch_stmt, scrutinee, body, block);
                 }
                 // A switch on a discriminant property (`switch (x.kind)`) proves,
-                // inside every non-default arm, that `x` carries that property.
-                // The narrowing is only recorded for arms with a case label; the
-                // `default` arm is reached when no label matched and cannot rely
-                // on the discriminant being present. Nullish/dynamic boundaries
-                // are left untouched: the fact only projects concrete union arms.
-                let discriminant_narrowing =
-                    self.switch_discriminant_narrowing(&switch_stmt.discriminant, body);
+                // inside each labeled arm, that `x.kind` equals one of that arm's
+                // labels, so `x` narrows to the union arms whose recorded literals
+                // admit one (`switch_discriminant_narrowing`). The `default` arm
+                // proves that it equals none of the switch's labels, unless empty
+                // cases fall into it, whose labels it then also handles.
+                // Nullish/dynamic boundaries are left untouched: the fact only
+                // projects concrete union arms.
+                let all_labels = switch_stmt
+                    .cases
+                    .iter()
+                    .filter_map(|case| case.test.as_ref())
+                    .map(|test| self.literal_case_label(test).ok())
+                    .collect::<Option<Vec<_>>>();
                 // A `switch (typeof x)` discriminates a union the way a chain of
                 // `if (typeof x === 'k')` guards would: each labeled arm proves
                 // `x` is the member(s) whose runtime `typeof` matches that arm's
@@ -549,13 +555,34 @@ impl ModuleBuilder<'_> {
                                 _ => None,
                             }
                         });
-                        let fact = typeof_fact.or_else(|| discriminant_narrowing.clone());
+                        let fact = typeof_fact.or_else(|| {
+                            let mut labels = pending_empty_labels.clone();
+                            labels.push(self.literal_case_label(case.test.as_ref()?).ok()?);
+                            self.switch_discriminant_narrowing(
+                                &switch_stmt.discriminant,
+                                &labels,
+                                true,
+                                body,
+                            )
+                        });
                         fact.map(|(name, target)| std::collections::HashMap::from([(name, target)]))
                     } else {
-                        // The `default` arm proves no discriminant fact; drop any
-                        // pending `typeof` group kinds that fell through to it.
+                        // Drop any pending `typeof` group kinds that fell
+                        // through to the `default` arm: it proves no `typeof`
+                        // fact.
                         pending_kinds.clear();
-                        None
+                        all_labels
+                            .as_ref()
+                            .filter(|_| pending_empty_labels.is_empty())
+                            .and_then(|labels| {
+                                self.switch_discriminant_narrowing(
+                                    &switch_stmt.discriminant,
+                                    labels,
+                                    false,
+                                    body,
+                                )
+                            })
+                            .map(|(name, target)| std::collections::HashMap::from([(name, target)]))
                     };
                     let case_block = body.push_block(self.span(case.span.start, case.span.end));
                     // A case body ends at the first statement that leaves it.

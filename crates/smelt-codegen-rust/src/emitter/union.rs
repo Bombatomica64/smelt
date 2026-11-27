@@ -1575,6 +1575,37 @@ impl FunctionEmitter<'_> {
     ) -> Option<String> {
         let members = self.concrete_union_members(union_ty)?;
         let union_enum_name = union_name(union_ty);
+        // An interface arm whose field is optional stores an absent property
+        // as `None`: `'type' in {}` is false for `{ type?: 'one' }`, so that
+        // arm answers by the field's presence, not by its tag.
+        let presence = members
+            .iter()
+            .map(|member| self.union_arm_field_presence(*member, field))
+            .collect::<Option<Vec<_>>>()?;
+        if presence
+            .iter()
+            .any(|arm| matches!(arm, ArmFieldPresence::Optional(_)))
+        {
+            let arms = members
+                .iter()
+                .zip(&presence)
+                .enumerate()
+                .map(|(index, (member, arm))| match arm {
+                    ArmFieldPresence::Optional(read) => {
+                        format!("{union_enum_name}::M{index}(smelt_union_arm) => {read}.is_some()")
+                    }
+                    ArmFieldPresence::ByTag => format!(
+                        "{union_enum_name}::M{index}(_) => {}",
+                        self.type_has_property_statically(*member, field)
+                    ),
+                })
+                .collect::<Vec<_>>();
+            return Some(format!(
+                "match &{value_text} {{ {} }}",
+                arms.join(", "),
+                value_text = value_text.tight()
+            ));
+        }
         let patterns = members
             .iter()
             .enumerate()
@@ -1653,18 +1684,20 @@ impl FunctionEmitter<'_> {
     /// the type the source gave it instead of being erased and looked up by
     /// name at run time.
     ///
-    /// Returns `None` unless every arm declares the property at ONE type. Arms
-    /// that disagree on the field's type would need the field's own union, which
-    /// this rule does not mint; the caller keeps its existing path for those.
+    /// Returns `None` unless every arm declares the property at ONE type, or
+    /// at `T` on some arms and one `Option<T>` on the others
+    /// ([`Self::concrete_union_field_read_ty`]). Arms that disagree otherwise
+    /// would need the field's own union, which this rule does not mint; the
+    /// caller keeps its existing path for those.
     pub(super) fn concrete_union_field_read_expr(
         &self,
         base: LocalId,
         field: Symbol,
     ) -> Result<Option<RustExpr>, EmitError> {
         let base_ty = self.local_decl(base)?.ty;
-        if self.concrete_union_field_ty(base_ty, field).is_none() {
+        let Some((_, wrapped)) = self.concrete_union_field_read_ty(base_ty, field) else {
             return Ok(None);
-        }
+        };
         let Some(members) = self.concrete_union_members(base_ty) else {
             return Ok(None);
         };
@@ -1680,9 +1713,11 @@ impl FunctionEmitter<'_> {
                 } else {
                     format!("smelt_union_arm.{field_name}")
                 };
-                Ok(format!(
-                    "{union_enum_name}::M{index}(smelt_union_arm) => {read}.clone()"
-                ))
+                Ok(if wrapped.get(index).copied().unwrap_or(false) {
+                    format!("{union_enum_name}::M{index}(smelt_union_arm) => Some({read}.clone())")
+                } else {
+                    format!("{union_enum_name}::M{index}(smelt_union_arm) => {read}.clone()")
+                })
             })
             .collect::<Result<Vec<_>, EmitError>>()?
             .join(", ");
@@ -2098,6 +2133,54 @@ impl FunctionEmitter<'_> {
         ))))
     }
 
+    /// The type a READ of `field` through a generated union has, and which
+    /// arms wrap their value in `Some` to reach it.
+    ///
+    /// [`Self::concrete_union_field_ty`] when every arm stores one type
+    /// (nothing wraps). Otherwise, when the arms store `T` and one
+    /// `Option<T>` (`{ mode?: "one" } | { mode: "two" }`), the read is
+    /// `Option<T>` and each `T` arm is `Some(..)`: a present value read
+    /// through the optional view, as the source's `"one" | "two" |
+    /// undefined`. Writes keep the one-type rule (TypeScript writes such a
+    /// property at the intersection of the arms' types).
+    pub(super) fn concrete_union_field_read_ty(
+        &self,
+        union_ty: TypeId,
+        field: Symbol,
+    ) -> Option<(TypeId, Vec<bool>)> {
+        if let Some(ty) = self.concrete_union_field_ty(union_ty, field) {
+            return Some((ty, Vec::new()));
+        }
+        let members = self.concrete_union_members(union_ty)?;
+        let field_tys = members
+            .iter()
+            .map(|member| self.class_named_field_ty(*member, field))
+            .collect::<Option<Vec<_>>>()?;
+        let mut optional: Option<(TypeId, TypeId)> = None;
+        for ty in &field_tys {
+            if let Some(Type::Optional(inner, _)) = self.mir.types.get(*ty) {
+                match optional {
+                    Some((previous, _)) if previous != *ty => return None,
+                    _ => optional = Some((*ty, *inner)),
+                }
+            }
+        }
+        let (optional_ty, inner) = optional?;
+        let wrapped = field_tys
+            .iter()
+            .map(|ty| {
+                if *ty == optional_ty {
+                    Some(false)
+                } else if *ty == inner {
+                    Some(true)
+                } else {
+                    None
+                }
+            })
+            .collect::<Option<Vec<_>>>()?;
+        Some((optional_ty, wrapped))
+    }
+
     /// Resolve the one type every arm of a concrete union gives a named field.
     ///
     /// `None` when the receiver is not a concrete union, when an arm does not
@@ -2245,6 +2328,39 @@ impl FunctionEmitter<'_> {
             || class.base.is_some_and(|base| {
                 self.mir_class_has_member(base, member, depth.saturating_add(1))
             })
+    }
+
+    /// How an `in` test answers for union arm `member` and the property
+    /// spelled `field` (source name): by the arm's tag, or, for an interface
+    /// field stored as an `Option` (an optional property), by reading that
+    /// field as `smelt_union_arm`. `None` when the read cannot be spelled,
+    /// which declines the presence check.
+    fn union_arm_field_presence(&self, member: TypeId, field: &str) -> Option<ArmFieldPresence> {
+        let Some(Type::Class { name, .. }) = self.mir.types.get(member) else {
+            return Some(ArmFieldPresence::ByTag);
+        };
+        let Some(interface) = self.mir.interface_named(*name) else {
+            return Some(ArmFieldPresence::ByTag);
+        };
+        let Some(declared) = crate::classes::effective_interface_fields(self.mir, interface)
+            .into_iter()
+            .find(|candidate| self.symbol_source_name(candidate.name) == Ok(field))
+        else {
+            return Some(ArmFieldPresence::ByTag);
+        };
+        if !matches!(self.mir.types.get(declared.ty), Some(Type::Optional(..))) {
+            return Some(ArmFieldPresence::ByTag);
+        }
+        let read = if self.is_reference_class_type(member) {
+            self.reference_field_read_place("smelt_union_arm", member, declared.name)
+                .ok()?
+        } else {
+            format!(
+                "smelt_union_arm.{}",
+                self.context.names().field_text(self.mir, declared.name)
+            )
+        };
+        Some(ArmFieldPresence::Optional(read))
     }
 
     /// Return whether a named MIR interface declares a field (own or inherited).
@@ -2561,4 +2677,13 @@ pub(super) enum UnionArmRead {
     Host(TypeId, smelt_stdlib::HostDataProperty),
     /// A `number`/`boolean` arm: JavaScript reads `undefined`.
     Absent,
+}
+
+/// How one union arm answers a `'k' in v` test
+/// (`FunctionEmitter::union_arm_field_presence`).
+enum ArmFieldPresence {
+    /// The arm's tag decides: the arm always has the property, or never does.
+    ByTag,
+    /// The arm stores the property as an `Option`; the read decides.
+    Optional(String),
 }

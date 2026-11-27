@@ -126,7 +126,6 @@ interned types
   t19 = List<List<String>>
   t20 = fn(InitLike | Response, String) -> String
   t21 = Dict<String, String>
-  t22 = Float | Optional<Float>
-  t23 = Unknown | Optional<Headers>
-  t24 = fn(Float | InitLike | Response) -> String
-  t25 = fn(Float | InitLike | Response) -> Float
+  t22 = Unknown | Optional<Headers>
+  t23 = fn(Float | InitLike | Response) -> String
+  t24 = fn(Float | InitLike | Response) -> Float

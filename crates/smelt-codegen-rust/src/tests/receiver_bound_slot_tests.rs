@@ -123,3 +123,41 @@ console.log(new App().get('/a'));
         "the keyed write must dispatch over the class fields:\n{source}"
     );
 }
+
+/// An ERASED object narrowed to an interface reads a callable slot by the
+/// member's JavaScript key: `getResponse`, not the Rust field name
+/// `get_response` (which no object has, so the call threw "value is not a
+/// function").
+#[test]
+fn erased_record_slot_reads_the_source_spelled_key() {
+    let source = source_for(
+        r"
+interface Responder {
+  getResponse: () => string;
+}
+function describe(this: { status: number }): string {
+  return 'resp ' + this.status;
+}
+class Exc {
+  status: number = 504;
+  getResponse: () => string = describe;
+}
+function respond(err: unknown): string {
+  return (err as Responder).getResponse();
+}
+console.log(respond(new Exc()));
+",
+    );
+    if source.contains("smelt_live_member(&smelt_slot_source") {
+        assert!(
+            source.contains(r#"smelt_live_member(&smelt_slot_source, "getResponse")"#),
+            "the slot must read the source-spelled key:\n{source}"
+        );
+        assert!(
+            !source.contains(r#"smelt_live_member(&smelt_slot_source, "get_response")"#),
+            "the slot read the Rust field name:\n{source}"
+        );
+    } else {
+        panic!("the erased-record slot was not emitted:\n{source}");
+    }
+}

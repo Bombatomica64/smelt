@@ -169,7 +169,7 @@ impl FunctionEmitter<'_> {
         {
             return self.type_id(Type::Float);
         }
-        if let Some(field_ty) = self.concrete_union_field_ty(base_ty, field) {
+        if let Some((field_ty, _)) = self.concrete_union_field_read_ty(base_ty, field) {
             return Ok(field_ty);
         }
         if let Some((_, descriptor)) = self.descriptor_for_field(base_ty, field) {
