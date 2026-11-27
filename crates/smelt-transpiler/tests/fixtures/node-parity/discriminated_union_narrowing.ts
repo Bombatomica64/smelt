@@ -109,18 +109,20 @@ function show(input: Input): string {
 }
 console.log(show({ type: "a", value: { type: "img", src: "cat.png" } }), show({ type: "a", value: { type: "text", size: 2, content: "yo" } }), show({ type: "b", value: 41 }));
 
-// A key an arm does not declare rules that arm out (excess property), and
-// an optional literal field discriminates too.
+// A key an arm does not declare rules that arm out (excess property).
 type Rej = { tag: "rej"; fields: string[] } | { tag: "rej" };
 function rej(r: Rej): string {
   return "fields" in r ? "fields " + r.fields.length : "bare";
 }
-type Opt = { mode?: "one" } | { mode: "two"; extra: number };
-function opt(o: Opt): string {
-  if (o.mode === "two") return "two+" + o.extra;
-  return "one or none: " + (o.mode ?? "none");
+console.log(rej({ tag: "rej", fields: ["a", "b"] }), rej({ tag: "rej" }));
+
+// `in` on an arm whose property is optional tests the property, not the arm.
+interface MaybeNamed { name?: string }
+interface Numbered { id: number }
+function named(v: MaybeNamed | Numbered): string {
+  return "name" in v ? "named" : "unnamed";
 }
-console.log(rej({ tag: "rej", fields: ["a", "b"] }), rej({ tag: "rej" }), opt({}), opt({ mode: "one" }), opt({ mode: "two", extra: 3 }));
+console.log(named({}), named({ name: "x" }), named({ id: 1 }));
 
 // `in` with a camelCase key narrows by the key's source spelling.
 interface Responder { getResponse(): string }

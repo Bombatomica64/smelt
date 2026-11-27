@@ -87,9 +87,9 @@ impl ModuleBuilder<'_> {
         has_reference && has_object_literal_fields
     }
 
-    /// Whether a type literal declares a property whose type is a literal or
-    /// a union of literals (`kind: "a"`, `type?: "one"`, `ok: true`,
-    /// `level: 1 | 2`): the discriminant of a discriminated union arm.
+    /// Whether a type literal declares a REQUIRED property whose type is a
+    /// literal or a union of literals (`kind: "a"`, `ok: true`, `level: 1 |
+    /// 2`): the discriminant of a discriminated union arm.
     pub(in crate::lowering) fn type_literal_has_literal_property(
         literal: &oxc::ast::ast::TSTypeLiteral<'_>,
     ) -> bool {
@@ -99,26 +99,16 @@ impl ModuleBuilder<'_> {
                     literal.literal,
                     oxc::ast::ast::TSLiteral::TemplateLiteral(_)
                 ),
-                TSType::TSUnionType(union) => {
-                    union
-                        .types
-                        .iter()
-                        .any(|member| matches!(member, TSType::TSLiteralType(_)))
-                        && union.types.iter().all(|member| {
-                            is_literal(member)
-                                || matches!(
-                                    member,
-                                    TSType::TSUndefinedKeyword(_) | TSType::TSNullKeyword(_)
-                                )
-                        })
-                }
+                // A union admitting `null`/`undefined` is no discriminant: its
+                // empty value would be stored as `None` (see the caller).
+                TSType::TSUnionType(union) => union.types.iter().all(is_literal),
                 TSType::TSParenthesizedType(inner) => is_literal(&inner.type_annotation),
                 _ => false,
             }
         }
         literal.members.iter().any(|member| {
             matches!(member, TSSignature::TSPropertySignature(property)
-                if property
+                if !property.optional && property
                     .type_annotation
                     .as_ref()
                     .is_some_and(|annotation| is_literal(&annotation.type_annotation)))

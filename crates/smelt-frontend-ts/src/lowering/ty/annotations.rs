@@ -191,15 +191,26 @@ impl ModuleBuilder<'_> {
                         )
                     })
                     .count();
-                // The union is discriminated when one of its object-literal
-                // arms has a literal-typed property; then EVERY object-literal
-                // arm keeps its own record, since a union mixing a `Dict` arm
-                // with record arms has no concrete representation.
+                // The union is discriminated when every object-literal arm
+                // has a REQUIRED literal-typed property (`{ kind: "a"; .. } |
+                // { kind: "b"; .. }`); then each such arm keeps its own record.
+                // An arm whose discriminant is optional (`{ type?: "one" }`)
+                // keeps the dictionary, as do its sibling arms: a record field
+                // stores an absent property as `None`, so `{ type: undefined }`
+                // would lose the key `'type' in v` and pattern matchers test,
+                // and a union mixing `Dict` and record arms has no concrete
+                // representation.
                 let discriminated = value_arms > 1
-                    && union.types.iter().any(|member| {
-                        matches!(member, TSType::TSTypeLiteral(literal)
-                            if Self::type_literal_has_literal_property(literal))
-                    });
+                    && union.types.iter().all(|member| match member {
+                        TSType::TSTypeLiteral(literal) => {
+                            Self::type_literal_has_literal_property(literal)
+                        }
+                        _ => true,
+                    })
+                    && union
+                        .types
+                        .iter()
+                        .any(|member| matches!(member, TSType::TSTypeLiteral(_)));
                 for member in &union.types {
                     let arm_literal = match member {
                         TSType::TSTypeLiteral(literal) if discriminated => Some(literal.span.start),

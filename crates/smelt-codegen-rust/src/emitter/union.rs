@@ -1575,6 +1575,34 @@ impl FunctionEmitter<'_> {
     ) -> Option<String> {
         let members = self.concrete_union_members(union_ty)?;
         let union_enum_name = union_name(union_ty);
+        // An interface arm whose field is optional stores an absent property
+        // as `None`: `'type' in {}` is false for `{ type?: 'one' }`, so that
+        // arm answers by the field's presence, not by its tag.
+        let optional_reads = members
+            .iter()
+            .map(|member| self.optional_interface_field_read(*member, field))
+            .collect::<Option<Vec<_>>>()?;
+        if optional_reads.iter().any(Option::is_some) {
+            let arms = members
+                .iter()
+                .zip(&optional_reads)
+                .enumerate()
+                .map(|(index, (member, read))| match read {
+                    Some(read) => {
+                        format!("{union_enum_name}::M{index}(smelt_union_arm) => {read}.is_some()")
+                    }
+                    None => format!(
+                        "{union_enum_name}::M{index}(_) => {}",
+                        self.type_has_property_statically(*member, field)
+                    ),
+                })
+                .collect::<Vec<_>>();
+            return Some(format!(
+                "match &{value_text} {{ {} }}",
+                arms.join(", "),
+                value_text = value_text.tight()
+            ));
+        }
         let patterns = members
             .iter()
             .enumerate()
@@ -2300,6 +2328,38 @@ impl FunctionEmitter<'_> {
     }
 
     /// Return whether a named MIR interface declares a field (own or inherited).
+    /// The read of interface arm `member`'s field spelled `field` (source
+    /// name) as `smelt_union_arm`, when that field is stored as an `Option`
+    /// (an optional property). `Some(None)` for every other arm; `None` when
+    /// the read cannot be spelled, which declines the presence check.
+    fn optional_interface_field_read(&self, member: TypeId, field: &str) -> Option<Option<String>> {
+        let Some(Type::Class { name, .. }) = self.mir.types.get(member) else {
+            return Some(None);
+        };
+        let Some(interface) = self.mir.interface_named(*name) else {
+            return Some(None);
+        };
+        let Some(declared) = crate::classes::effective_interface_fields(self.mir, interface)
+            .into_iter()
+            .find(|candidate| self.symbol_source_name(candidate.name) == Ok(field))
+        else {
+            return Some(None);
+        };
+        if !matches!(self.mir.types.get(declared.ty), Some(Type::Optional(..))) {
+            return Some(None);
+        }
+        let read = if self.is_reference_class_type(member) {
+            self.reference_field_read_place("smelt_union_arm", member, declared.name)
+                .ok()?
+        } else {
+            format!(
+                "smelt_union_arm.{}",
+                self.context.names().field_text(self.mir, declared.name)
+            )
+        };
+        Some(Some(read))
+    }
+
     fn mir_interface_has_field(&self, name: Symbol, field: &str) -> bool {
         self.mir
             .interfaces
