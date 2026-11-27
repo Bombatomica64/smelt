@@ -1221,8 +1221,8 @@ impl ModuleBuilder<'_> {
         // the parameters: `SameValue` equality, the own-key check.
         let same_value_or_own_key = match (member.property.name.as_str(), params.as_slice()) {
             ("is" | "hasOwn", [first, second]) => {
-                let read = |closure_body: &mut Body, param: &Param| {
-                    closure_body.push_expr(Expr {
+                let read = |reads_into: &mut Body, param: &Param| {
+                    reads_into.push_expr(Expr {
                         kind: ExprKind::Local(param.local),
                         ty: param.ty,
                         span,

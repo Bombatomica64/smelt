@@ -84,14 +84,14 @@ impl SlotFunctions {
     /// Scan every function and closure body of `mir`.
     pub(crate) fn of(mir: &Mir) -> Self {
         let mut slots = Self::default();
-        for (index, global) in mir.globals.iter().enumerate() {
-            let Ok(index) = u32::try_from(index) else {
+        for (position, global) in mir.globals.iter().enumerate() {
+            let Ok(index) = u32::try_from(position) else {
                 continue;
             };
             let contents = match &global.init {
-                MirGlobalInit::Call(func) => mir
-                    .functions
-                    .get(func.0 as usize)
+                MirGlobalInit::Call(func) => usize::try_from(func.0)
+                    .ok()
+                    .and_then(|func_index| mir.functions.get(func_index))
                     .map_or(SlotContents::Unknown, |function| {
                         returned_closure(mir, &function.blocks)
                     }),
@@ -120,7 +120,7 @@ impl SlotFunctions {
     /// Merge one store's `contents` into `slot`.
     fn record(&mut self, slot: FunctionSlot, contents: SlotContents) {
         let merged = match (self.slots.get(&slot), contents) {
-            (None, contents) => contents,
+            (None, first_store) => first_store,
             (Some(SlotContents::Closures(seen, first)), SlotContents::Closures(name, _))
                 if *seen == name =>
             {
@@ -154,7 +154,7 @@ impl SlotFunctions {
                     self.scan_nested_stores(mir, blocks, value);
                     continue;
                 }
-                _ => continue,
+                Statement::StorageLive(_) => continue,
             };
             let contents = stored_closure(mir, blocks, value);
             self.record(slot, contents);
@@ -164,19 +164,16 @@ impl SlotFunctions {
 
     /// Record the stores an rvalue makes besides its destination: a
     /// `GlobalSet` and a `Struct` literal's field initializers.
-    fn scan_nested_stores(&mut self, mir: &Mir, blocks: &[BasicBlock], value: &Rvalue) {
-        match value {
-            Rvalue::GlobalSet { global, value } => {
-                let contents = operand_closure(mir, blocks, value);
-                self.record(FunctionSlot::Global(*global), contents);
+    fn scan_nested_stores(&mut self, mir: &Mir, blocks: &[BasicBlock], rvalue: &Rvalue) {
+        if let Rvalue::GlobalSet { global, value } = rvalue {
+            let contents = operand_closure(mir, blocks, value);
+            self.record(FunctionSlot::Global(*global), contents);
+        }
+        if let Rvalue::Struct { fields, .. } = rvalue {
+            for (field, initializer) in fields {
+                let contents = operand_closure(mir, blocks, initializer);
+                self.record(FunctionSlot::Field(*field), contents);
             }
-            Rvalue::Struct { fields, .. } => {
-                for (field, value) in fields {
-                    let contents = operand_closure(mir, blocks, value);
-                    self.record(FunctionSlot::Field(*field), contents);
-                }
-            }
-            _ => {}
         }
     }
 }
@@ -189,7 +186,7 @@ fn returned_closure(mir: &Mir, blocks: &[BasicBlock]) -> SlotContents {
         if let Some(Terminator::Return(operand)) = &block.terminator {
             let returned = operand_closure(mir, blocks, operand);
             contents = Some(match (contents, returned) {
-                (None, returned) => returned,
+                (None, first_return) => first_return,
                 (Some(SlotContents::Closures(seen, first)), SlotContents::Closures(name, _))
                     if seen == name =>
                 {
@@ -204,11 +201,13 @@ fn returned_closure(mir: &Mir, blocks: &[BasicBlock]) -> SlotContents {
 
 /// The closure a stored rvalue creates.
 fn stored_closure(mir: &Mir, blocks: &[BasicBlock], value: &Rvalue) -> SlotContents {
-    match value {
-        Rvalue::Closure { id, .. } => closure_contents(mir, *id),
-        Rvalue::Use(operand) => operand_closure(mir, blocks, operand),
-        _ => SlotContents::Unknown,
+    if let Rvalue::Closure { id, .. } = value {
+        return closure_contents(mir, *id);
     }
+    if let Rvalue::Use(operand) = value {
+        return operand_closure(mir, blocks, operand);
+    }
+    SlotContents::Unknown
 }
 
 /// The closure an operand of a body holds, followed through the body's
@@ -220,23 +219,26 @@ fn operand_closure(mir: &Mir, blocks: &[BasicBlock], operand: &Operand) -> SlotC
         return SlotContents::Unknown;
     };
     for _ in 0..COPY_CHAIN_LIMIT {
-        match single_assigned_value(blocks, local) {
-            Some(Rvalue::Closure { id, .. }) => return closure_contents(mir, *id),
-            Some(Rvalue::Use(
-                Operand::Copy(Place::Local(source)) | Operand::Move(Place::Local(source)),
-            )) => {
-                local = *source;
-            }
-            _ => return SlotContents::Unknown,
+        let value = single_assigned_value(blocks, local);
+        if let Some(Rvalue::Closure { id, .. }) = value {
+            return closure_contents(mir, *id);
         }
+        let Some(Rvalue::Use(
+            Operand::Copy(Place::Local(source)) | Operand::Move(Place::Local(source)),
+        )) = value
+        else {
+            return SlotContents::Unknown;
+        };
+        local = *source;
     }
     SlotContents::Unknown
 }
 
 /// A closure definition's contents: its name and itself.
 fn closure_contents(mir: &Mir, id: ClosureId) -> SlotContents {
-    mir.closures
-        .get(id.0 as usize)
+    usize::try_from(id.0)
+        .ok()
+        .and_then(|index| mir.closures.get(index))
         .map_or(SlotContents::Unknown, |closure| {
             SlotContents::Closures(closure.name, id)
         })
@@ -246,28 +248,40 @@ fn closure_contents(mir: &Mir, id: ClosureId) -> SlotContents {
 /// `undefined` placeholder (`let f: F;`), or `None` when it is written by
 /// anything else (a second write, a dict-entry binding, a caller or capture).
 fn single_assigned_value(blocks: &[BasicBlock], local: LocalId) -> Option<&Rvalue> {
-    let written_by_terminator = blocks.iter().any(|block| match &block.terminator {
-        Some(Terminator::Call { dest, unwind, .. } | Terminator::Await { dest, unwind, .. }) => {
-            *dest == local
-                || unwind
-                    .as_ref()
-                    .is_some_and(|handler| handler.exception_local == Some(local))
-        }
-        _ => false,
+    let written_by_terminator = blocks.iter().any(|block| {
+        let Some(Terminator::Call { dest, unwind, .. } | Terminator::Await { dest, unwind, .. }) =
+            &block.terminator
+        else {
+            return false;
+        };
+        *dest == local
+            || unwind
+                .as_ref()
+                .is_some_and(|handler| handler.exception_local == Some(local))
     });
     if written_by_terminator {
         return None;
     }
     let mut found = None;
     for statement in blocks.iter().flat_map(|block| &block.statements) {
-        let value = match statement {
-            Statement::Assign { dest, value } if *dest == local => value,
-            Statement::AssignPlace {
-                place: Place::Local(dest),
-                value,
-            } if *dest == local => value,
-            Statement::DictEntryUpdate { current, .. } if *current == local => return None,
-            _ => continue,
+        if let Statement::DictEntryUpdate { current, .. } = statement
+            && *current == local
+        {
+            return None;
+        }
+        let value = if let Statement::Assign { dest, value } = statement
+            && *dest == local
+        {
+            value
+        } else if let Statement::AssignPlace {
+            place: Place::Local(dest),
+            value,
+        } = statement
+            && *dest == local
+        {
+            value
+        } else {
+            continue;
         };
         if matches!(value, Rvalue::Use(Operand::Const(Constant::Undefined))) {
             continue;
