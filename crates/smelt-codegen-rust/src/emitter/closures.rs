@@ -880,23 +880,29 @@ impl FunctionEmitter<'_> {
                 // `smelt_async_value`, so the block is a `Result<Ok, Box<dyn Error>>`
                 // whose `Ok` type equals the erased `SmeltUnknown` or the concrete
                 // `output_text` the `Ok::<..>` returns already use.
-                let async_value_annotation: Option<String> = if body_returns_early {
-                    // Explicit returns diverge from the inner block, so pin
-                    // its otherwise-unconstrained binding for Rust inference.
-                    // Reaching this branch already proves the wrapper is
-                    // async; contextual function types can lose their
-                    // `is_async` flag while retaining a future return.
-                    Some(format!(": {output_text}"))
-                } else if closure.can_throw && !async_value_needs_await {
-                    let ok_ty_text = if output_is_erased {
-                        "SmeltUnknown"
+                // A fallible block's tail is `Ok::<..>(..)` and the wrapper
+                // applies `?` to it, so it is pinned as that `Result` whether
+                // or not the body also returns early (a branch that rejoins
+                // before the closure's last `return` leaves an explicit
+                // `return` in an arm and the `Ok` tail after it).
+                let async_value_annotation: Option<String> =
+                    if body_returns_early && !(closure.can_throw && !async_value_needs_await) {
+                        // Explicit returns diverge from the inner block, so pin
+                        // its otherwise-unconstrained binding for Rust inference.
+                        // Reaching this branch already proves the wrapper is
+                        // async; contextual function types can lose their
+                        // `is_async` flag while retaining a future return.
+                        Some(format!(": {output_text}"))
+                    } else if closure.can_throw && !async_value_needs_await {
+                        let ok_ty_text = if output_is_erased {
+                            "SmeltUnknown"
+                        } else {
+                            output_text.as_str()
+                        };
+                        Some(format!(": Result<{ok_ty_text}, {ERROR_BOX}>"))
                     } else {
-                        output_text.as_str()
+                        None
                     };
-                    Some(format!(": Result<{ok_ty_text}, {ERROR_BOX}>"))
-                } else {
-                    None
-                };
                 let async_value_annotation_text = async_value_annotation.unwrap_or_default();
                 let mut cloned_async_captures = HashSet::new();
                 let self_keep_alive: RefCell<Vec<String>> = RefCell::new(Vec::new());
