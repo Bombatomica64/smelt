@@ -1578,20 +1578,23 @@ impl FunctionEmitter<'_> {
         // An interface arm whose field is optional stores an absent property
         // as `None`: `'type' in {}` is false for `{ type?: 'one' }`, so that
         // arm answers by the field's presence, not by its tag.
-        let optional_reads = members
+        let presence = members
             .iter()
-            .map(|member| self.optional_interface_field_read(*member, field))
+            .map(|member| self.union_arm_field_presence(*member, field))
             .collect::<Option<Vec<_>>>()?;
-        if optional_reads.iter().any(Option::is_some) {
+        if presence
+            .iter()
+            .any(|arm| matches!(arm, ArmFieldPresence::Optional(_)))
+        {
             let arms = members
                 .iter()
-                .zip(&optional_reads)
+                .zip(&presence)
                 .enumerate()
-                .map(|(index, (member, read))| match read {
-                    Some(read) => {
+                .map(|(index, (member, arm))| match arm {
+                    ArmFieldPresence::Optional(read) => {
                         format!("{union_enum_name}::M{index}(smelt_union_arm) => {read}.is_some()")
                     }
-                    None => format!(
+                    ArmFieldPresence::ByTag => format!(
                         "{union_enum_name}::M{index}(_) => {}",
                         self.type_has_property_statically(*member, field)
                     ),
@@ -2327,26 +2330,26 @@ impl FunctionEmitter<'_> {
             })
     }
 
-    /// Return whether a named MIR interface declares a field (own or inherited).
-    /// The read of interface arm `member`'s field spelled `field` (source
-    /// name) as `smelt_union_arm`, when that field is stored as an `Option`
-    /// (an optional property). `Some(None)` for every other arm; `None` when
-    /// the read cannot be spelled, which declines the presence check.
-    fn optional_interface_field_read(&self, member: TypeId, field: &str) -> Option<Option<String>> {
+    /// How an `in` test answers for union arm `member` and the property
+    /// spelled `field` (source name): by the arm's tag, or, for an interface
+    /// field stored as an `Option` (an optional property), by reading that
+    /// field as `smelt_union_arm`. `None` when the read cannot be spelled,
+    /// which declines the presence check.
+    fn union_arm_field_presence(&self, member: TypeId, field: &str) -> Option<ArmFieldPresence> {
         let Some(Type::Class { name, .. }) = self.mir.types.get(member) else {
-            return Some(None);
+            return Some(ArmFieldPresence::ByTag);
         };
         let Some(interface) = self.mir.interface_named(*name) else {
-            return Some(None);
+            return Some(ArmFieldPresence::ByTag);
         };
         let Some(declared) = crate::classes::effective_interface_fields(self.mir, interface)
             .into_iter()
             .find(|candidate| self.symbol_source_name(candidate.name) == Ok(field))
         else {
-            return Some(None);
+            return Some(ArmFieldPresence::ByTag);
         };
         if !matches!(self.mir.types.get(declared.ty), Some(Type::Optional(..))) {
-            return Some(None);
+            return Some(ArmFieldPresence::ByTag);
         }
         let read = if self.is_reference_class_type(member) {
             self.reference_field_read_place("smelt_union_arm", member, declared.name)
@@ -2357,9 +2360,10 @@ impl FunctionEmitter<'_> {
                 self.context.names().field_text(self.mir, declared.name)
             )
         };
-        Some(Some(read))
+        Some(ArmFieldPresence::Optional(read))
     }
 
+    /// Return whether a named MIR interface declares a field (own or inherited).
     fn mir_interface_has_field(&self, name: Symbol, field: &str) -> bool {
         self.mir
             .interfaces
@@ -2673,4 +2677,13 @@ pub(super) enum UnionArmRead {
     Host(TypeId, smelt_stdlib::HostDataProperty),
     /// A `number`/`boolean` arm: JavaScript reads `undefined`.
     Absent,
+}
+
+/// How one union arm answers a `'k' in v` test
+/// (`FunctionEmitter::union_arm_field_presence`).
+enum ArmFieldPresence {
+    /// The arm's tag decides: the arm always has the property, or never does.
+    ByTag,
+    /// The arm stores the property as an `Option`; the read decides.
+    Optional(String),
 }
