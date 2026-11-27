@@ -322,11 +322,12 @@ fn function_valued_class_fields() -> TestResult {
     verify_node_parity("function_valued_class_fields")
 }
 
-/// `JSON.stringify`/`JSON.parse`, `Object.is`/`Object.hasOwn` read as values are
-/// callable through the copy and report Node's `name` and `length`.
+/// `JSON.stringify`/`JSON.parse`, `Object.is`/`Object.hasOwn`, `Date.now` and
+/// `Reflect.ownKeys` read as values are callable through the copy and report
+/// Node's `name` and `length`.
 #[test]
-fn json_function_values() -> TestResult {
-    verify_node_parity("json_function_values")
+fn namespace_function_values() -> TestResult {
+    verify_node_parity("namespace_function_values")
 }
 
 /// A function used at an object type (`const n: Named = hello`, an argument,

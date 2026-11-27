@@ -653,6 +653,9 @@ impl ModuleBuilder<'_> {
         if let Some(expr) = self.json_static_function_member(member, body) {
             return Ok(self.name_builtin_static_function_value(member, expr, body));
         }
+        if let Some(expr) = self.date_static_function_member(member, body) {
+            return Ok(self.name_builtin_static_function_value(member, expr, body));
+        }
         if let Some(expr) = self.object_static_member(member, body) {
             return Ok(expr);
         }
@@ -1161,6 +1164,14 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(object) = &member.object else {
             return None;
         };
+        // `Reflect.ownKeys` is the own-key projection `Object.keys` is, with
+        // symbol keys included, so its value form is the same adapter; its
+        // `(string | symbol)[]` answer keeps erased elements, as the call's does.
+        if self.names_host(object.name.as_str(), "Reflect") && member.property.name == "ownKeys" {
+            let key_ty = self.erase_with(ErasureReason::UnmodeledType, "Reflect.ownKeys key");
+            let keys_ty = self.ctx.krate.types.intern(Type::List(key_ty));
+            return Some(self.object_static_closure(member, 1, keys_ty, outer_body));
+        }
         if !self.names_host(object.name.as_str(), "Object") {
             return None;
         }
@@ -1215,6 +1226,7 @@ impl ModuleBuilder<'_> {
             "keys" if arity == 1 => Some(DictProjectionOp::Keys),
             "values" if arity == 1 => Some(DictProjectionOp::Values),
             "entries" if arity == 1 => Some(DictProjectionOp::Entries),
+            "ownKeys" if arity == 1 => Some(DictProjectionOp::OwnKeys),
             _ => None,
         };
         // `Object.is` and `Object.hasOwn` run their direct calls' ops over
@@ -1269,7 +1281,12 @@ impl ModuleBuilder<'_> {
                 ty: unknown,
                 span,
             });
-            let dict = if op == DictProjectionOp::FromEntries {
+            // `Reflect.ownKeys` reads the erased receiver itself, as its call
+            // does: a record view of it could not ask a proxy's `ownKeys` trap.
+            let dict = if matches!(
+                op,
+                DictProjectionOp::FromEntries | DictProjectionOp::OwnKeys
+            ) {
                 argument
             } else {
                 closure_body.push_expr(Expr {

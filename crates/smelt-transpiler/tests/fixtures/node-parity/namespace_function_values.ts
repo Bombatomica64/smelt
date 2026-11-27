@@ -1,5 +1,5 @@
-// `JSON.stringify` and `JSON.parse` read as values are first-class functions:
-// a call through the copy runs the builtin, and the copy reports the
+// Builtin namespace functions read as values are first-class functions: a
+// call through the copy runs the builtin, and the copy reports the
 // builtin's own name and length.
 const s = JSON.stringify;
 console.log(s.name, s.length);
@@ -22,3 +22,11 @@ const is = Object.is;
 console.log(is.name, is.length, is(1, 1), is(NaN, NaN), is("a", "b"));
 const has = Object.hasOwn;
 console.log(has.name, has.length, has({ a: 1 }, "a"), has({ a: 1 }, "b"));
+// `Date.now` as a value reads the same clock as its call.
+const now = Date.now;
+const before = Date.now();
+const read = now();
+console.log(now.name, now.length, typeof read, read >= before);
+// `Reflect.ownKeys` as a value projects own keys, symbol keys included.
+const ownKeys = Reflect.ownKeys;
+console.log(ownKeys.name, ownKeys.length, ownKeys({ a: 1, b: 2 }));
