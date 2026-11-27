@@ -5209,12 +5209,10 @@ impl Table {
     _smelt_tmp_17 = set.clone().expect("optional value was absent after narrowing");
     _smelt_tmp_18 = _smelt_tmp_16 + &JsString::from(smelt_number_to_string(_smelt_tmp_17.0.borrow().score.clone()));
     _smelt_tmp_19 = { let smelt_push_item = _smelt_tmp_18; found.borrow_mut().push(smelt_push_item); found.len() as f64 };
-    i = i + 1;
-    continue;
     } else {
+    }
     i = i + 1;
     continue;
-    }
     }
     return found;
     }

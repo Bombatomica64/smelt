@@ -5401,12 +5401,10 @@ fn main() {
     _smelt_tmp_62 = form.clone().has(&key_1);
     if _smelt_tmp_62 {
     present = present + 1.0;
-    _smelt_tmp_57 = _smelt_tmp_57 + 1;
-    continue;
     } else {
+    }
     _smelt_tmp_57 = _smelt_tmp_57 + 1;
     continue;
-    }
     }
     let _ = { println!("{}", smelt_console_number(present)); };
     map = SmeltJsMap::from([(JsString::from("x"), 1.0), (JsString::from("y"), 2.0)]);

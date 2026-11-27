@@ -5367,14 +5367,12 @@ fn main() {
     _smelt_tmp_50 = match value { SmeltUnion14::M1(value) => value, _ => unreachable!("union guard selected an excluded member") };
     _smelt_tmp_51 = JsString::from(_smelt_tmp_50.file_name());
     let _ = { println!("{} {}", JsString::from("file"), _smelt_tmp_51); };
-    _smelt_tmp_46 = _smelt_tmp_46 + 1;
-    continue;
     } else {
     _smelt_tmp_53 = match value { SmeltUnion14::M0(value) => value, _ => unreachable!("union guard selected an excluded member") };
     let _ = { println!("{} {}", JsString::from("text"), _smelt_tmp_53); };
+    }
     _smelt_tmp_46 = _smelt_tmp_46 + 1;
     continue;
-    }
     }
     return;
 }

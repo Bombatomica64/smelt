@@ -1120,12 +1120,10 @@ fn main() {
     _smelt_tmp_44 = _smelt_tmp_43.test(&JsString::from("aa"));
     if _smelt_tmp_44 {
     matched = matched + 1.0;
-    index = index + 1;
-    continue;
     } else {
+    }
     index = index + 1;
     continue;
-    }
     }
     let _ = { println!("{}", smelt_console_number(matched)); };
     words = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("alpha"), JsString::from("beta"), JsString::from("gamma"), JsString::from("delta")]; smelt_list_items }));

@@ -4613,15 +4613,12 @@ pub(crate) fn describe(text: JsString) -> () {
     _smelt_tmp_28 = group.clone().is_none();
     if _smelt_tmp_28 {
     _smelt_tmp_29 = JsString::from("undefined");
-    let _ = { println!("{}", _smelt_tmp_29); };
-    _smelt_tmp_25 = _smelt_tmp_25 + 1;
-    continue;
     } else {
     _smelt_tmp_29 = group.clone().expect("optional value was absent after narrowing");
+    }
     let _ = { println!("{}", _smelt_tmp_29); };
     _smelt_tmp_25 = _smelt_tmp_25 + 1;
     continue;
-    }
     }
     _smelt_tmp_32 = m.clone().expect("optional value was absent after narrowing");
     first = _smelt_tmp_32.clone().group_owned(1.0 as usize);

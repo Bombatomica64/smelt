@@ -5319,15 +5319,12 @@ pub(crate) fn segments(path: JsString) -> SmeltList<JsString> {
     if _smelt_tmp_14 {
     _smelt_tmp_16 = JsString::new() + &p;
     _smelt_tmp_15 = _smelt_tmp_16 + &JsString::from("<last>");
-    _smelt_tmp_18 = { let smelt_push_item = _smelt_tmp_15; out.borrow_mut().push(smelt_push_item); out.len() as f64 };
-    _smelt_tmp_9 = _smelt_tmp_9 + 1;
-    continue;
     } else {
     _smelt_tmp_15 = p;
+    }
     _smelt_tmp_18 = { let smelt_push_item = _smelt_tmp_15; out.borrow_mut().push(smelt_push_item); out.len() as f64 };
     _smelt_tmp_9 = _smelt_tmp_9 + 1;
     continue;
-    }
     }
     return out;
 }
@@ -5378,17 +5375,13 @@ pub(crate) fn buckets() -> JsString {
     __smelt_logical_value_5 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![]; smelt_list_items }));
     { let smelt_assign_index = { let smelt_normalized = count as i64; usize::try_from(smelt_normalized).expect("negative index out of bounds") }; let smelt_assign_value = Into::<SmeltList<_>>::into(__smelt_logical_value_5.clone()); if smelt_assign_index >= queue.len() { queue.borrow_mut().resize(smelt_assign_index.saturating_add(1), SmeltList::new(Vec::<JsString>::new())); } queue.borrow_mut()[smelt_assign_index] = smelt_assign_value; }
     __smelt_logical_4 = Into::<SmeltList<_>>::into(__smelt_logical_value_5);
-    target = Into::<SmeltList<_>>::into(__smelt_logical_4);
-    _smelt_tmp_21 = { let smelt_push_item = item; target.borrow_mut().push(smelt_push_item); target.len() as f64 };
-    _smelt_tmp_12 = _smelt_tmp_12 + 1;
-    continue;
     } else {
     __smelt_logical_4 = Into::<SmeltList<_>>::into(queue.borrow().get({ let smelt_normalized = count as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| SmeltList::new(Vec::<JsString>::new())));
+    }
     target = Into::<SmeltList<_>>::into(__smelt_logical_4);
     _smelt_tmp_21 = { let smelt_push_item = item; target.borrow_mut().push(smelt_push_item); target.len() as f64 };
     _smelt_tmp_12 = _smelt_tmp_12 + 1;
     continue;
-    }
     }
     _smelt_tmp_22 = JsString::from(smelt_json_stringify(&SmeltList::clone(&queue).into_live_smelt_unknown()).expect("JSON serialization failed"));
     return _smelt_tmp_22;

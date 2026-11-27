@@ -4762,12 +4762,10 @@ pub(crate) fn compact<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown +
     _smelt_tmp_7 = match ((item.clone()).into_smelt_unknown()) { SmeltUnknown::Null | SmeltUnknown::Undefined => false, SmeltUnknown::Bool(smelt_value) => smelt_value, SmeltUnknown::Number(smelt_value) => smelt_value != 0.0 && !smelt_value.is_nan(), SmeltUnknown::String(smelt_value) => !smelt_value.is_empty(), SmeltUnknown::BigInt(value) => !::num_traits::Zero::is_zero(&value), SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => true };
     if _smelt_tmp_7 {
     _smelt_tmp_8 = { let smelt_push_item = item; out.borrow_mut().push(smelt_push_item); out.len() as f64 };
-    _smelt_tmp_4 = _smelt_tmp_4 + 1;
-    continue;
     } else {
+    }
     _smelt_tmp_4 = _smelt_tmp_4 + 1;
     continue;
-    }
     }
     return out;
 }
@@ -4787,12 +4785,10 @@ pub(crate) fn count_strings<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnk
     _smelt_tmp_6 = matches!((item).into_smelt_unknown(), SmeltUnknown::String(_));
     if _smelt_tmp_6 {
     count = count + 1.0;
-    _smelt_tmp_3 = _smelt_tmp_3 + 1;
-    continue;
     } else {
+    }
     _smelt_tmp_3 = _smelt_tmp_3 + 1;
     continue;
-    }
     }
     return count;
 }
