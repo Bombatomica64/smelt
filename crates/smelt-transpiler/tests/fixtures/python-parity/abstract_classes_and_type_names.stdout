@@ -1,0 +1,8 @@
+13.25
+['square 2.5', 'circle', 'square 0.5']
+['Square', 'Circle', 'Square']
+Animal says ... Animal
+Dog says woof Dog
+Cat says meow Cat
+int float str bool
+list dict NoneType tuple

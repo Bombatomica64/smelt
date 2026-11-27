@@ -88,6 +88,47 @@ impl ModuleBuilder<'_> {
         })
     }
 
+    /// Read a dataclass field's class-body value as a `dataclasses.field(...)`
+    /// call: `field(default=v)` is the default `v`, `field(default_factory=f)`
+    /// the call `f()`. `None` when `value` is not a `field` call (an ordinary
+    /// default). Any other `field` argument is refused.
+    fn dataclass_field_default(&self, value: &Expr) -> Result<Option<DataclassDefault>, SmeltError> {
+        let Expr::Call(call) = value else {
+            return Ok(None);
+        };
+        let names_field = match call.func.as_ref() {
+            Expr::Name(name) => self.import_aliases.get(name.id.as_str()).is_some_and(|target| target == "dataclasses.field"),
+            Expr::Attribute(attr) => {
+                attr.attr.as_str() == "field"
+                    && matches!(attr.value.as_ref(), Expr::Name(module) if self.import_aliases.get(module.id.as_str()).is_some_and(|target| target == "dataclasses"))
+            }
+            _ => false,
+        };
+        if !names_field {
+            return Ok(None);
+        }
+        let span = self.span(call.range());
+        let unsupported = || {
+            SmeltError::unsupported(span, "`dataclasses.field` is supported with exactly one of `default=` or `default_factory=`")
+        };
+        let ([], [keyword]) = (call.arguments.args.as_ref(), call.arguments.keywords.as_ref()) else {
+            return Err(unsupported());
+        };
+        match keyword.arg.as_ref().map(ruff_python_ast::Identifier::as_str) {
+            Some("default") => Ok(Some(DataclassDefault::Value(keyword.value.clone()))),
+            Some("default_factory") => {
+                let parsed = ruff_python_parser::parse_expression("__smelt_factory()").map_err(|error| SmeltError::unsupported(span, format!("internal: synthesized factory call does not parse: {error}")))?;
+                let mut factory_call = *parsed.into_syntax().body;
+                ruff_python_ast::relocate::relocate_expr(&mut factory_call, call.range());
+                if let Expr::Call(synthesized) = &mut factory_call {
+                    *synthesized.func = keyword.value.clone();
+                }
+                Ok(Some(DataclassDefault::Factory(factory_call)))
+            }
+            _ => Err(unsupported()),
+        }
+    }
+
     /// Synthesise an `__init__` method for a `@dataclass` class.
     ///
     /// Creates one parameter per annotated field and emits
@@ -104,17 +145,32 @@ impl ModuleBuilder<'_> {
         fields: &[Field],
         span: Span,
     ) -> Result<ItemId, SmeltError> {
-        let defaults: HashMap<String, Expr> = class
-            .body
-            .iter()
-            .filter_map(|stmt| match stmt {
-                Stmt::AnnAssign(ann) => match (ann.target.as_ref(), ann.value.as_deref()) {
-                    (Expr::Name(name), Some(value)) => Some((name.id.as_str().to_owned(), value.clone())),
-                    _ => None,
-                },
-                _ => None,
-            })
-            .collect();
+        // Each field's default: its value, `field(default=v)`'s `v`, or for
+        // `field(default_factory=f)` the call `f()`, which runs anew for
+        // every instance that leaves the argument out.
+        let mut defaults: HashMap<String, Expr> = HashMap::new();
+        let mut factories: HashSet<String> = HashSet::new();
+        for stmt in &class.body {
+            let Stmt::AnnAssign(ann) = stmt else {
+                continue;
+            };
+            let (Expr::Name(name), Some(value)) = (ann.target.as_ref(), ann.value.as_deref()) else {
+                continue;
+            };
+            let field_name = name.id.as_str().to_owned();
+            match self.dataclass_field_default(value)? {
+                Some(DataclassDefault::Value(default)) => {
+                    defaults.insert(field_name, default);
+                }
+                Some(DataclassDefault::Factory(call)) => {
+                    defaults.insert(field_name.clone(), call);
+                    factories.insert(field_name);
+                }
+                None => {
+                    defaults.insert(field_name, value.clone());
+                }
+            }
+        }
         let none_ty = self.intern_type(Type::None);
         let (fn_body, params) = self.with_fn_scope(FnKind::Sync, |this| {
             let mut fn_body = Body::new(None, span);
@@ -142,6 +198,13 @@ impl ModuleBuilder<'_> {
                     .unwrap_or("")
                     .to_owned();
                 let defaulted = match defaults.get(&field_name_str) {
+                    // A factory's call is evaluated by every call that needs
+                    // it, never shared.
+                    Some(_) if factories.contains(&field_name_str) => Some(DefaultedParam {
+                        declared_ty: field.ty,
+                        optional_ty: this.intern_type(Type::Optional(field.ty, smelt_hir::Absence::Undefined)),
+                        shared: None,
+                    }),
                     Some(default) => this.defaulted_param(&field_name_str, field.ty, default, field.span)?,
                     None => None,
                 };
@@ -519,4 +582,12 @@ return_ty: class_ty,
         };
         Ok(self.ctx.krate.push_item(Item::Function(item)))
     }
+}
+
+/// A dataclass field's default, read from a `dataclasses.field(...)` call.
+enum DataclassDefault {
+    /// `field(default=v)`: the value `v`.
+    Value(Expr),
+    /// `field(default_factory=f)`: the call `f()`, run per instance.
+    Factory(Expr),
 }

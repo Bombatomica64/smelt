@@ -521,7 +521,9 @@ pub(crate) fn emit_reference_record_storage(
 
     // Hand-written identity `PartialEq`: a reference class has JavaScript object
     // identity, so `==`/`===`/`toBe` compare whether two handles share the same
-    // cell (`Rc::ptr_eq`), never the cell contents. This also avoids requiring
+    // cell (`Rc::ptr_eq`), never the cell contents. A Python dataclass is the
+    // exception: its generated `__eq__` compares the fields
+    // (`dataclass_contents_equality`). This also avoids requiring
     // `Inner: PartialEq`, which a callback-storing inner record could not satisfy.
     writer.block(
         format!("impl{impl_generics} PartialEq for {name}{type_args}"),
@@ -536,6 +538,8 @@ pub(crate) fn emit_reference_record_storage(
                     // The address alone: a polymorphic handle's `Rc<dyn ..>`
                     // also carries a vtable, which is no part of identity.
                     fn_writer.line("::std::ptr::addr_eq(::std::rc::Rc::as_ptr(&self.0), ::std::rc::Rc::as_ptr(&other.0))");
+                } else if let Some(contents) = dataclass_contents_equality(mir, context, *declared_name, fields) {
+                    fn_writer.line(contents);
                 } else {
                     fn_writer.line("::std::rc::Rc::ptr_eq(&self.0, &other.0)");
                 }
@@ -1022,4 +1026,75 @@ fn emit_reference_class_into_smelt_unknown_impl(
         },
     );
     Ok(())
+}
+
+/// The `PartialEq::eq` body of a Python `@dataclass` emitted as a reference
+/// class: one object, or equal fields in declaration order, as the
+/// dataclass's generated `__eq__` compares `(self.a, self.b) == (other.a,
+/// other.b)`. A value dataclass derives the same field-wise equality; a
+/// reference one (shared by aliases the program mutates through) needs it
+/// written over the cell.
+///
+/// `None`, keeping identity, for any other class, for a dataclass with no
+/// fields, and for one with a field whose type has no value equality (a
+/// callable, an erased value). The caller has already excluded polymorphic,
+/// widened and view-target classes, whose handles may hold another class's
+/// cell.
+fn dataclass_contents_equality(
+    mir: &Mir,
+    context: &EmitContext,
+    class_name: smelt_hir::Symbol,
+    fields: &[smelt_mir::MirField],
+) -> Option<String> {
+    let class = classes::find_class(mir, class_name)?;
+    if !matches!(class.kind, smelt_hir::ClassKind::DataclassLike { .. }) || fields.is_empty() {
+        return None;
+    }
+    if fields
+        .iter()
+        .any(|field| !type_has_value_equality(mir, field.ty, 0))
+    {
+        return None;
+    }
+    let compared = fields
+        .iter()
+        .map(|field| {
+            let name = context.names().field_text(mir, field.name);
+            format!("smelt_left.{name} == smelt_right.{name}")
+        })
+        .collect::<Vec<_>>()
+        .join(" && ");
+    Some(format!(
+        "::std::rc::Rc::ptr_eq(&self.0, &other.0) || {{ let (smelt_left, smelt_right) = (self.0.borrow(), other.0.borrow()); {compared} }}"
+    ))
+}
+
+/// Whether values of `ty` compare by value with `==` in generated Rust: no
+/// callable and no erased value anywhere in the type.
+fn type_has_value_equality(mir: &Mir, ty: smelt_hir::TypeId, depth: u32) -> bool {
+    use smelt_hir::Type;
+    if depth > 32 {
+        return false;
+    }
+    match mir.types.get(ty) {
+        Some(
+            Type::Function(_)
+            | Type::Unknown
+            | Type::TypeParam { .. }
+            | Type::Future(_)
+            | Type::Generator { .. },
+        )
+        | None => false,
+        Some(Type::List(item) | Type::Set(item) | Type::Optional(item, _)) => {
+            type_has_value_equality(mir, *item, depth.saturating_add(1))
+        }
+        Some(Type::Dict(key, value)) => {
+            type_has_value_equality(mir, *key, depth.saturating_add(1))
+                && type_has_value_equality(mir, *value, depth.saturating_add(1))
+        }
+        Some(Type::Tuple(items) | Type::Union(items)) => items
+            .iter()
+            .all(|item| type_has_value_equality(mir, *item, depth.saturating_add(1))),
+        Some(_) => true,
+    }
 }

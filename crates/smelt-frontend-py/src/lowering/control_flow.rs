@@ -412,7 +412,7 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
         block: smelt_hir::BlockId,
     ) -> Result<(), SmeltError> {
-        let cond = self.expression(&if_stmt.test, body)?;
+        let cond = self.python_condition(&if_stmt.test, body)?;
         let facts = self.narrowing_facts(&if_stmt.test, body);
         let then_block = self.with_narrowings(&facts.then_facts, |this| this.block_from_stmts(&if_stmt.body, body))?;
 
@@ -456,7 +456,7 @@ impl ModuleBuilder<'_> {
 
         if let Some(test) = &first.test {
             // `elif` — recurse for the tail.
-            let cond = self.expression(test, body)?;
+            let cond = self.python_condition(test, body)?;
             let facts = self.narrowing_facts(test, body);
             let then_block = self.with_narrowings(&facts.then_facts, |this| this.block_from_stmts(&first.body, body))?;
             let else_block = self.with_narrowings(&facts.else_facts, |this| {

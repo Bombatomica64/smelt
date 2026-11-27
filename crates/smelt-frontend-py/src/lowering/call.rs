@@ -190,6 +190,9 @@ impl ModuleBuilder<'_> {
         call: &ruff_python_ast::ExprCall,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        if let Some(expr) = self.str_format_call_expression(call, body)? {
+            return Ok(Some(expr));
+        }
         if let Some(expr) = self.py_str_method_call_expression(call, body)? {
             return Ok(Some(expr));
         }

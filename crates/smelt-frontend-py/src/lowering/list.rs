@@ -342,13 +342,27 @@ impl ModuleBuilder<'_> {
                 "map/filter input must be a list",
             ));
         };
-        let callback = self.python_callback_argument(callback_arg, &[*element_ty], body)?;
+        let item_ty = *element_ty;
+        // `filter(None, xs)` keeps the items that are true themselves: the
+        // identity predicate.
+        let identity = (op == ListCallbackOp::Filter && matches!(callback_arg, Expr::NoneLiteral(_)))
+            .then(|| Self::identity_lambda(callback_arg.range()))
+            .flatten();
+        let callback_source = identity.as_ref().unwrap_or(callback_arg);
+        let callback = self.python_callback_argument(callback_source, &[item_ty], body)?;
         let ty = if name.id.as_str() == "filter" {
-            let bool_ty = self.intern_type(Type::Bool);
-            if callback.return_ty != bool_ty {
+            // `filter` keeps an item when the predicate's result is true. A
+            // non-`bool` result is tested by the callback adapter's `ToBool`,
+            // which is Python's truth test for the scalar types and their
+            // optionals only.
+            let truth_by_cast = |this: &Self, ty: TypeId| {
+                this.truth_is_to_bool(ty)
+                    || matches!(this.ctx.krate.types.get(ty), Some(Type::Optional(inner, _)) if this.truth_is_to_bool(*inner))
+            };
+            if !truth_by_cast(self, callback.return_ty) {
                 return Err(SmeltError::unsupported(
-                    self.span(callback_arg.range()),
-                    "filter callback must return bool",
+                    self.span(callback_source.range()),
+                    "filter callback must return bool, int, float, str, or an optional of one",
                 ));
             }
             list_ty
@@ -364,6 +378,67 @@ impl ModuleBuilder<'_> {
             ty,
             span,
         })))
+    }
+
+    /// `enumerate(xs, start)`: the pairs of `enumerate(xs)` with `start`
+    /// (evaluated once, before the iteration, as Python does) added to each
+    /// index, materialized as `enumerate(xs)` is.
+    #[expect(clippy::too_many_arguments, reason = "the pairs, the start, their item type and where they lower")]
+    fn enumerate_from(
+        &mut self,
+        enumerated: smelt_hir::ExprId,
+        start_arg: &Expr,
+        item_ty: TypeId,
+        span: Span,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let int_ty = self.intern_type(Type::PyInt);
+        let none_ty = self.intern_type(Type::None);
+        let tuple_ty = self.intern_type(Type::Tuple(vec![int_ty, item_ty]));
+        let list_ty = self.intern_type(Type::List(tuple_ty));
+        let start = self.expression(start_arg, body)?;
+        if Self::expr_ty(body, start) != int_ty {
+            return Err(SmeltError::unsupported(self.span(start_arg.range()), "enumerate() start must be an int"));
+        }
+        let outer = body.push_block(span);
+        let new_local = |this: &mut Self, arena: &mut Body, spelled: &str, ty: TypeId, mutable: bool| {
+            let symbol = this.intern_synthesized_name(spelled);
+            arena.push_local(LocalDecl { name: Some(symbol), ty, mutable, span })
+        };
+        let start_local = new_local(self, body, "__smelt_enumerate_start", int_ty, false);
+        let start_pat = body.push_pattern(HirPattern::Binding(start_local));
+        body.push_stmt_to_block(outer, HirStmt::Let { pat: start_pat, ty: int_ty, value: Some(start) });
+        let acc_local = new_local(self, body, "__smelt_enumerate_acc", list_ty, true);
+        let acc_pat = body.push_pattern(HirPattern::Binding(acc_local));
+        let empty = body.push_expr(HirExpr { kind: ExprKind::ListLit(Vec::new()), ty: list_ty, span });
+        body.push_stmt_to_block(outer, HirStmt::Let { pat: acc_pat, ty: list_ty, value: Some(empty) });
+        let index_local = new_local(self, body, "__smelt_enumerate_index", int_ty, false);
+        let item_local = new_local(self, body, "__smelt_enumerate_item", item_ty, false);
+        let index_pat = body.push_pattern(HirPattern::Binding(index_local));
+        let item_pat = body.push_pattern(HirPattern::Binding(item_local));
+        let pair_pat = body.push_pattern(HirPattern::Tuple(vec![index_pat, item_pat]));
+        let loop_body = body.push_block(span);
+        let index = body.push_expr(HirExpr { kind: ExprKind::Local(index_local), ty: int_ty, span });
+        let start_read = body.push_expr(HirExpr { kind: ExprKind::Local(start_local), ty: int_ty, span });
+        let shifted = self.python_arithmetic(PythonArithmetic::Plain(BinOp::Add), index, start_read, span, body)?;
+        let item = body.push_expr(HirExpr { kind: ExprKind::Local(item_local), ty: item_ty, span });
+        let pair = body.push_expr(HirExpr { kind: ExprKind::TupleLit(vec![shifted, item]), ty: tuple_ty, span });
+        let acc = body.push_expr(HirExpr { kind: ExprKind::Local(acc_local), ty: list_ty, span });
+        let push = body.push_expr(HirExpr { kind: ExprKind::ListPush { list: acc, item: pair }, ty: none_ty, span });
+        body.push_stmt_to_block(loop_body, HirStmt::Expr(push));
+        body.push_stmt_to_block(outer, HirStmt::For { pat: pair_pat, iter: enumerated, body: loop_body });
+        let tail = body.push_expr(HirExpr { kind: ExprKind::Local(acc_local), ty: list_ty, span });
+        let outer_idx = usize::try_from(outer.0).map_err(|error| SmeltError::unsupported(span, error.to_string()))?;
+        body.blocks[outer_idx].tail = Some(tail);
+        Ok(body.push_expr(HirExpr { kind: ExprKind::Block(outer), ty: list_ty, span }))
+    }
+
+    /// `lambda v: v`, at `range`: the identity callback.
+    fn identity_lambda(range: TextRange) -> Option<Expr> {
+        let parsed = ruff_python_parser::parse_expression("lambda __smelt_item: __smelt_item").ok()?;
+        let mut expr = *parsed.into_syntax().body;
+        ruff_python_ast::relocate::relocate_expr(&mut expr, range);
+        Some(expr)
     }
 
     /// Lower a Python list comprehension `[elt for t in it if cond ...]`.
@@ -597,16 +672,9 @@ impl ModuleBuilder<'_> {
         // The loop body wraps the inner levels in this level's `if` guards,
         // applied in source order as nested `if` statements.
         let loop_body = body.push_block(build.span);
-        let bool_ty = self.intern_type(Type::Bool);
         let mut innermost = loop_body;
         for condition in level.ifs {
-            let cond = self.expression(condition, body)?;
-            if Self::expr_ty(body, cond) != bool_ty {
-                return Err(SmeltError::unsupported(
-                    self.span(condition.range()),
-                    "comprehension `if` clauses must be boolean conditions",
-                ));
-            }
+            let cond = self.python_condition(condition, body)?;
             let then_block = body.push_block(build.span);
             body.push_stmt_to_block(
                 innermost,
@@ -732,21 +800,42 @@ impl ModuleBuilder<'_> {
     /// `lambda a: len(a)`, so the call lowers through the same builtin rules
     /// (and the same refusals) as a written call, typed by the values the
     /// callback receives. The synthesized nodes take `arg`'s source range, so
-    /// a diagnostic points at the name. `None` when `arg` is not a name of a
-    /// Python builtin, or the program binds that name.
+    /// a diagnostic points at the name. An unbound builtin-type method
+    /// (`str.lower`) calls the method on the first parameter. `None` when
+    /// `arg` is neither, or the program binds the name.
     fn builtin_callback_lambda(&self, arg: &Expr, arity: usize) -> Option<ruff_python_ast::ExprLambda> {
-        let Expr::Name(name) = arg else {
-            return None;
-        };
-        let spelled = name.id.as_str();
-        if self.program_binds_name(spelled) || !ruff_python_stdlib::builtins::is_python_builtin(spelled, ruff_python_ast::PythonVersion::default().minor, false) {
-            return None;
-        }
         let params = (0..arity).map(|position| format!("__smelt_builtin_arg_{position}")).collect::<Vec<_>>();
-        let source = format!("lambda {list}: {spelled}({list})", list = params.join(", "));
+        let (source, range) = match arg {
+            Expr::Name(name) => {
+                let spelled = name.id.as_str();
+                if self.program_binds_name(spelled) || !ruff_python_stdlib::builtins::is_python_builtin(spelled, ruff_python_ast::PythonVersion::default().minor, false) {
+                    return None;
+                }
+                (format!("lambda {list}: {spelled}({list})", list = params.join(", ")), name.range)
+            }
+            // An unbound method of a builtin type (`key=str.lower`) is the
+            // lambda calling it on its first argument: `str.lower` is
+            // `lambda a: a.lower()`, and the method call lowers (and is
+            // refused) by the ordinary method rules for the item's type.
+            Expr::Attribute(attr) => {
+                let Expr::Name(owner) = attr.value.as_ref() else {
+                    return None;
+                };
+                let owner_name = owner.id.as_str();
+                if !matches!(owner_name, "str" | "int" | "float" | "list" | "dict" | "set" | "tuple") || self.program_binds_name(owner_name) {
+                    return None;
+                }
+                let (first, rest) = params.split_first()?;
+                (
+                    format!("lambda {list}: {first}.{method}({rest})", list = params.join(", "), method = attr.attr.as_str(), rest = rest.join(", ")),
+                    attr.range,
+                )
+            }
+            _ => return None,
+        };
         let parsed = ruff_python_parser::parse_expression(&source).ok()?;
         let mut expr = *parsed.into_syntax().body;
-        ruff_python_ast::relocate::relocate_expr(&mut expr, name.range);
+        ruff_python_ast::relocate::relocate_expr(&mut expr, range);
         match expr {
             Expr::Lambda(lambda) => Some(lambda),
             _ => None,

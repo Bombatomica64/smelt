@@ -162,6 +162,9 @@ impl ModuleBuilder<'_> {
                 if let Some(member_expr) = self.enum_member_expression(attr, body)? {
                     return Ok(member_expr);
                 }
+                if let Some(name) = self.type_name_expression(attr, body)? {
+                    return Ok(name);
+                }
                 if let Some(member_expr) = self.class_static_member_expression(attr, body)? {
                     return Ok(member_expr);
                 }
@@ -519,26 +522,19 @@ impl ModuleBuilder<'_> {
         fstring: &ruff_python_ast::ExprFString,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        // A segment is either a static literal chunk or a lowered interpolation.
-        enum Segment {
-            Literal(String),
-            Expr(smelt_hir::ExprId),
-        }
-
         let span = self.span(fstring.range);
-        let str_ty = self.intern_type(Type::PyStr);
-        let mut segments: Vec<Segment> = Vec::new();
+        let mut segments: Vec<TextSegment> = Vec::new();
 
         for part in fstring.value.iter() {
             match part {
                 ruff_python_ast::FStringPartRef::Literal(literal) => {
-                    segments.push(Segment::Literal(literal.as_str().to_owned()));
+                    segments.push(TextSegment::Literal(literal.as_str().to_owned()));
                 }
                 ruff_python_ast::FStringPartRef::FString(inner) => {
                     for element in &inner.elements {
                         match element {
                             ruff_python_ast::InterpolatedStringElement::Literal(literal) => {
-                                segments.push(Segment::Literal(literal.value.to_string()));
+                                segments.push(TextSegment::Literal(literal.value.to_string()));
                             }
                             ruff_python_ast::InterpolatedStringElement::Interpolation(interp) => {
                                 // A format spec with a nested replacement field
@@ -566,7 +562,7 @@ impl ModuleBuilder<'_> {
                                 // value: its `repr` unless a conversion or a
                                 // format spec says otherwise.
                                 let conversion = interp.debug_text.as_ref().map_or(interp.conversion, |debug| {
-                                    segments.push(Segment::Literal(debug.as_str().to_owned()));
+                                    segments.push(TextSegment::Literal(debug.as_str().to_owned()));
                                     if interp.conversion == ruff_python_ast::ConversionFlag::None && spec.is_none() {
                                         ruff_python_ast::ConversionFlag::Repr
                                     } else {
@@ -574,51 +570,8 @@ impl ModuleBuilder<'_> {
                                     }
                                 });
                                 let interpolated = self.expression(&interp.expression, body)?;
-                                // `!r` is `repr(x)`; a container or an exception
-                                // formats as its `str`, which is Python text the
-                                // string `+` fold below would spell the
-                                // JavaScript way.
-                                let expr_ty = Self::expr_ty(body, interpolated);
-                                let expr = if conversion == ruff_python_ast::ConversionFlag::Ascii {
-                                    self.python_ascii_expr(interpolated, self.span(interp.range), body)?
-                                } else if conversion == ruff_python_ast::ConversionFlag::Repr {
-                                    self.python_text_expr(interpolated, true, self.span(interp.range), body)?
-                                } else if conversion == ruff_python_ast::ConversionFlag::Str
-                                    || !matches!(
-                                        self.ctx.krate.types.get(expr_ty),
-                                        Some(Type::Bool | Type::PyInt | Type::Float | Type::PyStr)
-                                    ) && (self.has_python_text(expr_ty)
-                                        || self.class_text_method(expr_ty, false).is_some())
-                                {
-                                    self.python_text_expr(interpolated, false, self.span(interp.range), body)?
-                                } else {
-                                    interpolated
-                                };
-                                // `f"{x}"` formats `x` with `format(x, "")`, which
-                                // for `int`, `float` and `bool` is `str(x)`: the
-                                // same `ToString` cast `str(x)` lowers to, so a
-                                // float interpolates as `12.0` and an int keeps
-                                // all its digits (the string `+` fold below
-                                // would coerce it the JavaScript way).
-                                let interp_span = self.span(interp.range);
-                                let expr = if let Some(spec_text) = spec {
-                                    self.formatted_value(expr, spec_text, interp_span, body)?
-                                } else if matches!(
-                                    self.ctx.krate.types.get(Self::expr_ty(body, expr)),
-                                    Some(Type::Bool | Type::PyInt | Type::Float)
-                                ) {
-                                    body.push_expr(HirExpr {
-                                        kind: ExprKind::PrimitiveCast {
-                                            op: PrimitiveCastOp::ToString,
-                                            operand: expr,
-                                        },
-                                        ty: str_ty,
-                                        span: self.span(interp.range),
-                                    })
-                                } else {
-                                    expr
-                                };
-                                segments.push(Segment::Expr(expr));
+                                let expr = self.interpolation_text(interpolated, conversion, spec, self.span(interp.range), body)?;
+                                segments.push(TextSegment::Expr(expr));
                             }
                         }
                     }
@@ -626,17 +579,24 @@ impl ModuleBuilder<'_> {
             }
         }
 
+        Ok(self.fold_text_segments(segments, span, body))
+    }
+
+    /// Fold text segments into a chain of `str` additions, the first segment
+    /// the accumulator base, so literal-only text lowers to one literal.
+    fn fold_text_segments(&mut self, segments: Vec<TextSegment>, span: Span, body: &mut Body) -> smelt_hir::ExprId {
+        let str_ty = self.intern_type(Type::PyStr);
         // Fold segments into a chain of `String` additions, using the first
         // segment as the accumulator base so a literal-only f-string lowers to a
         // single string literal.
         let mut iter = segments.into_iter();
         let mut acc = match iter.next() {
-            Some(Segment::Literal(text)) => body.push_expr(HirExpr {
+            Some(TextSegment::Literal(text)) => body.push_expr(HirExpr {
                 kind: ExprKind::Literal(Literal::String(text)),
                 ty: str_ty,
                 span,
             }),
-            Some(Segment::Expr(expr)) => {
+            Some(TextSegment::Expr(expr)) => {
                 // Anchor on an empty string literal so the first interpolation is
                 // emitted through the string-addition path (which coerces the
                 // operand to `String`).
@@ -664,7 +624,7 @@ impl ModuleBuilder<'_> {
 
         for segment in iter {
             let rhs = match segment {
-                Segment::Literal(text) => {
+                TextSegment::Literal(text) => {
                     if text.is_empty() {
                         continue;
                     }
@@ -674,7 +634,7 @@ impl ModuleBuilder<'_> {
                         span,
                     })
                 }
-                Segment::Expr(expr) => expr,
+                TextSegment::Expr(expr) => expr,
             };
             acc = body.push_expr(HirExpr {
                 kind: ExprKind::BinOp {
@@ -687,7 +647,68 @@ impl ModuleBuilder<'_> {
             });
         }
 
-        Ok(acc)
+        acc
+    }
+
+    /// The text one replacement field contributes: `value` under its
+    /// conversion (`!r` is `repr`, `!a` `ascii`, `!s` `str`) and its format
+    /// spec, as `format(value, spec)` writes it. A container, exception or
+    /// class instance with Python text formats as its `str`, which the string
+    /// `+` fold would otherwise spell the JavaScript way.
+    #[expect(clippy::too_many_arguments, reason = "the value, its conversion and spec, and where it lowers")]
+    fn interpolation_text(
+        &mut self,
+        interpolated: smelt_hir::ExprId,
+        conversion: ruff_python_ast::ConversionFlag,
+        spec: Option<String>,
+        interp_span: Span,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let str_ty = self.intern_type(Type::PyStr);
+        // `!r` is `repr(x)`; a container or an exception
+        // formats as its `str`, which is Python text the
+        // string `+` fold below would spell the
+        // JavaScript way.
+        let expr_ty = Self::expr_ty(body, interpolated);
+        let expr = if conversion == ruff_python_ast::ConversionFlag::Ascii {
+            self.python_ascii_expr(interpolated, interp_span, body)?
+        } else if conversion == ruff_python_ast::ConversionFlag::Repr {
+            self.python_text_expr(interpolated, true, interp_span, body)?
+        } else if conversion == ruff_python_ast::ConversionFlag::Str
+            || !matches!(
+                self.ctx.krate.types.get(expr_ty),
+                Some(Type::Bool | Type::PyInt | Type::Float | Type::PyStr)
+            ) && (self.has_python_text(expr_ty)
+                || self.class_text_method(expr_ty, false).is_some())
+        {
+            self.python_text_expr(interpolated, false, interp_span, body)?
+        } else {
+            interpolated
+        };
+        // `f"{x}"` formats `x` with `format(x, "")`, which
+        // for `int`, `float` and `bool` is `str(x)`: the
+        // same `ToString` cast `str(x)` lowers to, so a
+        // float interpolates as `12.0` and an int keeps
+        // all its digits (the string `+` fold below
+        // would coerce it the JavaScript way).
+        let expr = if let Some(spec_text) = spec {
+            self.formatted_value(expr, spec_text, interp_span, body)?
+        } else if matches!(
+            self.ctx.krate.types.get(Self::expr_ty(body, expr)),
+            Some(Type::Bool | Type::PyInt | Type::Float)
+        ) {
+            body.push_expr(HirExpr {
+                kind: ExprKind::PrimitiveCast {
+                    op: PrimitiveCastOp::ToString,
+                    operand: expr,
+                },
+                ty: str_ty,
+                span: interp_span,
+            })
+        } else {
+            expr
+        };
+        Ok(expr)
     }
 
     /// `str * int` or `int * str`: Python's sequence repetition, not arithmetic.
@@ -754,7 +775,7 @@ impl ModuleBuilder<'_> {
         if_expr: &ruff_python_ast::ExprIf,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        let cond = self.expression(&if_expr.test, body)?;
+        let cond = self.python_condition(&if_expr.test, body)?;
         // Each branch reads what the test proves, as an `if` statement's do.
         let facts = self.narrowing_facts(&if_expr.test, body);
         let then_expr = self.with_narrowings(&facts.then_facts, |this| this.expression(&if_expr.body, body))?;
@@ -1462,13 +1483,9 @@ impl ModuleBuilder<'_> {
                 Self::expr_span(body, acc).start,
                 Self::expr_span(body, rhs).end,
             );
-            if b.op == BoolOp::Or {
-                if let Some(value_or) =
-                    self.value_or_expression((acc, rhs), span, body, type_hint)?
-                {
-                    acc = value_or;
-                    continue;
-                }
+            if let Some(chosen) = self.value_bool_op(b.op, (acc, rhs), span, body, type_hint)? {
+                acc = chosen;
+                continue;
             }
             acc = self.short_circuit(op, acc, rhs, span, body);
         }
@@ -1502,9 +1519,18 @@ impl ModuleBuilder<'_> {
         })
     }
 
-    /// Lower `lhs or rhs` when Python returns one of the operands instead of a bool.
-    fn value_or_expression(
+    /// Lower `lhs or rhs` / `lhs and rhs` over operands that are not both
+    /// `bool`, where Python returns one of the operands: `lhs or rhs` is
+    /// `lhs if lhs else rhs` and `lhs and rhs` is `rhs if lhs else lhs`, the
+    /// test being `lhs`'s truth test. `lhs` is evaluated once (bound to a
+    /// temporary unless it is a local or a literal) and `rhs` only when it is
+    /// the result. `None` for two `bool`s, which `short_circuit` lowers;
+    /// operands whose types have no common result type are refused rather
+    /// than collapsed to a `bool`.
+    #[expect(clippy::too_many_arguments, reason = "one operation, its operands and its lowering position")]
+    fn value_bool_op(
         &mut self,
+        op: BoolOp,
         operands: (smelt_hir::ExprId, smelt_hir::ExprId),
         span: Span,
         body: &mut Body,
@@ -1518,22 +1544,57 @@ impl ModuleBuilder<'_> {
         {
             return Ok(None);
         }
-        let Some(ty) = self.value_or_result_type(lhs_ty, rhs_ty, type_hint) else {
-            return Ok(None);
+        // `opt or default` with `opt: T | None` and `default: T` is a `T`:
+        // `opt` is the result only when it is present (and true).
+        let payload_or = match self.ctx.krate.types.get(lhs_ty) {
+            Some(&Type::Optional(inner, _)) if op == BoolOp::Or && inner == rhs_ty => Some(inner),
+            _ => None,
         };
-        let cond = self.truthiness_expr(lhs, span, body)?;
-        Ok(Some(body.push_expr(HirExpr {
-            kind: ExprKind::Conditional {
-                cond,
-                then_expr: lhs,
-                else_expr: rhs,
-            },
-            ty,
-            span,
-        })))
+        let Some(ty) = payload_or.or_else(|| self.value_or_result_type(lhs_ty, rhs_ty, type_hint)) else {
+            return Err(SmeltError::unsupported(
+                span,
+                format!(
+                    "`{}` returns one of its operands, and these have different types; give them one type",
+                    if op == BoolOp::Or { "or" } else { "and" }
+                ),
+            ));
+        };
+        // A local or literal operand is read twice as is; any other is
+        // bound once to a temporary the block reads twice.
+        let index = usize::try_from(lhs.0).unwrap_or(usize::MAX);
+        let pure = matches!(body.exprs[index].kind, ExprKind::Local(_) | ExprKind::Literal(_));
+        let (block, tested, mut lhs_value) = if pure {
+            (None, lhs, lhs)
+        } else {
+            let block = body.push_block(span);
+            let name = self.intern_synthesized_name("__smelt_bool_operand");
+            let local = body.push_local(LocalDecl { name: Some(name), ty: lhs_ty, mutable: false, span });
+            let pat = body.push_pattern(HirPattern::Binding(local));
+            body.push_stmt_to_block(block, HirStmt::Let { pat, ty: lhs_ty, value: Some(lhs) });
+            let tested = body.push_expr(HirExpr { kind: ExprKind::Local(local), ty: lhs_ty, span });
+            let value = body.push_expr(HirExpr { kind: ExprKind::Local(local), ty: lhs_ty, span });
+            (Some(block), tested, value)
+        };
+        let cond = self.python_truth(tested, span, body)?;
+        if let Some(inner) = payload_or {
+            // The result read of a present `opt` is its payload.
+            let value_index = usize::try_from(lhs_value.0).unwrap_or(usize::MAX);
+            let ExprKind::Local(local) = body.exprs[value_index].kind else {
+                return Err(SmeltError::unsupported(span, "`or` over an optional needs a named left operand"));
+            };
+            lhs_value = self.narrowed_local_read(local, inner, span, body);
+        }
+        let (then_expr, else_expr) = if op == BoolOp::Or { (lhs_value, rhs) } else { (rhs, lhs_value) };
+        let conditional = body.push_expr(HirExpr { kind: ExprKind::Conditional { cond, then_expr, else_expr }, ty, span });
+        let Some(bound_block) = block else {
+            return Ok(Some(conditional));
+        };
+        let block_index = usize::try_from(bound_block.0).map_err(|error| SmeltError::unsupported(span, error.to_string()))?;
+        body.blocks[block_index].tail = Some(conditional);
+        Ok(Some(body.push_expr(HirExpr { kind: ExprKind::Block(bound_block), ty, span })))
     }
 
-    /// Resolve the HIR result type for value-returning Python `or`.
+    /// Resolve the HIR result type for value-returning Python `or` / `and`.
     fn value_or_result_type(
         &mut self,
         lhs_ty: TypeId,
@@ -1557,37 +1618,6 @@ impl ModuleBuilder<'_> {
             return Some(self.intern_type(Type::Optional(rhs_ty, smelt_hir::Absence::Undefined)));
         }
         None
-    }
-
-    /// Build a boolean condition for Python truthiness in supported fallback expressions.
-    fn truthiness_expr(
-        &mut self,
-        operand: smelt_hir::ExprId,
-        span: Span,
-        body: &mut Body,
-    ) -> Result<smelt_hir::ExprId, SmeltError> {
-        let operand_ty = Self::expr_ty(body, operand);
-        if self.ctx.krate.types.get(operand_ty) == Some(&Type::Bool) {
-            return Ok(operand);
-        }
-        if !matches!(
-            self.ctx.krate.types.get(operand_ty),
-            Some(Type::PyInt | Type::Float | Type::PyStr)
-        ) {
-            return Err(SmeltError::unsupported(
-                span,
-                "value-returning `or` currently supports bool, int, float, and str left operands",
-            ));
-        }
-        let ty = self.intern_type(Type::Bool);
-        Ok(body.push_expr(HirExpr {
-            kind: ExprKind::PrimitiveCast {
-                op: PrimitiveCastOp::ToBool,
-                operand,
-            },
-            ty,
-            span,
-        }))
     }
 
     /// Whether a value of type `ty` is a list, dict or set: a mutable object
@@ -1808,13 +1838,15 @@ impl ModuleBuilder<'_> {
             let ty = Self::expr_ty(body, operand);
             return Ok(body.push_expr(HirExpr { kind: ExprKind::Literal(negated), ty, span }));
         }
+        // `not x` negates `x`'s Python truth test.
+        let tested = if op == UnaryOp::Not { self.python_truth(operand, span, body)? } else { operand };
         let ty = if result_is_bool {
             self.intern_type(Type::Bool)
         } else {
-            Self::expr_ty(body, operand)
+            Self::expr_ty(body, tested)
         };
         Ok(body.push_expr(HirExpr {
-            kind: ExprKind::UnaryOp { op, operand },
+            kind: ExprKind::UnaryOp { op, operand: tested },
             ty,
             span,
         }))

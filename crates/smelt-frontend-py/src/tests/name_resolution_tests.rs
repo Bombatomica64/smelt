@@ -536,6 +536,18 @@ class Shape(metaclass=ABCMeta):
     )
 }
 
+/// Every spelling of `abc.abstractmethod` declares the method abstract.
+///
+/// Expectation corrected (round-3 sweep). Old requirement: an abstract method
+/// had no method item (`class.methods` empty). New requirement: it is still
+/// recorded in `abstract_methods` and is ALSO an ordinary method item, whose
+/// body is the source body (here a stub, which lowers as
+/// `raise NotImplementedError`). Evidence: in `CPython` an `@abstractmethod` is a
+/// real function on the class (`Shape.area` exists and `super().area()`
+/// calls it), and a call through an abstract-class-typed value dispatches to
+/// the override, which the method item gives the codegen's override dispatch.
+/// The guarantee kept: the method is abstract (the class is
+/// `ClassKind::Abstract` and cannot be constructed) for every spelling.
 #[test]
 fn abstractmethod_decorator_lowers_for_every_import_spelling() -> TestResult {
     for (import, spelled) in spellings("abc", "abstractmethod") {
@@ -551,7 +563,15 @@ fn abstractmethod_decorator_lowers_for_every_import_spelling() -> TestResult {
             .map(|method| symbol(&ctx, method.name))
             .collect::<Result<_, _>>()?;
         ensure_eq(&abstract_names, &vec!["area"], &source)?;
-        ensure(class.methods.is_empty(), "abstract method has no body item")?;
+        ensure(
+            matches!(class.kind, smelt_hir::ClassKind::Abstract),
+            "the class is abstract",
+        )?;
+        ensure_eq(
+            &class.methods.len(),
+            &1,
+            "the abstract method is also a method item",
+        )?;
     }
     Ok(())
 }

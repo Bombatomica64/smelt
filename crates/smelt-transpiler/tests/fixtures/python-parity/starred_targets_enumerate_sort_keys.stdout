@@ -1,0 +1,14 @@
+numbers evaluated
+1 [2, 3, 4, 5]
+[10, 20] 30
+a ['b', 'c'] d
+7 []
+numbers evaluated
+ValueError: not enough values to unpack (expected at least 2, got 1)
+1 x
+2 y
+3 z
+[(10, 'p'), (11, 'q')] [(-2, 5), (-1, 6)]
+['bob', 'dee', 'cid', 'ann']
+[('x', 3), ('z', 3), ('y', 1)]
+cid

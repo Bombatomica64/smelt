@@ -47,6 +47,9 @@ impl ModuleBuilder<'_> {
                         "multiple assignment targets are not supported",
                     ));
                 };
+                if Self::is_starred_unpacking(target_expr) {
+                    return self.starred_unpacking_assign(target_expr, &s.value, s.range, body, block);
+                }
                 if Self::is_destructuring_target(target_expr) {
                     let value = self.expression(&s.value, body)?;
                     let value_ty = Self::expr_ty(body, value);
@@ -122,7 +125,7 @@ impl ModuleBuilder<'_> {
                 let span = self.span(while_stmt.range);
                 let flag = self.enter_loop(&while_stmt.orelse, span, body, block);
                 let lowered = (|| {
-                    let cond = self.expression(&while_stmt.test, body)?;
+                    let cond = self.python_condition(&while_stmt.test, body)?;
                     self.block_from_stmts(&while_stmt.body, body).map(|loop_block| (cond, loop_block))
                 })();
                 self.loop_break_flags.pop();
@@ -852,7 +855,7 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
         block: smelt_hir::BlockId,
     ) -> Result<(), SmeltError> {
-        let cond = self.expression(&assert_stmt.test, body)?;
+        let cond = self.python_condition(&assert_stmt.test, body)?;
         let bool_ty = self.intern_type(Type::Bool);
         let negated = body.push_expr(HirExpr {
             kind: ExprKind::UnaryOp {

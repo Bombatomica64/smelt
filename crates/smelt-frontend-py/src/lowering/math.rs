@@ -493,7 +493,9 @@ impl ModuleBuilder<'_> {
     /// is correctly rounded at `n` digits (an `int` stays an `int`),
     /// `divmod(a, b)` is `(a // b, a % b)`, `pow(a, b)` is `a ** b` and
     /// `pow(a, b, m)` modular exponentiation, `chr`/`ord` convert between a
-    /// code point and a one-character `str`. `None` for any other name.
+    /// code point and a one-character `str`; `hex`, `bin`, `oct` and
+    /// `format` as `radix_and_format_call` lowers them. `None` for any
+    /// other name.
     fn numeric_builtin_call_expression(
         &mut self,
         name: &str,
@@ -501,8 +503,11 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
         span: Span,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        if !matches!(name, "round" | "divmod" | "pow" | "chr" | "ord") {
+        if !matches!(name, "round" | "divmod" | "pow" | "chr" | "ord" | "hex" | "bin" | "oct" | "format") {
             return Ok(None);
+        }
+        if let Some(formatted) = self.radix_and_format_call(name, call, body, span)? {
+            return Ok(Some(formatted));
         }
         if !call.arguments.keywords.is_empty() {
             return Err(SmeltError::unsupported(span, format!("{name}() keyword arguments are not supported")));
@@ -557,5 +562,55 @@ impl ModuleBuilder<'_> {
             }
             _ => Err(wrong()),
         }
+    }
+
+    /// `hex(n)`, `bin(n)`, `oct(n)` and `format(value[, spec])`, as the
+    /// format-spec lowering `f"{value:spec}"` uses: `hex(n)` is
+    /// `format(n, "#x")` (`-0xff` for `-255`), `bin` `"#b"`, `oct` `"#o"`,
+    /// each taking an `int` only, as `CPython` does without `__index__`.
+    /// `format`'s spec must be a string literal, as an f-string's is.
+    /// `None` for `round`, `divmod`, `pow`, `chr`, `ord`.
+    fn radix_and_format_call(
+        &mut self,
+        name: &str,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+        span: Span,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let radix = match name {
+            "hex" => "#x",
+            "bin" => "#b",
+            "oct" => "#o",
+            "format" => "",
+            _ => return Ok(None),
+        };
+        let args = call.arguments.args.as_ref();
+        let (value_arg, spec) = match (name, args) {
+            ("format", [value]) => (value, String::new()),
+            ("format", [value, Expr::StringLiteral(spec)]) => (value, spec.value.to_str().to_owned()),
+            ("format", _) => {
+                return Err(SmeltError::unsupported(span, "format() takes a value and a string-literal spec"));
+            }
+            (_, [value]) => (value, radix.to_owned()),
+            _ => return Err(SmeltError::unsupported(span, format!("{name}() takes exactly one argument"))),
+        };
+        let value = self.expression(value_arg, body)?;
+        if radix.is_empty() && spec.is_empty() {
+            // `format(x)` is `str(x)` for the types a spec formats.
+            let ty = self.intern_type(Type::PyStr);
+            return match self.ctx.krate.types.get(Self::expr_ty(body, value)) {
+                Some(Type::PyStr) => Ok(Some(value)),
+                Some(Type::Bool | Type::PyInt | Type::Float) => Ok(Some(body.push_expr(HirExpr {
+                    kind: ExprKind::PrimitiveCast { op: PrimitiveCastOp::ToString, operand: value },
+                    ty,
+                    span,
+                }))),
+                _ => Err(SmeltError::unsupported(span, "format() is supported for int, float, bool and str values")),
+            };
+        }
+        if !radix.is_empty() && self.ctx.krate.types.get(Self::expr_ty(body, value)) != Some(&Type::PyInt) {
+            return Err(SmeltError::unsupported(span, format!("{name}() takes an int")));
+        }
+        self.formatted_value(value, spec, span, body).map(Some)
     }
 }

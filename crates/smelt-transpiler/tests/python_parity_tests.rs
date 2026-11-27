@@ -529,3 +529,64 @@ fn extrema_key() -> TestResult {
 fn class_variables() -> TestResult {
     verify_python_parity("class_variables")
 }
+
+/// Python truth tests: `if`, `elif`, `while`, `assert`, `not`, conditional
+/// expressions, comprehension `if`s, `bool(x)` and `filter(None, xs)` read an
+/// empty `list`/`dict`/`set`/`str`, `0`, `0.0` and `None` as false, an
+/// `Optional` container as present-and-non-empty, and a class through its
+/// `__bool__`, else `__len__`, else true. Requirements: `CPython`'s output;
+/// the test is a `bool` over the typed value (`len != 0`, the payload's own
+/// test), never JavaScript truthiness, which makes every object true.
+#[test]
+fn python_truth_tests() -> TestResult {
+    verify_python_parity("python_truth_tests")
+}
+
+/// `a or b` / `a and b` return an operand (`b if a else a` for `and`), the
+/// left one evaluated once and the right one only when it is the result, and
+/// `opt or default` over `T | None` and `T` is a `T`. Requirements: `CPython`'s
+/// output and evaluation order; the result keeps the operands' type.
+#[test]
+fn value_returning_and_or() -> TestResult {
+    verify_python_parity("value_returning_and_or")
+}
+
+/// `"...".format(...)` with automatic, numbered and keyword fields,
+/// conversions and format specs, every argument evaluated once in source
+/// order; `hex`/`bin`/`oct`/`format`; and unbound builtin methods as
+/// callbacks (`key=str.lower`, `map(str.upper, xs)`). Requirements:
+/// `CPython`'s output.
+#[test]
+fn str_format_and_radix() -> TestResult {
+    verify_python_parity("str_format_and_radix")
+}
+
+/// Starred assignment targets (`first, *rest`, `*init, last`, `a, *mid, z`,
+/// an empty star, and the `ValueError` of too few items), `enumerate(xs,
+/// start)`, and tuple sort keys (`key=lambda p: (p.a, -p.b)`, with
+/// `reverse=True`). Requirements: `CPython`'s output; the starred target is a
+/// list of the value's item type.
+#[test]
+fn starred_targets_enumerate_sort_keys() -> TestResult {
+    verify_python_parity("starred_targets_enumerate_sort_keys")
+}
+
+/// An `ABC` with `@abstractmethod`s (stub and docstring bodies) called through
+/// `list[Shape]` dispatches to each subclass's override, and
+/// `type(x).__name__` / `x.__class__.__name__` name the runtime class (a
+/// subclass through a base-typed value, the builtin types by name).
+/// Requirements: `CPython`'s output.
+#[test]
+fn abstract_classes_and_type_names() -> TestResult {
+    verify_python_parity("abstract_classes_and_type_names")
+}
+
+/// Dataclass `field(default_factory=f)` runs `f()` for every instance that
+/// leaves the field out (no sharing), `field(default=v)` is an ordinary
+/// default, and `==` compares a dataclass's fields even when it is a
+/// reference class (mutated through an alias). Requirements: `CPython`'s
+/// output.
+#[test]
+fn dataclass_field_defaults() -> TestResult {
+    verify_python_parity("dataclass_field_defaults")
+}

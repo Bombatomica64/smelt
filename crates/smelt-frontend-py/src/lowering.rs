@@ -152,6 +152,8 @@ pub(crate) struct ModuleBuilder<'ctx> {
     class_attribute_stores: HashSet<(String, String)>,
     /// Every name a class of this module lists as a base.
     subclassed_names: HashSet<String>,
+    /// Each class of this module with the names of its bases, in source order.
+    module_class_bases: Vec<(String, Vec<String>)>,
     /// Module-level type aliases (`Result: TypeAlias = Ok | Err`) by source name.
     type_aliases: HashMap<String, TypeAliasDef>,
     /// Names declared by `TypeVar`/`ParamSpec`/`TypeVarTuple`, in source order.
@@ -410,6 +412,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             class_fields: HashMap::new(),
             class_attribute_stores: HashSet::new(),
             subclassed_names: HashSet::new(),
+            module_class_bases: Vec::new(),
             type_aliases: HashMap::new(),
             type_param_names: Vec::new(),
             module_namespaces,
@@ -668,6 +671,8 @@ include!("lowering/specialization.rs");
 include!("lowering/class.rs");
 // Class-body variables: constants and live class-level storage.
 include!("lowering/class_variables.rs");
+// `type(x).__name__`: the runtime class name.
+include!("lowering/type_name.rs");
 // Class initializer synthesis helpers.
 include!("lowering/class_init.rs");
 // Function signature and pytest parametrization helpers.
@@ -677,8 +682,12 @@ include!("lowering/pytest.rs");
 // Type annotation lowering helpers.
 include!("lowering/types.rs");
 include!("lowering/statement.rs");
+// Starred assignment targets (`first, *rest = xs`).
+include!("lowering/unpacking.rs");
 include!("lowering/control_flow.rs");
 include!("lowering/narrowing.rs");
+// Python truth tests (`if xs:`, `not s`, `bool(x)`).
+include!("lowering/truthiness.rs");
 // Exception classes, `raise` and `try`/`except`.
 include!("lowering/exceptions.rs");
 // Match statement and block lowering helpers.
@@ -695,6 +704,8 @@ include!("lowering/closure.rs");
 include!("lowering/math.rs");
 // String formatting and manipulation lowering helpers.
 include!("lowering/format.rs");
+// `"...".format(...)` on a string literal.
+include!("lowering/str_format.rs");
 // Map/dict and module-call lowering helpers.
 include!("lowering/map.rs");
 // Member access and constant import lowering helpers.
