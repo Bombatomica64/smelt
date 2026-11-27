@@ -4,12 +4,15 @@
 // nearest `except` clause naming one of its classes. The generated crate carries
 // every such instance, builtin or user-defined, as one `SmeltPyException`: the
 // names of its class and of every base up to `BaseException`, which is what
-// `except` matches against, and the `str`/`repr` of each constructor argument,
-// which is all `str(e)`, `repr(e)` and `e.args` show. It crosses the error
-// channel as a `Box<dyn Error>` and is recovered by downcasting.
+// `except` matches against, and either the `str`/`repr` of each constructor
+// argument (a builtin exception) or the instance of the user exception class
+// itself, a typed class that implements `SmeltPyExceptionObject` (see
+// `docs/design/python-exceptions.md`). It crosses the error channel as a
+// `Box<dyn Error>` and is recovered by downcasting.
 
 // @smelt:item SmeltPyException when py_exception
-/// A raised Python exception: its class chain and its constructor arguments.
+/// A raised Python exception: its class chain and its constructor arguments,
+/// or the instance of the user exception class that was raised.
 //~ The default is a placeholder an unassigned binding starts as: no class and
 //~ no arguments.
 #[derive(Clone, Debug, Default)]
@@ -18,8 +21,48 @@ struct SmeltPyException {
     //~ The class's own name first, then each base up to `BaseException`. Empty
     //~ for an error the runtime raised without naming a Python class.
     classes: &'static [&'static str],
-    //~ `str` and `repr` of each constructor argument, in order.
+    //~ `str` and `repr` of each constructor argument, in order (a builtin
+    //~ exception; a user instance keeps its own live `args`).
     args: ::std::rc::Rc<[SmeltPyExceptionArg]>,
+    //~ The raised instance of a user exception class, shared with every name
+    //~ bound to it.
+    instance: Option<::std::rc::Rc<dyn SmeltPyExceptionObject>>,
+}
+
+/// An instance of a user exception class: a generated class handle whose
+/// class derives from a builtin exception class.
+//~ The generated crate implements it for every exception class from the class's
+//~ `ClassProtocol::PyException`.
+#[allow(dead_code)]
+trait SmeltPyExceptionObject: ::std::fmt::Debug {
+    //~ The instance's own storage, for the downcast an `except C as e` binds.
+    fn smelt_any(&self) -> ::std::rc::Rc<dyn ::std::any::Any>;
+    //~ The chain of the instance's runtime class: its own name first, then each
+    //~ base up to `BaseException`.
+    fn py_classes(&self) -> &'static [&'static str];
+    //~ The instance's live `args`.
+    fn py_args(&self) -> SmeltPyExceptionArgs;
+    //~ `str(e)`: the class's `__str__`.
+    fn py_text(&self) -> String;
+    //~ `repr(e)`: the class's `__repr__`.
+    fn py_text_repr(&self) -> String;
+    //~ `BaseException.__str__`: nothing for no argument, the argument's `str`
+    //~ for one (its `repr` for a `KeyError`), the arguments' tuple otherwise.
+    fn py_default_str(&self) -> String {
+        let args = self.py_args();
+        match &*args.0 {
+            [] => String::new(),
+            [only] if self.py_classes().contains(&"KeyError") => only.repr.clone(),
+            [only] => only.text.clone(),
+            _ => args.py_repr(),
+        }
+    }
+    //~ `BaseException.__repr__`: the runtime class's name and the arguments'
+    //~ `repr`s.
+    fn py_default_repr(&self) -> String {
+        let name = self.py_classes().first().copied().unwrap_or("Exception");
+        format!("{name}({})", self.py_args().0.iter().map(|arg| arg.repr.as_str()).collect::<Vec<_>>().join(", "))
+    }
 }
 
 /// The two texts a constructor argument of an exception is ever shown as.
@@ -36,7 +79,22 @@ struct SmeltPyExceptionArg {
 impl SmeltPyException {
     //~ An instance of the class whose chain is `classes`, built from `args`.
     fn new(classes: &'static [&'static str], args: Vec<SmeltPyExceptionArg>) -> Self {
-        Self { classes, args: args.into() }
+        Self { classes, args: args.into(), instance: None }
+    }
+
+    //~ The exception a `raise` of a user exception class's instance raises.
+    fn from_instance(instance: ::std::rc::Rc<dyn SmeltPyExceptionObject>) -> Self {
+        Self { classes: instance.py_classes(), args: ::std::rc::Rc::from(Vec::new()), instance: Some(instance) }
+    }
+
+    //~ The instance an `except C as e` clause binds, recovered by `downcast`
+    //~ (one attempt per concrete class of `C`). The clause's class test matched
+    //~ first, so the instance is one of them.
+    fn instance_as<T>(&self, downcast: impl FnOnce(::std::rc::Rc<dyn ::std::any::Any>) -> Option<T>) -> T {
+        self.instance
+            .as_ref()
+            .and_then(|instance| downcast(instance.smelt_any()))
+            .unwrap_or_else(|| panic!("an `except` clause bound an exception of another class: {self}"))
     }
 
     //~ One constructor argument, kept as its `str` and its `repr`.
@@ -54,7 +112,7 @@ impl SmeltPyException {
     //~ without a Python class, whose one argument is the panic's message.
     fn from_message(text: String) -> Self {
         let repr = text.py_repr();
-        Self { classes: &[], args: vec![SmeltPyExceptionArg { text, repr }].into() }
+        Self { classes: &[], args: vec![SmeltPyExceptionArg { text, repr }].into(), instance: None }
     }
 
     //~ Whether an `except` clause naming `classes` catches this exception.
@@ -76,7 +134,9 @@ impl SmeltPyException {
 
     //~ `e.args`.
     fn args(&self) -> SmeltPyExceptionArgs {
-        SmeltPyExceptionArgs(self.args.clone())
+        self.instance
+            .as_ref()
+            .map_or_else(|| SmeltPyExceptionArgs(self.args.clone()), |instance| instance.py_args())
     }
 
     //~ `repr(e.args)`: the tuple of the arguments' `repr`s.
@@ -90,6 +150,14 @@ impl SmeltPyException {
 #[derive(Clone, Debug, Default)]
 #[allow(dead_code)]
 struct SmeltPyExceptionArgs(::std::rc::Rc<[SmeltPyExceptionArg]>);
+
+#[allow(dead_code)]
+impl SmeltPyExceptionArgs {
+    //~ The `args` `BaseException.__init__(*args)` stores.
+    fn new(args: Vec<SmeltPyExceptionArg>) -> Self {
+        Self(args.into())
+    }
+}
 
 impl SmeltPyRepr for SmeltPyExceptionArgs {
     fn py_repr(&self) -> String {
@@ -145,6 +213,9 @@ impl ::std::fmt::Display for SmeltPyException {
     //~ `repr` for a `KeyError`, whose `__str__` says so), the arguments'
     //~ tuple otherwise.
     fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        if let Some(instance) = &self.instance {
+            return formatter.write_str(&instance.py_text());
+        }
         match &*self.args {
             [] => Ok(()),
             [only] if self.classes.contains(&"KeyError") => formatter.write_str(&only.repr),
@@ -158,6 +229,9 @@ impl ::std::error::Error for SmeltPyException {}
 
 impl SmeltPyRepr for SmeltPyException {
     fn py_repr(&self) -> String {
+        if let Some(instance) = &self.instance {
+            return instance.py_text_repr();
+        }
         let name = self.classes.first().copied().unwrap_or("Exception");
         format!("{name}({})", self.args.iter().map(|arg| arg.repr.as_str()).collect::<Vec<_>>().join(", "))
     }

@@ -935,3 +935,65 @@ pub(crate) fn redeclared_field_storage(
     let stored = generic_bindings::substitute_existing_type(mir, declared, &substitution);
     (stored != own_ty).then_some(stored)
 }
+
+/// The roots of the class hierarchies whose runtime class name the program
+/// reads: an `instanceof`/`isinstance` test names one of their classes. Only
+/// those handles get [`class_name_method`].
+pub(crate) fn class_name_hierarchies(mir: &Mir) -> HashSet<Symbol> {
+    let mut roots = HashSet::new();
+    let statements = mir
+        .functions
+        .iter()
+        .flat_map(|function| &function.blocks)
+        .chain(mir.closures.iter().flat_map(|closure| &closure.blocks))
+        .flat_map(|block| &block.statements);
+    for statement in statements {
+        if let smelt_mir::Statement::Assign {
+            value: smelt_mir::Rvalue::InstanceOf { class, .. },
+            ..
+        } = statement
+        {
+            roots.insert(crate::class_identity::hierarchy_root(mir, *class));
+        }
+    }
+    roots
+}
+
+/// The inherent `smelt_class_name` method of a handle of a polymorphic
+/// hierarchy: the constructed class's source name, which `instanceof` and
+/// Python's `isinstance`/`type(x).__name__` compare.
+///
+/// A polymorphic handle asks its trait object. A leaf's cell implements the
+/// cell trait of every polymorphic ancestor, so `leaf.0.smelt_class_name()`
+/// is ambiguous (E0034) once the hierarchy is three levels deep; its method
+/// asks the nearest ancestor's trait by path. `None` for a class outside any
+/// polymorphic hierarchy, or one whose hierarchy no test reads
+/// (`class_name_hierarchies`).
+pub(crate) fn class_name_method(
+    mir: &Mir,
+    context: &crate::emitter::EmitContext,
+    read_roots: &HashSet<Symbol>,
+    class: Symbol,
+) -> Result<Option<String>, crate::EmitError> {
+    if !read_roots.contains(&crate::class_identity::hierarchy_root(mir, class)) {
+        return Ok(None);
+    }
+    let body = if context.is_polymorphic_class(class) {
+        "self.0.smelt_class_name()".to_owned()
+    } else {
+        let Some(ancestor) = polymorphic_ancestors(mir, context.polymorphic_classes(), class)
+            .first()
+            .copied()
+        else {
+            return Ok(None);
+        };
+        let ancestor_name = context.names().type_name(ancestor)?;
+        format!(
+            "{}::smelt_class_name(&*self.0)",
+            cell_trait_name(ancestor_name.as_str())
+        )
+    };
+    Ok(Some(format!(
+        "    #[allow(dead_code)]\n    fn smelt_class_name(&self) -> &'static str {{ {body} }}\n"
+    )))
+}

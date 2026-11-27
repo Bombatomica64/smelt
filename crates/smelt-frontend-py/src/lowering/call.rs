@@ -1319,6 +1319,10 @@ impl ModuleBuilder<'_> {
             && let Some(Type::Class { name: class_sym, .. }) =
                 self.ctx.krate.types.get(Self::local_ty(body, local)).cloned()
         {
+            let class_name = self.ctx.krate.symbols.get(class_sym).unwrap_or_default().to_owned();
+            if self.exception_classes.contains_key(&class_name) {
+                return self.user_exception_new(&class_name, &call.arguments.args, span, body).map(Some);
+            }
             let class_ty = self.intern_type(Type::Class {
                 name: class_sym,
                 args: vec![],

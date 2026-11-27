@@ -508,6 +508,11 @@ impl ModuleBuilder<'_> {
                 "super().__init__() requires a class receiver",
             ));
         };
+        let class_name = self.ctx.krate.symbols.get(class_sym).unwrap_or_default().to_owned();
+        if self.super_init_reaches_base_exception(&class_name) {
+            self.exception_root_super_init(call, (self_local, class_ty), body, block)?;
+            return Ok(true);
+        }
         let Some(base_sym) = self.class_base_symbol(class_sym) else {
             return Err(SmeltError::unsupported(
                 span,
@@ -521,12 +526,31 @@ impl ModuleBuilder<'_> {
             ));
         };
 
-        let args = call
+        let mut args = call
             .arguments
             .args
             .iter()
             .map(|arg| self.expression(arg, body))
             .collect::<Result<Vec<_>, _>>()?;
+        // A program exception base that keeps its constructor arguments takes
+        // them as its hidden first parameter: `BaseException.__new__` already
+        // ran for this instance, so they are the instance's current `args`
+        // (`docs/design/python-exceptions.md` §3).
+        if self
+            .exception_constructors
+            .get(&base_name)
+            .is_some_and(|constructor| constructor.keeps_args)
+        {
+            let args_ty = self.py_exception_args_type();
+            let args_sym = self.intern_name("args");
+            let receiver = body.push_expr(HirExpr { kind: ExprKind::Local(self_local), ty: class_ty, span });
+            let current = body.push_expr(HirExpr {
+                kind: ExprKind::Field { receiver, field: args_sym },
+                ty: args_ty,
+                span,
+            });
+            args.insert(0, current);
+        }
 
         let base_ty = self.intern_type(Type::Class {
             name: base_sym,

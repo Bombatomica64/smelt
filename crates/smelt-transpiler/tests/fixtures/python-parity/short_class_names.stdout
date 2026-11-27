@@ -1,0 +1,7 @@
+B False True 1 B!
+D True True 3 D!
+C False True 3 C!
+D! C!
+[(1, 'a'), (2, 'b')] (1, 'x', 2.5, True, None, 'y') (1, 'a')
+[1, "a", [2, 3]] {"k": [1, 2]}
+[B(5), B(6)] (B(7), 8) E 3 True

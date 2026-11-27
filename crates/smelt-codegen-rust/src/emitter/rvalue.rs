@@ -208,6 +208,18 @@ impl FunctionEmitter<'_> {
             Rvalue::PyExceptionCaughtBy { exception, classes, catches_unclassified } => {
                 self.py_exception_caught_by_expr(exception, classes, *catches_unclassified)
             }
+            Rvalue::PyExceptionArgsNew { args } => self.py_exception_args_new_expr(args),
+            Rvalue::PyExceptionFromInstance { instance } => {
+                self.py_exception_from_instance_expr(instance)
+            }
+            Rvalue::PyExceptionInstance { exception, class } => {
+                self.py_exception_instance_expr(exception, *class)
+            }
+            Rvalue::PyExceptionDefaultText { instance, repr } => {
+                let instance_text = self.operand_borrow_expr(instance)?;
+                let method = if *repr { "py_default_repr" } else { "py_default_str" };
+                Ok(instance_text.postfix(format!(".{method}()")))
+            }
             // Lowering gives each of these a call terminator (`fallible_op`).
             Rvalue::Base64Transcode { .. }
             | Rvalue::PythonDictRead { .. }

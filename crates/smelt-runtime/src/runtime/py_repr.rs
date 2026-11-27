@@ -72,24 +72,26 @@ impl<K: SmeltPyRepr, V: SmeltPyRepr> SmeltPyRepr for ::indexmap::IndexMap<K, V> 
 // @smelt:end
 
 /// A tuple's `repr`: `(a,)` for one element, `(a, b)` for more.
+//~ Each element is bound under its own `smelt_*` name: a `let` binding may not
+//~ shadow a tuple struct, and the program may declare a class named like a type
+//~ parameter (`class A`, E0530).
 macro_rules! smelt_py_repr_tuple {
-    ($($name:ident),+) => {
+    ($($name:ident $value:ident),+) => {
         impl<$($name: SmeltPyRepr),+> SmeltPyRepr for ($($name,)+) {
-            #[allow(non_snake_case)]
             fn py_repr(&self) -> String {
-                let ($($name,)+) = self;
-                let items = [$($name.py_repr()),+];
+                let ($($value,)+) = self;
+                let items = [$($value.py_repr()),+];
                 if items.len() == 1 { format!("({},)", items[0]) } else { format!("({})", items.join(", ")) }
             }
         }
     };
 }
-smelt_py_repr_tuple!(A);
-smelt_py_repr_tuple!(A, B);
-smelt_py_repr_tuple!(A, B, C);
-smelt_py_repr_tuple!(A, B, C, D);
-smelt_py_repr_tuple!(A, B, C, D, E);
-smelt_py_repr_tuple!(A, B, C, D, E, F);
+smelt_py_repr_tuple!(A smelt_a);
+smelt_py_repr_tuple!(A smelt_a, B smelt_b);
+smelt_py_repr_tuple!(A smelt_a, B smelt_b, C smelt_c);
+smelt_py_repr_tuple!(A smelt_a, B smelt_b, C smelt_c, D smelt_d);
+smelt_py_repr_tuple!(A smelt_a, B smelt_b, C smelt_c, D smelt_d, E smelt_e);
+smelt_py_repr_tuple!(A smelt_a, B smelt_b, C smelt_c, D smelt_d, E smelt_e, F smelt_f);
 
 // @smelt:if smelt_list
 impl<T: SmeltPyRepr> SmeltPyRepr for SmeltList<T> { fn py_repr(&self) -> String { format!("[{}]", smelt_py_repr_items(self.borrow().iter())) } }
@@ -221,18 +223,18 @@ impl<K: SmeltPyJsonKey, V: SmeltPyJson> SmeltPyJson for ::indexmap::IndexMap<K, 
 // @smelt:end
 
 /// A tuple is a JSON array.
+//~ Each element has its own `smelt_*` binding (see `smelt_py_repr_tuple`).
 macro_rules! smelt_py_json_tuple {
-    ($($name:ident),+) => {
+    ($($name:ident $value:ident),+) => {
         impl<$($name: SmeltPyJson),+> SmeltPyJson for ($($name,)+) {
-            #[allow(non_snake_case)]
             fn py_json(&self, out: &mut String) {
-                let ($($name,)+) = self;
+                let ($($value,)+) = self;
                 out.push('[');
                 let mut first = true;
                 $(
                     if !first { out.push_str(", "); }
                     first = false;
-                    $name.py_json(out);
+                    $value.py_json(out);
                 )+
                 let _ = first;
                 out.push(']');
@@ -240,12 +242,12 @@ macro_rules! smelt_py_json_tuple {
         }
     };
 }
-smelt_py_json_tuple!(A);
-smelt_py_json_tuple!(A, B);
-smelt_py_json_tuple!(A, B, C);
-smelt_py_json_tuple!(A, B, C, D);
-smelt_py_json_tuple!(A, B, C, D, E);
-smelt_py_json_tuple!(A, B, C, D, E, F);
+smelt_py_json_tuple!(A smelt_a);
+smelt_py_json_tuple!(A smelt_a, B smelt_b);
+smelt_py_json_tuple!(A smelt_a, B smelt_b, C smelt_c);
+smelt_py_json_tuple!(A smelt_a, B smelt_b, C smelt_c, D smelt_d);
+smelt_py_json_tuple!(A smelt_a, B smelt_b, C smelt_c, D smelt_d, E smelt_e);
+smelt_py_json_tuple!(A smelt_a, B smelt_b, C smelt_c, D smelt_d, E smelt_e, F smelt_f);
 
 // @smelt:if smelt_list
 impl<T: SmeltPyJson> SmeltPyJson for SmeltList<T> { fn py_json(&self, out: &mut String) { smelt_py_json_items(self.borrow().iter(), out); } }

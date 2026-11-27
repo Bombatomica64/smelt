@@ -448,7 +448,11 @@ impl RuntimeDemand {
             Rvalue::PyExceptionArgs { .. } => {
                 self.add(Need::PyException);
             }
-            Rvalue::PyExceptionCaughtBy { .. } => {
+            Rvalue::PyExceptionCaughtBy { .. }
+            | Rvalue::PyExceptionArgsNew { .. }
+            | Rvalue::PyExceptionFromInstance { .. }
+            | Rvalue::PyExceptionInstance { .. }
+            | Rvalue::PyExceptionDefaultText { .. } => {
                 self.add(Need::PyException);
             }
             Rvalue::PythonSequenceRead { .. } => {

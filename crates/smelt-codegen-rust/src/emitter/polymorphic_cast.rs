@@ -269,9 +269,10 @@ impl FunctionEmitter<'_> {
     }
 
     /// The concrete class name of the polymorphic handle `value` (an
-    /// `&'static str`), which `instanceof` compares.
+    /// `&'static str`), which `instanceof` compares, through the handle's
+    /// inherent `smelt_class_name` (`crate::class_polymorphism::class_name_method`).
     pub(super) fn polymorphic_class_name_expr(value: &str) -> String {
-        format!("{value}.0.smelt_class_name()")
+        format!("{value}.smelt_class_name()")
     }
 }
 

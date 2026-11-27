@@ -186,6 +186,14 @@ pub(crate) struct ModuleBuilder<'ctx> {
     /// User exception classes of this module, each with its chain: its own
     /// name, then each base up to `BaseException`.
     exception_classes: HashMap<String, Vec<String>>,
+    /// How each user exception class is constructed: whether it keeps its
+    /// constructor's positional arguments as `args` and whether it has an
+    /// `__init__` of its own or a program base's
+    /// (`docs/design/python-exceptions.md` §3).
+    exception_constructors: HashMap<String, ExceptionConstructor>,
+    /// The synthesized `args` getter of each exception root (a user exception
+    /// class whose base is a builtin exception class), by the root's name.
+    exception_args_getters: HashMap<String, ItemId>,
     /// The caught-exception local of each enclosing `except` clause, innermost
     /// last, which a bare `raise` re-raises.
     handled_exceptions: Vec<smelt_hir::LocalId>,
@@ -425,6 +433,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
             resolved_types: analysis.resolved_types,
             bindings: analysis.bindings,
             exception_classes: HashMap::new(),
+            exception_constructors: HashMap::new(),
+            exception_args_getters: HashMap::new(),
             handled_exceptions: Vec::new(),
             module_awaits: false,
         }
@@ -608,14 +618,6 @@ impl ModuleBuilder<'_> {
                             }
                         }
                     }
-                }
-                true
-            }
-            Stmt::ClassDef(class) if self.exception_classes.contains_key(class.name.as_str()) => {
-                if let Err(err) = self.exception_class_def(class) {
-                    self.failed_definitions
-                        .insert(class.name.as_str().to_owned());
-                    errors.push(err);
                 }
                 true
             }

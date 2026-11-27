@@ -1444,7 +1444,7 @@ impl ModuleBuilder<'_> {
                 Item::Function(function) => Some(function.return_ty),
                 _ => None,
             },
-            ClassProtocol::Str { .. } | ClassProtocol::Repr { .. } => None,
+            ClassProtocol::Str { .. } | ClassProtocol::Repr { .. } | ClassProtocol::PyException { .. } => None,
         })
     }
 

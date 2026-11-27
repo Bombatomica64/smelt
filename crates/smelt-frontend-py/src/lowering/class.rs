@@ -128,10 +128,14 @@ impl ModuleBuilder<'_> {
             is_abstract: is_abstract_class,
             is_int_enum,
             type_params,
-            base,
+            base: declared_base,
             is_protocol,
             protocol_parents,
         } = self.resolve_class_bases(class, materialized.as_ref(), span, class_name_str)?;
+        // An exception root's base is a builtin exception class, which is no
+        // program class: what it contributes is synthesized on the root
+        // (`exception_root_members`).
+        let base = declared_base.filter(|_| !self.is_exception_root(class_name_str));
         if is_protocol {
             return self.protocol_def(
                 class,
@@ -528,6 +532,12 @@ impl ModuleBuilder<'_> {
             fields.push(field);
         }
 
+        if self.is_exception_root(class_name_str) {
+            let synthesized = self.exception_root_members(class, target, &mut fields)?;
+            hir_module.items.extend(synthesized.iter().copied());
+            method_ids.extend(synthesized);
+        }
+
         // Class variables are registered on the class item before any method
         // body is lowered, so `Class.NAME` / `self.NAME` in a method resolve.
         let static_fields_out = self.class_variables(class, is_int_enum, hir_module)?;
@@ -632,6 +642,13 @@ impl ModuleBuilder<'_> {
                             ));
                         }
                         let mid = self.class_method(class_name_str, class_sym, class_ty, func)?;
+                        if self
+                            .exception_constructors
+                            .get(class_name_str)
+                            .is_some_and(|constructor| constructor.keeps_args)
+                        {
+                            self.add_exception_args_param(mid, class_ty, self.span(func.range))?;
+                        }
                         constructor_id = Some(mid);
                         hir_module.items.push(mid);
                     } else {
@@ -839,7 +856,9 @@ impl ModuleBuilder<'_> {
             // Python inherits `__init__` when a subclass does not declare one.
             // Preserve that signature and initialization under Smelt's flattened
             // class layout rather than silently replacing it with `new()`.
-            let init_id = if let Some(base_sym) = base.filter(|symbol| {
+            let init_id = if self.is_exception_root(class_name_str) {
+                self.synthesize_exception_root_init(class_sym, class_ty, span)?
+            } else if let Some(base_sym) = base.filter(|symbol| {
                 self.ctx.krate.items.iter().any(|item| {
                     matches!(item, Item::Class(class) if class.name == *symbol
                         && class.constructor.is_some_and(|ctor| !self.constructor_does_nothing(ctor)))
@@ -860,7 +879,8 @@ impl ModuleBuilder<'_> {
                 .insert(class_name_str.to_owned(), std::mem::take(&mut lowered.enum_members));
         }
 
-        let protocols = self.python_class_protocols(method_ids)?;
+        let mut protocols = self.python_class_protocols(method_ids)?;
+        protocols.extend(self.exception_class_protocol(class_name_str, span)?);
         let class_item = Item::Class(Class {
             name: class_sym,
             span,
@@ -2116,6 +2136,7 @@ impl ModuleBuilder<'_> {
             }
 
             let mut first = true;
+            let mut pending_defaults = Vec::new();
             for param_with_default in func.parameters.iter_non_variadic_params() {
                 let p = &param_with_default.parameter;
                 let param_name_str = p.name.as_str();
@@ -2144,10 +2165,18 @@ impl ModuleBuilder<'_> {
                     })?,
                 };
 
+                // A parameter with a default takes `None` when the caller
+                // leaves it out; the prologue below puts the default in its
+                // place, as for a function (`default_params.rs`).
+                let defaulted = match param_with_default.default.as_deref() {
+                    Some(default) => this.defaulted_param(param_name_str, param_ty, default, span)?,
+                    None => None,
+                };
+                let local_ty = defaulted.as_ref().map_or(param_ty, |found| found.optional_ty);
                 let param_sym = this.intern_name(param_name_str);
                 let local = fn_body.push_local(LocalDecl {
                     name: Some(param_sym),
-                    ty: param_ty,
+                    ty: local_ty,
                     mutable: false,
                     span: this.span(p.range),
                 });
@@ -2156,9 +2185,17 @@ impl ModuleBuilder<'_> {
                 params.push(Param {
                     name: param_sym,
                     local,
-                    ty: param_ty,
+                    ty: local_ty,
                     span: this.span(p.range),
                 });
+                if let Some(found) = defaulted
+                    && let Some(default_expr) = param_with_default.default.as_deref()
+                {
+                    pending_defaults.push((param_name_str, local, found, default_expr));
+                }
+            }
+            for (pending_name, pending_local, pending_default, default_expr) in pending_defaults {
+                this.default_prologue(pending_name, pending_local, &pending_default, default_expr, &mut fn_body)?;
             }
             let param_names = func.parameters.iter().map(|param| param.name().as_str()).collect::<Vec<_>>();
             this.scope.single_binding = Self::single_binding_names(&param_names, &func.body);

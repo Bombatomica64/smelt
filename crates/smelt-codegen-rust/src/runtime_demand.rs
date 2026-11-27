@@ -613,6 +613,10 @@ impl RuntimeDemand {
         // the panic route.
         for class in &mir.classes {
             for protocol in &class.protocols {
+                if matches!(protocol, smelt_mir::MirClassProtocol::PyException { .. }) {
+                    demand.add(Need::PyException);
+                    demand.add(Need::PyRepr);
+                }
                 if let smelt_mir::MirClassProtocol::Str { method }
                 | smelt_mir::MirClassProtocol::Repr { method } = protocol
                 {

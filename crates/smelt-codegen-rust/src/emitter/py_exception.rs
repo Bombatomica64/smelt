@@ -2,8 +2,9 @@
 //! the class-chain literal both of them name.
 //!
 //! Every Python exception is one `SmeltPyException` (see the runtime's
-//! `py_exception.rs`), so these operations only ever deal in class names: the
-//! frontend resolved which classes a `raise` builds and an `except` names.
+//! `py_exception.rs`): an `except` matches class names the frontend resolved,
+//! and the instance of a user exception class travels inside it, recovered by
+//! a checked downcast (`docs/design/python-exceptions.md`).
 
 use crate::rust::RustExpr;
 use smelt_hir::{Symbol, Type, TypeId};
@@ -157,5 +158,71 @@ impl FunctionEmitter<'_> {
         let exception_text = self.operand_expr(exception)?;
         let names = self.py_class_names_literal(classes)?;
         Ok(exception_text.postfix(format!(".caught_by({names}, {catches_unclassified})")))
+    }
+
+    /// `SmeltPyExceptionArgs::new(..)`: the `args` `BaseException.__init__`
+    /// stores, each argument kept as its `str` and `repr`.
+    pub(super) fn py_exception_args_new_expr(
+        &self,
+        args: &[Operand],
+    ) -> Result<RustExpr, EmitError> {
+        let arg_texts = args
+            .iter()
+            .map(|arg| {
+                Ok(format!(
+                    "SmeltPyException::arg(&{})",
+                    self.operand_borrow_expr(arg)?.tight()
+                ))
+            })
+            .collect::<Result<Vec<_>, EmitError>>()?;
+        Ok(RustExpr::atom(format!(
+            "SmeltPyExceptionArgs::new(vec![{}])",
+            arg_texts.join(", ")
+        )))
+    }
+
+    /// `SmeltPyException::from_instance(..)`: the exception a `raise` of an
+    /// instance of a user exception class raises, sharing the instance.
+    pub(super) fn py_exception_from_instance_expr(
+        &self,
+        instance: &Operand,
+    ) -> Result<RustExpr, EmitError> {
+        let instance_text = self.operand_borrow_expr(instance)?;
+        Ok(RustExpr::atom(format!(
+            "SmeltPyException::from_instance(::std::rc::Rc::new({}.clone()))",
+            instance_text.tight()
+        )))
+    }
+
+    /// The instance of exception class `class` that the caught `exception`
+    /// carries: one checked downcast per concrete class a `class` handle can
+    /// hold (the class itself and, for a polymorphic class, each descendant).
+    pub(super) fn py_exception_instance_expr(
+        &self,
+        exception: &Operand,
+        class: Symbol,
+    ) -> Result<RustExpr, EmitError> {
+        let exception_text = self.operand_borrow_expr(exception)?;
+        let handle = self.type_rust_name(class)?;
+        let concrete = if self.context.is_polymorphic_class(class) {
+            crate::class_polymorphism::concrete_classes(
+                self.mir,
+                self.context.polymorphic_classes(),
+                class,
+            )
+        } else {
+            vec![class]
+        };
+        let mut body = String::new();
+        for candidate in concrete {
+            let inner = format!("{}Inner", self.type_rust_name(candidate)?);
+            body.push_str(&format!(
+                "let smelt_any = match smelt_any.downcast::<::std::cell::RefCell<{inner}>>() {{ Ok(smelt_cell) => return Some({handle}(smelt_cell)), Err(smelt_other) => smelt_other }}; "
+            ));
+        }
+        Ok(RustExpr::atom(format!(
+            "SmeltPyException::instance_as(&{}, |smelt_any| {{ {body}let _ = smelt_any; None }})",
+            exception_text.tight()
+        )))
     }
 }

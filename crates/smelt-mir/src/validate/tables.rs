@@ -66,6 +66,7 @@ fn validate_member_ids(mir: &Mir, errors: &mut Vec<ValidationError>) {
                 MirClassProtocol::Add { method }
                 | MirClassProtocol::Str { method }
                 | MirClassProtocol::Repr { method } => check("protocol method", *method),
+                MirClassProtocol::PyException { args, .. } => check("protocol method", *args),
             }
         }
     }

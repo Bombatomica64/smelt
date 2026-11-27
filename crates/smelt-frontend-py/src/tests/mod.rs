@@ -320,6 +320,7 @@ mod collections_a_tests;
 mod collections_b_tests;
 mod collections_reject_a_tests;
 mod collections_reject_b_tests;
+mod exception_class_tests;
 mod fn_scope_tests;
 mod lang_features_tests;
 mod name_resolution_tests;

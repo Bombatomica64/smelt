@@ -38,7 +38,8 @@
 //!   dictionary type (see [`collect_view_flow_triggers`]), or
 //! - it is an object shape converted to, or from, another object shape that
 //!   shares its properties (see `crate::structural_views`), or
-//! - its instances are THROWN (see [`collect_thrown_class_triggers`]), or
+//! - its instances are THROWN (see [`collect_thrown_class_triggers`]), or it
+//!   is a Python exception class (`MirClassProtocol::PyException`), or
 //! - it contains itself by value, directly or through other shapes (see
 //!   [`collect_by_value_cycle_triggers`]), or
 //! - it is an object shape a typed dictionary is converted to, which then
@@ -98,6 +99,20 @@ pub(crate) fn reference_classes(mir: &Mir) -> HashSet<Symbol> {
     collect_virtual_slot_triggers(mir, &mut references);
     collect_override_triggers(mir, &mut references);
     collect_thrown_class_triggers(mir, &mut references);
+    // A Python exception instance travels inside the raised
+    // `SmeltPyException` and is recovered by a downcast of its shared cell
+    // (`docs/design/python-exceptions.md`), so the caught name and the raised
+    // one are the same object.
+    references.extend(
+        mir.classes
+            .iter()
+            .filter(|class| {
+                class.protocols.iter().any(|protocol| {
+                    matches!(protocol, smelt_mir::MirClassProtocol::PyException { .. })
+                })
+            })
+            .map(|class| class.name),
+    );
     // After every other trigger, so a shape those already lifted counts as the
     // indirection it is; before the heritage closure, so a lifted class's
     // chain follows it.

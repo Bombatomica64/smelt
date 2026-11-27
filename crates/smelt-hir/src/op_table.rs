@@ -2696,6 +2696,40 @@ macro_rules! op_group_transcribed {
                 catches_unclassified: [bool],
             }
                 => (format!("py_exception_caught_by {exception}, {classes:?}, {catches_unclassified}"));
+            /// The `args` `BaseException.__init__(*args)` stores: the runtime's
+            /// `SmeltPyExceptionArgs` of these values' `str` and `repr`.
+            PyExceptionArgsNew {
+                /// The arguments.
+                args: many @READ,
+            }
+                => (format!("py_exception_args_new [{}]", args.join(", ")));
+            /// The exception a `raise` of an instance of a user exception class
+            /// raises: the runtime's `SmeltPyException` carrying the instance.
+            PyExceptionFromInstance {
+                /// The instance, of a class with `ClassProtocol::PyException`.
+                instance: one,
+            }
+                => (format!("py_exception_from_instance {instance}"));
+            /// The instance of the user exception class `class` that a caught
+            /// exception carries, which an `except class as e` clause binds after
+            /// its class test matched.
+            PyExceptionInstance {
+                /// The caught exception.
+                exception: one @READ,
+                /// The class the clause binds the instance as.
+                class: (sym "class"),
+            }
+                => (format!("py_exception_instance {exception} as {class}"));
+            /// `BaseException.__str__` (`repr` false) or `BaseException.__repr__`
+            /// of an instance of a user exception class: the text of its `args`,
+            /// and for `repr` its runtime class's name.
+            PyExceptionDefaultText {
+                /// The instance.
+                instance: one @READ,
+                /// Whether this is `__repr__`.
+                repr: [bool],
+            }
+                => (format!("py_exception_default_text {instance}, repr {repr}"));
             /// Python's `xs[i]` read of a `list` or `str`: a negative index
             /// counts from the end, and one past either end raises
             /// `IndexError`.

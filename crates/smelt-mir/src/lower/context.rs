@@ -191,8 +191,11 @@ type LocalMap = HashMap<HirLocalId, LocalId>;
 /// Build the HIR-to-MIR local map for `body`, pushing param locals in order.
 ///
 /// Both constructors need the same walk: every HIR local becomes a MIR local,
-/// parameters are tagged [`LocalKind::Param`] and appended to `function.params`,
-/// and the HIR-to-MIR id mapping is returned for later expression lowering.
+/// parameters are tagged [`LocalKind::Param`] and listed in `function.params`
+/// in `body.params` order (a parameter a frontend adds after the body's other
+/// locals, such as a Python exception constructor's leading hidden `args`,
+/// keeps the position it was given), and the HIR-to-MIR id mapping is
+/// returned for later expression lowering.
 fn build_locals(function: &mut MirFunction, body: &Body) -> Result<LocalMap, LowerError> {
     let mut locals = HashMap::new();
     for (idx, local) in body.locals.iter().enumerate() {
@@ -209,10 +212,12 @@ fn build_locals(function: &mut MirFunction, body: &Body) -> Result<LocalMap, Low
             span: local.span,
             init: crate::LocalInit::Definite,
         });
-        if is_param {
-            function.params.push(mir_local);
-        }
         locals.insert(hir_local, mir_local);
+    }
+    for param in &body.params {
+        if let Some(mir_local) = locals.get(param) {
+            function.params.push(*mir_local);
+        }
     }
     Ok(locals)
 }

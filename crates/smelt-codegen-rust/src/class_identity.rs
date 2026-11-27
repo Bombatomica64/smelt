@@ -50,7 +50,7 @@ pub(crate) const CLASS_IDENTITY_FIELD: &str = "_smelt_class";
 
 /// The root of `class`'s hierarchy inside the program: the topmost ancestor
 /// that is a generated class (a builtin base such as `Error` ends the walk).
-fn hierarchy_root(mir: &Mir, class: Symbol) -> Symbol {
+pub(crate) fn hierarchy_root(mir: &Mir, class: Symbol) -> Symbol {
     let mut current = class;
     let mut seen = HashSet::from([class]);
     while let Some(base) = find_class(mir, current).and_then(|found| found.base) {

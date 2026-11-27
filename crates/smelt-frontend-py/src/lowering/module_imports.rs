@@ -178,20 +178,26 @@ impl ModuleBuilder<'_> {
             args: vec![],
         });
         let mut init_body = Body::new(None, span);
-        let args = call
-            .arguments
-            .args
-            .iter()
-            .map(|arg| self.expression(arg, &mut init_body))
-            .collect::<Result<Vec<_>, _>>()?;
-        let value = init_body.push_expr(HirExpr {
-            kind: ExprKind::New {
-                class: class_sym,
-                args,
-            },
-            ty: class_ty,
-            span,
-        });
+        // An exception class's constructor may take its arguments packed as
+        // `args` too (`user_exception_new`).
+        let value = if self.exception_classes.contains_key(constructor) {
+            self.user_exception_new(constructor, &call.arguments.args, span, &mut init_body)?
+        } else {
+            let args = call
+                .arguments
+                .args
+                .iter()
+                .map(|arg| self.expression(arg, &mut init_body))
+                .collect::<Result<Vec<_>, _>>()?;
+            init_body.push_expr(HirExpr {
+                kind: ExprKind::New {
+                    class: class_sym,
+                    args,
+                },
+                ty: class_ty,
+                span,
+            })
+        };
         init_body.push_stmt(HirStmt::Return(Some(value)));
         let body_id = self.ctx.krate.push_body(init_body);
         let name_sym = self.intern_name(name);
