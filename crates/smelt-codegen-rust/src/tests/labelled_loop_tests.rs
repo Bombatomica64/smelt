@@ -65,7 +65,9 @@ export function pairs(n: number): string {
         // The block it leaves ends right before the outer update, which
         // then ends the outer iteration.
         let after = body.get(jump..).unwrap_or_default();
-        let update = after.find("a = a + 1.0;").unwrap_or_else(|| panic!("{body}"));
+        let update = after
+            .find("a = a + 1.0;")
+            .unwrap_or_else(|| panic!("{body}"));
         assert!(
             after.get(..update).is_some_and(|between| {
                 between.matches('}').count() >= 1 && !between.contains("b = 0.0")

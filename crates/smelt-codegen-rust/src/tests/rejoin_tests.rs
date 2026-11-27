@@ -123,8 +123,7 @@ fn rejoined_emission_grows_linearly() {
 /// A generator and the function `run` whose body is `n` copies of `statement`
 /// (inside `wrap`, which holds one `{}` for them), then one marker statement.
 fn generator_loops(n: usize, statement: &str, wrap: &str) -> String {
-    let body = statement.repeat(n);
-    let body = wrap.replace("{}", &body);
+    let body = wrap.replace("{}", &statement.repeat(n));
     format!(
         r"
 function* digits(limit: number): Generator<number> {{
@@ -189,11 +188,11 @@ fn loop_exit_programs(n: usize) -> Vec<(&'static str, String)> {
 fn loop_exits_emit_their_shared_tail_once() {
     for (shape, program) in loop_exit_programs(4) {
         let source = source_for(&program);
-        let program = program_body(&source);
+        let emitted = program_body(&source);
         assert_eq!(
-            program.matches("* 7919.0").count(),
+            emitted.matches("* 7919.0").count(),
             1,
-            "{shape}: the statement after four sequential loops must be emitted once:\n{program}"
+            "{shape}: the statement after four sequential loops must be emitted once:\n{emitted}"
         );
     }
 }
@@ -202,12 +201,12 @@ fn loop_exits_emit_their_shared_tail_once() {
 fn loop_exit_emission_grows_linearly() {
     // Twelve loops against four: linear emission is ~3x the text; per-exit
     // emission was `4^8` times larger (and never finished).
-    for ((shape, small), (_, large)) in loop_exit_programs(4)
+    for ((shape, four), (_, twelve)) in loop_exit_programs(4)
         .into_iter()
         .zip(loop_exit_programs(12))
     {
-        let small = program_body(&source_for(&small)).len();
-        let large = program_body(&source_for(&large)).len();
+        let small = program_body(&source_for(&four)).len();
+        let large = program_body(&source_for(&twelve)).len();
         assert!(
             large < small * 4,
             "{shape}: {small} bytes for 4 loops, {large} for 12"

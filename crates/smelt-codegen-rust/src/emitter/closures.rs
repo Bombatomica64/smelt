@@ -1446,7 +1446,11 @@ impl FunctionEmitter<'_> {
         out: &mut String,
     ) -> Result<(), EmitError> {
         let mut loops = self.closure_loops.borrow_mut();
-        let Some(open) = loops.iter_mut().rev().find(|(header, _, _, _)| *header == target) else {
+        let Some(open) = loops
+            .iter_mut()
+            .rev()
+            .find(|(header, _, _, _)| *header == target)
+        else {
             return Err(EmitError::new(format!(
                 "closure body has an unstructured cycle through block {}: it re-enters a block on the emission path that heads no loop",
                 target.0

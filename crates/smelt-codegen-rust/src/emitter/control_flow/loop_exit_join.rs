@@ -54,7 +54,10 @@ impl FunctionEmitter<'_> {
             if !forward.insert(block_id) {
                 continue;
             }
-            let Some(terminator) = self.block(block_id).ok().and_then(|b| b.terminator.as_ref())
+            let Some(terminator) = self
+                .block(block_id)
+                .ok()
+                .and_then(|b| b.terminator.as_ref())
             else {
                 continue;
             };
@@ -68,13 +71,13 @@ impl FunctionEmitter<'_> {
         }
         let mut body = BlockIdSet::default();
         body.insert(header);
-        let mut pending = predecessors.get(&header).cloned().unwrap_or_default();
-        while let Some(block_id) = pending.pop() {
+        let mut backward = predecessors.get(&header).cloned().unwrap_or_default();
+        while let Some(block_id) = backward.pop() {
             if !body.insert(block_id) {
                 continue;
             }
             if let Some(preds) = predecessors.get(&block_id) {
-                pending.extend(preds.iter().copied());
+                backward.extend(preds.iter().copied());
             }
         }
         body
@@ -150,7 +153,10 @@ impl FunctionEmitter<'_> {
     ) -> Vec<smelt_mir::BlockId> {
         let mut exits: Vec<smelt_mir::BlockId> = Vec::new();
         for block_id in body {
-            let Some(terminator) = self.block(*block_id).ok().and_then(|b| b.terminator.as_ref())
+            let Some(terminator) = self
+                .block(*block_id)
+                .ok()
+                .and_then(|b| b.terminator.as_ref())
             else {
                 continue;
             };
@@ -185,7 +191,9 @@ impl FunctionEmitter<'_> {
         let mut chain = vec![base];
         let mut next = self.immediate_post_dominator_past_throws(base);
         while let Some(block_id) = next {
-            if boundaries.contains(&block_id) || body.contains(&block_id) || chain.contains(&block_id)
+            if boundaries.contains(&block_id)
+                || body.contains(&block_id)
+                || chain.contains(&block_id)
             {
                 break;
             }
@@ -196,9 +204,9 @@ impl FunctionEmitter<'_> {
         let mut rejoined = 0_usize;
         for exit in exits {
             let mut seen = BlockIdSet::default();
-            let mut next = Some(*exit);
+            let mut step = Some(*exit);
             let mut hit = None;
-            while let Some(block_id) = next {
+            while let Some(block_id) = step {
                 if let Some(index) = chain.iter().position(|member| *member == block_id) {
                     hit = Some(index);
                     break;
@@ -206,7 +214,7 @@ impl FunctionEmitter<'_> {
                 if !seen.insert(block_id) {
                     break;
                 }
-                next = self.immediate_post_dominator_past_throws(block_id);
+                step = self.immediate_post_dominator_past_throws(block_id);
             }
             match hit {
                 Some(index) => {
@@ -248,7 +256,10 @@ impl FunctionEmitter<'_> {
             if block_id == join || !visited.insert(block_id) {
                 continue;
             }
-            let Some(terminator) = self.block(block_id).ok().and_then(|b| b.terminator.as_ref())
+            let Some(terminator) = self
+                .block(block_id)
+                .ok()
+                .and_then(|b| b.terminator.as_ref())
             else {
                 continue;
             };
@@ -264,10 +275,10 @@ impl FunctionEmitter<'_> {
         if results.is_empty() {
             return false;
         }
-        let mut pending = vec![join];
-        let mut visited = BlockIdSet::default();
-        while let Some(block_id) = pending.pop() {
-            if boundaries.contains(&block_id) || !visited.insert(block_id) {
+        let mut after = vec![join];
+        let mut read_visited = BlockIdSet::default();
+        while let Some(block_id) = after.pop() {
+            if boundaries.contains(&block_id) || !read_visited.insert(block_id) {
                 continue;
             }
             let Ok(block) = self.block(block_id) else {
@@ -279,7 +290,7 @@ impl FunctionEmitter<'_> {
             }
             if let Some(terminator) = &block.terminator {
                 terminator.read_locals(|read| reads |= results.contains(&read));
-                pending.extend(control_flow_successors(terminator));
+                after.extend(control_flow_successors(terminator));
             }
             if reads {
                 return true;
@@ -289,17 +300,17 @@ impl FunctionEmitter<'_> {
     }
 
     /// After a loop whose [`OpenLoopScope::close`](super::flow_state::OpenLoopScope::close)
-    /// answered `join`: emit the region from the loop's `exit_block` up to the
+    /// answered `used_join`: emit the region from the loop's `exit_block` up to the
     /// join inside the still-open labelled block, close the block, and answer
     /// the block emission continues at (`join`, or `exit_block` for a loop
     /// whose exit join no edge used).
     pub(super) fn emit_loop_exit_region(
         &self,
-        join: Option<smelt_mir::BlockId>,
+        used_join: Option<smelt_mir::BlockId>,
         exit_block: smelt_mir::BlockId,
         out: &mut String,
     ) -> Result<smelt_mir::BlockId, EmitError> {
-        let Some(join) = join else {
+        let Some(join) = used_join else {
             return Ok(exit_block);
         };
         let region_declared = self.declared_scope();

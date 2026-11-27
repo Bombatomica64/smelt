@@ -199,9 +199,13 @@ impl FunctionEmitter<'_> {
         let else_ = self.block(else_block)?;
         let loop_declared = self.declared_scope();
         let exit_join = self.loop_exit_join(block.id, else_block, None);
-        let open_loop =
-            self.flow
-                .open_loop(block.id, latch_block, Some(else_block), exit_join, out.len());
+        let open_loop = self.flow.open_loop(
+            block.id,
+            latch_block,
+            Some(else_block),
+            exit_join,
+            out.len(),
+        );
         self.open_while_loop(block, cond, cond_statement_idx, out)?;
         self.emit_block_until_goto(
             then,
@@ -220,7 +224,14 @@ impl FunctionEmitter<'_> {
         let used_join = open_loop.close(out);
         loop_declared.close();
         let next = self.emit_loop_exit_region(used_join, else_block, out)?;
-        self.emit_block(if next == else_block { else_ } else { self.block(next)? }, out)
+        self.emit_block(
+            if next == else_block {
+                else_
+            } else {
+                self.block(next)?
+            },
+            out,
+        )
     }
 
     /// Emits a basic block after recursion-depth accounting has been applied.
@@ -261,7 +272,14 @@ impl FunctionEmitter<'_> {
             let used_join = open_loop.close(out);
             loop_declared.close();
             let next = self.emit_loop_exit_region(used_join, exit_block, out)?;
-            return self.emit_block(if next == exit_block { exit } else { self.block(next)? }, out);
+            return self.emit_block(
+                if next == exit_block {
+                    exit
+                } else {
+                    self.block(next)?
+                },
+                out,
+            );
         }
 
         // A compound short-circuit `while` header is recognized before the

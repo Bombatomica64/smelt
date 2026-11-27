@@ -2245,6 +2245,8 @@ fn discriminated_union_narrowing() -> TestResult {
         )?;
     }
     Ok(())
+}
+
 /// Loops whose body leaves them other than through their exit, in sequence:
 /// `for...of` over generators (a throwing `next()`, `break`, an early `return`)
 /// in a function, in a closure and nested in an outer loop, and a `while` with
