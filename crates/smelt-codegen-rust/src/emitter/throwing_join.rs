@@ -169,9 +169,78 @@ impl FunctionEmitter<'_> {
                 *stop,
                 *in_loop,
             ),
-            Continuation::InLoop { .. } => {
-                Err(EmitError::new("a loop continuation has no rejoined tail"))
-            }
+            // `join` is still a pending loop-body join here, where reaching
+            // it ends the walk: `loop_join_attempt` emits the tail once the
+            // join is popped.
+            Continuation::InLoop { .. } => Ok(()),
         }
+    }
+
+    /// The block where a throwing terminator's normal successor `target` and
+    /// its `catch` block rejoin inside the body of the loop `continuation`
+    /// continues (`None` for any other continuation): their nearest common
+    /// post-dominator within the loop region (`loop_region_join`).
+    ///
+    /// Without it each arm of the `match` over the result emitted the rest of
+    /// the loop body, so `n` sequential `try`/`catch` statements in a loop
+    /// body rendered it `3^n` times.
+    pub(super) fn throwing_loop_join(
+        &self,
+        target: smelt_mir::BlockId,
+        catch_block: smelt_mir::BlockId,
+        continuation: &Continuation<'_>,
+    ) -> Option<smelt_mir::BlockId> {
+        let Continuation::InLoop {
+            continue_target,
+            break_target,
+            ..
+        } = continuation
+        else {
+            return None;
+        };
+        self.loop_region_join(&[target, catch_block], *continue_target, *break_target)
+    }
+
+    /// Run `emit` (which writes into the buffer it is handed) with `join`
+    /// registered as a pending join of the loop `continuation` continues, so
+    /// every arm ends there, then emit the tail from `join` once; answer
+    /// whether it succeeded without an arm
+    /// reaching the join from another loop context (a nested loop or forward
+    /// region, where ending the arm would skip code). On `false` nothing
+    /// emitted is kept and the declarations are as before.
+    pub(super) fn loop_join_attempt(
+        &self,
+        join: smelt_mir::BlockId,
+        continuation: &Continuation<'_>,
+        emit: impl FnOnce(&mut String) -> Result<(), EmitError>,
+        buffer: &mut String,
+    ) -> Result<bool, EmitError> {
+        let Continuation::InLoop {
+            continue_target,
+            break_target,
+            visited,
+        } = continuation
+        else {
+            return Ok(false);
+        };
+        let declared = self.declared_scope();
+        let join_scope = self.flow.push_loop_join_stop(join, *continue_target);
+        let emitted = emit(buffer);
+        let violated = join_scope.finish();
+        emitted?;
+        if violated {
+            declared.close();
+            buffer.clear();
+            return Ok(false);
+        }
+        declared.keep();
+        self.emit_loop_branch_inner(
+            self.block(join)?,
+            *continue_target,
+            *break_target,
+            buffer,
+            &mut (*visited).clone(),
+        )?;
+        Ok(true)
     }
 }

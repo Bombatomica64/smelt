@@ -8,13 +8,15 @@
 //! number of sequential branches.
 //!
 //! The analysis is the textbook dataflow over the reverse CFG with one
-//! virtual exit node that every `return`/`throw`/`unreachable` block (and any
-//! block without a terminator) flows into: `PD(exit) = {exit}` and
+//! virtual exit node that every `return`/`unreachable` block (and any block
+//! without a terminator) flows into; a `throw` block has no successor at all,
+//! so it constrains no join (an arm that throws leaves through its own
+//! `return Err(..)`): `PD(exit) = {exit}` and
 //! `PD(n) = {n} ∪ ⋂ PD(s)` over the successors `s` of `n`, iterated to the
 //! greatest fixpoint. Post-dominator sets form a chain, so the immediate
 //! post-dominator of `n` is the member of `PD(n) \ {n}` with the largest set.
-//! A block that cannot reach the exit (an infinite loop) has no
-//! post-dominator.
+//! A block that cannot reach the exit (an infinite loop, or one that throws
+//! on every path) has no post-dominator.
 //!
 //! Successors are the emitter's own (`control_flow_successors`), so a call's
 //! unwind edge into its `catch` block counts: a `try` rejoins after the
@@ -79,18 +81,28 @@ impl BlockSet {
 /// The immediate post-dominator of every block of `function`, indexed by block
 /// id (`None`: the virtual exit, or no path to it).
 ///
-/// With `throws_exit` false a `throw` block does not flow into the exit: it
+/// A `throw` block does not flow into the exit: it
 /// has no successor at all, so it constrains no predecessor, and a block whose
 /// non-throwing paths all meet at `J` is post-dominated by `J`. That is where a
 /// `catch` handler whose unmatched case rethrows rejoins its `try`.
+pub(super) fn immediate_post_dominators(function: &MirFunction) -> Vec<Option<smelt_mir::BlockId>> {
+    immediate_post_dominators_with(function, |block| {
+        matches!(block.terminator, Some(Terminator::Throw(_)))
+    })
+}
+
+/// The immediate post-dominator of every block of `function`, where a block
+/// without successors flows into the virtual exit unless `neutral` holds for
+/// it: a neutral block has no successor at all, so it constrains no
+/// predecessor (see [`immediate_post_dominators`] for `throw` blocks).
 #[expect(
     clippy::indexing_slicing,
     clippy::arithmetic_side_effects,
     reason = "every index is a node number below `nodes`, the length of both tables"
 )]
-pub(super) fn immediate_post_dominators(
+fn immediate_post_dominators_with(
     function: &MirFunction,
-    throws_exit: bool,
+    neutral: impl Fn(&BasicBlock) -> bool,
 ) -> Vec<Option<smelt_mir::BlockId>> {
     let blocks = function.blocks.len();
     let exit = blocks;
@@ -107,8 +119,7 @@ pub(super) fn immediate_post_dominators(
                 .into_iter()
                 .filter_map(|id| usize::try_from(id.0).ok().filter(|index| *index < blocks))
                 .collect::<Vec<_>>();
-            let throws = matches!(block.terminator, Some(Terminator::Throw(_)));
-            if next.is_empty() && (throws_exit || !throws) {
+            if next.is_empty() && !neutral(block) {
                 next.push(exit);
             }
             next
@@ -157,31 +168,126 @@ pub(super) fn immediate_post_dominators(
 }
 
 impl FunctionEmitter<'_> {
-    /// The immediate post-dominator of `block` in the function being emitted
-    /// (see the module docs); computed once per function and cached.
-    pub(super) fn immediate_post_dominator(
-        &self,
-        block: smelt_mir::BlockId,
-    ) -> Option<smelt_mir::BlockId> {
-        let mut cache = self.caches.post_dominators.borrow_mut();
-        let table = cache.get_or_insert_with(|| immediate_post_dominators(self.function, true));
-        usize::try_from(block.0)
-            .ok()
-            .and_then(|index| table.get(index).copied().flatten())
-    }
-
     /// The immediate post-dominator of `block` over the paths that do not
-    /// `throw` (see [`immediate_post_dominators`]); cached like
-    /// [`Self::immediate_post_dominator`].
+    /// `throw` (see [`immediate_post_dominators`]); computed once per
+    /// function and cached.
     pub(super) fn immediate_post_dominator_past_throws(
         &self,
         block: smelt_mir::BlockId,
     ) -> Option<smelt_mir::BlockId> {
         let mut cache = self.caches.post_dominators_past_throws.borrow_mut();
-        let table = cache.get_or_insert_with(|| immediate_post_dominators(self.function, false));
+        let table = cache.get_or_insert_with(|| immediate_post_dominators(self.function));
         usize::try_from(block.0)
             .ok()
             .and_then(|index| table.get(index).copied().flatten())
+    }
+}
+
+impl FunctionEmitter<'_> {
+    /// Where the arms `arms` of the branch at `branch` (an `if`'s two, or a
+    /// `match`'s targets) rejoin: the branch's immediate post-dominator over
+    /// the paths that neither `throw` nor end in a `return` only one arm
+    /// reaches.
+    ///
+    /// A `case` that returns (`switch (k) { case 0: return -1; default: .. }`)
+    /// leaves through its own `return` the way a throwing one does, so it must
+    /// not stop the other arms from rejoining; the function's final `return`,
+    /// which every arm reaches after the join, must still end the paths. A
+    /// terminating block reachable from a single arm (walking from each arm
+    /// without crossing `boundaries` or the branch itself) is emitted only
+    /// inside that arm, so treating it as neutral never duplicates it. The
+    /// usual table (`immediate_post_dominator_past_throws`) answers first;
+    /// the per-branch table is computed only when an arm returns early, and
+    /// only for a `match`: a two-way branch with an arm that returns
+    /// (`if (c) return a; ..`) is structured by `emit_switch`'s own rules
+    /// (`if c { return a } else { .. }`), which already emit the rest once.
+    pub(super) fn branch_rejoin_post_dominator(
+        &self,
+        branch: smelt_mir::BlockId,
+        arms: &[smelt_mir::BlockId],
+        boundaries: &[smelt_mir::BlockId],
+    ) -> Option<smelt_mir::BlockId> {
+        if let Some(join) = self.immediate_post_dominator_past_throws(branch) {
+            return Some(join);
+        }
+        if !matches!(
+            self.block(branch)
+                .ok()
+                .and_then(|block| block.terminator.as_ref()),
+            Some(Terminator::Match { .. })
+        ) {
+            return None;
+        }
+        let exclusive = self.arm_exclusive_terminators(Some(branch), arms, boundaries);
+        if exclusive.is_empty() {
+            return None;
+        }
+        let table = immediate_post_dominators_with(self.function, |block| {
+            matches!(block.terminator, Some(Terminator::Throw(_))) || exclusive.contains(&block.id)
+        });
+        let join = usize::try_from(branch.0)
+            .ok()
+            .and_then(|index| table.get(index).copied().flatten())?;
+        // A single continuing arm post-dominates the others once they are
+        // neutral: nothing would be emitted twice, so there is nothing to
+        // rejoin.
+        let reaching = arms
+            .iter()
+            .filter(|arm| {
+                **arm == join
+                    || self.block_reaches_target_avoiding(
+                        **arm,
+                        join,
+                        boundaries,
+                        &mut BlockIdSet::default(),
+                    )
+            })
+            .count();
+        (reaching >= 2).then_some(join)
+    }
+
+    /// The `return`/`throw` blocks that exactly one of `arms` reaches, walking
+    /// forward without crossing `boundaries` or `branch`.
+    pub(super) fn arm_exclusive_terminators(
+        &self,
+        branch: Option<smelt_mir::BlockId>,
+        arms: &[smelt_mir::BlockId],
+        boundaries: &[smelt_mir::BlockId],
+    ) -> BlockIdSet {
+        let mut reached_by: rustc_hash::FxHashMap<smelt_mir::BlockId, usize> =
+            rustc_hash::FxHashMap::default();
+        let mut distinct = arms.to_vec();
+        distinct.sort_by_key(|arm| arm.0);
+        distinct.dedup();
+        for arm in &distinct {
+            let mut seen = BlockIdSet::default();
+            let mut pending = vec![*arm];
+            while let Some(block_id) = pending.pop() {
+                if Some(block_id) == branch
+                    || boundaries.contains(&block_id)
+                    || !seen.insert(block_id)
+                {
+                    continue;
+                }
+                let Some(terminator) = self
+                    .block(block_id)
+                    .ok()
+                    .and_then(|block| block.terminator.as_ref())
+                else {
+                    continue;
+                };
+                if matches!(terminator, Terminator::Return(_) | Terminator::Throw(_)) {
+                    let count = reached_by.entry(block_id).or_default();
+                    *count = count.saturating_add(1);
+                }
+                pending.extend(control_flow::control_flow_successors(terminator));
+            }
+        }
+        reached_by
+            .into_iter()
+            .filter(|(_, count)| *count == 1)
+            .map(|(block, _)| block)
+            .collect()
     }
 }
 

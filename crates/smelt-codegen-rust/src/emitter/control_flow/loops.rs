@@ -859,16 +859,12 @@ impl FunctionEmitter<'_> {
                 else_block,
             }) if matches!(exit, RegionExit::Join) => {
                 let Some(join) =
-                    self.join_region_branch_join(block.id, *then_block, *else_block, stop)?
+                    self.join_region_branch_join(block.id, &[*then_block, *else_block], stop)?
                 else {
-                    return self.emit_terminator(
-                        block.id,
-                        block
-                            .terminator
-                            .as_ref()
-                            .ok_or_else(|| EmitError::new("basic block has no terminator"))?,
-                        out,
-                    );
+                    // The plain switch emission, which must not rejoin past
+                    // `stop` it cannot see.
+                    self.flow.record(Flow::FallsThrough);
+                    return self.emit_switch(block.id, cond, *then_block, *else_block, false, out);
                 };
                 let cond_text = self.truthy_operand_expr(cond)?;
                 let branch_declared = self.declared_scope();
@@ -904,12 +900,93 @@ impl FunctionEmitter<'_> {
                 scrutinee,
                 arms,
                 default,
-            }) if break_target.is_some() => {
-                self.emit_loop_match(scrutinee, arms, *default, stop, break_target, out, visited)
+            }) if break_target.is_some() => self.emit_loop_match(
+                block.id,
+                scrutinee,
+                arms,
+                *default,
+                stop,
+                break_target,
+                out,
+                visited,
+            ),
+            // A `match` inside a forward join region: the arms up to their
+            // own join, then the join onward, still bounded by `stop`, as for
+            // the two-way switch above.
+            Some(Terminator::Match {
+                scrutinee,
+                arms,
+                default,
+            }) if matches!(exit, RegionExit::Join) => {
+                let targets = control_flow_match::match_targets(arms, *default);
+                let Some(join) = self.join_region_branch_join(block.id, &targets, stop)? else {
+                    // `None`: the plain per-arm emission, which must not
+                    // rejoin past `stop` it cannot see.
+                    self.flow.record(Flow::FallsThrough);
+                    return self.emit_match(None, scrutinee, arms, *default, out);
+                };
+                self.emit_join_region_match(scrutinee, arms, *default, join, stop, out)?;
+                if join == stop {
+                    return Ok(());
+                }
+                self.emit_block_until_goto_inner(self.block(join)?, stop, exit, out, visited)
+            }
+            // Any other region (a loop body without a `break` target): the
+            // plain per-arm emission, which must not rejoin past `stop`.
+            Some(Terminator::Match {
+                scrutinee,
+                arms,
+                default,
+            }) => {
+                self.flow.record(Flow::FallsThrough);
+                self.emit_match(None, scrutinee, arms, *default, out)
             }
             Some(terminator) => self.emit_terminator(block.id, terminator, out),
             None => Err(EmitError::new("basic block has no terminator")),
         }
+    }
+
+    /// Emits a `match` inside a forward join region whose arms meet at
+    /// `join` (see `join_region_branch_join`): each arm up to `join`, or in
+    /// full when it diverges before `stop`. The caller emits `join` onward.
+    fn emit_join_region_match(
+        &self,
+        scrutinee: &Operand,
+        arms: &[smelt_mir::MatchArm],
+        default: Option<smelt_mir::BlockId>,
+        join: smelt_mir::BlockId,
+        stop: smelt_mir::BlockId,
+        out: &mut String,
+    ) -> Result<(), EmitError> {
+        let scrutinee_text = self.match_scrutinee_expr(scrutinee)?;
+        let scrutinee_ty = self.operand_ty(scrutinee)?;
+        out.push_str(&format!(
+            "    match {scrutinee_text} {{\n",
+            scrutinee_text = scrutinee_text.delimited()
+        ));
+        let match_declared = self.declared_scope();
+        for arm in arms {
+            out.push_str(&format!(
+                "        {} => {{\n",
+                self.match_label_text_for_scrutinee(&arm.label, scrutinee_ty)
+            ));
+            if arm.target != join {
+                self.emit_join_region_arm(arm.target, join, stop, out)?;
+            }
+            out.push_str("        }\n");
+            match_declared.reset();
+        }
+        match default {
+            Some(default_block) if default_block != join => {
+                out.push_str("        _ => {\n");
+                self.emit_join_region_arm(default_block, join, stop, out)?;
+                out.push_str("        }\n");
+            }
+            _ => out.push_str("        _ => {}\n"),
+        }
+        match_declared.close();
+        out.push_str("    }\n");
+        Ok(())
     }
 
     /// Emit one arm of a join-region branch: in full when it diverges before
@@ -1117,6 +1194,7 @@ impl FunctionEmitter<'_> {
                 arms,
                 default,
             }) => self.emit_loop_match(
+                block.id,
                 scrutinee,
                 arms,
                 *default,
@@ -1148,17 +1226,42 @@ impl FunctionEmitter<'_> {
         self.flow.loop_join_stop_hit(block, loop_context)
     }
 
-    /// The JOIN of a two-way branch inside a loop body: the branch block's
-    /// immediate post-dominator within the loop region, if it is a real block.
+    /// The JOIN of a branch inside a loop body (a two-way switch or a
+    /// `match`): the branch block's immediate post-dominator within the loop
+    /// region, if it is a real block.
     ///
     /// The region is every block reachable from `switch` without passing the
     /// loop's continue target, its break target, or an enclosing pending join;
-    /// those edges, and returns/throws, all lead to one virtual exit. A block
+    /// those edges, and the returns/throws more than one arm reaches, all lead
+    /// to one virtual exit (a `return`/`throw` inside one arm constrains
+    /// nothing, see `branch_rejoin_post_dominator`). A block
     /// every path from the branch goes through before that exit is where both
     /// arms reconverge, so the code after it belongs after the `if`, once.
-    fn loop_branch_join(
+    pub(in crate::emitter) fn loop_branch_join(
         &self,
         switch: smelt_mir::BlockId,
+        continue_target: smelt_mir::BlockId,
+        break_target: Option<smelt_mir::BlockId>,
+    ) -> Option<smelt_mir::BlockId> {
+        let successors = self
+            .block(switch)
+            .ok()
+            .and_then(|block| block.terminator.as_ref())
+            .map(control_flow_successors)
+            .unwrap_or_default();
+        if successors.is_empty() {
+            return None;
+        }
+        self.loop_region_join(&successors, continue_target, break_target)
+    }
+
+    /// The nearest block inside the loop body that every path from each of
+    /// `starts` reaches before the loop's virtual exit (see
+    /// [`Self::loop_branch_join`], whose arms are the branch's successors): a
+    /// member of every start's post-dominator set, a start itself included.
+    pub(in crate::emitter) fn loop_region_join(
+        &self,
+        starts: &[smelt_mir::BlockId],
         continue_target: smelt_mir::BlockId,
         break_target: Option<smelt_mir::BlockId>,
     ) -> Option<smelt_mir::BlockId> {
@@ -1173,9 +1276,16 @@ impl FunctionEmitter<'_> {
                 .map(control_flow_successors)
                 .unwrap_or_default()
         };
+        // A `return`/`throw` only one arm reaches leaves through that arm's
+        // own `return`, so it constrains no join (see
+        // `branch_rejoin_post_dominator`): it has no successor at all below.
+        let mut boundaries = pending.clone();
+        boundaries.push(continue_target);
+        boundaries.extend(break_target);
+        let neutral = self.arm_exclusive_terminators(None, starts, &boundaries);
         let mut region = Vec::new();
         let mut seen = BlockIdSet::default();
-        let mut stack = vec![switch];
+        let mut stack = starts.to_vec();
         while let Some(block_id) = stack.pop() {
             if is_exit(block_id) || !seen.insert(block_id) {
                 continue;
@@ -1202,7 +1312,7 @@ impl FunctionEmitter<'_> {
                     .into_iter()
                     .map(node_of)
                     .collect::<Vec<_>>();
-                if next.is_empty() {
+                if next.is_empty() && !neutral.contains(block_id) {
                     next.push(exit);
                 }
                 next
@@ -1241,17 +1351,53 @@ impl FunctionEmitter<'_> {
                 }
             }
         }
-        let start = node_of(switch);
-        let start_set = post_dominators.get(start)?;
-        // The immediate post-dominator is the strict post-dominator that is
-        // itself post-dominated by all the others: the one with the most.
-        region
+        // The post-dominators of a virtual node whose successors are the
+        // starts: the members every start's set has.
+        let mut start_set = vec![true; width];
+        for start in starts {
+            let set = post_dominators.get(node_of(*start))?;
+            for (slot, member) in start_set.iter_mut().zip(set) {
+                *slot &= *member;
+            }
+        }
+        // Every path from the starts ends in a neutral `return`/`throw`:
+        // nothing rejoins (and the full set would name an arbitrary block).
+        if !start_set.get(exit).copied().unwrap_or(false) {
+            return None;
+        }
+        // The immediate post-dominator is the post-dominator that is itself
+        // post-dominated by all the others: the one with the most.
+        let join = region
             .iter()
             .zip(&post_dominators)
             .enumerate()
-            .filter(|(node, _)| *node != start && start_set.get(*node).copied().unwrap_or(false))
+            .filter(|(node, _)| start_set.get(*node).copied().unwrap_or(false))
             .max_by_key(|(_, (_, set))| set.iter().filter(|member| **member).count())
-            .map(|(_, (block_id, _))| *block_id)
+            .map(|(_, (block_id, _))| *block_id)?;
+        // With neutral `return`/`throw` blocks a single continuing start
+        // post-dominates the others: nothing would be emitted twice, so there
+        // is nothing to rejoin.
+        if !neutral.is_empty() {
+            let mut exits = pending;
+            exits.push(continue_target);
+            exits.extend(break_target);
+            let reaching = starts
+                .iter()
+                .filter(|start| {
+                    **start == join
+                        || self.block_reaches_target_avoiding(
+                            **start,
+                            join,
+                            &exits,
+                            &mut BlockIdSet::default(),
+                        )
+                })
+                .count();
+            if reaching < 2 {
+                return None;
+            }
+        }
+        Some(join)
     }
 
     /// Emits `if cond { then } else { else }` inside a loop body ending both

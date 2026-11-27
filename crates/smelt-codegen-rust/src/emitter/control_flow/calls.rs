@@ -145,11 +145,69 @@ impl FunctionEmitter<'_> {
         continuation: &Continuation<'_>,
         out: &mut String,
     ) -> Result<(), EmitError> {
+        if let Some(loop_join) = self.throwing_loop_join(target, handler.catch_block, continuation)
+        {
+            let mut buffered = String::new();
+            let attempt = self.loop_join_attempt(
+                loop_join,
+                continuation,
+                |buffer| {
+                    self.emit_throwing_call_terminator_at(
+                        callee,
+                        args,
+                        dest,
+                        target,
+                        handler,
+                        continuation,
+                        Some(loop_join),
+                        buffer,
+                    )
+                },
+                &mut buffered,
+            )?;
+            if attempt {
+                out.push_str(&buffered);
+                return Ok(());
+            }
+        }
+        self.emit_throwing_call_terminator_at(
+            callee,
+            args,
+            dest,
+            target,
+            handler,
+            continuation,
+            None,
+            out,
+        )
+    }
+
+    /// [`Self::emit_throwing_call_terminator`] with the arms' join inside an
+    /// enclosing loop body (`loop_join`, registered as a pending join by the
+    /// caller), or `None` for the region's own join rule.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the terminator's operands, its continuation, and the loop-body join"
+    )]
+    fn emit_throwing_call_terminator_at(
+        &self,
+        callee: &Callee,
+        args: &[Operand],
+        dest: LocalId,
+        target: smelt_mir::BlockId,
+        handler: smelt_mir::ExceptionHandler,
+        continuation: &Continuation<'_>,
+        loop_join: Option<smelt_mir::BlockId>,
+        out: &mut String,
+    ) -> Result<(), EmitError> {
         let local = self.local_decl(dest)?;
         // Rejoin the arms at their common tail when the region allows it (see
         // `throwing_join`): each arm stops there and the tail is emitted once.
         let declared_before_arms = self.declared_scope();
-        let join = self.throwing_continuation_join(target, handler.catch_block, continuation);
+        let join = match continuation {
+            Continuation::InLoop { .. } => loop_join,
+            _ => self.throwing_continuation_join(target, handler.catch_block, continuation),
+        };
         let fresh_visited = BlockIdSet::default();
         let joined_continuation = join.and_then(|join| match continuation {
             Continuation::Block => Some(Continuation::Region {
@@ -165,7 +223,17 @@ impl FunctionEmitter<'_> {
                 stop: Some(join),
                 in_loop: true,
             }),
-            Continuation::InLoop { .. } => None,
+            // The arms end at the join through the pending loop-body join
+            // the caller registered (`loop_join_stop_hit`).
+            Continuation::InLoop {
+                continue_target,
+                break_target,
+                visited,
+            } => Some(Continuation::InLoop {
+                continue_target: *continue_target,
+                break_target: *break_target,
+                visited,
+            }),
         });
         let arm_continuation = joined_continuation.as_ref().unwrap_or(continuation);
         let joined_tail = join.filter(|_| joined_continuation.is_some());
@@ -439,11 +507,66 @@ impl FunctionEmitter<'_> {
         continuation: &Continuation<'_>,
         out: &mut String,
     ) -> Result<(), EmitError> {
+        if let Some(loop_join) = self.throwing_loop_join(target, handler.catch_block, continuation)
+        {
+            let mut buffered = String::new();
+            let attempt = self.loop_join_attempt(
+                loop_join,
+                continuation,
+                |buffer| {
+                    self.emit_throwing_await_terminator_at(
+                        future,
+                        dest,
+                        target,
+                        handler,
+                        continuation,
+                        Some(loop_join),
+                        buffer,
+                    )
+                },
+                &mut buffered,
+            )?;
+            if attempt {
+                out.push_str(&buffered);
+                return Ok(());
+            }
+        }
+        self.emit_throwing_await_terminator_at(
+            future,
+            dest,
+            target,
+            handler,
+            continuation,
+            None,
+            out,
+        )
+    }
+
+    /// [`Self::emit_throwing_await_terminator`] with the arms' join inside an
+    /// enclosing loop body (`loop_join`, registered as a pending join by the
+    /// caller), or `None` for the region's own join rule.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the terminator's operands, its continuation, and the loop-body join"
+    )]
+    fn emit_throwing_await_terminator_at(
+        &self,
+        future: &Operand,
+        dest: LocalId,
+        target: smelt_mir::BlockId,
+        handler: smelt_mir::ExceptionHandler,
+        continuation: &Continuation<'_>,
+        loop_join: Option<smelt_mir::BlockId>,
+        out: &mut String,
+    ) -> Result<(), EmitError> {
         let local = self.local_decl(dest)?;
         // Rejoin the arms at their common tail when the region allows it (see
         // `throwing_join`): each arm stops there and the tail is emitted once.
         let declared_before_arms = self.declared_scope();
-        let join = self.throwing_continuation_join(target, handler.catch_block, continuation);
+        let join = match continuation {
+            Continuation::InLoop { .. } => loop_join,
+            _ => self.throwing_continuation_join(target, handler.catch_block, continuation),
+        };
         let fresh_visited = BlockIdSet::default();
         let joined_continuation = join.and_then(|join| match continuation {
             Continuation::Block => Some(Continuation::Region {
@@ -459,7 +582,17 @@ impl FunctionEmitter<'_> {
                 stop: Some(join),
                 in_loop: true,
             }),
-            Continuation::InLoop { .. } => None,
+            // The arms end at the join through the pending loop-body join
+            // the caller registered (`loop_join_stop_hit`).
+            Continuation::InLoop {
+                continue_target,
+                break_target,
+                visited,
+            } => Some(Continuation::InLoop {
+                continue_target: *continue_target,
+                break_target: *break_target,
+                visited,
+            }),
         });
         let arm_continuation = joined_continuation.as_ref().unwrap_or(continuation);
         let joined_tail = join.filter(|_| joined_continuation.is_some());

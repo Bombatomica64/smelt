@@ -1477,7 +1477,7 @@ impl FunctionEmitter<'_> {
             ..
         } = terminator
         {
-            self.closure_branch_join(block.id, *then_block, *else_block, active, stop)
+            self.closure_branch_join(block.id, &[*then_block, *else_block], active, stop)
         } else {
             None
         };
@@ -1651,7 +1651,9 @@ impl FunctionEmitter<'_> {
                 scrutinee,
                 arms,
                 default,
-            } => self.emit_closure_match(scrutinee, arms, *default, out, active, stop, in_loop),
+            } => self.emit_closure_match(
+                block.id, scrutinee, arms, *default, out, active, stop, in_loop,
+            ),
             Terminator::Throw(operand) => {
                 // Same helper as the function-level throw terminator.
                 out.push_str(&self.throw_terminator_text(operand)?);
@@ -1703,10 +1705,13 @@ impl FunctionEmitter<'_> {
         Ok(())
     }
 
-    /// The block where the two arms of the closure-body branch at
-    /// `switch_block` rejoin, when the branch can be emitted as one structured
-    /// `if` followed by that block: its immediate post-dominator `J`
-    /// (`post_dominance`).
+    /// The block where the arms of the closure-body branch at `switch_block`
+    /// (the two of an `if`, or every target of a `match`) rejoin, when the
+    /// branch can be emitted as one structured `if`/`match` followed by that
+    /// block: its immediate post-dominator `J` over the paths that do not
+    /// throw (nor, for a `match`, return from inside one arm:
+    /// [`Self::branch_rejoin_post_dominator`]). An arm that throws or returns
+    /// says so explicitly (`return`), as the statement form needs.
     ///
     /// `None` keeps the per-path emission, which is right when there is
     /// nothing to rejoin or the join lies outside the region being emitted:
@@ -1718,17 +1723,16 @@ impl FunctionEmitter<'_> {
     fn closure_branch_join(
         &self,
         switch_block: smelt_mir::BlockId,
-        then_block: smelt_mir::BlockId,
-        else_block: smelt_mir::BlockId,
+        arm_targets: &[smelt_mir::BlockId],
         active: &[smelt_mir::BlockId],
         stop: Option<smelt_mir::BlockId>,
     ) -> Option<smelt_mir::BlockId> {
-        let join = self.immediate_post_dominator(switch_block)?;
+        let exits = active.iter().copied().chain(stop).collect::<Vec<_>>();
+        let join = self.branch_rejoin_post_dominator(switch_block, arm_targets, &exits)?;
         if Some(join) == stop || active.contains(&join) {
             return None;
         }
-        let exits = active.iter().copied().chain(stop).collect::<Vec<_>>();
-        for arm in [then_block, else_block] {
+        for arm in arm_targets.iter().copied() {
             if arm == join {
                 continue;
             }
@@ -1747,8 +1751,13 @@ impl FunctionEmitter<'_> {
     /// blocks that usually emit explicit `return` statements. This helper keeps
     /// shared match join blocks outside the generated `match` expression and
     /// lets non-joining matches remain the closure tail expression.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the match operands plus the closure walker's path, stop and loop context"
+    )]
     fn emit_closure_match(
         &self,
+        match_block: smelt_mir::BlockId,
         scrutinee: &Operand,
         arms: &[smelt_mir::MatchArm],
         default: Option<smelt_mir::BlockId>,
@@ -1757,7 +1766,24 @@ impl FunctionEmitter<'_> {
         stop: Option<smelt_mir::BlockId>,
         in_loop: bool,
     ) -> Result<(), EmitError> {
-        let join = self.match_join(arms, default)?;
+        // The arms rejoin at a block they all `Goto` directly, or else at the
+        // `match` block's immediate post-dominator (an arm that calls a
+        // function or branches first reaches it only transitively). Without
+        // the second rule each arm re-emitted the whole continuation, so `n`
+        // sequential `switch` statements rendered it `cases^n` times.
+        let join = match self.match_join(arms, default)? {
+            Some(join) => Some(join),
+            None => self.closure_branch_join(
+                match_block,
+                &arms
+                    .iter()
+                    .map(|arm| arm.target)
+                    .chain(default)
+                    .collect::<Vec<_>>(),
+                active,
+                stop,
+            ),
+        };
         // With a join after the `match`, the `match` is a statement, not the
         // closure's tail: an arm that returns must say `return`, as inside a
         // loop, or its value became the arm's (mismatched) tail and control

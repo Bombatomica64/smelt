@@ -5,12 +5,17 @@ use super::*;
 
 impl FunctionEmitter<'_> {
     /// Emits an if/else or while loop from a switch terminator.
-    pub(super) fn emit_switch(
+    ///
+    /// `rejoin` allows the post-dominator join
+    /// ([`Self::emit_switch_at_post_dominator`]); it is `false` where the
+    /// caller bounds the region by a stop that rule cannot see.
+    pub(in crate::emitter) fn emit_switch(
         &self,
         current: smelt_mir::BlockId,
         cond: &Operand,
         then_block: smelt_mir::BlockId,
         else_block: smelt_mir::BlockId,
+        rejoin: bool,
         out: &mut String,
     ) -> Result<(), EmitError> {
         let then = self.block(then_block)?;
@@ -54,7 +59,7 @@ impl FunctionEmitter<'_> {
             return self.emit_block(else_, out);
         }
 
-        self.emit_switch_two_gotos(current, cond, then_block, else_block, then, else_, out)
+        self.emit_switch_two_gotos(current, cond, then_block, else_block, rejoin, out)
     }
 
     /// A switch whose arms are, or begin with, plain jumps.
@@ -64,10 +69,11 @@ impl FunctionEmitter<'_> {
         cond: &Operand,
         then_block: smelt_mir::BlockId,
         else_block: smelt_mir::BlockId,
-        then: &BasicBlock,
-        else_: &BasicBlock,
+        rejoin: bool,
         out: &mut String,
     ) -> Result<(), EmitError> {
+        let then = self.block(then_block)?;
+        let else_ = self.block(else_block)?;
         if let (Some(Terminator::Goto(then_target)), Some(Terminator::Goto(else_target))) =
             (&then.terminator, &else_.terminator)
             && then_target == else_target
@@ -160,6 +166,12 @@ impl FunctionEmitter<'_> {
             return self.emit_block(self.block(*then_target)?, out);
         }
 
+        if rejoin
+            && self.emit_switch_at_post_dominator(current, cond, then_block, else_block, out)?
+        {
+            return Ok(());
+        }
+
         // This reconstruction runs the then-branch's region up to `else_target`,
         // `break`s out of the synthetic label, then resumes at `else_target` —
         // so it models `if cond { then… } else { else… }` where BOTH arms rejoin
@@ -240,6 +252,57 @@ impl FunctionEmitter<'_> {
         }
 
         self.emit_switch_forward_branches(current, cond, then_block, else_block, then, else_, out)
+    }
+
+    /// Emits the branch at `current` as `if cond { then..J } else { else..J }`
+    /// followed by `J` once, where `J` is where its arms rejoin
+    /// ([`Self::branch_region_join`]: the immediate post-dominator over the
+    /// paths that do not throw, inside the region being emitted). Answers `false`, having emitted nothing, when
+    /// there is no such block.
+    ///
+    /// The rules after this one pick a join from the arms' first jumps. That
+    /// guess is wrong when an arm leaves through an edge the other cannot see:
+    /// `try { if (c) { x = f(); } else { .. } } catch { .. }` joins the `if`
+    /// after the `try`, not where the call's normal path meets the `else`,
+    /// and the call's `catch` arm then re-emitted the rest of the function
+    /// (`4^n` copies for `n` such statements). And an arm that may throw
+    /// (`if (a) { if (b) throw e; .. } else { .. }`) has no join at all when a
+    /// `throw` ends a path, so each such `if` doubled the rest.
+    fn emit_switch_at_post_dominator(
+        &self,
+        current: smelt_mir::BlockId,
+        cond: &Operand,
+        then_block: smelt_mir::BlockId,
+        else_block: smelt_mir::BlockId,
+        out: &mut String,
+    ) -> Result<bool, EmitError> {
+        let Some(join) = self.branch_region_join(current, &[then_block, else_block]) else {
+            return Ok(false);
+        };
+        let cond_text = self.truthy_operand_expr(cond)?;
+        let branch_declared = self.declared_scope();
+        if then_block == join {
+            out.push_str(&format!(
+                "    if !({cond_text}) {{\n",
+                cond_text = cond_text.delimited()
+            ));
+            self.emit_block_until_goto(self.block(else_block)?, join, RegionExit::Join, out)?;
+        } else {
+            out.push_str(&format!(
+                "    if {cond_text} {{\n",
+                cond_text = cond_text.delimited()
+            ));
+            self.emit_block_until_goto(self.block(then_block)?, join, RegionExit::Join, out)?;
+            if else_block != join {
+                out.push_str("    } else {\n");
+                branch_declared.reset();
+                self.emit_block_until_goto(self.block(else_block)?, join, RegionExit::Join, out)?;
+            }
+        }
+        out.push_str("    }\n");
+        branch_declared.close();
+        self.emit_block(self.block(join)?, out)?;
+        Ok(true)
     }
 
     /// A branch that jumps forward past its sibling, or back to a loop header.

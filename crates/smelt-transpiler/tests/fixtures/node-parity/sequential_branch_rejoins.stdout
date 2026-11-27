@@ -1,0 +1,51 @@
+switches(0) 69
+switchesThatLeave(0) -2
+ifElseInTry(0) 4
+ifMayThrow(0) 3
+viaClosure(0) 0
+switches(1) 33
+switchesThatLeave(1) 4
+ifElseInTry(1) 6
+ifMayThrow(1) 4
+viaClosure(1) -9
+switches(2) 69
+switchesThatLeave(2) -1
+ifElseInTry(2) 6
+ifMayThrow(2) 7
+viaClosure(2) 10
+switches(3) 78
+switchesThatLeave(3) -2
+ifElseInTry(3) 9
+ifMayThrow(3) 4
+viaClosure(3) 25
+switches(5) 78
+switchesThatLeave(5) -1
+ifElseInTry(5) 13
+ifMayThrow(5) 6
+viaClosure(5) 35
+switches(9) 117
+switchesThatLeave(9) -2
+ifElseInTry(9) 21
+ifMayThrow(9) 10
+viaClosure(9) 55
+switches(40) 150
+switchesThatLeave(40) 46
+ifElseInTry(40) -958
+ifMayThrow(40) threw even 40
+viaClosure(40) -9
+switches(49) threw risky 57
+switchesThatLeave(49) threw too big 48
+ifElseInTry(49) 54
+ifMayThrow(49) threw third 48
+viaClosure(49) -9
+switches(60) threw risky 60
+switchesThatLeave(60) threw risky 60
+ifElseInTry(60) -79
+ifMayThrow(60) threw even 60
+viaClosure(60) threw risky 60
+switchesInLoop(9) a1,c1,r0,b,d,r1,a4,d,r3,b,c9,r4,a7,c13,r6,b,r7
+switchesInLoop(40) threw risky 56
+finally 1 2
+finally 20 5
+finally 30 7
+trysInLoop threw risky 60
