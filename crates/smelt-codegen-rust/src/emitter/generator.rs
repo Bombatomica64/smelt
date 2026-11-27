@@ -56,8 +56,12 @@ impl FunctionEmitter<'_> {
                     exception_decl.ty,
                     &self.render_scope(),
                 )?;
+                // The handler's binding shadows the function's local for the
+                // continuation the handler inlines, which may assign it
+                // again (the pending throw of a `try`/`finally` inside a
+                // loop around the `yield`), so it is `mut`.
                 catch_text.push_str(&format!(
-                    "let {exception_name}: {} = {exception_value};\n",
+                    "#[allow(unused_mut)] let mut {exception_name}: {} = {exception_value};\n",
                     self.rendered_type(exception_decl.ty)?,
                     exception_value = exception_value.delimited()
                 ));
@@ -233,6 +237,68 @@ impl FunctionEmitter<'_> {
             yielded = yielded.delimited(),
             returned = returned.delimited()
         )))
+    }
+
+    /// The step `{ value, done: false }` a hand-written iterator's `next()`
+    /// answers, as the `SmeltGeneratorResult<T, R>` it is typed at: `value`
+    /// converted to the yield type `T`.
+    pub(super) fn generator_yielded_expr(
+        &self,
+        value: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<RustExpr, EmitError> {
+        let Some(&Type::GeneratorResult { yield_ty, .. }) = self.mir.types.get(dest_ty) else {
+            return Err(EmitError::new(
+                "a yielded step needs an iterator-result type",
+            ));
+        };
+        let value_ty = self.operand_ty(value)?;
+        let value_text = self.operand_expr(value)?;
+        let yielded =
+            self.rendered_at_type(&value_text, value_ty, yield_ty, &self.render_scope())?;
+        Ok(RustExpr::atom(format!(
+            "SmeltGeneratorResult::Yielded({})",
+            yielded.delimited()
+        )))
+    }
+
+    /// The step `{ value, done: true }` as the `SmeltGeneratorResult<T, R>`
+    /// it is typed at: `value` converted to the return type `R`. When `R` is
+    /// `undefined` the step carries nothing, so a spelled `value` is evaluated
+    /// for its effects only (`IteratorResult<T>` leaves `TReturn` at the lib's
+    /// `any`, which Smelt reads as `undefined`, see
+    /// `docs/design/iterator-protocol.md`).
+    pub(super) fn generator_completed_expr(
+        &self,
+        value: Option<&Operand>,
+        dest_ty: TypeId,
+    ) -> Result<RustExpr, EmitError> {
+        let Some(&Type::GeneratorResult { return_ty, .. }) = self.mir.types.get(dest_ty) else {
+            return Err(EmitError::new(
+                "a completed step needs an iterator-result type",
+            ));
+        };
+        let returns_nothing = matches!(self.mir.types.get(return_ty), Some(Type::None));
+        match value {
+            Some(spelled) if returns_nothing => Ok(RustExpr::atom(format!(
+                "{{ let _ = {}; SmeltGeneratorResult::Complete(()) }}",
+                self.operand_expr(spelled)?.delimited()
+            ))),
+            Some(spelled) => {
+                let value_ty = self.operand_ty(spelled)?;
+                let value_text = self.operand_expr(spelled)?;
+                let completed =
+                    self.rendered_at_type(&value_text, value_ty, return_ty, &self.render_scope())?;
+                Ok(RustExpr::atom(format!(
+                    "SmeltGeneratorResult::Complete({})",
+                    completed.delimited()
+                )))
+            }
+            None if returns_nothing => Ok(RustExpr::atom("SmeltGeneratorResult::Complete(())")),
+            None => Ok(RustExpr::atom(
+                "SmeltGeneratorResult::Complete(Default::default())",
+            )),
+        }
     }
 
     /// `yield*`: forward every step of the delegate, then evaluate to its return.
@@ -554,6 +620,35 @@ impl FunctionEmitter<'_> {
         Ok((
             call::RenderedCall::propagating(
                 receiver.postfix(".try_collect_yields().map(SmeltList::new)"),
+            ),
+            list_ty,
+        ))
+    }
+
+    /// `const [a, b] = gen` over a synchronous generator as the fallible call
+    /// its terminator makes: at most `count` yields as a fresh list of the
+    /// yield type, after which the generator is closed (`IteratorClose`), or
+    /// the throw of its body or its close.
+    pub(super) fn generator_take_call(
+        &self,
+        generator: &Operand,
+        count: usize,
+    ) -> Result<(call::RenderedCall, TypeId), EmitError> {
+        let Some(Type::Generator {
+            is_async: false,
+            yield_ty,
+            ..
+        }) = self.mir.types.get(self.operand_ty(generator)?).cloned()
+        else {
+            return Err(EmitError::new(
+                "taking from a generator needs a synchronous generator",
+            ));
+        };
+        let list_ty = self.type_id(Type::List(yield_ty))?;
+        let receiver = self.operand_expr(generator)?;
+        Ok((
+            call::RenderedCall::propagating(
+                receiver.postfix(format!(".try_take_yields({count}).map(SmeltList::new)")),
             ),
             list_ty,
         ))

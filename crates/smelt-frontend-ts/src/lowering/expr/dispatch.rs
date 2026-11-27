@@ -50,6 +50,9 @@ impl ModuleBuilder<'_> {
             self.kept_map_literal_at_record(oxc::span::GetSpan::span(expression), lowered, body);
         // A read of a Bun `int32` slot is a `number` to every consumer.
         let lowered = self.int32_read_as_number(lowered, body);
+        // A hand-written iterator in an `Iterator<T>` slot, or an iterable in
+        // an `Iterable<T>` one, is converted as the protocol converts it.
+        let lowered = self.iterator_value_at_slot(lowered, type_hint, body)?;
         Ok(self.in_own_language_view(lowered, body))
     }
 

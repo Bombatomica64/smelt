@@ -2181,3 +2181,32 @@ fn map_read_mutation() -> TestResult {
 fn object_prototype_to_string() -> TestResult {
     verify_node_parity("object_prototype_to_string")
 }
+
+/// A class whose `[Symbol.iterator](): Iterator<number>` answers an object
+/// literal `{ next, return }` iterates through `for-of`, spread, `Array.from`
+/// and destructuring (with and without rest); `return()` runs on `break`, on a
+/// `return` and a throw out of the loop, and after a destructuring took what
+/// it binds, but not after a `done` step or a throwing `next()`; a computed
+/// `done` ends the iteration. It was refused (#552).
+#[test]
+fn iterator_protocol_object_literal() -> TestResult {
+    verify_node_parity("iterator_protocol_object_literal")
+}
+
+/// Classes that are their own iterator (`IterableIterator<T>`, `return this`),
+/// one generic over `T` with a `return()`, drive every consumer (`Array.from`,
+/// `for-of` with `break`, spread, `new Set`, `new Map`, destructuring), user
+/// code's own `next()`, an `Iterator<number>` parameter (given a class or a
+/// generator) and an `Iterable<number>` one.
+#[test]
+fn iterator_protocol_iterable_iterator() -> TestResult {
+    verify_node_parity("iterator_protocol_iterable_iterator")
+}
+
+/// An infinite hand-written iterator is driven lazily: a `for-of` with
+/// `break` and a fixed-count destructuring ask only for the steps they use,
+/// then close it.
+#[test]
+fn iterator_protocol_infinite() -> TestResult {
+    verify_node_parity("iterator_protocol_infinite")
+}

@@ -203,6 +203,20 @@ macro_rules! op_group_transcribed {
                 fallible(true)
                 call("@generator_collect".to_owned())
                 => (format!("generator_collect {generator}"));
+            /// Take up to `count` values from a synchronous generator into a
+            /// fresh list, then close it (`IteratorClose`, its `return()`):
+            /// array destructuring without a rest element (`const [a, b] =
+            /// it`) reads only the elements it binds. A throw from the body or
+            /// from the close reaches the enclosing `try`.
+            GeneratorTake {
+                /// Generator handle to take from.
+                generator: one,
+                /// How many values the pattern binds.
+                count: [usize],
+            }
+                fallible(true)
+                call("@generator_take".to_owned())
+                => (format!("generator_take {generator} {count}"));
             /// Test whether a generator resume result represents completion.
             GeneratorDone {
                 /// Resume result to inspect.
@@ -215,6 +229,27 @@ macro_rules! op_group_transcribed {
                 result: one,
             }
                 => (format!("value {result}"));
+            /// Build the step `{ value, done: false }` of the iterator protocol:
+            /// the `IteratorResult<T, R>` that yields `value` (typed at `T`).
+            GeneratorYielded {
+                /// The yielded value.
+                value: one,
+            }
+                => (format!("yielded {value}"));
+            /// Build the step `{ value, done: true }` of the iterator protocol:
+            /// the `IteratorResult<T, R>` that completes with `value` (typed at
+            /// `R`). A completion whose `R` is `undefined` evaluates `value`
+            /// for its effects and carries nothing; `None` is `{ done: true }`.
+            GeneratorCompleted {
+                /// The completion value, when the step spells one.
+                value: opt,
+            }
+                => (
+                    value.map_or_else(
+                        || "completed".to_owned(),
+                        |value| format!("completed {value}"),
+                    )
+                );
             /// Resume a delegated generator, forwarding each suspension to the caller.
             /// A throw from a delegate generator reaches the `try` around the
             /// `yield*`.

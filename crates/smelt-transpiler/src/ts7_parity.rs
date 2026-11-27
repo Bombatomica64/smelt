@@ -528,8 +528,17 @@ impl Comparer<'_> {
             ("Map" | "ReadonlyMap" | "WeakMap", Type::JsMap(..) | Type::Dict(..))
             | ("Set" | "ReadonlySet" | "WeakSet", Type::Set(_))
             | (
-                "Generator" | "AsyncGenerator" | "IterableIterator" | "AsyncIterableIterator",
+                "Generator"
+                | "AsyncGenerator"
+                | "IterableIterator"
+                | "AsyncIterableIterator"
+                | "Iterator"
+                | "IteratorObject",
                 Type::Generator { .. },
+            )
+            | (
+                "IteratorResult" | "IteratorYieldResult" | "IteratorReturnResult",
+                Type::GeneratorResult { .. },
             ) => true,
             ("Promise" | "PromiseLike", Type::Future(inner)) => type_arguments
                 .first()

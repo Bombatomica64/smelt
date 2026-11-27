@@ -41,6 +41,15 @@ impl ModuleBuilder<'_> {
             ) {
                 return Ok(receiver);
             }
+            // An instance whose class declares `[Symbol.iterator]()` calls
+            // it, typed as it is declared (a generator, an `Iterator<T>`).
+            if let Some(call) = self.symbol_iterator_method_call(
+                receiver,
+                self.span(call.span.start, call.span.end),
+                body,
+            ) {
+                return Ok(call);
+            }
             self.roll_back_to(mark, body);
         }
         self.computed_member_value_call_inner(call, member, body)

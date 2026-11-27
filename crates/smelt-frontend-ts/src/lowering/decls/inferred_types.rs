@@ -161,7 +161,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Whether `ty` is or holds an erased (`Unknown`) part.
-    fn type_mentions_unknown(&self, ty: smelt_hir::TypeId) -> bool {
+    pub(in crate::lowering) fn type_mentions_unknown(&self, ty: smelt_hir::TypeId) -> bool {
         match self.ctx.krate.types.get(ty) {
             Some(Type::Unknown) | None => true,
             Some(other) => other

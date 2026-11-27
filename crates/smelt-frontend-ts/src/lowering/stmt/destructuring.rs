@@ -205,6 +205,14 @@ impl ModuleBuilder<'_> {
                     ));
                 };
                 let count = array.rest.is_none().then_some(array.elements.len());
+                // An iterable that is not a list (a generator, an object with
+                // `[Symbol.iterator]()`) gives the elements the pattern binds.
+                let initial_receiver = self.destructured_iterable(
+                    initial_receiver,
+                    count,
+                    self.span(array.span.start, array.span.end),
+                    body,
+                )?;
                 let mut receiver = self.erased_destructuring_source(
                     initial_receiver,
                     count,

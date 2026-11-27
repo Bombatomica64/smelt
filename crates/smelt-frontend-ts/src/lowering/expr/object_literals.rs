@@ -51,6 +51,11 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
         type_hint: Option<smelt_hir::TypeId>,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        // A literal in a slot of the iterator protocol is that protocol's
+        // value: a step `{ value, done }`, or an iterator `{ next, return }`.
+        if let Some(value) = self.iterator_protocol_literal(object, type_hint, body)? {
+            return Ok(value);
+        }
         if object
             .properties
             .iter()

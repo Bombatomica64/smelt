@@ -28,7 +28,12 @@ impl ModuleBuilder<'_> {
         {
             return Some(inner);
         }
-        if let Some(Type::Generator { return_ty, .. }) = self.ctx.krate.types.get(return_ty) {
+        // A generator's `return x` completes it with `x`; any other function
+        // declaring an iterator (`Iterator<T>`, a generator type) returns
+        // the iterator itself.
+        if self.fn_ctx.generator.is_some()
+            && let Some(Type::Generator { return_ty, .. }) = self.ctx.krate.types.get(return_ty)
+        {
             return Some(*return_ty);
         }
         Some(return_ty)
@@ -412,14 +417,12 @@ impl ModuleBuilder<'_> {
                         )?;
                         return Ok(None);
                     }
-                    // An object iterates through its `[Symbol.iterator]()`
-                    // generator (`class_iterator_generator`).
+                    // An object iterates through its `[Symbol.iterator]()`:
+                    // a generator, or a hand-written iterator driven as one
+                    // (`iteration_generator`).
                     let right_span =
                         this.span(for_stmt.right.span().start, for_stmt.right.span().end);
-                    this.refuse_hand_written_iterator(iter, right_span, body)?;
-                    if let Some(generator) = this.class_iterator_generator(iter, right_span, body) {
-                        iter = generator;
-                    }
+                    iter = this.iterated_value(iter, right_span, body)?;
                     // A synchronous generator receiver has no indexable Rust
                     // representation, so it cannot flow through the index-based
                     // `Stmt::For` lowering. Drain it through the resume protocol

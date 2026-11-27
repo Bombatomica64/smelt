@@ -1757,11 +1757,21 @@ fn rejects_computed_enum_member_by_cause() -> Result<(), String> {
     Ok(())
 }
 
-/// Iterating an instance whose `[Symbol.iterator]()` returns a hand-written
-/// iterator object is refused, by `for-of`, spread and `Array.from` alike,
-/// rather than iterating the instance itself as one item.
+/// Iterating an instance whose `[Symbol.iterator](): Iterator<T>` returns a
+/// hand-written iterator object lowers, by `for-of`, spread and `Array.from`
+/// alike, through the adapter generator over the literal's `next`.
+///
+/// Old requirement (#552): refused ("returns a hand-written iterator"), since
+/// only a generator was modelled and anything else iterated the instance
+/// itself as one item. New requirement: JavaScript drives the iterator's
+/// `next()` until `done` (ECMA-262 `GetIterator`/`IteratorStep`), so the
+/// method answers the typed iterator `Iterator<number>` (a
+/// `Generator { Float, None, None }`) and every consumer drives the adapter, a
+/// synthesized generator closure. The guarantee #552 kept (never iterate the
+/// instance itself) holds because the consumer only ever sees the generator;
+/// `iterator_protocol_object_literal` pins the behaviour against Node.
 #[test]
-fn rejects_hand_written_iterator_object() -> Result<(), String> {
+fn lowers_hand_written_iterator_object() -> Result<(), String> {
     let class = "class C {\n  constructor(private n: number) {}\n  [Symbol.iterator](): Iterator<number> {\n    let n = this.n;\n    return { next: () => (n > 0 ? { value: n--, done: false } : { value: 0, done: true }) };\n  }\n}\n";
     for use_site in [
         "for (const v of new C(3)) console.log(v);\n",
@@ -1770,8 +1780,112 @@ fn rejects_hand_written_iterator_object() -> Result<(), String> {
     ] {
         let mut ctx = HirCtx::new();
         let source = format!("{class}{use_site}");
+        lower_ok(&source, &mut ctx)?;
+        let typed_iterator = ctx.krate.types.all().iter().any(|ty| {
+            matches!(
+                ty,
+                Type::Function(function) if matches!(
+                    ctx.krate.types.get(function.return_ty),
+                    Some(Type::Generator { is_async: false, yield_ty, return_ty, next_ty })
+                        if ctx.krate.types.get(*yield_ty) == Some(&Type::Float)
+                            && ctx.krate.types.get(*return_ty) == Some(&Type::None)
+                            && ctx.krate.types.get(*next_ty) == Some(&Type::None)
+                )
+            )
+        });
+        ensure!(
+            typed_iterator,
+            "`Iterator<number>` should be the typed generator: {use_site}"
+        );
+        ensure!(
+            ctx.krate.bodies.iter().any(smelt_hir::Body::is_generator),
+            "the hand-written iterator should be driven by the adapter generator: {use_site}",
+        );
+        ensure!(
+            !ctx.krate.types.all().iter().any(|ty| matches!(ty, Type::Class { name, .. } if ctx.krate.names.get(*name).or_else(|| ctx.krate.symbols.get(*name)) == Some("Iterator"))),
+            "`Iterator<number>` should not stay an opaque class: {use_site}",
+        );
+    }
+    Ok(())
+}
+
+/// A step literal in an `IteratorResult<T>` slot is the step itself: `done:
+/// false` yields at `T`, `done: true` completes, a computed `done` picks the
+/// arm at run time; none of them builds a record.
+#[test]
+fn lowers_iterator_result_literals_as_steps() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(
+            "class R {\n  private i = 0;\n  next(): IteratorResult<number> {\n    if (this.i > 9) return { value: undefined, done: true };\n    if (this.i > 5) return { value: this.i, done: this.i++ > 7 };\n    return { value: this.i++, done: false };\n  }\n}\n"
+        ),
+        &mut ctx,
+    )?;
+    let kinds = ctx
+        .krate
+        .bodies
+        .iter()
+        .flat_map(|body| body.exprs.iter())
+        .map(|expr| &expr.kind)
+        .collect::<Vec<_>>();
+    ensure!(
+        kinds
+            .iter()
+            .any(|kind| matches!(kind, ExprKind::GeneratorYielded { .. })),
+        "expected a yielded step"
+    );
+    ensure!(
+        kinds
+            .iter()
+            .filter(|kind| matches!(kind, ExprKind::GeneratorCompleted { .. }))
+            .count()
+            >= 2,
+        "expected the literal and the computed completed steps",
+    );
+    ensure!(
+        kinds
+            .iter()
+            .any(|kind| matches!(kind, ExprKind::Conditional { .. })),
+        "a computed `done` should choose the step at run time",
+    );
+    Ok(())
+}
+
+/// An iterator whose step type is unknown to Smelt (an unannotated
+/// `[Symbol.iterator]()` answering an object literal, typed as an erased
+/// record) is still refused rather than iterated as one item: the element
+/// type has no source of truth to keep (see `docs/design/iterator-protocol.md`).
+#[test]
+fn rejects_iterator_with_untyped_steps() -> Result<(), String> {
+    let class = "class C {\n  [Symbol.iterator]() {\n    let n = 3;\n    return { next: () => (n > 0 ? { value: n--, done: false } : { value: 0, done: true }) };\n  }\n}\n";
+    for use_site in [
+        "for (const v of new C()) console.log(v);\n",
+        "console.log([...new C()].length);\n",
+        "const [a] = new C();\nconsole.log(a);\n",
+    ] {
+        let mut ctx = HirCtx::new();
+        let source = format!("{class}{use_site}");
         let errors = lowering_errors(&source, &mut ctx)?;
-        assert_unsupported_ts(&errors, "returns a hand-written iterator")?;
+        assert_unsupported_ts(&errors, "is not typed as `IteratorResult<T>`")?;
+    }
+    Ok(())
+}
+
+/// An iterator object literal keeps its state in closures: a literal with a
+/// state member, or a `next` method reading its own `this`, is refused with
+/// that advice instead of building an erased record.
+#[test]
+fn rejects_iterator_literal_with_own_state() -> Result<(), String> {
+    for literal in [
+        "{ i: 0, next: () => ({ value: 1, done: false }) }",
+        "{ next() { return { value: this.toString().length, done: false }; } }",
+    ] {
+        let mut ctx = HirCtx::new();
+        let source = format!(
+            "class C {{\n  [Symbol.iterator](): Iterator<number> {{\n    return {literal};\n  }}\n}}\nfor (const v of new C()) console.log(v);\n"
+        );
+        let errors = lowering_errors(&source, &mut ctx)?;
+        assert_unsupported_ts(&errors, "an iterator object literal")?;
     }
     Ok(())
 }
