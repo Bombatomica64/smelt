@@ -46,6 +46,7 @@
 
 use super::*;
 use crate::generic_bindings::{CalleeTypeParamBindings, substitution_matches};
+use crate::type_substitution::TypeSubstitution;
 
 /// The single outcome that renders one argument of a static call.
 ///
@@ -114,6 +115,23 @@ pub(super) enum StaticArgumentKind<'arg> {
         /// callee's `T` to the caller's: the substituted target spells the
         /// caller's `T` and is compared in the caller's scope, not the callee's.
         caller_side: bool,
+    },
+    /// 4b. An OWNED callback parameter (`Rc<dyn Fn(&T) -> ..>`, stored or
+    ///     held across an `await`) that mentions one of the callee's own
+    ///     generics, at a call site that pinned them.
+    ///
+    /// The callee carries `T` in its owned slot
+    /// (`generic_lifting::owned_callback_param_is_liftable`), so the argument
+    /// is adapted to the slot INSTANTIATED at this call site
+    /// (`Rc<dyn Fn(&f64) -> ..>`), rendered in the caller's scope. The terminal
+    /// rung would adapt it to the declared `Fn(&T)` in the callee's scope, where
+    /// `T` is not spellable and erases (`Fn(&SmeltUnknown)`, E0631).
+    OwnedGenericCallback {
+        /// The callee's declared callback type (`Fn(&T)`), whose ABI the
+        /// emitted slot keeps.
+        declared_target_ty: TypeId,
+        /// The same type with this call site's bindings applied.
+        substituted_target_ty: TypeId,
     },
     /// 5. A composite VALUE parameter that mentions one of the callee's own
     ///    generics (`arr: T[]` -> `SmeltList<T>`), instantiated at this call
@@ -246,6 +264,20 @@ impl FunctionEmitter<'_> {
                 caller_side: substituted.is_some(),
             });
         }
+        // Rung 4b: an owned callback carrying the callee's own generics.
+        if matches!(self.mir.types.get(target_ty), Some(Type::Function(_)))
+            && free_function_type_params
+                .iter()
+                .any(|name| crate::generic_bindings::type_param_occurs(self.mir, target_ty, *name))
+            && let Some(substituted) = callee_bindings.and_then(|bindings| {
+                crate::generic_bindings::substituted_type_id(self.mir, target_ty, bindings)
+            })
+        {
+            return Ok(StaticArgumentKind::OwnedGenericCallback {
+                declared_target_ty: target_ty,
+                substituted_target_ty: substituted,
+            });
+        }
         let source_ty = self.operand_ty(arg)?;
         // Rung 5: a composite value parameter this call site monomorphizes at
         // the concrete argument shape.
@@ -355,6 +387,30 @@ impl FunctionEmitter<'_> {
                     self.mutable_reference_argument_expr(arg, substituted_target_ty, Some(scope))?
                         .into_string(),
                 );
+            }
+            StaticArgumentKind::OwnedGenericCallback {
+                declared_target_ty,
+                substituted_target_ty,
+            } => {
+                // The value is adapted to the instantiated type, then bridged to
+                // the DECLARED slot ABI: a bare `T` parameter is passed by
+                // reference (`Fn(&T)` instantiates to `Fn(&f64)`), while the
+                // instantiated `Fn(f64)` alone would be by value (E0308).
+                let value = self.value_at_type(arg, substituted_target_ty)?;
+                let caller_scope = self.current_function_type_params();
+                let value_side = TypeSubstitution::lexical(&caller_scope);
+                let rendered = match callee_bindings {
+                    Some(bindings) => {
+                        let slot = TypeSubstitution::lexical(&caller_scope).with_bindings(bindings);
+                        self.slot_abi_bridge(
+                            &value,
+                            (substituted_target_ty, &value_side),
+                            (declared_target_ty, &slot),
+                        )?
+                    }
+                    None => value,
+                };
+                rendered_args.push(rendered.into_string());
             }
             StaticArgumentKind::MonomorphizingPassthrough { source_ty } => {
                 rendered_args.push(self.value_at_type(arg, source_ty)?.into_string());

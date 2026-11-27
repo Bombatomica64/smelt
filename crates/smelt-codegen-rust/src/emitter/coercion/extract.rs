@@ -311,10 +311,16 @@ impl FunctionEmitter<'_> {
         let Some(Type::List(item)) = self.mir.types.get(param_ty) else {
             return false;
         };
-        matches!(
-            self.mir.types.get(*item),
-            Some(Type::Unknown | Type::TypeParam { .. })
-        )
+        match self.mir.types.get(*item) {
+            Some(Type::Unknown) => true,
+            // A type parameter the current function carries as a real Rust
+            // generic is NOT erased in its bindings: an owned generic callback
+            // (`Rc<dyn Fn(&T, f64, &SmeltList<T>) -> ..>` of a lifted async
+            // function) hands its adapter `SmeltList<T>`, which has no
+            // `Into<SmeltArray>`; `erase_rendered` erases it generically.
+            Some(Type::TypeParam { name }) => !self.current_function_type_params().contains(name),
+            _ => false,
+        }
     }
 
     /// Return whether `Option<T>` stores erased values that can carry explicit

@@ -3,8 +3,8 @@
   "total": {
     "values": {
       "concrete": 14370,
-      "generic": 366,
-      "erased": 6928
+      "generic": 370,
+      "erased": 6924
     },
     "reads": {
       "concrete": 366,
@@ -718,8 +718,8 @@
     "src/array/flatMapAsync.ts": {
       "values": {
         "concrete": 4,
-        "generic": 0,
-        "erased": 7
+        "generic": 1,
+        "erased": 6
       },
       "reads": {
         "concrete": 2,
@@ -1313,8 +1313,8 @@
     "src/array/mapAsync.ts": {
       "values": {
         "concrete": 4,
-        "generic": 0,
-        "erased": 5
+        "generic": 1,
+        "erased": 4
       },
       "reads": {
         "concrete": 2,
@@ -5495,8 +5495,8 @@
     "src/compat/function/wrap.ts": {
       "values": {
         "concrete": 1,
-        "generic": 0,
-        "erased": 18
+        "generic": 2,
+        "erased": 16
       },
       "reads": {
         "concrete": 0,
