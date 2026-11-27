@@ -101,7 +101,7 @@ fn run_web_crypto_fixture(source: &str, crate_name: &str) {
     std::fs::create_dir_all(&target_dir).expect("create target dir");
     let outcome = std::panic::catch_unwind(|| {
         emit_program(source, crate_name, &crate_dir);
-        run_generated_tests(&crate_dir, &target_dir);
+        run_generated_tests(source, &crate_dir, &target_dir);
     });
     if std::env::var_os("SMELT_KEEP_RUNTIME_SCRATCH").is_none() {
         drop(std::fs::remove_dir_all(&root));

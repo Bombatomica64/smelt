@@ -32,14 +32,13 @@
 )]
 
 use std::{
-    path::{Path, PathBuf},
-    process::Command,
+    path::PathBuf,
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-use smelt_codegen_rust::{CrateKind, EmitOptions, emit_crate};
-use smelt_frontend_ts::{HirCtx, to_hir};
-use smelt_hir::FileId;
+mod harness;
+
+use harness::{emit_program, run_generated_tests, run_generated_tests_expecting_failure};
 
 /// Async helpers shared by the fixtures.
 ///
@@ -64,35 +63,6 @@ async function rejecting(): Promise<string> {
 }
 "#;
 
-/// Lowers `source` through the real pipeline and emits a runnable program crate.
-fn emit_program(source: &str, crate_name: &str, crate_dir: &Path) {
-    let mut ctx = HirCtx::new();
-    to_hir(source, FileId(0), &mut ctx).expect("HIR lowering");
-    let mut mir = smelt_mir::lower_hir(&ctx.krate).expect("MIR lowering");
-    smelt_mir::opt::optimize(&mut mir);
-    let options = EmitOptions::new(crate_name.to_owned()).with_crate_kind(CrateKind::Program);
-    emit_crate(&mir, crate_dir, &options).expect("crate emission");
-}
-
-/// Runs `cargo test` on the emitted crate and returns whether it passed.
-fn generated_tests_pass(crate_dir: &Path, target_dir: &Path) -> (bool, String) {
-    let output = Command::new(env!("CARGO"))
-        .arg("test")
-        .arg("--quiet")
-        .arg("--manifest-path")
-        .arg(crate_dir.join("Cargo.toml"))
-        .env("CARGO_TARGET_DIR", target_dir)
-        .env("RUSTFLAGS", "-Awarnings")
-        .output()
-        .expect("spawn cargo test");
-    let report = format!(
-        "stdout:\n{}\nstderr:\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    (output.status.success(), report)
-}
-
 /// Returns a unique scratch directory root for this test run.
 fn scratch_root() -> PathBuf {
     static COUNTER: AtomicUsize = AtomicUsize::new(0);
@@ -103,16 +73,17 @@ fn scratch_root() -> PathBuf {
     ))
 }
 
-/// Emit `source` as a crate, run its generated tests, and return the outcome.
-fn run_fixture(source: &str, crate_name: &str) -> (bool, String) {
+/// Emit `source` as a crate and hand it to `judge` (the harness's pass or
+/// should-fail contract).
+fn run_fixture(source: &str, crate_name: &str, judge: harness::Judge) {
     let root = scratch_root();
     let crate_dir = root.join("crate");
     let target_dir = root.join("target");
     std::fs::create_dir_all(&crate_dir).expect("create crate dir");
     std::fs::create_dir_all(&target_dir).expect("create target dir");
-    let emitted = std::panic::catch_unwind(|| {
+    let outcome = std::panic::catch_unwind(|| {
         emit_program(source, crate_name, &crate_dir);
-        generated_tests_pass(&crate_dir, &target_dir)
+        judge(source, &crate_dir, &target_dir);
     });
     // Removed on the FAILURE path too -- the root holds a whole nested cargo
     // target directory, and one leaked per failing case is what fills `/tmp`.
@@ -120,30 +91,24 @@ fn run_fixture(source: &str, crate_name: &str) -> (bool, String) {
     if std::env::var_os("SMELT_KEEP_RUNTIME_SCRATCH").is_none() {
         drop(std::fs::remove_dir_all(&root));
     }
-    match emitted {
-        Ok(outcome) => outcome,
-        Err(payload) => std::panic::resume_unwind(payload),
+    if let Err(payload) = outcome {
+        std::panic::resume_unwind(payload);
     }
 }
 
-/// Assert the generated suite passes.
+/// Assert the generated suite runs every declared test and passes.
 fn expect_generated_tests_pass(source: &str, crate_name: &str) {
-    let (passed, report) = run_fixture(source, crate_name);
-    assert!(passed, "generated suite should pass but failed:\n{report}");
+    run_fixture(source, crate_name, run_generated_tests);
 }
 
-/// Assert the generated suite fails.
+/// Assert the generated suite compiles, runs, and fails on an assertion.
 ///
 /// A deleted assertion is indistinguishable from a satisfied one unless a
 /// deliberately false assertion is observed to fail, so this direction is the
-/// load-bearing half of the guard.
+/// load-bearing half of the guard. A compile error does not count as that
+/// failure.
 fn expect_generated_tests_fail(source: &str, crate_name: &str) {
-    let (passed, report) = run_fixture(source, crate_name);
-    assert!(
-        !passed,
-        "generated suite should have failed but passed \
-         (the assertion was dropped again):\n{report}"
-    );
+    run_fixture(source, crate_name, run_generated_tests_expecting_failure);
 }
 
 #[test]

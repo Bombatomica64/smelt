@@ -62,7 +62,7 @@ fn run_fixture(source: &str, crate_name: &str) {
     std::fs::create_dir_all(&target_dir).expect("create target dir");
     let outcome = std::panic::catch_unwind(|| {
         emit_program(source, crate_name, &crate_dir);
-        run_generated_tests(&crate_dir, &target_dir);
+        run_generated_tests(source, &crate_dir, &target_dir);
     });
     // The scratch root holds a whole nested cargo target directory, so it is
     // removed on the FAILURE path too: leaving one behind per failing case is

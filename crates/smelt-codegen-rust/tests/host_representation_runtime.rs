@@ -28,10 +28,12 @@
 
 use std::{
     path::{Path, PathBuf},
-    process::Command,
     sync::atomic::{AtomicUsize, Ordering},
 };
 
+mod harness;
+
+use harness::run_generated_tests;
 use smelt_codegen_rust::{CrateKind, EmitOptions, emit_crate};
 use smelt_frontend_ts::{HirCtx, scan_written_host_globals, to_hir};
 use smelt_hir::FileId;
@@ -50,26 +52,6 @@ fn emit_program(source: &str, crate_name: &str, crate_dir: &Path) {
     smelt_mir::opt::optimize(&mut mir);
     let options = EmitOptions::new(crate_name.to_owned()).with_crate_kind(CrateKind::Program);
     emit_crate(&mir, crate_dir, &options).expect("crate emission");
-}
-
-/// Runs `cargo test` on the emitted crate; a passing run means every generated
-/// `expect(...)` assertion held at runtime.
-fn run_generated_tests(crate_dir: &Path, target_dir: &Path) {
-    let output = Command::new(env!("CARGO"))
-        .arg("test")
-        .arg("--quiet")
-        .arg("--manifest-path")
-        .arg(crate_dir.join("Cargo.toml"))
-        .env("CARGO_TARGET_DIR", target_dir)
-        .env("RUSTFLAGS", "-Awarnings")
-        .output()
-        .expect("spawn cargo test");
-    assert!(
-        output.status.success(),
-        "generated host-representation test failed:\nstdout:\n{}\nstderr:\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
 }
 
 /// Returns a unique scratch directory root for this test run.
@@ -91,7 +73,7 @@ fn run_fixture(source: &str, crate_name: &str) {
     std::fs::create_dir_all(&target_dir).expect("create target dir");
     let outcome = std::panic::catch_unwind(|| {
         emit_program(source, crate_name, &crate_dir);
-        run_generated_tests(&crate_dir, &target_dir);
+        run_generated_tests(source, &crate_dir, &target_dir);
     });
     // The scratch root holds a whole nested cargo target directory, so it is
     // removed on the FAILURE path too: leaving one behind per failing case is
