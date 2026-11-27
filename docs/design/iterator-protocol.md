@@ -99,26 +99,51 @@ values of that type from `next()`'s step to the generator's `yield`, and the ste
 the declared `T`/`R` (refused when not assignable). Nothing erases: the iterator types no longer reach Rust as
 `SmeltUnknown`, and no erasure is recorded for them.
 
-## 4. Not covered
+## 4. Unannotated protocol methods
 
-* An **unannotated** `[Symbol.iterator]()` (or `next()`) returning an object literal: Smelt types an object literal
-  with function-valued members, and an inferred record return, as an erased record, so the step type is unknown.
-  Iterating such a class is refused with a message asking for `[Symbol.iterator](): Iterator<T>`. Typing it needs
-  record return inference from the checker (or the checker's iteration types), a separate change.
-* An iterator object literal with **state members** besides `next`/`return` (`{ i: 0, next() { return this.i++ … } }`),
-  or whose `next`/`return` reads its own `this`: refused; keep the state in closures (as above) or a class.
-* **Identity**: the adapter is a new object, so `it[Symbol.iterator]() === it` is `false` for an adapted iterator,
-  and `next()` called directly on an adapted `Iterator<T>` after it completed answers `done` without calling the
-  hand-written `next()` again (the carrier remembers completion).
-* **Done values with an open `TReturn`**: `{ value: 0, done: true }` in an `IteratorResult<number>` (whose `TReturn`
-  the lib leaves at `any`) drops the `0`, so reading `.value` of that done step answers `undefined`. No consumer of
-  the protocol reads it; declare `TReturn` to keep it.
-* `throw()` of a hand-written iterator is never called (no synchronous consumer calls it); `next(value)` arguments
-  are not forwarded through the adapter. Async iterators (`[Symbol.asyncIterator]`, `for await`) are unchanged.
-* `Iterable<T>` stays a list: an iterable passed for an `Iterable<T>` parameter is drained eagerly, so an
-  infinite one does not terminate there (as for generators before).
+An unannotated `[Symbol.iterator]()` that answers an object literal, and an unannotated `next()` that answers step
+literals, take their protocol type from the structure the TypeScript checker infers for their result
+(`lowering/checker_types/iterator_shape.rs`). The rule is the checker's own (`getIterationTypesOfIterator`): an
+iterator is an object whose `next` is a nullary function, with no members besides `return`, `throw` and
+`[Symbol.iterator]`; each of `next`'s results is a `{ value, done }` object with a boolean `done`. The yield type is
+the union of the values of the steps whose `done` is not `true`, the return type that of the steps whose `done` is not
+`false`, and a value that is only `undefined` leaves `TReturn` open. The result is spelled as the annotation would
+name it, `Iterator<T, R>` or `IteratorResult<T, R>`, and lowered through the ordinary annotation path, so the method
+is typed exactly as if annotated. The checker widens a returned literal's `done: false` to `boolean`, so `{ value: s,
+done: false } : { value: undefined, done: true }` yields `string | undefined` there, as `for...of` types it.
+`[Symbol.iterator]() { return this; }` infers the polymorphic `this`, which lowers to the enclosing class (the
+checker's constraint), as `: this` does. Without checker facts nothing states the step type, and such a class is
+still refused.
 
-## 5. Related fixes the adapter needed
+## 5. Not covered
+
+* An iterator with **state members** besides `next`/`return` (`{ i: 0, next() { return this.i++ … } }`), or whose
+  `next`/`return` reads its own `this`. Smelt lowers every object literal with function-valued members as an erased
+  record (`Dict<string, unknown>`), not only iterators, so no typed adapter can drive it. A literal written in an
+  `Iterator<T>` slot is refused as before. One held in a variable and then returned into that slot is now refused too
+  (it reached rustc as an erased record where a `SmeltGenerator` was expected). Typing it needs object literals with
+  methods to lower as typed records whose methods bind `this`, a redesign of object-literal lowering in general. Keep
+  the state in closures (section 0) or a class.
+* **Identity of a class adapted at its own annotation**: `[Symbol.iterator](): IterableIterator<T> { return this; }`
+  converts `this` into the carrier, so `obj[Symbol.iterator]() === obj` is `false`. It holds for a generator, for a
+  value already in an `IterableIterator<T>` slot, and for an unannotated `return this` (section 4). Making it hold
+  here needs either the method retyped from its body (the class instead of the declared carrier, which changes an
+  overridable signature) or a runtime identity link between an adapter and its source object that `===` consults
+  across carrier and class types. `next()` called directly on an adapted `Iterator<T>` after it completed answers
+  `done` without calling the hand-written `next()` again (the carrier remembers completion).
+* **Done values with an open `TReturn`**: `{ value: 0, done: true }` in an annotated `IteratorResult<number>` (whose
+  `TReturn` the lib leaves at `any`) drops the `0`. Keeping a value of type `any` needs an erased return channel
+  (`SmeltUnknown`). Declare `TReturn`, or leave the method unannotated (section 4 infers it).
+* **`throw()` and `next(value)` forwarding.** Only `yield*` delegation and explicit resume calls reach them; `yield*`
+  over a hand-written iterator is still refused. Forwarding `next(value)` must tell a resume without a value (`for...of`,
+  which resumes the carrier with `Default`, `0` for a number) from one with a value, since a hand-written
+  `next(sent?)` sees `undefined` there. That is a change to the generator resume protocol. Async iterators
+  (`[Symbol.asyncIterator]`, `for await`) are unchanged.
+* `Iterable<T>` stays a list: an iterable passed for an `Iterable<T>` parameter is drained eagerly, so an infinite one
+  does not terminate there. Streaming it means lowering `Iterable<T>` to a lazy carrier at every consumer of such a
+  parameter (the corpora use `Iterable<T>` widely as a list), an ABI change of its own.
+
+## 6. Related fixes the adapter needed
 
 * A synchronous generator that can throw propagates a throwing call in its body with `?` (its producer already
   answers `Result`), instead of panicking inside the `genawaiter` producer: the panic poisoned the generator, so the

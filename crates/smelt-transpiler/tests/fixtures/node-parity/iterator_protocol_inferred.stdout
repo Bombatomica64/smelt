@@ -1,0 +1,13 @@
+countdown 4
+countdown 3
+countdown 2
+countdown closed
+[ 2, 1 ]
+countdown closed
+9 8
+[ 0, 10, 20 ]
+0 false
+-1 true
+true
+LAZY-ITERATORS-WORK
+2

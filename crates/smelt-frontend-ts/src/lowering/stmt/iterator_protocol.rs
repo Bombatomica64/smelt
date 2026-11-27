@@ -215,6 +215,17 @@ impl ModuleBuilder<'_> {
         }
     }
 
+    /// Whether `ty` is the erased record an object literal with
+    /// function-valued members lowers to (`Dict<string, unknown>`).
+    fn is_erased_record(&self, ty: TypeId) -> bool {
+        matches!(
+            self.ctx.krate.types.get(ty),
+            Some(Type::Dict(key, value))
+                if matches!(self.ctx.krate.types.get(*key), Some(Type::String))
+                    && matches!(self.ctx.krate.types.get(*value), Some(Type::Unknown))
+        )
+    }
+
     /// The step type `access`'s `next()` answers.
     fn protocol_step_type(&self, access: ProtocolAccess) -> Option<TypeId> {
         let step = match access {
@@ -911,6 +922,16 @@ impl ModuleBuilder<'_> {
                         self.protocol_generator(access, vec![value], hint, span, body)
                 {
                     return Ok(generator);
+                }
+                // An object literal with methods (state members, a `next` that
+                // reads `this`) is lowered as an erased record, which no typed
+                // adapter can drive: refuse it here rather than hand an
+                // erased record to a typed `Iterator<T>` slot.
+                if self.is_erased_record(value_ty) {
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "an iterator object with state members or a `next` that reads `this` is not lowered yet (Smelt lowers an object literal with methods as an erased record; keep the state in closures or a class)",
+                    ));
                 }
                 Ok(value)
             }

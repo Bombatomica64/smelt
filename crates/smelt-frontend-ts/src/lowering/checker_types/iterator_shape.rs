@@ -57,9 +57,9 @@ fn members(facts: &TsTypeFacts, id: TsTypeId) -> Vec<TsTypeId> {
     }
 }
 
-/// The value types of `id` read as a step type: each member an object with no
-/// property besides `value` and `done`, `done` (when present) a boolean. A
-/// member without `value` carries `undefined`. `None` for any other type.
+/// The value types of `id` read as a step type: each member an object with a
+/// boolean `done` and no property besides `value`. A member without `value`
+/// carries `undefined`. `None` for any other type.
 fn step_values(facts: &TsTypeFacts, id: TsTypeId) -> Option<StepValues> {
     let mut values = StepValues::default();
     for member in members(facts, id) {
@@ -81,13 +81,16 @@ fn step_values(facts: &TsTypeFacts, id: TsTypeId) -> Option<StepValues> {
                 _ => return None,
             }
         }
-        let (may_yield, may_complete) = match done.map(|done| facts.types.get(done).map(|ty| &ty.kind)) {
-            None => (true, false),
-            Some(Some(TsTypeKind::BooleanLiteral(true))) => (false, true),
-            Some(Some(TsTypeKind::BooleanLiteral(false))) => (true, false),
-            Some(Some(TsTypeKind::Boolean)) => (true, true),
-            Some(_) => return None,
-        };
+        let (may_yield, may_complete) =
+            match done.map(|done| facts.types.get(done).map(|ty| &ty.kind)) {
+                // A record without `done` is no step (and JSON shows the
+                // difference): only the protocol's own shape is read as one.
+                None => return None,
+                Some(Some(TsTypeKind::BooleanLiteral(true))) => (false, true),
+                Some(Some(TsTypeKind::BooleanLiteral(false))) => (true, false),
+                Some(Some(TsTypeKind::Boolean)) => (true, true),
+                Some(_) => return None,
+            };
         if may_yield {
             values.yields.push(value);
         }
@@ -256,4 +259,3 @@ impl ModuleBuilder<'_> {
         lowered
     }
 }
-

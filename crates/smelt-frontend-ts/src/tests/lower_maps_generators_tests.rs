@@ -1851,10 +1851,16 @@ fn lowers_iterator_result_literals_as_steps() -> Result<(), String> {
     Ok(())
 }
 
-/// An iterator whose step type is unknown to Smelt (an unannotated
-/// `[Symbol.iterator]()` answering an object literal, typed as an erased
-/// record) is still refused rather than iterated as one item: the element
-/// type has no source of truth to keep (see `docs/design/iterator-protocol.md`).
+/// An iterator whose step type is unknown to Smelt is still refused rather
+/// than iterated as one item: the element type has no source of truth to keep
+/// (see `docs/design/iterator-protocol.md`).
+///
+/// Corrected scope. Old: an unannotated `[Symbol.iterator]()` answering an
+/// object literal was refused in every build. New: with the TypeScript
+/// checker's facts the method takes the `Iterator<T, R>` its inferred result
+/// structure spells (`checker_types::iterator_shape`, Node-parity fixture
+/// `iterator_protocol_inferred`); this test lowers WITHOUT checker facts,
+/// where nothing states the step type, and the refusal still holds.
 #[test]
 fn rejects_iterator_with_untyped_steps() -> Result<(), String> {
     let class = "class C {\n  [Symbol.iterator]() {\n    let n = 3;\n    return { next: () => (n > 0 ? { value: n--, done: false } : { value: 0, done: true }) };\n  }\n}\n";
@@ -1888,4 +1894,17 @@ fn rejects_iterator_literal_with_own_state() -> Result<(), String> {
         assert_unsupported_ts(&errors, "an iterator object literal")?;
     }
     Ok(())
+}
+
+/// An iterator held in an object literal with a state member and a `next`
+/// method reading `this` is lowered as an erased record (Smelt's lowering of
+/// an object literal with methods), which no typed adapter can drive: handing
+/// it to an `Iterator<number>` slot is refused, not passed on as the erased
+/// record (which failed to compile as a `SmeltGenerator`).
+#[test]
+fn rejects_erased_record_in_an_iterator_slot() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let source = "class C {\n  [Symbol.iterator](): Iterator<number> {\n    const it = {\n      i: 0,\n      next(): IteratorResult<number> {\n        return this.i < 3 ? { value: this.i++, done: false } : { value: undefined, done: true };\n      },\n    };\n    return it;\n  }\n}\nfor (const v of new C()) console.log(v);\n";
+    let errors = lowering_errors(source, &mut ctx)?;
+    assert_unsupported_ts(&errors, "an iterator object with state members")
 }

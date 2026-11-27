@@ -2257,4 +2257,51 @@ fn discriminated_union_narrowing() -> TestResult {
 #[test]
 fn sequential_loop_exits() -> TestResult {
     verify_node_parity("sequential_loop_exits")
+/// Unannotated protocol methods take the iterator type the TypeScript checker
+/// infers from their result's structure (`checker_types::iterator_shape`): a
+/// `[Symbol.iterator]()` answering an object literal `{ next, return }` (whose
+/// `return()` runs on `break` and after a destructuring, not after a `done`
+/// step), one whose steps complete with `undefined`, a `next()` answering step
+/// literals, and `[Symbol.iterator]() { return this; }`. They were refused
+/// (an erased record has no step type).
+///
+/// Type preservation, on the same source: each method's Rust signature is
+/// the typed carrier (`SmeltGenerator<f64, f64, ()>`,
+/// `SmeltGenerator<Option<JsString>, Option<JsString>, ()>`, `SmeltGeneratorResult<f64, f64>`, the
+/// class itself), never an erased value.
+#[test]
+fn iterator_protocol_inferred() -> TestResult {
+    verify_node_parity("iterator_protocol_inferred")?;
+    let fixtures = workspace_root()?.join("crates/smelt-transpiler/tests/fixtures/node-parity");
+    let project = TempProject::new()?;
+    let root = project.path();
+    fs::create_dir_all(root.join("src"))?;
+    fs::copy(
+        fixtures.join("iterator_protocol_inferred.ts"),
+        root.join("src/main.ts"),
+    )?;
+    fs::write(
+        root.join("Smelt.toml"),
+        "[project]\nname = \"inferred-iterators\"\nversion = \"0.1.0\"\n\n[sources]\nentries = [\"src/main.ts\"]\n\n[output]\ntarget = \"./dist\"\nbuild = false\n",
+    )?;
+    smelt_in(root, &["build"])?;
+    let dist = root.join("dist/src");
+    let program = fs::read_dir(&dist)?
+        .map(|entry| fs::read_to_string(entry?.path()))
+        .collect::<Result<Vec<_>, _>>()?
+        .join("\n");
+    for signature in [
+        "fn __smelt_symbol_iterator(&self) -> SmeltGenerator<f64, f64, ()>",
+        // The checker widens both steps' `done` to `boolean`, so either may
+        // yield or complete: TypeScript's element type is `string | undefined`.
+        "fn __smelt_symbol_iterator(&self) -> SmeltGenerator<Option<JsString>, Option<JsString>, ()>",
+        "fn next(&self) -> SmeltGeneratorResult<f64, f64>",
+        "fn __smelt_symbol_iterator(&self) -> Range",
+    ] {
+        ensure(
+            program.contains(signature),
+            format!("missing typed signature `{signature}`"),
+        )?;
+    }
+    Ok(())
 }
