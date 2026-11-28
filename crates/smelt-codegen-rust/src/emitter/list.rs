@@ -847,14 +847,17 @@ impl FunctionEmitter<'_> {
             .transpose()?
             .unwrap_or_else(|| RustExpr::cast("smelt_splice_len as f64"));
         let replacement_text = self.list_splice_replacement_expr(items)?;
+        // A receiver that is not a local (`this.stock.splice(i, 1)`) is bound
+        // once: a `SmeltList` handle shares its buffer, so splicing the bound
+        // handle edits the array the field holds.
+        let mut bound_receiver = None;
         let receiver_text = if mutate {
-            let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = list
-            else {
-                return Err(EmitError::new(
-                    "array splice receiver must be a mutable local for now",
-                ));
-            };
-            list_write_expr(&self.local_value(*local)?)
+            if let Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) = list {
+                list_write_expr(&self.local_value(*local)?)
+            } else {
+                bound_receiver = Some(list_text);
+                list_write_expr(&RustExpr::path("smelt_splice_list"))
+            }
         } else {
             list_text.postfix(".to_vec()")
         };
@@ -863,8 +866,11 @@ impl FunctionEmitter<'_> {
             delete_count_text = delete_count_text.as_cast_operand()
         );
         if mutate {
+            let bind_text = bound_receiver.map_or_else(String::new, |bound| {
+                format!("let smelt_splice_list = {}; ", bound.delimited())
+            });
             Ok(RustExpr::atom(format!(
-                "{{ let smelt_splice_len = {receiver_text}.len(); let smelt_splice_start = if {start_text} < 0.0 {{ smelt_splice_len.saturating_sub((-{start_text}) as usize) }} else {{ ({start_text} as usize).min(smelt_splice_len) }}; let smelt_splice_delete = (({delete_count_float_text}).max(0.0) as usize).min(smelt_splice_len.saturating_sub(smelt_splice_start)); {receiver_text}.splice(smelt_splice_start..smelt_splice_start + smelt_splice_delete, {replacement_text}).collect::<Vec<_>>() }}",
+                "{{ {bind_text}let smelt_splice_len = {receiver_text}.len(); let smelt_splice_start = if {start_text} < 0.0 {{ smelt_splice_len.saturating_sub((-{start_text}) as usize) }} else {{ ({start_text} as usize).min(smelt_splice_len) }}; let smelt_splice_delete = (({delete_count_float_text}).max(0.0) as usize).min(smelt_splice_len.saturating_sub(smelt_splice_start)); {receiver_text}.splice(smelt_splice_start..smelt_splice_start + smelt_splice_delete, {replacement_text}).collect::<Vec<_>>() }}",
                 receiver_text = receiver_text.tight(),
                 replacement_text = replacement_text.delimited()
             )))

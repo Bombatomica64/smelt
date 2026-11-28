@@ -2678,3 +2678,69 @@ fn date_timezone_context() -> TestResult {
         &["America/New_York", "Asia/Kolkata"],
     )
 }
+
+/// An enum read as a value (`Object.values(Status)`, `const s = Status`) is the
+/// object TypeScript emits: string members, numeric members and their reverse
+/// entries, array-index keys first. It was an unresolved identifier.
+#[test]
+fn enum_object_values() -> TestResult {
+    verify_node_parity("enum_object_values")
+}
+
+/// `Class.staticMethod` read as a value (`xs.map(Version.parse)`, a map of
+/// handlers) is the associated function wrapped as a closure. It read as
+/// `null` and threw "value is not a function" when called.
+#[test]
+fn static_method_values() -> TestResult {
+    verify_node_parity("static_method_values")
+}
+
+/// `String.prototype.concat` appends each argument's string form (it was
+/// refused as an array `concat` without an array receiver), and `[...map]`
+/// spreads a Map's entries (it was refused as a non-array spread operand).
+#[test]
+fn string_concat_map_spread() -> TestResult {
+    verify_node_parity("string_concat_map_spread")
+}
+
+/// `String(err)`, `${err}`, `"" + err` and `err.toString()` on a source
+/// `Error` subclass without its own `toString` follow
+/// `Error.prototype.toString`. They printed `[object Object]`.
+#[test]
+fn error_subclass_to_string() -> TestResult {
+    verify_node_parity("error_subclass_to_string")
+}
+
+/// A class method implementing an interface method with fewer parameters
+/// (`visit()` for `visit(n, label)`) is accepted, and called through the
+/// interface its extra arguments are dropped. It was refused as a mismatched
+/// signature.
+#[test]
+fn fewer_parameter_implementations() -> TestResult {
+    verify_node_parity("fewer_parameter_implementations")
+}
+
+/// `JSON.parse` into an interface whose records are shared cells decodes into
+/// fresh cells; the decoder built a plain struct literal for the cell newtype
+/// and the crate did not compile.
+#[test]
+fn json_parse_shared_records() -> TestResult {
+    verify_node_parity("json_parse_shared_records")
+}
+
+/// `splice` on an array held in a field (`this.stock.splice(i, 1)`) edits the
+/// field's array in place and returns the removed items. The emitter refused
+/// any receiver that was not a local.
+#[test]
+fn field_receiver_splice() -> TestResult {
+    verify_node_parity("field_receiver_splice")
+}
+
+/// An async function that can throw, passed as a callback
+/// (`ids.map(fetchUser)`), is a callback returning a promise: calling it never
+/// throws, its error rejects the promise. The callback was typed as throwing,
+/// and the crate unwrapped a `Result` off the returned future (E0599).
+#[test]
+fn async_function_callbacks() -> TestResult {
+    verify_node_parity("async_function_callbacks")
+}

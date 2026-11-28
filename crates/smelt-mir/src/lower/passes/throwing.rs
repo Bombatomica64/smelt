@@ -110,10 +110,15 @@ pub(in crate::lower) fn propagate_throwing_functions(mir: &mut Mir) {
                 .iter()
                 .map(|function| function.name)
                 .collect::<Vec<_>>(),
+            // Calling an async function never throws at the call: its error
+            // rejects the promise the call returns (the Rust call builds a
+            // future, the `Result` lives inside it). So a caller, or a
+            // callback wrapping the call (`ids.map(fetchUser)`), does not
+            // inherit an async callee's error channel.
             throwing: mir
                 .functions
                 .iter()
-                .map(|function| function.can_throw && !function.is_generator)
+                .map(|function| function.can_throw && !function.is_generator && !function.is_async)
                 .collect::<Vec<_>>(),
         };
         let mut changed = false;

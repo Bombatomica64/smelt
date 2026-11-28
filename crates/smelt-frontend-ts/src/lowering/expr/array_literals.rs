@@ -531,6 +531,7 @@ impl ModuleBuilder<'_> {
                 .unwrap_or(spread_value);
             // An object spreads through its `[Symbol.iterator]()`.
             let spread_value = self.iterated_value(spread_value, element_span, body)?;
+            let spread_value = self.map_spread_entries(spread_value, element_span, body);
             let value_ty = self.type_param_constraint_or_self(Self::expr_ty(body, spread_value));
             let item_ty = match self.ctx.krate.types.get(value_ty) {
                 Some(Type::List(item_ty) | Type::Set(item_ty)) => *item_ty,
@@ -575,6 +576,7 @@ impl ModuleBuilder<'_> {
                     // the pieces are unified, so the list stays numeric.
                     let element_span = self.span(spread.span.start, spread.span.end);
                     let spread_value = self.iterated_value(spread_value, element_span, body)?;
+                    let spread_value = self.map_spread_entries(spread_value, element_span, body);
                     let spread_value = self
                         .typed_array_spread_list(spread_value, element_span, body)
                         .or_else(|| self.match_array_view(spread_value, element_span, body))
@@ -709,6 +711,42 @@ impl ModuleBuilder<'_> {
             }
         }
         unified.unwrap_or_else(|| self.erase_with(ErasureReason::MissingAnnotation, "empty array"))
+    }
+
+    /// A `Map` spread operand as the iterator its `[Symbol.iterator]()` returns,
+    /// which is `entries()`: `[...map]` is the `[key, value]` pairs in
+    /// insertion order, typed `[K, V][]` like `[...map.entries()]`. Any other
+    /// operand is returned unchanged.
+    fn map_spread_entries(
+        &mut self,
+        value: smelt_hir::ExprId,
+        span: smelt_hir::Span,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let Some(Type::JsMap(key_ty, value_ty)) = self
+            .ctx
+            .krate
+            .types
+            .get(Self::expr_ty(body, value))
+            .cloned()
+        else {
+            return value;
+        };
+        let entry_ty = self
+            .ctx
+            .krate
+            .types
+            .intern(Type::Tuple(vec![key_ty, value_ty]));
+        let ty = self.collection_iterator_type(entry_ty);
+        body.push_expr(Expr {
+            kind: ExprKind::CollectionIterator {
+                op: smelt_hir::DictProjectionOp::Entries,
+                set: false,
+                collection: value,
+            },
+            ty,
+            span,
+        })
     }
 
     /// Convert an iterable spread operand into the list value required by list concatenation.

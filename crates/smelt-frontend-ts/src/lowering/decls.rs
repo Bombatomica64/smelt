@@ -17,6 +17,6 @@ mod functions;
 mod implicit_any;
 mod inferred_types;
 mod inherited_statics;
-mod super_call;
+pub(in crate::lowering) mod super_call;
 pub(in crate::lowering) mod types_iface;
 mod virtual_methods;

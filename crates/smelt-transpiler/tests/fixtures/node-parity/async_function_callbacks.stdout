@@ -1,0 +1,7 @@
+[ 'user1', 'user2' ]
+ok user1
+err user 3 failed
+2
+caught user 3 failed
+then 2
+end

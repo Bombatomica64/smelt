@@ -690,7 +690,12 @@ impl ModuleBuilder<'_> {
                     .iter()
                     .map(|param| param.ty)
                     .collect::<Vec<_>>();
-                let parameters_match = actual_params.len() == required_params.len()
+                // A method may declare fewer parameters than the signature it
+                // implements: TypeScript accepts `visit() { .. }` for
+                // `visit(n: number): number`, and the caller's extra arguments
+                // are simply not bound. Each declared parameter must accept
+                // what the signature passes in its position.
+                let parameters_match = actual_params.len() <= required_params.len()
                     && actual_params.iter().zip(&required_params).all(
                         |(actual_param, required_param)| {
                             self.type_assignable_to(*required_param, *actual_param)

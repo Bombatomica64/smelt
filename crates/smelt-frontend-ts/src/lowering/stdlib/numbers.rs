@@ -351,6 +351,14 @@ impl ModuleBuilder<'_> {
         if self.type_defines_its_own_to_string(Self::expr_ty(body, operand)) {
             return Ok(None);
         }
+        // `err.toString()` on a source `Error` subclass is
+        // `Error.prototype.toString`, as `String(err)` is.
+        if call.arguments.is_empty() && self.inherits_error_to_string(Self::expr_ty(body, operand))
+        {
+            let operand_ty = Self::expr_ty(body, operand);
+            let span = self.span(call.span.start, call.span.end);
+            return Ok(Some(self.error_to_string(operand, operand_ty, span, body)));
+        }
         if call.arguments.is_empty() && self.expression_is_known_date_value(operand, body) {
             let ty = self.ctx.krate.types.intern(Type::String);
             return Ok(Some(body.push_expr(Expr {

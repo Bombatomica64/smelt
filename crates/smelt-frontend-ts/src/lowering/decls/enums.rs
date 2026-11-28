@@ -74,6 +74,10 @@ impl ModuleBuilder<'_> {
         // starts implicit numbering at 0 and increments after each numeric
         // member (implicit or explicit numeric).
         let mut next_auto = 0.0_f64;
+        // The enum object's assignments in the order the emitted code runs
+        // them: `E[E["A"] = 0] = "A"` writes `A`, then its reverse key `"0"`.
+        let mut assignments: Vec<(String, Literal)> = Vec::new();
+        let mut folded_every_member = true;
 
         for member in &decl.body.members {
             let Some(member_name) = Self::enum_member_name(&member.id) else {
@@ -88,6 +92,7 @@ impl ModuleBuilder<'_> {
                 let Some(value) =
                     self.enum_member_initializer_literal(&enum_name, initializer, &members)
                 else {
+                    folded_every_member = false;
                     self.enum_unfolded_members
                         .entry(enum_name.clone())
                         .or_default()
@@ -110,14 +115,23 @@ impl ModuleBuilder<'_> {
                 next_auto = number + 1.0_f64;
             }
 
+            assignments.push((member_name.to_string(), value.literal.clone()));
             if let Literal::Float(number) = value.literal {
                 reverse.push((number, member_name.to_string()));
+                assignments.push((
+                    Self::numeric_property_key_name(number),
+                    Literal::String(member_name.to_string()),
+                ));
             }
             members.insert(member_name.into_owned(), value);
         }
 
         if members.is_empty() {
             return;
+        }
+        if folded_every_member {
+            self.enum_objects
+                .insert(enum_name.clone(), Self::enum_object_entries(assignments));
         }
         // TypeScript gives a numeric member a reverse entry (`E[0] === "A"`);
         // a string member has none.
@@ -135,6 +149,101 @@ impl ModuleBuilder<'_> {
         if publish {
             self.publish_export(|ctx| &mut ctx.enum_members, enum_name, members);
         }
+    }
+
+    /// The own properties of an enum object, from its assignments in run order.
+    ///
+    /// A later assignment to a key already written replaces its value in place
+    /// (two members with one value: the reverse key keeps the later name). The
+    /// result is in JavaScript's own-key order: array-index keys (`"0"`, `"1"`)
+    /// first in ascending numeric order, then the other keys in insertion order.
+    /// So `enum E { A, B }` is `{ "0": "A", "1": "B", A: 0, B: 1 }`, which is
+    /// what `Object.keys(E)` lists.
+    fn enum_object_entries(assignments: Vec<(String, Literal)>) -> Vec<(String, Literal)> {
+        /// A canonical array index: the decimal spelling of an integer below 2^32 - 1.
+        fn array_index(key: &str) -> Option<u32> {
+            let index = key.parse::<u32>().ok()?;
+            (index != u32::MAX && index.to_string() == key).then_some(index)
+        }
+        let mut entries: Vec<(String, Literal)> = Vec::new();
+        for (key, value) in assignments {
+            match entries.iter_mut().find(|(existing, _)| *existing == key) {
+                Some(entry) => entry.1 = value,
+                None => entries.push((key, value)),
+            }
+        }
+        let (mut indexed, named): (Vec<_>, Vec<_>) = entries
+            .into_iter()
+            .partition(|(key, _)| array_index(key).is_some());
+        indexed.sort_by_key(|(key, _)| array_index(key));
+        indexed.extend(named);
+        indexed
+    }
+
+    /// Lower a bare enum name read as a value to the object TypeScript emits
+    /// for it: `Object.values(Status)`, `Object.keys(Color)`, `const e = Status`.
+    ///
+    /// The object is a string-keyed record whose values are the members' folded
+    /// literals plus, for a numeric member, its reverse entry (`"0": "Red"`).
+    /// Its value type is the primitive those values share: `string` for a
+    /// string enum, `number | string` once any member is numeric (as the
+    /// reverse names are strings), which is how TypeScript types
+    /// `Object.values` of a numeric enum. Returns `None` for an enum not
+    /// declared in this module or with a member that did not fold; the read
+    /// then reaches the unresolved-name blocker rather than a partial object.
+    pub(in crate::lowering) fn enum_object_value(
+        &mut self,
+        enum_name: &str,
+        start: u32,
+        end: u32,
+        body: &mut Body,
+    ) -> Option<ExprId> {
+        let entries = self.enum_objects.get(enum_name)?.clone();
+        let span = self.span(start, end);
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let float_ty = self.ctx.krate.types.intern(Type::Float);
+        let mut value_tys: Vec<smelt_hir::TypeId> = Vec::new();
+        for (_, value) in &entries {
+            let ty = match value {
+                Literal::Float(_) => float_ty,
+                Literal::String(_) => string_ty,
+                _ => return None,
+            };
+            if !value_tys.contains(&ty) {
+                value_tys.push(ty);
+            }
+        }
+        let value_ty = match value_tys.as_slice() {
+            [single] => *single,
+            _ => self.union_of_member_types(&value_tys),
+        };
+        let pairs = entries
+            .into_iter()
+            .map(|(key, value)| {
+                let key = body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::String(key)),
+                    ty: string_ty,
+                    span,
+                });
+                let literal_ty = if matches!(value, Literal::Float(_)) {
+                    float_ty
+                } else {
+                    string_ty
+                };
+                let value = body.push_expr(Expr {
+                    kind: ExprKind::Literal(value),
+                    ty: literal_ty,
+                    span,
+                });
+                (key, value)
+            })
+            .collect();
+        let ty = self.ctx.krate.types.intern(Type::Dict(string_ty, value_ty));
+        Some(body.push_expr(Expr {
+            kind: ExprKind::DictLit(pairs),
+            ty,
+            span,
+        }))
     }
 
     /// Lower `E[key]` on a numeric member of an `enum` declared in this module

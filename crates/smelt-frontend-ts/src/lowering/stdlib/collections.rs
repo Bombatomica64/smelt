@@ -699,7 +699,10 @@ impl ModuleBuilder<'_> {
     /// The type of a collection iterator yielding `yield_ty`: a synchronous
     /// generator that returns `undefined` and takes nothing on resume, which
     /// is what `MapIterator<T>`/`SetIterator<T>` are in TypeScript.
-    fn collection_iterator_type(&mut self, yield_ty: smelt_hir::TypeId) -> smelt_hir::TypeId {
+    pub(in crate::lowering) fn collection_iterator_type(
+        &mut self,
+        yield_ty: smelt_hir::TypeId,
+    ) -> smelt_hir::TypeId {
         let none_ty = self.ctx.krate.types.intern(Type::None);
         self.ctx.krate.types.intern(Type::Generator {
             is_async: false,

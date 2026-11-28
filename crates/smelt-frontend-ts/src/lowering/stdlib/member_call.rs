@@ -982,6 +982,46 @@ impl ModuleBuilder<'_> {
         })))
     }
 
+    /// Lower `Class.staticMethod` read as a value (not called): the
+    /// associated function wrapped as a closure value typed by its signature,
+    /// so `["1", "2"].map(Version.parse)` passes `Version::parse` exactly as a
+    /// module function name passes that function.
+    ///
+    /// Only a method the named class declares itself and that has no type
+    /// parameters is a plain function value. An inherited static runs with the
+    /// subclass as its `this` (a dispatch, not one item), and a generic one
+    /// needs its type arguments from a call; both return `None` and keep the
+    /// path they had. A detached static method has no `this` in JavaScript
+    /// either, so the item carries no receiver.
+    pub(in crate::lowering) fn class_static_method_value(
+        &mut self,
+        member: &oxc::ast::ast::StaticMemberExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        if self.static_method_receiver(&member.object).is_some() {
+            return Ok(None);
+        }
+        let Some(object) = self.static_method_receiver_class(&member.object) else {
+            return Ok(None);
+        };
+        let Some(class_item) = self.classes.item(&object) else {
+            return Ok(None);
+        };
+        let Item::Class(class) = self.item_ref(class_item) else {
+            return Ok(None);
+        };
+        let Some(static_item) =
+            self.resolve_class_static_method(&class.static_methods, member.property.name.as_str())
+        else {
+            return Ok(None);
+        };
+        if !self.callee_own_type_params(static_item).is_empty() {
+            return Ok(None);
+        }
+        self.item_function_closure_expression(static_item, member.span.start, member.span.end, body)
+            .map(Some)
+    }
+
     /// Return whether a static-member expression names `Class.staticMethod` on a
     /// bare, unshadowed class identifier.
     ///

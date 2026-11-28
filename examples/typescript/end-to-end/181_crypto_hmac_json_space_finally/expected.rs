@@ -5619,9 +5619,9 @@ fn __smelt_fn_typed_6_0() -> SmeltFnTyped6_0 {
     SMELT_FN_TYPED.with(|smelt_cell| smelt_cell.get_or_init(|| { let smelt_function: SmeltFnTyped6_0 = ::std::rc::Rc::new(move || { SmeltFuture::from_future_primed(Box::pin(async move {
         let smelt_async_value = {
     let _smelt_tmp_0: SmeltFuture<()> = SmeltFuture::from_future_primed(Box::pin(failing__module_main()));
-    Ok::<SmeltFuture<()>, Box<dyn std::error::Error>>(_smelt_tmp_0)
+    _smelt_tmp_0
         };
-        let smelt_async_output = smelt_async_value?.await?; Ok::<(), Box<dyn std::error::Error>>(smelt_async_output)
+        let smelt_async_output = smelt_async_value.await?; Ok::<(), Box<dyn std::error::Error>>(smelt_async_output)
     }) as ::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<(), Box<dyn std::error::Error>>>>>) }); smelt_join_function_identity(&smelt_function, &__smelt_fn_identity_6()); smelt_function }).clone())
 }
 
@@ -5683,7 +5683,7 @@ pub(crate) async fn run() -> Result<(), Box<dyn std::error::Error>> {
     _smelt_tmp_28 = JsString::from(smelt_json_indent(&_smelt_tmp_27, &(JsString::from("--")).slice(0, 10).to_string_lossy()));
     let _ = { println!("{}", _smelt_tmp_28); };
     _smelt_tmp_30 = __smelt_fn_typed_6_0();
-    let _smelt_tmp_31 = SmeltFuture::from_future_primed(Box::pin(cleanup_after__module_main({ let smelt_identity_source = _smelt_tmp_30.clone(); let smelt_adapted_callable = ::std::rc::Rc::new({ let _smelt_adapted_callback = _smelt_tmp_30.clone(); move || { let smelt_async_callback = _smelt_adapted_callback.clone(); { let smelt_async_source = (smelt_async_callback)(); SmeltFuture::from_future(Box::pin(async move { let smelt_async_output = smelt_async_source.await?; Ok::<_, Box<dyn std::error::Error>>(smelt_async_output) })) } } }); smelt_link_function_identity(&smelt_adapted_callable, &smelt_identity_source); smelt_adapted_callable })));
+    let _smelt_tmp_31 = SmeltFuture::from_future_primed(Box::pin(cleanup_after__module_main(_smelt_tmp_30.clone())));
     _smelt_tmp_32 = _smelt_tmp_31.await?;
     let _ = { println!("{}", _smelt_tmp_32); };
     _smelt_tmp_34 = ::std::rc::Rc::new(move || { SmeltFuture::from_future_primed(Box::pin(async move {

@@ -1334,6 +1334,36 @@ impl ModuleBuilder<'_> {
         false
     }
 
+    /// Whether `ty` is a source class that inherits `Error.prototype.toString`:
+    /// its chain of source classes ends in a builtin error class (`Error`,
+    /// `TypeError`, ...) and none of them declares its own `toString`.
+    pub(in crate::lowering) fn inherits_error_to_string(&self, ty: smelt_hir::TypeId) -> bool {
+        let Some(Type::Class { name, .. }) = self.ctx.krate.types.get(ty) else {
+            return false;
+        };
+        let mut class = *name;
+        for _ in 0_u32..64 {
+            if self.class_symbol_declares_to_string(class) {
+                return false;
+            }
+            let Some(base) = self.class_symbol_base(class) else {
+                return false;
+            };
+            let is_source_class =
+                self.classes.base_of_symbol(base).is_some() || self.class_by_symbol(base).is_some();
+            if !is_source_class {
+                return self
+                    .ctx
+                    .krate
+                    .symbols
+                    .get(base)
+                    .is_some_and(super::super::decls::super_call::is_error_like_base);
+            }
+            class = base;
+        }
+        false
+    }
+
     /// Whether the class `symbol` itself declares a zero-argument `toString`
     /// method: in this module's class registry while the module is being
     /// lowered, or among the methods of the class item another module lowered.

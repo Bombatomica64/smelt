@@ -1,0 +1,9 @@
+[ 'ACTIVE', 'PENDING', 'CLOSED' ]
+Active,Pending,Closed
+Active=ACTIVE&Pending=PENDING&Closed=CLOSED
+true
+CLOSED undefined
+[ '0', '5', '6', 'Low', 'Mid', 'High' ]
+[ 0, 5, 6 ]
+[ '1', 'A', 'B' ] [ 'B', 1, 1 ]
+PENDING 3

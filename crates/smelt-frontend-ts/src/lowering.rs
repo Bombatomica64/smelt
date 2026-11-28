@@ -914,6 +914,11 @@ struct ModuleBuilder<'ctx> {
     /// pairs in declaration order, the entries of the enum object's reverse
     /// mapping (`Color[0] === "Red"`).
     enum_reverse_names: HashMap<String, Vec<(f64, String)>>,
+    /// Each `enum` declared in this module whose every member folded: the own
+    /// properties of the object TypeScript emits for it, in JavaScript's
+    /// own-key order (see [`ModuleBuilder::enum_object_entries`]). The enum
+    /// read as a value (`Object.values(Status)`) is this object.
+    enum_objects: HashMap<String, Vec<(String, Literal)>>,
     /// The `enum` whose member initializers are being folded, with the members
     /// folded so far: while it is set, a bare member name (`AB = A | B`) and a
     /// qualified self-reference (`AB = F.A | F.B`) inside any foldable
