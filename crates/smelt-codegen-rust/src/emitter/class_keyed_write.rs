@@ -60,9 +60,17 @@ impl FunctionEmitter<'_> {
             if key.starts_with('#') || key.starts_with("__smelt") {
                 continue;
             }
+            // A value typed by the union of the record's property types (`v:
+            // S[K]` with `K extends keyof S`, whose base constraint is that
+            // union) is stored into each field its union has an arm for,
+            // projected to that arm: TypeScript ties the value's type to the
+            // key's, so the arm the key selects is the one the value holds.
             let assignable = field.ty == value_ty
                 || (value_is_function && self.is_callable_interface_record(field.ty))
-                || self.same_call_signature(value_ty, field.ty);
+                || self.same_call_signature(value_ty, field.ty)
+                || self
+                    .concrete_union_members(value_ty)
+                    .is_some_and(|members| members.contains(&field.ty));
             if !assignable {
                 continue;
             }
@@ -85,13 +93,11 @@ impl FunctionEmitter<'_> {
         if arms.is_empty() {
             return Ok(None);
         }
-        let index_ty = self.operand_ty(index)?;
-        let key_text = self.property_key_to_string_expr(&self.operand_expr(index)?, index_ty)?;
+        let key_text = self.record_key_text(index)?;
         Ok(Some(RustExpr::atom(format!(
-            "{{ let smelt_keyed_value = {}; let smelt_key = ({key_text}).to_string(); match smelt_key.as_str() {{ {} _ => {{}} }} }}",
+            "{{ let smelt_keyed_value = {}; let smelt_key = {key_text}; match smelt_key.as_str() {{ {} _ => {{}} }} }}",
             self.operand_expr(value_operand)?.delimited(),
             arms.join(" "),
-            key_text = key_text.delimited()
         ))))
     }
 

@@ -24,7 +24,7 @@ mod unions;
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
 use crate::lowering::erasure::NotNewErasure;
-use oxc::ast::ast::{Expression, TSType, TSTypeQueryExprName};
+use oxc::ast::ast::{Expression, TSType, TSTypeName, TSTypeQueryExprName};
 use oxc::span::GetSpan;
 use oxc::syntax::operator::UnaryOperator;
 use smelt_hir::{ErasureReason, FunctionType, Item, Type};
@@ -554,6 +554,26 @@ impl ModuleBuilder<'_> {
         let object_ty = self.ts_type_to_hir(&indexed.object_type)?;
         if let Some(deferred) = self.deferred_indexed_access(object_ty, &indexed.index_type)? {
             return Ok(deferred);
+        }
+        // `S[K]` over a declared record `S` and a key parameter
+        // `K extends keyof S`: the base constraint `S[keyof S]`
+        // (`deferred_index::keyof_record_read_type`).
+        if let TSType::TSTypeReference(reference) = &indexed.index_type
+            && reference.type_arguments.is_none()
+            && matches!(reference.type_name, TSTypeName::IdentifierReference(_))
+            && matches!(
+                self.ctx.krate.types.get(object_ty),
+                Some(Type::Class { .. })
+            )
+        {
+            let key_ty = self.ts_type_to_hir(&indexed.index_type)?;
+            if matches!(
+                self.ctx.krate.types.get(key_ty),
+                Some(Type::TypeParam { .. })
+            ) && let Some(read) = self.keyof_record_read_type(object_ty, key_ty)
+            {
+                return Ok(read);
+            }
         }
         match self.ctx.krate.types.get(object_ty) {
             Some(Type::Tuple(items)) => {

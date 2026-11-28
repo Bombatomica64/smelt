@@ -405,9 +405,20 @@ impl ModuleBuilder<'_> {
                     }
                     None if self.record_declares_methods(name) => return None,
                     None => {
-                        let members: Vec<TypeId> = source
+                        // A `#private` field is not a key `keyof` names.
+                        let keyed: Vec<&smelt_hir::Field> = source
                             .fields
                             .iter()
+                            .filter(|field| {
+                                self.ctx
+                                    .krate
+                                    .symbols
+                                    .get(field.name)
+                                    .is_none_or(|name| !name.starts_with('#'))
+                            })
+                            .collect();
+                        let members: Vec<TypeId> = keyed
+                            .into_iter()
                             .map(|field| self.field_read_type(field))
                             .collect();
                         if members.is_empty() {
@@ -420,6 +431,50 @@ impl ModuleBuilder<'_> {
             _ => return None,
         };
         self.says_something(evaluated).then_some(evaluated)
+    }
+
+    /// The type of `object[key]` for a declared record `object` read with a
+    /// key typed `keyof object`: a parameter `k: keyof S` (lowered to
+    /// `string`) or a type parameter `K extends keyof S` (whose constraint is
+    /// that `string`). `None` for every other receiver or key.
+    ///
+    /// Requirements. Behaviour: the read yields the named property's value,
+    /// as JavaScript does (the backend dispatches on the key over the
+    /// record's fields, `codegen-rust/src/emitter/class_keyed_read.rs`).
+    /// Type preservation: the read is typed as TypeScript's base constraint
+    /// of `S[K]`, `S[keyof S]`, the union of the record's property read
+    /// types, instead of the erased `unknown` the generic index read gives.
+    ///
+    /// A record that declares a method is left alone (`keyof` then names a
+    /// member the property table does not list), and so is one with an index
+    /// signature, which keeps its own keyed store. Without an index signature
+    /// TypeScript accepts a computed read of a record only with a key typed
+    /// as its keys, so a `string` key here is a `keyof` key.
+    pub(in crate::lowering) fn keyof_record_read_type(
+        &mut self,
+        object: TypeId,
+        key: TypeId,
+    ) -> Option<TypeId> {
+        let key = self.type_param_constraint_or_self(key);
+        if !matches!(
+            self.ctx.krate.types.get(key),
+            Some(Type::String | Type::PropKey)
+        ) {
+            return None;
+        }
+        let Some(Type::Class { name, .. }) = self.ctx.krate.types.get(object).cloned() else {
+            return None;
+        };
+        if self.classes.has_index_value(name)
+            || self.match_stdlib_class(name).is_some()
+            || self.is_bigint_view_type(object)
+        {
+            return None;
+        }
+        let records_before = self.ctx.krate.erasures.len();
+        let read = self.indexed_access_of(object, key, None);
+        self.ctx.krate.erasures.truncate(records_before);
+        read
     }
 
     /// The type a read of `field` produces: optional when the property may be

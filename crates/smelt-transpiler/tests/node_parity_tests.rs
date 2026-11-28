@@ -2776,3 +2776,13 @@ fn field_receiver_splice() -> TestResult {
 fn async_function_callbacks() -> TestResult {
     verify_node_parity("async_function_callbacks")
 }
+
+/// A computed read or write of a record with a `keyof` key
+/// (`function get<K extends keyof S>(s: S, k: K): S[K] { return s[k] }`)
+/// reads and writes the property the key names, typed as the union of the
+/// record's property types. The read answered `undefined` for every key and
+/// the write was dropped.
+#[test]
+fn keyof_indexed_access() -> TestResult {
+    verify_node_parity("keyof_indexed_access")
+}

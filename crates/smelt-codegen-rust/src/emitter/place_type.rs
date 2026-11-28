@@ -352,6 +352,10 @@ impl FunctionEmitter<'_> {
             let string_ty = self.type_id(Type::String)?;
             return self.type_id(Type::Optional(string_ty, smelt_hir::Absence::Undefined));
         }
+        // A `keyof` read of a declared record (`class_keyed_read`).
+        if let Some(read) = self.class_keyed_read(base_ty, index)? {
+            return Ok(read.read_ty);
+        }
         match self.mir.types.get(base_ty) {
             Some(Type::List(item)) => Ok(*item),
             Some(Type::Optional(inner, _)) => {

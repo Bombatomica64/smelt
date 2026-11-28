@@ -113,6 +113,7 @@ mod callback_handle;
 mod callback_signature;
 mod capture_analysis;
 mod cfg_queries;
+mod class_keyed_read;
 mod class_keyed_write;
 mod closure_call;
 mod closures;
