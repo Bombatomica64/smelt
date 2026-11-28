@@ -147,6 +147,7 @@ mod runtime {
     include!("runtime/sqlite.rs");
     include!("runtime/string_to_number.rs");
     include!("runtime/strings.rs");
+    include!("runtime/structured_clone.rs");
     include!("runtime/structural_eq.rs");
     include!("runtime/symbol.rs");
     include!("runtime/symbol_keys.rs");

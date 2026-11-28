@@ -362,6 +362,8 @@ fn need_of_flag(name: &str) -> Option<Need> {
         "vitest_mock" => Need::VitestMock,
         "fast_check" => Need::FastCheck,
         "structured_clone" => Need::StructuredClone,
+        "structured_clone_typed" => Need::StructuredCloneTyped,
+        "structured_clone_throws" => Need::StructuredCloneThrows,
         "typeof" => Need::Typeof,
         "concat_spread" => Need::ConcatSpread,
         "define_properties" => Need::DefineProperties,

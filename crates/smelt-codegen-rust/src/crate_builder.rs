@@ -679,7 +679,13 @@ impl CrateBuilder<'_, HoistedItemsWritten> {
         // prelude, but whether a `console.log` argument needs it is decided while
         // the bodies above are emitted, so it is spliced in ahead of the prelude
         // marker at this point. See `emitter::console_inspect`.
-        let console_inspect = emitter::emit_console_inspect_support(self.mir, self.context)?;
+        let mut console_inspect = emitter::emit_console_inspect_support(self.mir, self.context)?;
+        // The per-program `structuredClone` impls (`emitter::structured_clone`)
+        // go to the same place.
+        console_inspect.push_str(&emitter::emit_structured_clone_support(
+            self.mir,
+            self.context,
+        )?);
         if !console_inspect.is_empty() {
             // The marker position was recorded when the prelude phase wrote it, so
             // the splice point cannot be lost: a missing marker would silently drop the

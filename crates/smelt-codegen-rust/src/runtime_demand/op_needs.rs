@@ -61,8 +61,16 @@ impl RuntimeDemand {
             Rvalue::StringNormalize { .. } => {
                 self.add(Need::DepUnicodeNormalization);
             }
-            Rvalue::StructuredClone { .. } => {
-                self.add(Need::StructuredClone);
+            Rvalue::StructuredClone {
+                typed, can_throw, ..
+            } => {
+                if !*typed {
+                    self.add(Need::StructuredClone);
+                } else if *can_throw {
+                    self.add(Need::StructuredCloneThrows);
+                } else {
+                    self.add(Need::StructuredCloneTyped);
+                }
             }
             Rvalue::StringLocaleCompare { .. } => {
                 self.add(Need::LocaleCompare);

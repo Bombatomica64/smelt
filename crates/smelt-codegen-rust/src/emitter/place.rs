@@ -1766,6 +1766,11 @@ impl FunctionEmitter<'_> {
         if let Some(text) = self.concrete_union_index_read_expr(base, index, negative)? {
             return Ok(text);
         }
+        // A `keyof` read of a declared record dispatches on the key over its
+        // fields (`class_keyed_read`).
+        if let Some(read) = self.class_keyed_read(base_ty, index)? {
+            return self.class_keyed_read_expr(&read, base, index);
+        }
         match self.mir.types.get(base_ty) {
             Some(Type::List(item_ty)) => {
                 // A list index READ only ever calls `.get(..).cloned()`

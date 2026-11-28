@@ -37,11 +37,19 @@ impl ModuleBuilder<'_> {
         })))
     }
 
-    /// Lower `structuredClone(value)` as a typed value copy.
+    /// Lower `structuredClone(value)`: a deep copy of the value graph.
     ///
-    /// HIR values are immutable unless explicitly modeled otherwise, so the
-    /// lowering keeps the source value and preserves its type instead of
-    /// modeling JavaScript's object graph cloning behavior.
+    /// A value of an immutable type (a number, a string, a boolean, or an
+    /// optional or union of those) is its own copy, so it passes through. Any
+    /// other typed value is copied at its own type through the
+    /// `SmeltStructuredClone` impls (`codegen-rust/src/emitter/structured_clone.rs`):
+    /// lists, records, maps and sets get fresh identities, and a reference
+    /// shared inside the graph (or a cycle) stays shared in the copy. An
+    /// erased (`unknown`) value is copied by the `smelt_structured_clone`
+    /// runtime helper, which keeps host markers.
+    ///
+    /// The copy is fallible when the value's type can hold a function, which
+    /// the structured clone algorithm rejects with a `DataCloneError`.
     pub(in crate::lowering) fn structured_clone_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
@@ -60,23 +68,87 @@ impl ModuleBuilder<'_> {
             ));
         };
         let operand = self.argument(value, body)?;
-        // Typed values are immutable in HIR, so a pass-through copy is faithful and
-        // keeps their concrete type. Erased (`unknown`) values may be mutable host
-        // objects (Date/Map/Set/Error) whose graph must be deep-copied with fresh
-        // identities to honor `structuredClone`'s reference semantics; route those
-        // through the `smelt_structured_clone` runtime helper.
         // not a new erasure: only compared against the operand's type
         let unknown_ty = self.unknown_type(NotNewErasure::RuntimeHelperSignature);
-        let operand_ty = body.expr_at(operand).map(|expr| expr.ty);
-        if operand_ty != Some(unknown_ty) {
+        let Some(operand_ty) = body.expr_at(operand).map(|expr| expr.ty) else {
+            return Ok(Some(operand));
+        };
+        // A value typed by a type parameter is copied by the erased helper:
+        // no `SmeltStructuredClone` bound reaches a generic.
+        let typed = operand_ty != unknown_ty && !self.type_mentions_type_param(operand_ty);
+        if typed && self.clone_is_identity(operand_ty) {
             return Ok(Some(operand));
         }
+        let can_throw = typed && self.clone_may_reach_function(operand_ty, &mut Vec::new());
         let span = self.span(call.span.start, call.span.end);
         Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::StructuredClone { operand },
-            ty: unknown_ty,
+            kind: ExprKind::StructuredClone {
+                operand,
+                typed,
+                can_throw,
+            },
+            ty: operand_ty,
             span,
         })))
+    }
+
+    /// Whether a value of type `ty` is its own structured clone: an
+    /// immutable primitive, or an optional or union of them.
+    fn clone_is_identity(&self, ty: smelt_hir::TypeId) -> bool {
+        match self.ctx.krate.types.get(ty) {
+            Some(
+                Type::Float
+                | Type::Int
+                | Type::Bool
+                | Type::String
+                | Type::BigInt
+                | Type::None
+                | Type::Never,
+            ) => true,
+            Some(Type::Optional(inner, _)) => self.clone_is_identity(*inner),
+            Some(Type::Union(members)) => {
+                members.iter().all(|member| self.clone_is_identity(*member))
+            }
+            _ => false,
+        }
+    }
+
+    /// Whether a value of type `ty` can hold a function anywhere in its graph,
+    /// a record's fields included: the clone then may throw `DataCloneError`.
+    fn clone_may_reach_function(
+        &mut self,
+        ty: smelt_hir::TypeId,
+        seen: &mut Vec<smelt_hir::TypeId>,
+    ) -> bool {
+        if seen.contains(&ty) {
+            return false;
+        }
+        seen.push(ty);
+        let Some(found) = self.ctx.krate.types.get(ty).cloned() else {
+            return false;
+        };
+        match found {
+            Type::Function(_) => true,
+            Type::Class { .. } => {
+                let span = self.erasure_anchor;
+                let records_before = self.ctx.krate.erasures.len();
+                let fields: Vec<smelt_hir::TypeId> = self
+                    .record_source(ty, span)
+                    .ok()
+                    .flatten()
+                    .map(|source| source.fields.iter().map(|field| field.ty).collect())
+                    .unwrap_or_default();
+                self.ctx.krate.erasures.truncate(records_before);
+                fields
+                    .into_iter()
+                    .any(|field| self.clone_may_reach_function(field, seen))
+            }
+            other => other
+                .children()
+                .collect::<Vec<_>>()
+                .into_iter()
+                .any(|child| self.clone_may_reach_function(child, seen)),
+        }
     }
 
     /// Lower `Object.prototype.toString.call(value)` to the `"[object Tag]"` probe.

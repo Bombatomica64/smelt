@@ -552,16 +552,9 @@ impl ModuleBuilder<'_> {
                                 ));
                             }
                             if method.r#static {
-                                if materialized.is_some() {
-                                    continue;
-                                }
-                                // Static getters need associated-accessor lowering that
-                                // is not implemented yet; static *methods* are handled in
-                                // the method-lowering pass below.
-                                return Err(SmeltError::unsupported(
-                                    this.span(method.span.start, method.span.end),
-                                    "static accessors are not lowered yet",
-                                ));
+                                // A static getter lowers in the method pass below,
+                                // as a static method `__smelt_get_<name>`.
+                                continue;
                             }
                             // A plain source getter (`get x() { … }`) lowers to a `&self`
                             // method plus an accessor descriptor in the second class pass
@@ -888,13 +881,17 @@ impl ModuleBuilder<'_> {
                                 if materialized.is_some() {
                                     continue;
                                 }
-                                // Only plain `static foo(..)` methods are lowered as
-                                // receiver-free associated functions. Static
-                                // getters/setters and computed static keys are deferred.
-                                if method.kind != MethodDefinitionKind::Method {
+                                // A static method is a receiver-free associated
+                                // function. A static getter or setter is one too,
+                                // named `__smelt_get_<name>` / `__smelt_set_<name>`
+                                // (`class_function_impl`); a read or write of
+                                // `Class.name` calls it (`static_accessor`).
+                                if method.kind != MethodDefinitionKind::Method
+                                    && (evaluation.is_some() || method.computed)
+                                {
                                     return Err(SmeltError::unsupported(
                                         this.span(method.span.start, method.span.end),
-                                        "static accessors are not lowered yet",
+                                        "static accessors of a per-evaluation class or with a computed key are not lowered yet",
                                     ));
                                 }
                                 if let Some(evaluation) = &evaluation {

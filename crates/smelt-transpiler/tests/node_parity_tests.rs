@@ -2776,3 +2776,38 @@ fn field_receiver_splice() -> TestResult {
 fn async_function_callbacks() -> TestResult {
     verify_node_parity("async_function_callbacks")
 }
+
+/// A computed read or write of a record with a `keyof` key
+/// (`function get<K extends keyof S>(s: S, k: K): S[K] { return s[k] }`)
+/// reads and writes the property the key names, typed as the union of the
+/// record's property types. The read answered `undefined` for every key and
+/// the write was dropped.
+#[test]
+fn keyof_indexed_access() -> TestResult {
+    verify_node_parity("keyof_indexed_access")
+}
+
+/// `structuredClone` of a typed value is a deep copy at the value's own type:
+/// lists, records, maps, sets, dates and regular expressions are fresh
+/// objects, a reference shared inside the graph (or a cycle) stays shared in
+/// the copy, and a value holding a function throws `DataCloneError`. The
+/// typed value was passed through, so writes to the copy reached the source.
+#[test]
+fn structured_clone_typed() -> TestResult {
+    verify_node_parity("structured_clone_typed")
+}
+
+/// A `static get`/`static set` pair runs on `Class.name` reads and on
+/// `Class.name = v`, `+=` and `++` writes. Static accessors were refused.
+#[test]
+fn static_accessors() -> TestResult {
+    verify_node_parity("static_accessors")
+}
+
+/// `const x: never = value` in an exhaustive `switch` default or after an
+/// exhaustive `if` chain is accepted: the binding is unreachable and diverges.
+/// It was refused for every initializer.
+#[test]
+fn never_exhaustiveness() -> TestResult {
+    verify_node_parity("never_exhaustiveness")
+}

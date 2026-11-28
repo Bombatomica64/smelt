@@ -1977,6 +1977,14 @@ impl ModuleBuilder<'_> {
                 span: self.span(member.span.start, member.span.end),
             }));
         }
+        let index_ty = Self::expr_ty(body, index);
+        if let Some(ty) = self.keyof_record_read_type(access_receiver_ty, index_ty) {
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::Index { receiver, index },
+                ty,
+                span: self.span(member.span.start, member.span.end),
+            }));
+        }
         let ty = self.index_type(access_receiver_ty)?;
         if matches!(
             self.ctx.krate.types.get(access_receiver_ty),

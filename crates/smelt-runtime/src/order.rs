@@ -268,6 +268,16 @@ pub const ORDER: &[Entry] = &[
     Entry::Item("smelt_fetch_server_request"),
     Entry::Item("SmeltSqliteDatabase"),
     Entry::Item("impl_IntoSmeltUnknown_for_SmeltSqliteDatabase"),
+    Entry::Item("SmeltStructuredClone"),
+    Entry::Item("smelt_data_clone_error"),
+    Entry::Item("impl_SmeltStructuredClone_for_SmeltUnknown"),
+    Entry::Item("impl_SmeltStructuredClone_for_SmeltList"),
+    Entry::Item("impl_SmeltStructuredClone_for_SmeltJsMap"),
+    Entry::Item("impl_SmeltStructuredClone_for_SmeltPrimSet"),
+    Entry::Item("impl_SmeltStructuredClone_for_SmeltRecord"),
+    Entry::Item("impl_SmeltStructuredClone_for_SmeltDate"),
+    Entry::Item("impl_SmeltStructuredClone_for_SmeltRegExp"),
+    Entry::Item("impl_SmeltStructuredClone_for_SmeltTypedArray"),
 ];
 
 /// The `util.inspect` runtime, spliced in only when a `console.log` reaches it.

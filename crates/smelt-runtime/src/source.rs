@@ -327,6 +327,10 @@ const MODULES: &[RuntimeModule] = &[
         source: include_str!("runtime/strings.rs"),
     },
     RuntimeModule {
+        name: "structured_clone",
+        source: include_str!("runtime/structured_clone.rs"),
+    },
+    RuntimeModule {
         name: "structural_eq",
         source: include_str!("runtime/structural_eq.rs"),
     },

@@ -223,8 +223,12 @@ declare_needs! {
     VitestMock,
     /// The `fast-check` model.
     FastCheck,
-    /// `structuredClone`.
+    /// `structuredClone` of an erased value.
     StructuredClone,
+    /// `structuredClone` of a typed value (`emitter::structured_clone`).
+    StructuredCloneTyped,
+    /// A typed `structuredClone` that can throw `DataCloneError`.
+    StructuredCloneThrows,
     /// A `typeof` the backend lowers.
     Typeof,
     /// `Array.prototype.concat` with a spreadable argument.
@@ -405,6 +409,10 @@ const REQUIRES: &[(Need, &[Need])] = &[
     (Need::Timers, &[Need::Unknown]),
     (Need::AllSettled, &[Need::Unknown]),
     (Need::StructuredClone, &[Need::Unknown]),
+    (
+        Need::StructuredCloneThrows,
+        &[Need::StructuredCloneTyped, Need::Unknown],
+    ),
     (Need::DefineProperties, &[Need::Unknown]),
     (Need::SetPrototypeOf, &[Need::Unknown]),
     // It erases to the interned constructor object.
