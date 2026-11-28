@@ -1,0 +1,5 @@
+{ value: 2, done: false } { value: 1, done: false } { value: -1, done: true }
+returned -1
+a,b { value: 2, done: true }
+x|y|z
+{ value: 7, done: false } { value: undefined, done: true }

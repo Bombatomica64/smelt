@@ -934,6 +934,12 @@ macro_rules! define_rvalue {
                 unwind: Option<ExceptionHandler>,
                 /// Innermost finally continuation active at the suspension point.
                 cleanup: Option<GeneratorCleanup>,
+                /// For one step of `yield*` (HIR `GeneratorYieldDelegated`):
+                /// the delegate the resume command is forwarded to. The yield
+                /// then evaluates to the delegate's next step, a throw from
+                /// the delegate takes `unwind`, and a delegate completing a
+                /// forwarded `return(v)` returns through `cleanup`.
+                delegate: Option<Operand>,
             },
             /// Construct a list.
             List(Vec<Operand>),

@@ -47,7 +47,16 @@ impl ModuleBuilder<'_> {
             .value
             .return_type
             .as_ref()
-            .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+            .map(|annotation| {
+                self.ts_type_to_hir(&annotation.type_annotation)
+                    .map(|annotated| {
+                        self.open_step_return_type(
+                            &method.value,
+                            &annotation.type_annotation,
+                            annotated,
+                        )
+                    })
+            })
             .transpose()?
             .or_else(|| self.checker_method_return_type(method))
             .unwrap_or_else(|| {

@@ -95,7 +95,14 @@ macro_rules! walk_rvalue_operands {
             $visit(entry);
             $visit(item);
         }
-        Self::GeneratorYield { value, .. } => $visit(value),
+        Self::GeneratorYield {
+            value, delegate, ..
+        } => {
+            if let Some(delegate) = delegate {
+                $visit(delegate);
+            }
+            $visit(value);
+        }
         Self::List(items) | Self::Set(items) | Self::Tuple(items) => {
             for item in items {
                 $visit(item);

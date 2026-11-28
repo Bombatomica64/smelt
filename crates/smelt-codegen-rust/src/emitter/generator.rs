@@ -6,11 +6,15 @@ use crate::rust::RustExpr;
 
 impl FunctionEmitter<'_> {
     /// Suspend the generator at a `yield` and resume on the command sent back.
+    ///
+    /// With `delegate` (one step of `yield*`) the command is forwarded to the
+    /// delegate instead, see [`Self::delegated_resume_text`].
     pub(super) fn generator_yield_expr(
         &self,
         value: &Operand,
         unwind: Option<&smelt_mir::ExceptionHandler>,
         cleanup: Option<&smelt_mir::GeneratorCleanup>,
+        delegate: Option<&Operand>,
     ) -> Result<RustExpr, EmitError> {
         self.binding_uses.record_early_return();
         let returned = if self.function.is_async || self.function.can_throw {
@@ -95,10 +99,85 @@ impl FunctionEmitter<'_> {
             let unknown_ty = self.type_id(Type::Unknown)?;
             self.value_at_type(value, unknown_ty)?
         };
+        if let Some(delegate) = delegate {
+            let resume = self.delegated_resume_text(delegate, &returned, &thrown)?;
+            return Ok(RustExpr::atom(format!(
+                "{{ smelt_co.yield_({yield_text}).await; let smelt_command = smelt_generator_input.borrow_mut().take().unwrap_or(SmeltGeneratorCommand::Next(None)); {resume} }}",
+                yield_text = yield_text.delimited()
+            )));
+        }
         Ok(RustExpr::atom(format!(
-            "{{ smelt_co.yield_({yield_text}).await; let smelt_command = smelt_generator_input.borrow_mut().take().unwrap_or_else(|| SmeltGeneratorCommand::Next(Default::default())); match smelt_command {{ SmeltGeneratorCommand::Next(smelt_value) => smelt_value, SmeltGeneratorCommand::Return(smelt_value) => {returned}, SmeltGeneratorCommand::Throw(smelt_error) => {thrown} }} }}",
+            "{{ smelt_co.yield_({yield_text}).await; let smelt_command = smelt_generator_input.borrow_mut().take().unwrap_or(SmeltGeneratorCommand::Next(None)); match smelt_command {{ SmeltGeneratorCommand::Next(smelt_value) => smelt_value.unwrap_or_default(), SmeltGeneratorCommand::Return(smelt_value) => {{ let smelt_value = smelt_value.unwrap_or_default(); {returned} }}, SmeltGeneratorCommand::Throw(smelt_error) => {thrown} }} }}",
             yield_text = yield_text.delimited()
         )))
+    }
+
+    /// The resume of one `yield*` step: the command `smelt_command` the
+    /// outer generator received, forwarded to `delegate` as ECMA-262's
+    /// `yield*` does, evaluating to the delegate's next step.
+    ///
+    /// * `next(v)` and `throw(e)` go to the delegate (`v` converted to its
+    ///   resume type); its step is the result, and its throw leaves through
+    ///   `thrown` (the catch or `finally` around the suspension).
+    /// * `return(v)` goes to the delegate's `return(v)` when `v` converts to
+    ///   its return type; a delegate that then completes ends the outer
+    ///   generator with its value through `returned` (the `finally` blocks
+    ///   run, as for a `return`), and one that yields instead continues.
+    ///   Otherwise the delegate is closed and the outer generator returns `v`.
+    fn delegated_resume_text(
+        &self,
+        delegate: &Operand,
+        returned: &str,
+        thrown: &str,
+    ) -> Result<String, EmitError> {
+        let Some(Type::Generator {
+            is_async: false,
+            return_ty,
+            next_ty,
+            ..
+        }) = self.mir.types.get(self.operand_ty(delegate)?).cloned()
+        else {
+            return Err(EmitError::new(
+                "a yield* step delegates to a synchronous generator",
+            ));
+        };
+        let Some(&Type::Generator {
+            next_ty: outer_next_ty,
+            return_ty: outer_return_ty,
+            ..
+        }) = self.mir.types.get(self.function.return_ty)
+        else {
+            return Err(EmitError::new("yield* emitted outside generator body"));
+        };
+        let value = RustExpr::path("smelt_value");
+        let scope = self.render_scope();
+        let sent = self.rendered_at_type(&value, outer_next_ty, next_ty, &scope)?;
+        let returned_command = self.rendered_at_type(&value, outer_return_ty, return_ty, &scope)?;
+        let completed = self.delegate_return_value(return_ty, outer_return_ty)?;
+        let delegate_text = self.operand_expr(delegate)?;
+        let forward_return = if self.converts_between(
+            &returned_command,
+            outer_return_ty,
+            return_ty,
+        )? {
+            format!(
+                "SmeltGeneratorCommand::Return(smelt_value.map(|smelt_value| {}))",
+                returned_command.delimited()
+            )
+        } else {
+            format!(
+                "{{ let _ = {}.try_resume(SmeltGeneratorCommand::Return(None)); let smelt_value = smelt_value.unwrap_or_default(); {returned} }}",
+                delegate_text.parenthesized_if_needed()
+            )
+        };
+        let caught = crate::thrown::thrown_value_expr(&RustExpr::path("smelt_error_box"));
+        Ok(format!(
+            "let smelt_returning = matches!(smelt_command, SmeltGeneratorCommand::Return(_)); let smelt_command = match smelt_command {{ SmeltGeneratorCommand::Next(smelt_value) => SmeltGeneratorCommand::Next(smelt_value.map(|smelt_value| {sent})), SmeltGeneratorCommand::Return(smelt_value) => {forward_return}, SmeltGeneratorCommand::Throw(smelt_error) => SmeltGeneratorCommand::Throw(smelt_error) }}; match {receiver}.try_resume(smelt_command) {{ Ok(SmeltGeneratorResult::Complete(smelt_value)) if smelt_returning => {{ let smelt_value = {completed}; {returned} }}, Ok(smelt_step) => smelt_step, Err(smelt_error_box) => {{ let smelt_error = {caught}; {thrown} }} }}",
+            sent = sent.delimited(),
+            receiver = delegate_text.parenthesized_if_needed(),
+            completed = completed.delimited(),
+            caught = caught.delimited(),
+        ))
     }
 
     /// Resume a generator with `next`, `return` or `throw`, calling the
@@ -122,13 +201,18 @@ impl FunctionEmitter<'_> {
             }
             _ => None,
         };
+        // `next(v)` / `return(v)` send `Some(v)`, `next()` / `return()` send
+        // `None`: a hand-written iterator sees the difference (`undefined`).
         let raw_value = value
             .map(|sent| match next_ty {
                 Some(sent_ty) => self.value_at_type(sent, sent_ty),
                 None => self.operand_expr(sent),
             })
             .transpose()?
-            .unwrap_or_else(|| RustExpr::atom("Default::default()"));
+            .map_or_else(
+                || RustExpr::atom("None"),
+                |sent| RustExpr::atom(format!("Some({})", sent.delimited())),
+            );
         let command = match kind {
             smelt_hir::GeneratorResumeKind::Next => {
                 format!(
@@ -344,6 +428,102 @@ impl FunctionEmitter<'_> {
         }
     }
 
+    /// A hand-written iterator as the carrier `dest_ty`
+    /// (`SmeltGenerator::from_protocol`). Each protocol closure is rendered at
+    /// the function type the runtime calls it at: `() => Step` for `next` and
+    /// `return`, `(sent: N) => Step`, `(value: R) => Step` and
+    /// `(error: unknown) => Step` for the ones that take an argument, all
+    /// fallible (a hand-written method may throw) and answering the carrier's
+    /// own step `IteratorResult<T, R>` (the closure's step converts through
+    /// the ordinary function adapter). `source`, when it is a reference
+    /// class's handle, gives the carrier that object's identity.
+    pub(super) fn generator_from_protocol_expr(
+        &self,
+        source: Option<&Operand>,
+        next: &Operand,
+        [next_with, close, close_with, throw_with]: [Option<&Operand>; 4],
+        dest_ty: TypeId,
+    ) -> Result<RustExpr, EmitError> {
+        let Some(Type::Generator {
+            is_async: false,
+            yield_ty,
+            return_ty,
+            next_ty,
+        }) = self.mir.types.get(dest_ty).cloned()
+        else {
+            return Err(EmitError::new(
+                "a hand-written iterator adapts to a synchronous generator",
+            ));
+        };
+        let step_ty = self.type_id(Type::GeneratorResult {
+            yield_ty,
+            return_ty,
+        })?;
+        let unknown_ty = self.type_id(Type::Unknown)?;
+        let method_ty = |param: Option<TypeId>| {
+            self.type_id(Type::Function(smelt_hir::FunctionType {
+                params: param.into_iter().collect(),
+                rest: None,
+                required_params: None,
+                mutable_params: Vec::new(),
+                return_ty: step_ty,
+                is_async: false,
+                may_throw: true,
+            }))
+        };
+        let method =
+            |operand: Option<&Operand>, param: Option<TypeId>| -> Result<String, EmitError> {
+                match operand {
+                    Some(operand) => Ok(format!(
+                        "Some({})",
+                        self.value_at_type(operand, method_ty(param)?)?.delimited()
+                    )),
+                    None => Ok("None".to_owned()),
+                }
+            };
+        let source = match source {
+            Some(source) if self.is_reference_class_type(self.operand_ty(source)?) => format!(
+                "Some(::std::rc::Rc::clone(&({}).0) as ::std::rc::Rc<dyn ::std::any::Any>)",
+                self.operand_expr(source)?.delimited()
+            ),
+            _ => "None".to_owned(),
+        };
+        let next = self.value_at_type(next, method_ty(None)?)?;
+        Ok(RustExpr::atom(format!(
+            "SmeltGenerator::from_protocol({source}, {next}, {next_with}, {close}, {close_with}, {throw_with})",
+            next = next.delimited(),
+            next_with = method(next_with, Some(next_ty))?,
+            close = method(close, None)?,
+            close_with = method(close_with, Some(return_ty))?,
+            throw_with = method(throw_with, Some(unknown_ty))?,
+        )))
+    }
+
+    /// A delegate's completion value `smelt_value` (of `return_ty`) as the
+    /// outer generator's return value (`outer_return_ty`), for a delegate
+    /// that completed after a forwarded `return(v)`; the outer return type's
+    /// default when no conversion exists (the forwarding then closed the
+    /// delegate and returned `v` itself, so this arm is not reached).
+    fn delegate_return_value(
+        &self,
+        return_ty: TypeId,
+        outer_return_ty: TypeId,
+    ) -> Result<RustExpr, EmitError> {
+        let returned = self.rendered_at_type(
+            &RustExpr::path("smelt_value"),
+            return_ty,
+            outer_return_ty,
+            &self.render_scope(),
+        )?;
+        Ok(
+            if self.converts_between(&returned, return_ty, outer_return_ty)? {
+                returned
+            } else {
+                RustExpr::atom("Default::default()")
+            },
+        )
+    }
+
     /// `yield*`: forward every step of the delegate, then evaluate to its return.
     pub(super) fn generator_delegate_expr(
         &self,
@@ -411,7 +591,7 @@ impl FunctionEmitter<'_> {
         // `SmeltGeneratorCommand::Throw` carries the error-channel box, which
         // enters the panic route as it is.
         let consume_outer_sent = format!(
-            "{{ let smelt_command = smelt_generator_input.borrow_mut().take().unwrap_or_else(|| SmeltGeneratorCommand::Next(Default::default())); match smelt_command {{ SmeltGeneratorCommand::Next(_) => {{}}, SmeltGeneratorCommand::Return(smelt_value) => {return_command}, SmeltGeneratorCommand::Throw(smelt_error) => smelt_panic_throw(smelt_error) }} }}"
+            "{{ let smelt_command = smelt_generator_input.borrow_mut().take().unwrap_or(SmeltGeneratorCommand::Next(None)); match smelt_command {{ SmeltGeneratorCommand::Next(_) => {{}}, SmeltGeneratorCommand::Return(smelt_value) => {{ let smelt_value = smelt_value.unwrap_or_default(); {return_command} }}, SmeltGeneratorCommand::Throw(smelt_error) => smelt_panic_throw(smelt_error) }} }}"
         );
         match self.mir.types.get(generator_ty) {
             Some(Type::Generator {
@@ -457,19 +637,21 @@ impl FunctionEmitter<'_> {
                     *return_ty,
                 )? {
                     format!(
-                        "SmeltGeneratorCommand::Return({returned_command})",
+                        "SmeltGeneratorCommand::Return(smelt_value.map(|smelt_value| {returned_command}))",
                         returned_command = returned_command.delimited()
                     )
                 } else {
                     let close = if *is_async {
-                        "smelt_delegate.resume(SmeltGeneratorCommand::Return(Default::default())).await"
+                        "smelt_delegate.resume(SmeltGeneratorCommand::Return(None)).await"
                     } else {
-                        "smelt_delegate.try_resume(SmeltGeneratorCommand::Return(Default::default()))"
+                        "smelt_delegate.try_resume(SmeltGeneratorCommand::Return(None))"
                     };
-                    format!("{{ let _ = {close}; {return_command} }}")
+                    format!(
+                        "{{ let _ = {close}; let smelt_value = smelt_value.unwrap_or_default(); {return_command} }}"
+                    )
                 };
                 let delegate_command = format!(
-                    "{{ let smelt_command = smelt_generator_input.borrow_mut().take().unwrap_or_else(|| SmeltGeneratorCommand::Next(Default::default())); match smelt_command {{ SmeltGeneratorCommand::Next(smelt_value) => SmeltGeneratorCommand::Next({sent}), SmeltGeneratorCommand::Return(smelt_value) => {forward_return}, SmeltGeneratorCommand::Throw(smelt_error) => SmeltGeneratorCommand::Throw(smelt_error) }} }}",
+                    "{{ let smelt_command = smelt_generator_input.borrow_mut().take().unwrap_or(SmeltGeneratorCommand::Next(None)); match smelt_command {{ SmeltGeneratorCommand::Next(smelt_value) => SmeltGeneratorCommand::Next(smelt_value.map(|smelt_value| {sent})), SmeltGeneratorCommand::Return(smelt_value) => {forward_return}, SmeltGeneratorCommand::Throw(smelt_error) => SmeltGeneratorCommand::Throw(smelt_error) }} }}",
                     sent = sent.delimited(),
                 );
                 let delegation = delegate_loop(
@@ -480,7 +662,7 @@ impl FunctionEmitter<'_> {
                     &completed,
                 );
                 Ok(RustExpr::atom(format!(
-                    "{{ let smelt_delegate = {operand}; let mut smelt_delegate_command = SmeltGeneratorCommand::Next(Default::default()); {delegation} }}",
+                    "{{ let smelt_delegate = {operand}; let mut smelt_delegate_command = SmeltGeneratorCommand::Next(None); {delegation} }}",
                     operand = operand.delimited()
                 )))
             }
@@ -580,7 +762,7 @@ impl FunctionEmitter<'_> {
                                 &self.render_scope(),
                             )?;
                             let delegate_command = format!(
-                                "{{ let smelt_command = smelt_generator_input.borrow_mut().take().unwrap_or_else(|| SmeltGeneratorCommand::Next(Default::default())); match smelt_command {{ SmeltGeneratorCommand::Next(smelt_value) => SmeltGeneratorCommand::Next({sent}), SmeltGeneratorCommand::Return(smelt_value) => SmeltGeneratorCommand::Return({returned_command}), SmeltGeneratorCommand::Throw(smelt_error) => SmeltGeneratorCommand::Throw(smelt_error) }} }}",
+                                "{{ let smelt_command = smelt_generator_input.borrow_mut().take().unwrap_or(SmeltGeneratorCommand::Next(None)); match smelt_command {{ SmeltGeneratorCommand::Next(smelt_value) => SmeltGeneratorCommand::Next(smelt_value.map(|smelt_value| {sent})), SmeltGeneratorCommand::Return(smelt_value) => SmeltGeneratorCommand::Return(smelt_value.map(|smelt_value| {returned_command})), SmeltGeneratorCommand::Throw(smelt_error) => SmeltGeneratorCommand::Throw(smelt_error) }} }}",
                                 sent = sent.delimited(),
                                 returned_command = returned_command.delimited()
                             );
@@ -592,7 +774,7 @@ impl FunctionEmitter<'_> {
                                 &completed,
                             );
                             format!(
-                                "{{ let mut smelt_delegate_command = SmeltGeneratorCommand::Next(Default::default()); {delegation} }}"
+                                "{{ let mut smelt_delegate_command = SmeltGeneratorCommand::Next(None); {delegation} }}"
                             )
                         }
                         Some(Type::List(item_ty) | Type::Set(item_ty)) => {

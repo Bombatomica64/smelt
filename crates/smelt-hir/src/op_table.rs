@@ -232,6 +232,36 @@ macro_rules! op_group_transcribed {
                 fallible(true)
                 call("@generator_take".to_owned())
                 => (format!("generator_take {generator} {count}"));
+            /// A hand-written iterator object as the generator carrier
+            /// (`SmeltGenerator::from_protocol`): each resume command calls the
+            /// iterator's own protocol method, so `next(v)`, `return(v)` and
+            /// `throw(e)` reach it as JavaScript's consumers and `yield*` send
+            /// them. Every method operand is a closure answering the step
+            /// `IteratorResult<T, R>`; the op's type is the carrier
+            /// `Iterator<T, R, N>`.
+            GeneratorFromProtocol {
+                /// The adapted object (`===` sees the carrier as it), when the
+                /// iterator is one; an object literal's closures have none.
+                source: opt,
+                /// `() => it.next()`.
+                next: one,
+                /// `(sent: N) => it.next(sent)`, when `next` declares a parameter.
+                next_with: opt,
+                /// `() => it.return()`, when the iterator has `return`.
+                close: opt,
+                /// `(value: R) => it.return(value)`, when `return` declares a parameter.
+                close_with: opt,
+                /// `(error: unknown) => it.throw(error)`, when the iterator has `throw`.
+                throw_with: opt,
+            }
+                => (format!(
+                    "generator_from_protocol {next} with={} return={} return_with={} throw={} source={}",
+                    next_with.unwrap_or_default(),
+                    close.unwrap_or_default(),
+                    close_with.unwrap_or_default(),
+                    throw_with.unwrap_or_default(),
+                    source.unwrap_or_default()
+                ));
             /// Test whether a generator resume result represents completion.
             GeneratorDone {
                 /// Resume result to inspect.

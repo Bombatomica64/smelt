@@ -75,7 +75,8 @@ impl ModuleBuilder<'_> {
                 next_ty,
             }));
         }
-        self.ts_type_to_hir(annotation)
+        let annotated = self.ts_type_to_hir(annotation)?;
+        Ok(self.open_step_return_type(function, annotation, annotated))
     }
 
     /// Whether any class, interface or type alias of the crate is named

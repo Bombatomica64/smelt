@@ -188,7 +188,10 @@ impl ModuleBuilder<'_> {
         let mut yielded = Vec::new();
         for expr in &body.exprs {
             let item_ty = match &expr.kind {
-                ExprKind::GeneratorYield { value } => Some(Self::expr_ty(body, *value)),
+                ExprKind::GeneratorYield { value }
+                | ExprKind::GeneratorYieldDelegated { value, .. } => {
+                    Some(Self::expr_ty(body, *value))
+                }
                 ExprKind::GeneratorDelegate { generator } => {
                     match self.ctx.krate.types.get(Self::expr_ty(body, *generator)) {
                         Some(

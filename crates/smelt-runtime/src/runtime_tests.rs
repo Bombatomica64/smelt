@@ -456,9 +456,9 @@ mod generator_family {
             step += 1;
             if step == 1 { Ok(SmeltGeneratorResult::Yielded(10.0)) } else { Ok(SmeltGeneratorResult::Complete(20.0)) }
         });
-        assert!(matches!(generator.resume(SmeltGeneratorCommand::Next(0.0)), SmeltGeneratorResult::Yielded(value) if value == 10.0), "first step yields");
-        assert!(matches!(generator.resume(SmeltGeneratorCommand::Next(0.0)), SmeltGeneratorResult::Complete(value) if value == 20.0), "second step returns");
-        assert!(matches!(generator.resume(SmeltGeneratorCommand::Next(0.0)), SmeltGeneratorResult::Complete(_)), "a finished generator stays finished");
+        assert!(matches!(generator.resume(SmeltGeneratorCommand::Next(None)), SmeltGeneratorResult::Yielded(value) if value == 10.0), "first step yields");
+        assert!(matches!(generator.resume(SmeltGeneratorCommand::Next(None)), SmeltGeneratorResult::Complete(value) if value == 20.0), "second step returns");
+        assert!(matches!(generator.resume(SmeltGeneratorCommand::Next(None)), SmeltGeneratorResult::Complete(_)), "a finished generator stays finished");
     }
 
     /// A throw from the body is `try_resume`'s `Err`, and the generator is
@@ -470,9 +470,9 @@ mod generator_family {
             step += 1;
             if step == 1 { Ok(SmeltGeneratorResult::Yielded(1.0)) } else { Err(smelt_throw(SmeltUnknown::String("boom".into()))) }
         });
-        assert!(matches!(generator.try_resume(SmeltGeneratorCommand::Next(0.0)), Ok(SmeltGeneratorResult::Yielded(value)) if value.to_bits() == 1.0_f64.to_bits()), "first step yields");
-        assert!(generator.try_resume(SmeltGeneratorCommand::Next(0.0)).is_err(), "the throw is returned");
-        assert!(matches!(generator.try_resume(SmeltGeneratorCommand::Next(0.0)), Ok(SmeltGeneratorResult::Complete(_))), "a generator that threw is done");
+        assert!(matches!(generator.try_resume(SmeltGeneratorCommand::Next(None)), Ok(SmeltGeneratorResult::Yielded(value)) if value.to_bits() == 1.0_f64.to_bits()), "first step yields");
+        assert!(generator.try_resume(SmeltGeneratorCommand::Next(None)).is_err(), "the throw is returned");
+        assert!(matches!(generator.try_resume(SmeltGeneratorCommand::Next(None)), Ok(SmeltGeneratorResult::Complete(_))), "a generator that threw is done");
     }
 }
 

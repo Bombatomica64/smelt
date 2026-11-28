@@ -526,6 +526,7 @@ impl RuntimeDemand {
             | Rvalue::GeneratorValue { .. }
             | Rvalue::GeneratorYielded { .. }
             | Rvalue::GeneratorCompleted { .. }
+            | Rvalue::GeneratorFromProtocol { .. }
             | Rvalue::GeneratorDelegate { .. }
             | Rvalue::ClosureCallSpread { .. }
             | Rvalue::ClosureCallRest { .. }
