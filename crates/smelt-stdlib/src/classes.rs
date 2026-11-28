@@ -355,7 +355,10 @@ impl StdlibClass {
         self.erases_through_adapter()
             || matches!(
                 self,
-                Self::MatchGroups | Self::PyException | Self::PyExceptionArgs | Self::PyExceptionValue
+                Self::MatchGroups
+                    | Self::PyException
+                    | Self::PyExceptionArgs
+                    | Self::PyExceptionValue
             )
     }
 
@@ -381,7 +384,9 @@ impl StdlibClass {
     pub const fn runtime(self) -> ClassRuntime {
         match self {
             Self::Headers => ClassRuntime::Headers,
-            Self::PyException | Self::PyExceptionArgs | Self::PyExceptionValue => ClassRuntime::PyException,
+            Self::PyException | Self::PyExceptionArgs | Self::PyExceptionValue => {
+                ClassRuntime::PyException
+            }
             Self::Response => ClassRuntime::Response,
             Self::Request => ClassRuntime::Request,
             Self::EventEmitter => ClassRuntime::EventEmitter,

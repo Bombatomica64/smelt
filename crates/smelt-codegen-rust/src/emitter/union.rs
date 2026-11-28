@@ -223,7 +223,9 @@ impl FunctionEmitter<'_> {
             {
                 break found;
             }
-            declaring = current.base.and_then(|base| crate::classes::find_class(self.mir, base));
+            declaring = current
+                .base
+                .and_then(|base| crate::classes::find_class(self.mir, base));
         };
         let substitutions = class
             .type_params

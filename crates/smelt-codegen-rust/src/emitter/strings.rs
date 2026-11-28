@@ -513,8 +513,12 @@ impl FunctionEmitter<'_> {
             smelt_hir::StringPredicateOp::IsAlpha => "is_alphabetic",
             smelt_hir::StringPredicateOp::IsAlnum => "is_alphanumeric",
             smelt_hir::StringPredicateOp::IsSpace => "is_whitespace",
-            smelt_hir::StringPredicateOp::IsUpper => return Ok(cased("is_uppercase", "is_lowercase")),
-            smelt_hir::StringPredicateOp::IsLower => return Ok(cased("is_lowercase", "is_uppercase")),
+            smelt_hir::StringPredicateOp::IsUpper => {
+                return Ok(cased("is_uppercase", "is_lowercase"));
+            }
+            smelt_hir::StringPredicateOp::IsLower => {
+                return Ok(cased("is_lowercase", "is_uppercase"));
+            }
         };
         Ok(RustExpr::loose(format!(
             // A closure, not a `char::` path: `char::is_ascii_digit` takes `&self`

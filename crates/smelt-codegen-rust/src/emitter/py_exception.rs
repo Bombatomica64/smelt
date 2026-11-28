@@ -109,7 +109,10 @@ impl FunctionEmitter<'_> {
     pub(super) fn is_py_exception_args_type(&self, ty: TypeId) -> bool {
         matches!(
             self.py_stdlib_class_of(ty),
-            Some(smelt_stdlib::StdlibClass::PyExceptionArgs | smelt_stdlib::StdlibClass::PyExceptionValue)
+            Some(
+                smelt_stdlib::StdlibClass::PyExceptionArgs
+                    | smelt_stdlib::StdlibClass::PyExceptionValue
+            )
         )
     }
 

@@ -262,7 +262,8 @@ impl LoweringCtx<'_> {
                 // read's does (`lower_expr`'s `Field` arm): a place write
                 // gave the `try` no throwing call, so its handler was dropped.
                 if self.current_exception_handler().is_some()
-                    && let smelt_hir::ExprKind::Field { receiver, field } = self.hir_expr(*target)?.kind.clone()
+                    && let smelt_hir::ExprKind::Field { receiver, field } =
+                        self.hir_expr(*target)?.kind.clone()
                     && let Some((setter, returned)) = self.setter_function_of_field(receiver, field)
                 {
                     let receiver_operand = self.lower_expr(receiver)?;

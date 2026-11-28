@@ -514,9 +514,16 @@ impl<'mir> FunctionEmitter<'mir> {
 /// `try`, which run when the consumer throws into or returns from the
 /// generator and which the emitter inlines at the `yield` itself.
 pub(super) fn flow_successors(block: &smelt_mir::BasicBlock) -> Vec<smelt_mir::BlockId> {
-    let mut successors = block.terminator.as_ref().map(terminator_successors).unwrap_or_default();
+    let mut successors = block
+        .terminator
+        .as_ref()
+        .map(terminator_successors)
+        .unwrap_or_default();
     for statement in &block.statements {
-        if let Some(Rvalue::GeneratorYield { unwind, cleanup, .. }) = statement.value() {
+        if let Some(Rvalue::GeneratorYield {
+            unwind, cleanup, ..
+        }) = statement.value()
+        {
             successors.extend(unwind.iter().map(|handler| handler.catch_block));
             successors.extend(cleanup.iter().map(|finally| finally.block));
         }

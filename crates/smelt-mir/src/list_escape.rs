@@ -462,7 +462,10 @@ pub(crate) fn reads_list_elements_only(value: &Rvalue, position: usize) -> bool 
     // its source there.
     if matches!(
         value,
-        Rvalue::Binary { op: smelt_hir::BinOp::JsStrictEq | smelt_hir::BinOp::JsStrictNotEq, .. }
+        Rvalue::Binary {
+            op: smelt_hir::BinOp::JsStrictEq | smelt_hir::BinOp::JsStrictNotEq,
+            ..
+        }
     ) {
         return false;
     }
