@@ -364,6 +364,8 @@ fn need_of_flag(name: &str) -> Option<Need> {
         "fast_check" => Need::FastCheck,
         "structured_clone" => Need::StructuredClone,
         "structured_clone_typed" => Need::StructuredCloneTyped,
+        "promise_any" => Need::PromiseAny,
+        "number_locale" => Need::NumberLocale,
         "structured_clone_throws" => Need::StructuredCloneThrows,
         "typeof" => Need::Typeof,
         "concat_spread" => Need::ConcatSpread,

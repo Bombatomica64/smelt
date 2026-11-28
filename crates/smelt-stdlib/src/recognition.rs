@@ -162,6 +162,7 @@ pub const TYPESCRIPT_CALLS: &[CallRecognition] = &[
     static_call("Promise", "reject", RuleId::TsPromiseStatic),
     static_call("Promise", "all", RuleId::TsPromiseStatic),
     static_call("Promise", "race", RuleId::TsPromiseStatic),
+    static_call("Promise", "any", RuleId::TsPromiseStatic),
     static_call("Promise", "allSettled", RuleId::TsPromiseStatic),
     static_call("Symbol", "for", RuleId::TsSymbol),
     static_call("Symbol", "keyFor", RuleId::TsSymbol),

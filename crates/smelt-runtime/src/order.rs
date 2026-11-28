@@ -270,6 +270,8 @@ pub const ORDER: &[Entry] = &[
     Entry::Item("smelt_fetch_server_request"),
     Entry::Item("SmeltSqliteDatabase"),
     Entry::Item("impl_IntoSmeltUnknown_for_SmeltSqliteDatabase"),
+    Entry::Item("smelt_promise_any"),
+    Entry::Item("smelt_number_to_locale_string"),
     Entry::Item("SmeltStructuredClone"),
     Entry::Item("smelt_data_clone_error"),
     Entry::Item("impl_SmeltStructuredClone_for_SmeltUnknown"),

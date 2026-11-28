@@ -194,7 +194,34 @@ impl FunctionEmitter<'_> {
             // A fixed-arity tuple (e.g. a `[key, value]` narrowing) has no Rust
             // `.len()` method; its JavaScript `.length` is the compile-time
             // arity, so emit that constant rather than a method call.
-            Some(Type::Tuple(items)) => format!("{}", items.len()),
+            // Optional trailing elements (`[r: number, a?: number]`) make the
+            // length run up to the last one present. An element explicitly
+            // set to `undefined` reads as absent here, where JavaScript
+            // counts it.
+            Some(Type::Tuple(items)) => {
+                let optional_tail = items
+                    .iter()
+                    .rev()
+                    .take_while(|item| {
+                        matches!(self.mir.types.get(**item), Some(Type::Optional(..)))
+                    })
+                    .count();
+                if optional_tail == 0 {
+                    format!("{}", items.len())
+                } else {
+                    let fixed = items.len() - optional_tail;
+                    let checks: String = (fixed..items.len())
+                        .rev()
+                        .map(|index| {
+                            format!("if smelt_tuple.{index}.is_some() {{ {} }} else ", index + 1)
+                        })
+                        .collect();
+                    format!(
+                        "{{ let smelt_tuple = &{receiver_text}; {checks}{{ {fixed} }} }}",
+                        receiver_text = receiver_text.tight()
+                    )
+                }
+            }
             _ => format!(
                 "{receiver_text}.len()",
                 receiver_text = receiver_text.tight()

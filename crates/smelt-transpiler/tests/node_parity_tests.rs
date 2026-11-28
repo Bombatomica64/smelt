@@ -2811,3 +2811,35 @@ fn static_accessors() -> TestResult {
 fn never_exhaustiveness() -> TestResult {
     verify_node_parity("never_exhaustiveness")
 }
+
+/// A tuple literal may leave off an optional trailing element
+/// (`[r: number, g: number, b: number, a?: number]`), which is absent, and
+/// the tuple's `length` counts up to its last present element. The literal
+/// was refused.
+#[test]
+fn optional_tuple_elements() -> TestResult {
+    verify_node_parity("optional_tuple_elements")
+}
+
+/// `Promise.any` fulfils with the first entry that fulfils and rejects with
+/// an `AggregateError` holding every reason when all reject. It panicked at
+/// run time ("value is not a function").
+#[test]
+fn promise_any() -> TestResult {
+    verify_node_parity("promise_any")
+}
+
+/// `Number.prototype.toLocaleString(locale?)` groups digits and rounds to
+/// three fraction digits in the separators of common locales. It was refused.
+#[test]
+fn number_to_locale_string() -> TestResult {
+    verify_node_parity("number_to_locale_string")
+}
+
+/// The keys, values and entries of a `Map<K, V>` held by a generic class are
+/// read at `K`/`V` (`[...this.#map.keys()]`). They went through the erased-key
+/// marker filter and did not compile.
+#[test]
+fn generic_map_keys() -> TestResult {
+    verify_node_parity("generic_map_keys")
+}

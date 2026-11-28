@@ -896,6 +896,7 @@ impl AsyncOp {
         match self {
             Self::All => "async_all",
             Self::Race => "async_race",
+            Self::Any => "async_any",
             Self::AllSettled => "async_all_settled",
             Self::Sleep => "async_sleep",
             Self::ExitDrain => "async_exit_drain",

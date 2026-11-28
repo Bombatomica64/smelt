@@ -83,6 +83,10 @@ declare_needs! {
     Timers,
     /// The `{ status, value | reason }` record of `Promise.allSettled`.
     AllSettled,
+    /// `Number.prototype.toLocaleString`.
+    NumberLocale,
+    /// `Promise.any` and its `AggregateError`.
+    PromiseAny,
     /// `Date.now()` override state.
     DateNow,
     /// The `Function.prototype.name` table of typed function values
@@ -410,6 +414,7 @@ const REQUIRES: &[(Need, &[Need])] = &[
     ),
     (Need::Timers, &[Need::Unknown]),
     (Need::AllSettled, &[Need::Unknown]),
+    (Need::PromiseAny, &[Need::Unknown]),
     (Need::StructuredClone, &[Need::Unknown]),
     (
         Need::StructuredCloneThrows,

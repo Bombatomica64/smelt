@@ -16,7 +16,16 @@ impl FunctionEmitter<'_> {
         match op {
             smelt_hir::AsyncOp::All => self.promise_all_expr(args),
             smelt_hir::AsyncOp::AllSettled => self.promise_all_settled_expr(args, dest_ty),
-            smelt_hir::AsyncOp::Race => self.promise_race_expr(args, dest_ty),
+            smelt_hir::AsyncOp::Race => self.promise_race_expr(
+                args,
+                dest_ty,
+                smelt_stdlib::runtime_symbols::timers::PROMISE_RACE,
+            ),
+            smelt_hir::AsyncOp::Any => self.promise_race_expr(
+                args,
+                dest_ty,
+                smelt_stdlib::runtime_symbols::timers::PROMISE_ANY,
+            ),
             smelt_hir::AsyncOp::ExitDrain => Ok(RustExpr::atom(format!(
                 "SmeltFuture::from_future(Box::pin(async move {{ {exit_drain}().await; Ok::<_, {ERROR_BOX}>(()) }}))",
                 exit_drain = smelt_stdlib::runtime_symbols::timers::RUN_UNTIL_EXIT,
@@ -709,7 +718,15 @@ impl FunctionEmitter<'_> {
     }
 
     /// `Promise.race`.
-    fn promise_race_expr(&self, args: &[Operand], dest_ty: TypeId) -> Result<RustExpr, EmitError> {
+    /// `Promise.race` and `Promise.any` (`combinator`, the runtime helper):
+    /// both settle at the combinator's own item type, so each entry is
+    /// converted as it settles.
+    fn promise_race_expr(
+        &self,
+        args: &[Operand],
+        dest_ty: TypeId,
+        combinator: &str,
+    ) -> Result<RustExpr, EmitError> {
         // `Promise.race([a, b])` settles with whichever racer wins, so its
         // result is `Promise<A | B>`: every racer settles AT the race's own
         // item type. A racer of another item type (`Promise<void>` against
@@ -773,8 +790,7 @@ impl FunctionEmitter<'_> {
             .collect::<Vec<_>>()
             .join(", ");
         Ok(RustExpr::atom(format!(
-            "{{ {hoisted}{promise_race}(::std::vec![{racers}]) }}",
-            promise_race = smelt_stdlib::runtime_symbols::timers::PROMISE_RACE,
+            "{{ {hoisted}{combinator}(::std::vec![{racers}]) }}",
         )))
     }
 

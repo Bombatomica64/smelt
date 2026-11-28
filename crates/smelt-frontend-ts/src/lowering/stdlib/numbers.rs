@@ -496,6 +496,9 @@ impl ModuleBuilder<'_> {
         let Expression::StaticMemberExpression(member) = &call.callee else {
             return Ok(None);
         };
+        if member.property.name == "toLocaleString" {
+            return self.number_to_locale_string_call(call, member, body);
+        }
         let Some(method) = NumericFormatMethod::from_js_name(&member.property.name) else {
             return Ok(None);
         };
@@ -532,6 +535,53 @@ impl ModuleBuilder<'_> {
         Ok(Some(
             self.numeric_format_expr(method, operand, digits, span, body),
         ))
+    }
+
+    /// Lower `x.toLocaleString(locale?)` on a numeric receiver to
+    /// [`ExprKind::NumberToLocaleString`] (the separators of the common
+    /// locales, `smelt_number_to_locale_string`). An options argument is
+    /// refused: its digit, currency and unit styles are not modelled.
+    fn number_to_locale_string_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        member: &oxc::ast::ast::StaticMemberExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let operand = self.expression(&member.object, body)?;
+        if !matches!(
+            self.ctx.krate.types.get(Self::expr_ty(body, operand)),
+            Some(Type::Int | Type::Float)
+        ) {
+            return Ok(None);
+        }
+        if call.arguments.len() > 1 {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "number.toLocaleString options are not modelled",
+            ));
+        }
+        let locale = match call.arguments.first() {
+            Some(argument) => {
+                let locale = self.argument(argument, body)?;
+                if !matches!(
+                    self.ctx.krate.types.get(Self::expr_ty(body, locale)),
+                    Some(Type::String)
+                ) {
+                    return Err(SmeltError::unsupported(
+                        self.span(argument.span().start, argument.span().end),
+                        "number.toLocaleString takes one locale string",
+                    ));
+                }
+                Some(locale)
+            }
+            None => None,
+        };
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::NumberToLocaleString { operand, locale },
+            ty: string_ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
     }
 
     /// Push a [`ExprKind::NumericFormat`] over a numeric `operand`.
