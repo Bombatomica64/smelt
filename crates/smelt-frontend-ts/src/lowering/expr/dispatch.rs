@@ -55,7 +55,7 @@ impl ModuleBuilder<'_> {
         let lowered = self.int32_read_as_number(lowered, body);
         // A hand-written iterator in an `Iterator<T>` slot, or an iterable in
         // an `Iterable<T>` one, is converted as the protocol converts it.
-        let lowered = self.iterator_value_at_slot(lowered, type_hint, body)?;
+        let lowered = self.protocol_value_at_slot(lowered, type_hint, body)?;
         Ok(self.in_own_language_view(lowered, body))
     }
 

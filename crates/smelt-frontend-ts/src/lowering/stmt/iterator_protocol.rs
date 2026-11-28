@@ -293,6 +293,68 @@ impl ModuleBuilder<'_> {
         .then_some(step)
     }
 
+    /// The type of an `Iterable<T>` with element type `item`: the thunk
+    /// `() => Iterator<T>`, whose iterator returns `undefined` and takes
+    /// nothing on resume (the lib's open `TReturn`/`TNext`).
+    pub(in crate::lowering) fn iterable_thunk_type(&mut self, item: TypeId) -> TypeId {
+        let iterator = self.collection_iterator_type(item);
+        self.ctx.krate.types.intern(Type::Function(FunctionType {
+            params: Vec::new(),
+            rest: None,
+            required_params: Some(0),
+            mutable_params: Vec::new(),
+            return_ty: iterator,
+            is_async: false,
+            may_throw: false,
+        }))
+    }
+
+    /// The iterator type an iterable thunk of type `ty` answers, when `ty` is
+    /// one ([`Self::iterable_thunk_type`] of some element type).
+    ///
+    /// A function of no parameters answering a synchronous generator that
+    /// returns and takes `undefined` is only ever an `Iterable<T>`: TypeScript
+    /// rejects iterating any other function value, or passing one where an
+    /// iterable is expected, so the representations may share.
+    pub(in crate::lowering) fn iterable_thunk_iterator(&self, ty: TypeId) -> Option<TypeId> {
+        let Some(Type::Function(function)) = self.ctx.krate.types.get(ty) else {
+            return None;
+        };
+        if !function.params.is_empty() || function.is_async {
+            return None;
+        }
+        let Some(Type::Generator {
+            is_async: false,
+            return_ty,
+            next_ty,
+            ..
+        }) = self.ctx.krate.types.get(function.return_ty)
+        else {
+            return None;
+        };
+        let undefined = |of: TypeId| matches!(self.ctx.krate.types.get(of), Some(Type::None));
+        (undefined(*return_ty) && undefined(*next_ty)).then_some(function.return_ty)
+    }
+
+    /// The iterator an iterable thunk `value` answers: the thunk called
+    /// (`[Symbol.iterator]()`). `None` when `value` is no iterable thunk.
+    pub(in crate::lowering) fn iterable_thunk_call(
+        &self,
+        value: ExprId,
+        span: Span,
+        body: &mut Body,
+    ) -> Option<ExprId> {
+        let iterator_ty = self.iterable_thunk_iterator(Self::expr_ty(body, value))?;
+        Some(body.push_expr(Expr {
+            kind: ExprKind::ClosureCall {
+                callee: value,
+                args: Vec::new(),
+            },
+            ty: iterator_ty,
+            span,
+        }))
+    }
+
     /// The generator type a hand-written iterator with step type `step` is
     /// driven as when no slot states one: its own `T` and `R`, and a resume
     /// channel of `undefined` (the adapter calls `next()` with no argument,
@@ -952,11 +1014,6 @@ impl ModuleBuilder<'_> {
             return Ok(value);
         }
         let span = Self::body_expr_span(body, value);
-        // An `Iterable<T>` slot takes a thunk over the value (module
-        // `iterable_values`).
-        if self.iterable_thunk_iterator(hint).is_some() {
-            return Ok(self.iterable_at_slot(value, hint, body)?.unwrap_or(value));
-        }
         match self.ctx.krate.types.get(hint).cloned() {
             Some(Type::Generator {
                 is_async: false,
