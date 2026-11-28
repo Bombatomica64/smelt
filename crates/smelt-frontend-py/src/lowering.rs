@@ -158,11 +158,14 @@ pub(crate) struct ModuleBuilder<'ctx> {
     super_called_methods: HashMap<String, HashSet<String>>,
     /// Each class of this module with the names of its bases, in source order.
     module_class_bases: Vec<(String, Vec<String>)>,
+    /// The classes of this module in a multiple-inheritance hierarchy
+    /// (`collect_multiple_inheritance_classes`).
+    multiple_inheritance_classes: HashSet<String>,
     /// The names the module body binds exactly once (`single_binding_names`).
     module_single_binding: HashSet<String>,
     /// The base of each class of this module an `isinstance` compared before
     /// the class was lowered (`record_unlowered_ancestry`).
-    unlowered_class_bases: HashMap<Symbol, Symbol>,
+    unlowered_class_bases: HashMap<Symbol, Vec<Symbol>>,
     /// Module-level type aliases (`Result: TypeAlias = Ok | Err`) by source name.
     type_aliases: HashMap<String, TypeAliasDef>,
     /// Names declared by `TypeVar`/`ParamSpec`/`TypeVarTuple`, in source order.
@@ -477,6 +480,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             subclassed_names: HashSet::new(),
             super_called_methods: HashMap::new(),
             module_class_bases: Vec::new(),
+            multiple_inheritance_classes: HashSet::new(),
             module_single_binding: HashSet::new(),
             unlowered_class_bases: HashMap::new(),
             type_aliases: HashMap::new(),
@@ -560,6 +564,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         self.module_single_binding = Self::single_binding_names(&[], &module.body);
         self.collect_exception_classes(module);
         self.collect_class_attribute_stores(module);
+        self.collect_multiple_inheritance_classes();
         self.collect_super_called_methods(&module.body, None);
 
         // Pass 1 — collect top-level function/class declarations so later
@@ -747,6 +752,8 @@ include!("lowering/class_variables.rs");
 include!("lowering/type_name.rs");
 // Class initializer synthesis helpers.
 include!("lowering/class_init.rs");
+// Multiple inheritance: MRO lookups, `__init__` as a method.
+include!("lowering/multiple_inheritance.rs");
 // Function signature and pytest parametrization helpers.
 include!("lowering/function.rs");
 // Function and method bodies lowered after every module-level declaration.

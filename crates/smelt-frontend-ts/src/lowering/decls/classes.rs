@@ -1264,6 +1264,7 @@ impl ModuleBuilder<'_> {
                     abstract_methods,
                     implements,
                     protocols: Vec::new(),
+                    extra_bases: Vec::new(),
                     statics_of: None,
                 }));
                 if let Some(evaluation) = &evaluation {

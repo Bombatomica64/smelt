@@ -534,6 +534,13 @@ impl ModuleBuilder<'_> {
             ));
         };
         let class_name = self.ctx.krate.symbols.get(class_sym).unwrap_or_default().to_owned();
+        // Inside a multiple-inheritance hierarchy `__init__` is a method, and
+        // `super().__init__(..)` an ordinary `super()` call on `self`.
+        if self.in_multiple_inheritance_hierarchy(&class_name) {
+            let call_expr = self.super_method_call_expression(call, "__init__", body)?;
+            body.push_stmt_to_block(block, HirStmt::Expr(call_expr));
+            return Ok(true);
+        }
         if self.super_init_reaches_base_exception(&class_name) {
             self.exception_root_super_init(call, (self_local, class_ty), body, block)?;
             return Ok(true);
@@ -678,30 +685,20 @@ impl ModuleBuilder<'_> {
     /// the nearest declaration, mirroring how the layout replaces the inherited
     /// slot.
     fn inherited_base_fields(&self, base_name: &str) -> Vec<Field> {
-        let mut chain: Vec<Vec<Field>> = Vec::new();
-        let mut visited: Vec<String> = Vec::new();
-        let mut cursor = Some(base_name.to_owned());
-        while let Some(name) = cursor {
-            if visited.contains(&name) {
-                break;
+        let base_sym = self.ctx.krate.items.iter().find_map(|item| match item {
+            Item::Class(class) if self.ctx.krate.symbols.get(class.name) == Some(base_name) => {
+                Some(class.name)
             }
-            visited.push(name.clone());
-            let Some(class) = self.ctx.krate.items.iter().find_map(|item| match item {
-                Item::Class(class)
-                    if self.ctx.krate.symbols.get(class.name) == Some(name.as_str()) =>
-                {
-                    Some(class)
-                }
-                _ => None,
-            }) else {
-                break;
-            };
-            chain.push(class.fields.clone());
-            cursor = class
-                .base
-                .and_then(|base| self.ctx.krate.symbols.get(base))
-                .map(ToOwned::to_owned);
-        }
+            _ => None,
+        });
+        // The base's MRO, nearest first (its base chain under single
+        // inheritance).
+        let chain: Vec<Vec<Field>> = base_sym
+            .map(|base| self.class_mro(base))
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|class| self.class_item_named(class).map(|found| found.fields.clone()))
+            .collect();
         // `chain` runs derived-to-base; the layout is base-first.
         let mut fields: Vec<Field> = Vec::new();
         for level in chain.into_iter().rev() {

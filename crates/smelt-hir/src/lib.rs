@@ -57,6 +57,8 @@ pub mod op_field_types;
 pub mod op_table;
 
 pub mod language_view;
+/// C3 method resolution order over class bases.
+pub mod mro;
 /// Symbol interning and original-name tracking.
 mod symbol;
 /// HIR type system and type interning.

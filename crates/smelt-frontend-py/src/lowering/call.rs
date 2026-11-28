@@ -13,7 +13,7 @@ impl ModuleBuilder<'_> {
         // enclosing block is known (`super_init_statement`). Ordinary methods
         // target reserved immediate-base aliases on the flattened class.
         if let Some(method) = Self::super_receiver_method(call) {
-            if method != "__init__" {
+            if method != "__init__" || self.enclosing_class_has_method_init(body) {
                 return self.super_method_call_expression(call, method, body);
             }
             return Err(SmeltError::unsupported(
@@ -227,27 +227,26 @@ impl ModuleBuilder<'_> {
                 "super() method calls require a class receiver",
             ));
         };
-        let Some(base_sym) = self.class_base_symbol(class_sym) else {
-            return Err(SmeltError::unsupported(
-                span,
-                "super() method calls require the enclosing class to declare a base class",
-            ));
-        };
-        let Some(base_name) = self.ctx.krate.symbols.get(base_sym).map(ToOwned::to_owned) else {
-            return Err(SmeltError::unsupported(span, "super() base class is not resolvable"));
-        };
-        let Some(method_id) = self.class_method_item_by_name(&base_name, method) else {
-            return Err(SmeltError::unsupported(
-                span,
-                format!("base class `{base_name}` has no method `{method}`"),
-            ));
-        };
-        let return_ty = match self.item_ref(method_id) {
-            Item::Function(function) => function.return_ty,
+        // The call's type is its target's: the definition after this class in
+        // its own MRO, else in the MRO of a class deriving from it (a mixin's
+        // `super()` reaches a sibling base only in a subclass). `__init__`
+        // answers `None` (`object.__init__` when nothing follows).
+        let class_name = self.ctx.krate.symbols.get(class_sym).unwrap_or_default().to_owned();
+        let target = self.method_after_in_mro(class_sym, class_sym, method).or_else(|| {
+            self.ctx.krate.items.iter().find_map(|item| match item {
+                Item::Class(candidate) if candidate.name != class_sym => {
+                    self.method_after_in_mro(candidate.name, class_sym, method)
+                }
+                _ => None,
+            })
+        });
+        let return_ty = match target.map(|target| self.item_ref(target)) {
+            Some(Item::Function(function)) => function.return_ty,
+            _ if method == "__init__" => self.intern_type(Type::None),
             _ => {
                 return Err(SmeltError::unsupported(
                     span,
-                    "super() method target is not callable",
+                    format!("no class after `{class_name}` in its method resolution order has a method `{method}`"),
                 ));
             }
         };
@@ -277,6 +276,23 @@ impl ModuleBuilder<'_> {
             ty: return_ty,
             span,
         }))
+    }
+
+    /// Whether the method being lowered belongs to a class whose `__init__`
+    /// is a method (a multiple-inheritance hierarchy).
+    fn enclosing_class_has_method_init(&self, body: &Body) -> bool {
+        let Some(&self_local) = self.scope.locals.get("self") else {
+            return false;
+        };
+        match self.ctx.krate.types.get(Self::local_ty(body, self_local)) {
+            Some(Type::Class { name, .. }) => self
+                .ctx
+                .krate
+                .symbols
+                .get(*name)
+                .is_some_and(|class| self.in_multiple_inheritance_hierarchy(class)),
+            _ => false,
+        }
     }
 
     /// Try stdlib module / interop call handlers (file IO, datetime, urlparse,

@@ -18,7 +18,7 @@
 //! (`&mut self`) written side by side, so the two cannot list different
 //! positions.
 
-use smelt_hir::TypeId;
+use smelt_hir::{Symbol, TypeId};
 use smelt_hir::op_field_types::OpFieldTypes;
 
 use crate::{
@@ -316,6 +316,12 @@ impl MirClosure {
 }
 
 impl MirClass {
+    /// The class's program bases, first base first.
+    #[must_use]
+    pub fn program_bases(&self) -> Vec<Symbol> {
+        self.base.iter().chain(&self.extra_bases).copied().collect()
+    }
+
     /// Visit every type id of the class declaration.
     pub fn visit_types(&self, visit: &mut dyn FnMut(TypeId)) {
         visit_type_params(&self.type_params, visit);

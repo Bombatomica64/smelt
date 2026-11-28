@@ -21,6 +21,36 @@ impl FunctionEmitter<'_> {
         }
     }
 
+    /// The accessor pair of `field` when `ty` is a polymorphic class of a
+    /// multiple-inheritance hierarchy, whose cell lends a field view
+    /// (`crate::class_polymorphism::lends_field_view`).
+    ///
+    /// The pair is spelled fully qualified (`<Owner>SmeltFields::count`), so
+    /// the call resolves on the receiver's concrete record as well (an
+    /// inherited body emitted on a subclass reads its own flat record, which
+    /// implements every view of its MRO).
+    pub(super) fn field_view_accessors(&self, ty: TypeId, field: Symbol) -> Option<(String, String)> {
+        let Some(Type::Class { name, .. }) = self.mir.types.get(ty) else {
+            return None;
+        };
+        let polymorphic = self.context.polymorphic_classes();
+        if !crate::class_polymorphism::lends_field_view(self.mir, polymorphic, *name) {
+            return None;
+        }
+        let owner =
+            crate::class_polymorphism::field_view_owner(self.mir, polymorphic, *name, field)?;
+        let owner_trait = crate::class_polymorphism::fields_trait_name(
+            self.context.names().type_name(owner).ok()?.as_str(),
+        );
+        let (get, get_mut) = crate::class_polymorphism::field_accessor_names(
+            &self.context.names().field_text(self.mir, field),
+        );
+        Some((
+            format!("{owner_trait}::{get}"),
+            format!("{owner_trait}::{get_mut}"),
+        ))
+    }
+
     /// Whether `ty` is a view target (see [`Self::view_target_name`]).
     pub(super) fn is_view_target_type(&self, ty: TypeId) -> bool {
         self.view_target_name(ty).is_some()
@@ -57,6 +87,9 @@ impl FunctionEmitter<'_> {
             let accessors = self.view_accessors(owner, field)?;
             return Ok(format!("(*{base}.0.{}())", accessors.get));
         }
+        if let Some((get, _)) = self.field_view_accessors(base_ty, field) {
+            return Ok(format!("(*{get}(&*{base}.0.borrow()))"));
+        }
         Ok(format!(
             "{base}.0.borrow().{}",
             self.context.names().field_text(self.mir, field)
@@ -72,7 +105,7 @@ impl FunctionEmitter<'_> {
         base_ty: TypeId,
         field: Symbol,
     ) -> Result<RustExpr, EmitError> {
-        if self.is_view_target_type(base_ty) {
+        if self.is_view_target_type(base_ty) || self.field_view_accessors(base_ty, field).is_some() {
             return Ok(RustExpr::chain(self.reference_field_read_place(
                 &base.tight(),
                 base_ty,
@@ -98,6 +131,9 @@ impl FunctionEmitter<'_> {
             let accessors = self.view_accessors(owner, field)?;
             return Ok(format!("(*{base}.0.{}())", accessors.get_mut));
         }
+        if let Some((_, get_mut)) = self.field_view_accessors(base_ty, field) {
+            return Ok(format!("(*{get_mut}(&mut *{base}.0.borrow_mut()))"));
+        }
         Ok(format!(
             "{base}.0.borrow_mut().{}",
             self.context.names().field_text(self.mir, field)
@@ -121,7 +157,7 @@ impl FunctionEmitter<'_> {
         base_ty: TypeId,
         field: Symbol,
     ) -> Result<String, EmitError> {
-        if self.is_view_target_type(base_ty) {
+        if self.is_view_target_type(base_ty) || self.field_view_accessors(base_ty, field).is_some() {
             return self.reference_field_read_place(base_text, base_ty, field);
         }
         Ok(format!(
@@ -139,7 +175,7 @@ impl FunctionEmitter<'_> {
         base_ty: TypeId,
         field: Symbol,
     ) -> Result<RustExpr, EmitError> {
-        if self.is_view_target_type(base_ty) {
+        if self.is_view_target_type(base_ty) || self.field_view_accessors(base_ty, field).is_some() {
             return self.reference_field_read_expr(base, base_ty, field);
         }
         Ok(base.postfix(self.reference_field_read_suffix(local, base_ty, field)))
@@ -153,7 +189,7 @@ impl FunctionEmitter<'_> {
         base_ty: TypeId,
         field: Symbol,
     ) -> Result<String, EmitError> {
-        if self.is_view_target_type(base_ty) {
+        if self.is_view_target_type(base_ty) || self.field_view_accessors(base_ty, field).is_some() {
             return self.reference_field_write_place(base_text, base_ty, field);
         }
         Ok(self.reference_field_write_text(base_text, local, base_ty, field))

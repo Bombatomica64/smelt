@@ -323,7 +323,10 @@ impl ModuleBuilder<'_> {
                 (Some(&Type::Class { name, .. }), InstanceTarget::Class(class)) => {
                     if self.class_extends(name, class) {
                         InstanceAnswer::Always
-                    } else if self.class_extends(class, name) {
+                    } else if self.class_extends(class, name) || self.classes_share_descendant(name, class) {
+                        // A subclass of the tested class, or (with several
+                        // bases) a class deriving from both: the object may be
+                        // one, so the test checks its runtime class.
                         InstanceAnswer::Subclass(class)
                     } else {
                         InstanceAnswer::Never
@@ -340,43 +343,55 @@ impl ModuleBuilder<'_> {
         answer
     }
 
-    /// Whether class `sub` is `sup` or inherits from it.
+    /// Whether class `sub` is `sup` or inherits from it, through any of its
+    /// bases.
     fn class_extends(&self, sub: Symbol, sup: Symbol) -> bool {
-        let mut current = Some(sub);
-        let mut steps = 0_usize;
-        while let Some(class) = current {
+        let mut pending = vec![sub];
+        let mut seen = HashSet::new();
+        while let Some(class) = pending.pop() {
             if class == sup {
                 return true;
             }
-            steps = steps.saturating_add(1);
-            if steps > self.ctx.krate.items.len() {
-                return false;
+            if seen.insert(class) {
+                pending.extend(self.class_bases(class));
             }
-            current = self.class_base(class);
         }
         false
     }
 
-    /// The base of class `class`: the lowered class's, else the one
-    /// `record_unlowered_ancestry` read from the definition of a class of
-    /// this module not lowered yet.
-    fn class_base(&self, class: Symbol) -> Option<Symbol> {
-        let mut lowered = false;
-        let base = self.ctx.krate.items.iter().find_map(|item| match item {
-            Item::Class(candidate) if candidate.name == class => {
-                lowered = true;
-                candidate.base
-            }
+    /// Whether some class of the program derives from both `left` and
+    /// `right` (only possible with multiple inheritance).
+    fn classes_share_descendant(&self, left: Symbol, right: Symbol) -> bool {
+        let lowered = self.ctx.krate.items.iter().filter_map(|item| match item {
+            Item::Class(class) => Some(class.name),
             _ => None,
         });
-        if lowered { base } else { self.unlowered_class_bases.get(&class).copied() }
+        let unlowered = self.unlowered_class_bases.keys().copied();
+        lowered
+            .chain(unlowered)
+            .any(|candidate| self.class_extends(candidate, left) && self.class_extends(candidate, right))
+    }
+
+    /// The program bases of class `class`: the lowered class's, else the
+    /// ones `record_unlowered_ancestry` read from the definition of a class
+    /// of this module not lowered yet.
+    fn class_bases(&self, class: Symbol) -> Vec<Symbol> {
+        self.ctx
+            .krate
+            .items
+            .iter()
+            .find_map(|item| match item {
+                Item::Class(candidate) if candidate.name == class => Some(candidate.program_bases()),
+                _ => None,
+            })
+            .unwrap_or_else(|| self.unlowered_class_bases.get(&class).cloned().unwrap_or_default())
     }
 
     /// Record the ancestry of every class `isinstance` compares (each member
     /// of the tested value's type and each target) that this module defines
     /// further down: pass 1 lowers declarations in source order, so a function
     /// body may test against a class whose HIR item does not exist yet. Its
-    /// single base, when a class of this module, is read from the definition.
+    /// bases that are classes of this module are read from the definition.
     fn record_unlowered_ancestry(&mut self, members: &[TypeId], targets: &[InstanceTarget]) {
         let mut pending: Vec<Symbol> = targets
             .iter()
@@ -402,16 +417,20 @@ impl ModuleBuilder<'_> {
             let Some(name) = self.ctx.krate.symbols.get(class).map(str::to_owned) else {
                 continue;
             };
-            let single_base = match self.module_class_bases.iter().find(|(candidate, _)| *candidate == name) {
-                Some((_, bases)) if bases.len() == 1 => bases.first().cloned(),
-                _ => None,
-            };
-            let Some(base) = single_base.filter(|candidate_base| self.module_class_bases.iter().any(|(candidate, _)| candidate == candidate_base)) else {
+            let Some((_, bases)) = self.module_class_bases.iter().find(|(candidate, _)| *candidate == name).cloned() else {
                 continue;
             };
-            let base_symbol = self.intern_name(&base);
-            self.unlowered_class_bases.insert(class, base_symbol);
-            pending.push(base_symbol);
+            let program_base_names: Vec<String> = bases
+                .into_iter()
+                .filter(|candidate_base| self.module_class_bases.iter().any(|(candidate, _)| candidate == candidate_base))
+                .collect();
+            let program_bases: Vec<Symbol> =
+                program_base_names.iter().map(|base| self.intern_name(base)).collect();
+            if program_bases.is_empty() {
+                continue;
+            }
+            pending.extend(program_bases.iter().copied());
+            self.unlowered_class_bases.insert(class, program_bases);
         }
     }
 

@@ -337,8 +337,10 @@ pub struct MirClass {
     pub type_params: Vec<smelt_hir::TypeParamDef>,
     /// Whether this class is abstract and therefore non-constructible.
     pub is_abstract: bool,
-    /// Single base class, if any (multiple inheritance is rejected upstream).
+    /// First base class, if any.
     pub base: Option<Symbol>,
+    /// The program base classes after the first (HIR `Class::extra_bases`).
+    pub extra_bases: Vec<Symbol>,
     /// Type arguments applied to the base class.
     pub base_args: Vec<TypeId>,
     /// Fields defined in the class.

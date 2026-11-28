@@ -527,8 +527,11 @@ impl EmitContext {
                 .into_iter()
                 .filter(|class| !polymorphic_classes.contains(class))
                 .filter(|class| {
-                    crate::class_polymorphism::nested_base(mir, &polymorphic_classes, *class)
-                        .is_none()
+                    !crate::class_polymorphism::in_polymorphic_hierarchy(
+                        mir,
+                        &polymorphic_classes,
+                        *class,
+                    )
                 })
                 .collect(),
             polymorphic_classes,

@@ -64,28 +64,21 @@ enum ComprehensionAppend {
 impl ModuleBuilder<'_> {
     /// Resolve a class method by inspecting class metadata directly.
     fn class_method_item_by_name(&self, class_name: &str, method: &str) -> Option<ItemId> {
-        for item in &self.ctx.krate.items {
-            let Item::Class(class) = item else {
-                continue;
-            };
-            if self.ctx.krate.symbols.source(class.name) != Some(class_name) {
-                continue;
+        let class_sym = self.ctx.krate.items.iter().find_map(|item| match item {
+            Item::Class(class) if self.ctx.krate.symbols.source(class.name) == Some(class_name) => {
+                Some(class.name)
             }
-            for method_item in &class.methods {
-                let Item::Function(function) = self.item_ref(*method_item) else {
-                    continue;
-                };
-                if self.ctx.krate.symbols.source(function.name) == Some(method) {
-                    return Some(*method_item);
-                }
-            }
-            if let Some(base) = class.base
-                && let Some(base_name) = self.ctx.krate.symbols.source(base)
-            {
-                return self.class_method_item_by_name(base_name, method);
-            }
-        }
-        None
+            _ => None,
+        })?;
+        // The first class of the MRO declaring it (its base chain under
+        // single inheritance).
+        self.class_mro(class_sym).into_iter().find_map(|class| {
+            let class = self.class_item_named(class)?;
+            class.methods.iter().copied().find(|method_item| {
+                matches!(self.item_ref(*method_item), Item::Function(function)
+                    if self.ctx.krate.symbols.source(function.name) == Some(method))
+            })
+        })
     }
 
     /// Return targeted diagnostics for deferred Python stdlib/native library APIs.

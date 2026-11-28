@@ -98,6 +98,15 @@ pub(crate) fn reference_classes(mir: &Mir) -> HashSet<Symbol> {
     references.extend(crate::structural_views::StructuralViews::plan(mir).participants());
     collect_virtual_slot_triggers(mir, &mut references);
     collect_override_triggers(mir, &mut references);
+    // An object of a multiple-inheritance hierarchy is viewed as each of its
+    // bases, and those views are the same object
+    // (`docs/design/python-multiple-inheritance.md`).
+    references.extend(
+        mir.classes
+            .iter()
+            .filter(|class| mir.in_multiple_inheritance_hierarchy(class.name))
+            .map(|class| class.name),
+    );
     collect_thrown_class_triggers(mir, &mut references);
     // A Python exception instance travels inside the raised
     // `SmeltPyException` and is recovered by a downcast of its shared cell
@@ -169,7 +178,10 @@ fn collect_virtual_slot_triggers(mir: &Mir, references: &mut HashSet<Symbol>) {
 /// lifts the whole chain.
 fn collect_override_triggers(mir: &Mir, references: &mut HashSet<Symbol>) {
     for class in &mir.classes {
-        let Some(base) = class.base else { continue };
+        let bases = class.program_bases();
+        if bases.is_empty() {
+            continue;
+        }
         for method_id in &class.methods {
             let Some(function) = usize::try_from(method_id.0)
                 .ok()
@@ -180,7 +192,10 @@ fn collect_override_triggers(mir: &Mir, references: &mut HashSet<Symbol>) {
             let HirOrigin::ClassMethod { method, .. } = function.origin else {
                 continue;
             };
-            if class_chain_declares_method(mir, base, method) {
+            if bases
+                .iter()
+                .any(|base| class_chain_declares_method(mir, *base, method))
+            {
                 references.insert(class.name);
             }
         }
@@ -190,11 +205,7 @@ fn collect_override_triggers(mir: &Mir, references: &mut HashSet<Symbol>) {
 /// Whether `class` or one of its ancestors declares an instance method named
 /// `method`.
 fn class_chain_declares_method(mir: &Mir, class: Symbol, method: Symbol) -> bool {
-    let mut current = Some(class);
-    let mut seen = HashSet::new();
-    while let Some(name) = current
-        && seen.insert(name)
-    {
+    for name in mir.class_mro(class) {
         let Some(found) = mir.class_named(name) else {
             return false;
         };
@@ -209,7 +220,6 @@ fn class_chain_declares_method(mir: &Mir, class: Symbol, method: Symbol) -> bool
         if declares {
             return true;
         }
-        current = found.base;
     }
     false
 }
@@ -429,14 +439,16 @@ fn close_over_heritage(mir: &Mir, references: &mut HashSet<Symbol>) {
     for _ in 0..mir.classes.len() {
         let mut changed = false;
         for class in &mir.classes {
-            let Some(base) = class.base else {
-                continue;
-            };
-            if references.contains(&base) && references.insert(class.name) {
-                changed = true;
-            }
-            if references.contains(&class.name) && mir.has_class(base) && references.insert(base) {
-                changed = true;
+            for base in class.program_bases() {
+                if references.contains(&base) && references.insert(class.name) {
+                    changed = true;
+                }
+                if references.contains(&class.name)
+                    && mir.has_class(base)
+                    && references.insert(base)
+                {
+                    changed = true;
+                }
             }
         }
         if !changed {

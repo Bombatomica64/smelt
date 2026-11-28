@@ -1018,6 +1018,50 @@ impl LoweringCtx<'_> {
         ))
     }
 
+    /// The method resolution order of class `class` (C3 over every program
+    /// base; the base chain under single inheritance).
+    pub(super) fn class_mro(&self, class: Symbol) -> Vec<Symbol> {
+        let class_item = |name: Symbol| {
+            self.krate.items.iter().find_map(|item| match item {
+                smelt_hir::Item::Class(class_item) if class_item.name == name => Some(class_item),
+                _ => None,
+            })
+        };
+        // A chain of single bases is its own MRO; only a class with several
+        // bases needs the C3 merge.
+        let mut chain = vec![class];
+        let mut current = class_item(class);
+        while let Some(found) = current {
+            if !found.extra_bases.is_empty() {
+                chain.clear();
+                break;
+            }
+            match found.base {
+                Some(base) if !chain.contains(&base) => {
+                    chain.push(base);
+                    current = class_item(base);
+                }
+                _ => break,
+            }
+        }
+        if !chain.is_empty() {
+            return chain;
+        }
+        let bases_of = |name: Symbol| {
+            self.krate
+                .items
+                .iter()
+                .find_map(|item| match item {
+                    smelt_hir::Item::Class(class_item) if class_item.name == name => {
+                        Some(class_item.program_bases())
+                    }
+                    _ => None,
+                })
+                .unwrap_or_default()
+        };
+        smelt_hir::mro::linearize(class, &bases_of).unwrap_or_else(|_| vec![class])
+    }
+
     /// Returns whether reading `receiver` runs a source getter.
     ///
     /// A member read `obj.x` where `x` is a class accessor (`get x() { .. }`,
@@ -1036,11 +1080,7 @@ impl LoweringCtx<'_> {
         let Some(Type::Class { name, .. }) = self.krate.types.get(object_expr.ty) else {
             return None;
         };
-        let mut class = Some(*name);
-        let mut visited = std::collections::HashSet::new();
-        while let Some(class_name) = class
-            && visited.insert(class_name)
-        {
+        for class_name in self.class_mro(*name) {
             let class_item = self.krate.items.iter().find_map(|item| {
                 if let smelt_hir::Item::Class(class_item) = item
                     && class_item.name == class_name
@@ -1060,7 +1100,6 @@ impl LoweringCtx<'_> {
             if class_item.fields.iter().any(|item| item.name == field) {
                 return None;
             }
-            class = class_item.base;
         }
         None
     }
@@ -1077,11 +1116,7 @@ impl LoweringCtx<'_> {
         let Some(Type::Class { name, .. }) = self.krate.types.get(object_expr.ty) else {
             return None;
         };
-        let mut class = Some(*name);
-        let mut visited = std::collections::HashSet::new();
-        while let Some(class_name) = class
-            && visited.insert(class_name)
-        {
+        for class_name in self.class_mro(*name) {
             let class_item = self.krate.items.iter().find_map(|item| {
                 if let smelt_hir::Item::Class(class_item) = item
                     && class_item.name == class_name
@@ -1111,7 +1146,6 @@ impl LoweringCtx<'_> {
             if class_item.fields.iter().any(|item| item.name == field) {
                 return None;
             }
-            class = class_item.base;
         }
         None
     }
@@ -1133,11 +1167,7 @@ impl LoweringCtx<'_> {
         let Some(Type::Class { name, .. }) = self.krate.types.get(object_expr.ty) else {
             return false;
         };
-        let mut class = Some(*name);
-        let mut visited = std::collections::HashSet::new();
-        while let Some(class_name) = class
-            && visited.insert(class_name)
-        {
+        for class_name in self.class_mro(*name) {
             let Some(class_item) = self.krate.items.iter().find_map(|item| {
                 if let smelt_hir::Item::Class(class_item) = item
                     && class_item.name == class_name
@@ -1157,7 +1187,6 @@ impl LoweringCtx<'_> {
             if class_item.fields.iter().any(|item| item.name == *field) {
                 return false;
             }
-            class = class_item.base;
         }
         false
     }
@@ -1222,27 +1251,27 @@ impl LoweringCtx<'_> {
         self.resolve_method_on_class(*name, method, span)
     }
 
-    /// Resolves a method call by walking the single-inheritance chain.
+    /// Resolves a method call along the class's method resolution order
+    /// (its base chain under single inheritance).
     pub(super) fn resolve_method_on_class(
         &self,
         class: Symbol,
         method: Symbol,
         span: Span,
     ) -> Result<FuncId, LowerError> {
-        for item in &self.krate.items {
-            if let smelt_hir::Item::Class(class_item) = item
-                && class_item.name == class
-            {
-                for method_item in &class_item.methods {
-                    if let smelt_hir::Item::Function(function) = self.hir_item(*method_item)?
-                        && function.name == method
-                        && let Some(func) = self.item_functions.get(method_item)
-                    {
-                        return Ok(*func);
+        for ancestor in self.class_mro(class) {
+            for item in &self.krate.items {
+                if let smelt_hir::Item::Class(class_item) = item
+                    && class_item.name == ancestor
+                {
+                    for method_item in &class_item.methods {
+                        if let smelt_hir::Item::Function(function) = self.hir_item(*method_item)?
+                            && function.name == method
+                            && let Some(func) = self.item_functions.get(method_item)
+                        {
+                            return Ok(*func);
+                        }
                     }
-                }
-                if let Some(base) = class_item.base {
-                    return self.resolve_method_on_class(base, method, span);
                 }
             }
         }

@@ -140,7 +140,9 @@ pub(crate) fn restore_subclass_or_rebuild_expr(
 /// object's own key order.
 ///
 /// `view_accessors` names the accessors of a view target
-/// (`crate::structural_views`), whose rebuilt cell is written through them.
+/// (`crate::structural_views`), whose rebuilt cell is written through them;
+/// `class` is the record's own symbol (a class lending a field view writes
+/// through its accessors, `crate::class_polymorphism::guard_field_place`).
 #[expect(
     clippy::too_many_arguments,
     reason = "each argument is an independent fact about the record the caller already holds"
@@ -158,6 +160,7 @@ pub(crate) fn emit_reference_from_smelt_unknown_impl(
     view_accessors: Option<
         &std::collections::HashMap<smelt_hir::Symbol, crate::structural_views::AccessorNames>,
     >,
+    class: smelt_hir::Symbol,
 ) {
     let mut assigns = Vec::new();
     // A live record adopts the plain object it is rebuilt from (see
@@ -179,7 +182,6 @@ pub(crate) fn emit_reference_from_smelt_unknown_impl(
         }
         // Read the SOURCE spelling out of the erased object; write the
         // sanitized Rust field, as the value-record recovery does.
-        let field_name = context.names().field(mir, field.name).into_string();
         let key = mir
             .names
             .get(field.name)
@@ -197,7 +199,14 @@ pub(crate) fn emit_reference_from_smelt_unknown_impl(
         // (`crate::structural_views`).
         let place = match view_accessors.and_then(|accessors| accessors.get(&field.name)) {
             Some(accessor) => format!("(*result.0.{}())", accessor.get_mut),
-            None => format!("result.0.borrow_mut().{field_name}"),
+            None => crate::class_polymorphism::guard_field_place(
+                mir,
+                context,
+                class,
+                "result.0.borrow_mut()",
+                field.name,
+                true,
+            ),
         };
         assigns.push(format!(
             "if let Some(smelt_field) = smelt_erased_member(&smelt_object, {key:?}) {{ {frame}{place} = SmeltFromUnknown::smelt_from_unknown(smelt_field); }}{absent}"

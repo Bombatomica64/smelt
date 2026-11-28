@@ -136,20 +136,12 @@ pub(crate) fn identity_literals_extending(mir: &Mir, target: Symbol) -> Vec<Stri
         if !is_instance_class(class) {
             continue;
         }
-        let mut current = Some(class.name);
-        let mut seen = HashSet::new();
-        while let Some(symbol) = current {
-            if symbol == target {
-                let literal = identity_literal(mir, class.name);
-                if !literals.contains(&literal) {
-                    literals.push(literal);
-                }
-                break;
+        // Along the MRO: with several bases a class extends each of them.
+        if mir.class_mro(class.name).contains(&target) {
+            let literal = identity_literal(mir, class.name);
+            if !literals.contains(&literal) {
+                literals.push(literal);
             }
-            if !seen.insert(symbol) {
-                break;
-            }
-            current = find_class(mir, symbol).and_then(|found| found.base);
         }
     }
     literals

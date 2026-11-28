@@ -1469,6 +1469,7 @@ impl ModuleBuilder<'_> {
             abstract_methods: Vec::new(),
             implements: Vec::new(),
             protocols: Vec::new(),
+            extra_bases: Vec::new(),
             statics_of: Some(evaluation.owner),
         }));
         self.classes.register(evaluation.frame_text.clone(), item);

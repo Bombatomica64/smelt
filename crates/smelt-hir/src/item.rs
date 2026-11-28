@@ -160,9 +160,15 @@ pub struct Class {
     pub kind: ClassKind,
     /// Generic type parameters declared by the class.
     pub type_params: Vec<TypeParamDef>,
-    /// Single base class (Python `class C(B):` / TS `class C extends B`).
-    /// Multiple inheritance is rejected by both frontends.
+    /// First base class (Python `class C(B):` / TS `class C extends B`).
     pub base: Option<Symbol>,
+    /// The program base classes after the first, in declaration order
+    /// (Python `class C(A, B, M):` lists `B` and `M`); empty for every
+    /// TypeScript class and every single-inheritance Python class. A class's
+    /// method resolution order is `crate::mro::linearize` over
+    /// `base` followed by these (`docs/design/python-multiple-inheritance.md`).
+    #[serde(default)]
+    pub extra_bases: Vec<Symbol>,
     /// Type arguments applied to the base class.
     pub base_args: Vec<TypeId>,
     /// Fields of the class.
@@ -201,6 +207,14 @@ pub struct Class {
     /// methods, and each instance carries the frame it was constructed by.
     #[serde(default)]
     pub statics_of: Option<Symbol>,
+}
+
+impl Class {
+    /// The class's program bases, first base first.
+    #[must_use]
+    pub fn program_bases(&self) -> Vec<Symbol> {
+        self.base.iter().chain(&self.extra_bases).copied().collect()
+    }
 }
 
 /// A source-language class protocol selected for typed backend lowering.

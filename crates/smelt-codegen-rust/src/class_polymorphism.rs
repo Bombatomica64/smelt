@@ -86,6 +86,7 @@ pub(crate) fn cell_trait_name(type_name: &str) -> String {
 pub(crate) const REFERENCE_COMPANIONS: &[&str] = &[
     "Inner",
     "SmeltCell",
+    "SmeltFields",
     "SmeltStatics",
     "SmeltView",
     "SmeltViewOf",
@@ -131,6 +132,16 @@ pub(crate) fn polymorphic_classes(mir: &Mir, references: &HashSet<Symbol>) -> Ha
         if !eligible(class) {
             continue;
         }
+        // A multiple-inheritance hierarchy: every ancestor along the MRO,
+        // through any base, can hold an instance of this class.
+        if mir.in_multiple_inheritance_hierarchy(class.name) {
+            for ancestor in mir.class_mro(class.name).into_iter().skip(1) {
+                if find_class(mir, ancestor).is_some_and(eligible) {
+                    polymorphic.insert(ancestor);
+                }
+            }
+            continue;
+        }
         let mut current = class;
         let mut seen = HashSet::from([class.name]);
         while let Some(base) = program_base(mir, current) {
@@ -152,7 +163,9 @@ pub(crate) fn nested_base(
     class: Symbol,
 ) -> Option<Symbol> {
     let found = find_class(mir, class)?;
-    if !is_instance_class(found) {
+    // A multiple-inheritance hierarchy stores flat records: no single base
+    // record could be nested (`docs/design/python-multiple-inheritance.md`).
+    if !is_instance_class(found) || mir.in_multiple_inheritance_hierarchy(class) {
         return None;
     }
     let base = found.base?;
@@ -183,12 +196,31 @@ pub(crate) fn level_fields(
         .collect()
 }
 
+/// Whether `class`'s cell is held by a polymorphic handle: it is polymorphic
+/// itself, or an ancestor is (it nests one under single inheritance, or
+/// implements its cell trait flat in a multiple-inheritance hierarchy).
+pub(crate) fn in_polymorphic_hierarchy(
+    mir: &Mir,
+    polymorphic: &HashSet<Symbol>,
+    class: Symbol,
+) -> bool {
+    polymorphic.contains(&class) || !polymorphic_ancestors(mir, polymorphic, class).is_empty()
+}
+
 /// The polymorphic strict ancestors of `class`, nearest first.
 pub(crate) fn polymorphic_ancestors(
     mir: &Mir,
     polymorphic: &HashSet<Symbol>,
     class: Symbol,
 ) -> Vec<Symbol> {
+    if mir.in_multiple_inheritance_hierarchy(class) {
+        return mir
+            .class_mro(class)
+            .into_iter()
+            .skip(1)
+            .filter(|ancestor| polymorphic.contains(ancestor))
+            .collect();
+    }
     let mut ancestors = Vec::new();
     let mut current = class;
     let mut seen = HashSet::from([class]);
@@ -248,6 +280,169 @@ pub(crate) struct CellImpl {
     /// upcast method name and the trait object it answers, both in the
     /// implementing class's scope.
     pub(crate) upcasts: Vec<(String, String)>,
+    /// In a multiple-inheritance hierarchy, the `impl <A>SmeltFields for
+    /// <C>Inner` the trait's field view needs ([`fields_impl_text`]).
+    pub(crate) fields_impl: Option<String>,
+}
+
+/// The Rust name of the field-view trait of polymorphic class `type_name` in a
+/// multiple-inheritance hierarchy (`docs/design/python-multiple-inheritance.md`):
+/// one accessor pair per effective field, implemented by the inner record of
+/// every class deriving from it.
+pub(crate) fn fields_trait_name(type_name: &str) -> String {
+    format!("{type_name}SmeltFields")
+}
+
+/// Whether `class`'s cell trait lends a field view (`dyn <A>SmeltFields`)
+/// instead of its own inner record: a polymorphic class of a
+/// multiple-inheritance hierarchy, whose subclasses store flat records no
+/// single inner record is a part of.
+pub(crate) fn lends_field_view(mir: &Mir, polymorphic: &HashSet<Symbol>, class: Symbol) -> bool {
+    polymorphic.contains(&class) && mir.in_multiple_inheritance_hierarchy(class)
+}
+
+/// The accessor pair of `field` in a field-view trait: the reader is the
+/// field's Rust name, the writer that name with `_mut`.
+pub(crate) fn field_accessor_names(field_text: &str) -> (String, String) {
+    let bare = field_text.strip_prefix("r#").unwrap_or(field_text);
+    (field_text.to_owned(), format!("{bare}_mut"))
+}
+
+/// The class whose field-view trait declares the accessors of `field` for a
+/// handle of class `class`: the furthest class of `class`'s MRO that lends a
+/// field view and has the field. Each field's accessors are declared by one
+/// trait only, which the views below it extend, so a record implementing
+/// several views (a diamond) has one accessor per field.
+pub(crate) fn field_view_owner(
+    mir: &Mir,
+    polymorphic: &HashSet<Symbol>,
+    class: Symbol,
+    field: Symbol,
+) -> Option<Symbol> {
+    mir.class_mro(class).into_iter().rev().find(|ancestor| {
+        lends_field_view(mir, polymorphic, *ancestor)
+            && find_class(mir, *ancestor).is_some_and(|found| {
+                effective_class_fields(mir, found)
+                    .iter()
+                    .any(|candidate| candidate.name == field)
+            })
+    })
+}
+
+/// The fields whose accessors `class`'s field-view trait declares itself
+/// ([`field_view_owner`] is `class`), with their Rust names and types in
+/// `class`'s scope (a multiple-inheritance class has no type parameters).
+fn field_view_members(
+    mir: &Mir,
+    context: &crate::emitter::EmitContext,
+    class: &MirClass,
+) -> Result<Vec<(String, String)>, crate::EmitError> {
+    let mut members = Vec::new();
+    let mut accessors = HashSet::new();
+    let polymorphic = context.polymorphic_classes();
+    for field in effective_class_fields(mir, class) {
+        if field_view_owner(mir, polymorphic, class.name, field.name) != Some(class.name) {
+            continue;
+        }
+        let text = context.names().field_text(mir, field.name);
+        let ty = crate::emitter::FunctionEmitter::type_text_for_with_scoped_type_params(
+            mir,
+            context,
+            field.ty,
+            &crate::type_substitution::TypeSubstitution::lexical(&HashSet::new()),
+        )?;
+        let (get, get_mut) = field_accessor_names(&text);
+        if !accessors.insert(get.clone()) || !accessors.insert(get_mut) {
+            return Err(crate::EmitError::new(format!(
+                "the field accessors of `{text}` collide with another field's in a multiple-inheritance hierarchy"
+            )));
+        }
+        members.push((text, ty));
+    }
+    Ok(members)
+}
+
+/// The place of `field` in the borrowed record `guard` of a `class` handle
+/// (`guard` is `self.0.borrow()` or a binding of one): `guard.field`, or,
+/// when `class` lends a field view, the owning trait's accessor
+/// (`(*OwnerSmeltFields::field(&*guard))`); with `mutable` the writer over a
+/// `borrow_mut()` guard.
+pub(crate) fn guard_field_place(
+    mir: &Mir,
+    context: &crate::emitter::EmitContext,
+    class: Symbol,
+    guard: &str,
+    field: Symbol,
+    mutable: bool,
+) -> String {
+    let field_text = context.names().field_text(mir, field);
+    let polymorphic = context.polymorphic_classes();
+    if lends_field_view(mir, polymorphic, class)
+        && let Some(owner) = field_view_owner(mir, polymorphic, class, field)
+        && let Ok(owner_type) = context.names().type_name(owner)
+    {
+        let owner_trait = fields_trait_name(owner_type.as_str());
+        let (get, get_mut) = field_accessor_names(&field_text);
+        return if mutable {
+            format!("(*{owner_trait}::{get_mut}(&mut *{guard}))")
+        } else {
+            format!("(*{owner_trait}::{get}(&*{guard}))")
+        };
+    }
+    format!("{guard}.{field_text}")
+}
+
+/// The field-view trait declaration of `class` (see [`fields_trait_name`]).
+fn fields_trait_declaration(
+    mir: &Mir,
+    context: &crate::emitter::EmitContext,
+    class: &MirClass,
+    type_name: &str,
+) -> Result<String, crate::EmitError> {
+    let mut methods = Vec::new();
+    for (field, ty) in field_view_members(mir, context, class)? {
+        let (get, get_mut) = field_accessor_names(&field);
+        methods.push(format!("fn {get}(&self) -> &{ty};"));
+        methods.push(format!("fn {get_mut}(&mut self) -> &mut {ty};"));
+    }
+    // The views of its field-view ancestors, whose accessors it does not
+    // redeclare.
+    let mut supertraits = vec!["::std::fmt::Debug".to_owned()];
+    for ancestor in mir.class_mro(class.name).into_iter().skip(1) {
+        if lends_field_view(mir, context.polymorphic_classes(), ancestor) {
+            supertraits.push(fields_trait_name(context.names().type_name(ancestor)?.as_str()));
+        }
+    }
+    Ok(format!(
+        "/// The fields of any instance of `{type_name}` or of a class deriving from it.\n#[allow(dead_code, non_snake_case)]\ntrait {}: {} {{ {} }}",
+        fields_trait_name(type_name),
+        supertraits.join(" + "),
+        methods.join(" ")
+    ))
+}
+
+/// `impl <trait_class>SmeltFields for <inner>`: each accessor lends the
+/// record's own field of that name (the record is flat).
+fn fields_impl_text(
+    mir: &Mir,
+    context: &crate::emitter::EmitContext,
+    trait_class: &MirClass,
+    trait_type: &str,
+    inner: &str,
+) -> Result<String, crate::EmitError> {
+    let mut methods = Vec::new();
+    for (field, ty) in field_view_members(mir, context, trait_class)? {
+        let (get, get_mut) = field_accessor_names(&field);
+        methods.push(format!("fn {get}(&self) -> &{ty} {{ &self.{field} }}"));
+        methods.push(format!(
+            "fn {get_mut}(&mut self) -> &mut {ty} {{ &mut self.{field} }}"
+        ));
+    }
+    Ok(format!(
+        "impl {} for {inner} {{ {} }}",
+        fields_trait_name(trait_type),
+        methods.join(" ")
+    ))
 }
 
 /// The upcast method a cell trait carries toward its polymorphic ancestor
@@ -302,7 +497,12 @@ pub(crate) fn class_layout(
     let polymorphic_set = context.polymorphic_classes();
     let polymorphic = polymorphic_set.contains(&class.name);
     let nested = nested_base(mir, polymorphic_set, class.name);
-    if !polymorphic && nested.is_none() {
+    // A flat class of a multiple-inheritance hierarchy nests nothing yet
+    // implements each polymorphic ancestor's cell trait.
+    if !polymorphic
+        && nested.is_none()
+        && polymorphic_ancestors(mir, polymorphic_set, class.name).is_empty()
+    {
         return Ok(None);
     }
     let scoped: HashSet<Symbol> = class.type_params.iter().map(|param| param.name).collect();
@@ -352,10 +552,22 @@ pub(crate) fn class_layout(
             ));
         }
         upcasts.extend(view_upcasts(context, trait_class)?);
+        let field_view = lends_field_view(mir, polymorphic_set, trait_class);
+        let fields_impl = if field_view {
+            let own_inner = format!("{}Inner{own_args}", type_name(class.name)?);
+            Some(fields_impl_text(mir, context, trait_mir, &trait_type, &own_inner)?)
+        } else {
+            None
+        };
         cell_impls.push(CellImpl {
             trait_ref: format!("{}{trait_args}", cell_trait_name(&trait_type)),
-            inner_view: format!("{trait_type}Inner{trait_args}"),
+            inner_view: if field_view {
+                format!("dyn {}", fields_trait_name(&trait_type))
+            } else {
+                format!("{trait_type}Inner{trait_args}")
+            },
             upcasts,
+            fields_impl,
         });
     }
     Ok(Some(ClassLayout {
@@ -379,7 +591,17 @@ pub(crate) fn cell_trait_declaration(
     needs_unknown: bool,
 ) -> Result<String, crate::EmitError> {
     let type_name = context.names().type_name(class.name)?.as_str().to_owned();
-    let inner = format!("{type_name}Inner{type_args}");
+    let field_view = lends_field_view(mir, context.polymorphic_classes(), class.name);
+    let inner = if field_view {
+        format!("dyn {}", fields_trait_name(&type_name))
+    } else {
+        format!("{type_name}Inner{type_args}")
+    };
+    let fields_trait = if field_view {
+        format!("{}\n", fields_trait_declaration(mir, context, class, &type_name)?)
+    } else {
+        String::new()
+    };
     let mut methods = vec![
         format!("fn borrow(&self) -> ::std::cell::Ref<'_, {inner}>;"),
         format!("fn borrow_mut(&self) -> ::std::cell::RefMut<'_, {inner}>;"),
@@ -416,7 +638,7 @@ pub(crate) fn cell_trait_declaration(
     // A widened class's handle may hold a converting view
     // (`crate::class_widening`): its fields are reached through accessors.
     Ok(format!(
-        "/// Any instance of `{type_name}` or of a class extending it, viewed as a `{type_name}`.\n#[allow(dead_code, non_snake_case)]\ntrait {}{type_params} {{ {} }}",
+        "{fields_trait}/// Any instance of `{type_name}` or of a class extending it, viewed as a `{type_name}`.\n#[allow(dead_code, non_snake_case)]\ntrait {}{type_params} {{ {} }}",
         cell_trait_name(&type_name),
         methods.join(" ")
     ))
@@ -475,6 +697,7 @@ pub(crate) fn cell_impl_text(
         trait_ref,
         inner_view,
         upcasts,
+        fields_impl: _,
     } = cell_impl;
     let mut methods = vec![
         format!(
@@ -828,17 +1051,15 @@ pub(crate) fn own_erasure_method(
 }
 
 /// The function implementing the method named `method` for instances of
-/// `class`: its own declaration, else the nearest ancestor's.
+/// `class`: its own declaration, else the first ancestor's along its MRO.
 pub(crate) fn implementing_method(
     mir: &Mir,
     class: Symbol,
     method: Symbol,
 ) -> Option<smelt_mir::FuncId> {
-    let mut current = Some(class);
-    let mut seen = HashSet::new();
-    while let Some(name) = current
-        && seen.insert(name)
-    {
+    // The first class of the MRO declaring it (the nearest ancestor under
+    // single inheritance).
+    for name in mir.class_mro(class) {
         let found = find_class(mir, name)?;
         for id in &found.methods {
             let function = mir.functions.get(usize::try_from(id.0).ok()?)?;
@@ -847,7 +1068,6 @@ pub(crate) fn implementing_method(
                 return Some(*id);
             }
         }
-        current = found.base;
     }
     None
 }
@@ -975,7 +1195,11 @@ pub(crate) fn class_name_method(
     read_roots: &HashSet<Symbol>,
     class: Symbol,
 ) -> Result<Option<String>, crate::EmitError> {
-    if !read_roots.contains(&crate::class_identity::hierarchy_root(mir, class)) {
+    // A multiple-inheritance hierarchy has no single root: a test against any
+    // of its classes may read any of its handles.
+    if !read_roots.contains(&crate::class_identity::hierarchy_root(mir, class))
+        && !mir.in_multiple_inheritance_hierarchy(class)
+    {
         return Ok(None);
     }
     let body = if context.is_polymorphic_class(class) {
