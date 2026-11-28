@@ -150,6 +150,12 @@ impl ModuleBuilder<'_> {
         if is_abstract_class {
             kind = ClassKind::Abstract;
         }
+        // A `typing.NamedTuple` class is an immutable record whose `__init__`,
+        // `__repr__` and `__eq__` are a frozen dataclass's (`Point(x=1,
+        // y=2)`), plus the tuple behaviour `named_tuple.rs` lowers.
+        if self.named_tuple_fields.contains_key(class_name_str) {
+            kind = ClassKind::DataclassLike { frozen: true };
+        }
 
         // --- Fields and methods ---
         let target = MaterializedClassTarget {
@@ -294,7 +300,9 @@ impl ModuleBuilder<'_> {
                 &owner,
             )?;
             match denoted {
-                Some(StdlibName::Object) => {}
+                // A named tuple's behaviour is synthesized on the class
+                // itself (`named_tuple.rs`); the marker adds no base.
+                Some(StdlibName::Object | StdlibName::NamedTuple) => {}
                 Some(StdlibName::Protocol) => {
                     bases.is_protocol = true;
                     bases.type_params = self.generic_marker_type_params(base_expr);

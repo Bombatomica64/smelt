@@ -500,6 +500,18 @@ impl FunctionEmitter<'_> {
             Rvalue::DictPopItem { dict } => self.python_dict_popitem_call(dict)?,
             Rvalue::ListPop { list, .. } => self.python_list_pop_call(list)?,
             Rvalue::PyListPopAt { list, index } => self.python_list_pop_at_call(list, index)?,
+            Rvalue::PyCollectionNew { ctor, args: ctor_args } => {
+                let (text, source_ty) = self.py_collection_new_expr(*ctor, ctor_args, dest_ty)?;
+                (RenderedCall::propagating(text), source_ty)
+            }
+            Rvalue::PyCollectionOp {
+                method,
+                receiver,
+                args: method_args,
+            } => {
+                let (text, source_ty) = self.py_collection_op_expr(*method, receiver, method_args)?;
+                (RenderedCall::propagating(text), source_ty)
+            }
             Rvalue::PyListDeleteAt { list, index } => (
                 RenderedCall::propagating(self.python_list_delete_at_expr(list, index)?),
                 self.type_id(Type::None)?,

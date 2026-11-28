@@ -29,6 +29,7 @@ impl ModuleBuilder<'_> {
                     span: iter_span,
                 })
             }
+            Some(Type::Class { .. }) => self.py_collection_iteration_list(iter, iter_span, body).unwrap_or(iter),
             _ => iter,
         }
     }

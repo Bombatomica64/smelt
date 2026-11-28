@@ -667,6 +667,17 @@ impl FunctionEmitter<'_> {
         if self.is_match_class_symbol(name)? {
             return Ok(RustType::raw("SmeltMatch"));
         }
+        // A Python `collections` container is its generic runtime type over
+        // the class's own type arguments (`deque[int]` is
+        // `SmeltPyDeque<SmeltPyInt>`).
+        if let Some(container) = self.py_collection_rust_name(name)? {
+            let rendered = args
+                .iter()
+                .map(|arg| self.rust_type(*arg, false, substitution))
+                .collect::<Result<Vec<_>, _>>()?;
+            let text = rendered.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ");
+            return Ok(RustType::composed(format!("{container}<{text}>"), rendered.iter()));
+        }
         if self.stdlib_class_of_symbol(name)? == Some(smelt_stdlib::StdlibClass::Headers) {
             return Ok(RustType::raw("SmeltHeaders"));
         }

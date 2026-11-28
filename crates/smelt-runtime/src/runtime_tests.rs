@@ -1906,3 +1906,70 @@ mod py_text_family {
         }
     }
 }
+
+/// Python's `collections` containers (`py_collections.rs`), against what
+/// `CPython` 3.14 answers for the same calls.
+mod py_collections_family {
+    use super::*;
+
+    /// A list of `int`s.
+    fn ints(values: &[i64]) -> SmeltList<SmeltPyInt> {
+        SmeltList::new(values.iter().copied().map(SmeltPyInt::from).collect())
+    }
+
+    /// A list of one-character `str`s.
+    fn chars(text: &str) -> SmeltList<String> {
+        SmeltList::new(text.chars().map(String::from).collect())
+    }
+
+    #[test]
+    fn a_bounded_deque_drops_from_the_opposite_end() {
+        let window = SmeltPyDeque::new(ints(&[1, 2, 3, 4]), Some(3)).expect("a non-negative bound");
+        assert_eq!(window.py_repr(), "deque([2, 3, 4], maxlen=3)");
+        window.appendleft(SmeltPyInt::from(0_i64));
+        assert_eq!(window.py_repr(), "deque([0, 2, 3], maxlen=3)");
+        window.rotate(-1);
+        assert_eq!(window.py_repr(), "deque([2, 3, 0], maxlen=3)");
+        assert!(SmeltPyDeque::new(ints(&[]), Some(-1)).is_err(), "a negative bound is a ValueError");
+        let empty = SmeltPyDeque::new(ints(&[]), None).expect("no bound");
+        assert!(empty.pop().is_err() && empty.popleft().is_err());
+        assert_eq!(empty.py_repr(), "deque([])");
+    }
+
+    #[test]
+    fn a_counter_reads_zero_without_inserting_and_ranks_ties_in_insertion_order() {
+        let letters = SmeltPyCounter::new(chars("abracadabra"));
+        assert_eq!(letters.get(&"z".to_owned()), SmeltPyInt::from(0_i64));
+        assert!(!letters.contains(&"z".to_owned()), "a missing read does not insert");
+        assert_eq!(letters.py_repr(), "Counter({'a': 5, 'b': 2, 'r': 2, 'c': 1, 'd': 1})");
+        assert_eq!(letters.most_common(Some(2)).to_vec(), vec![("a".to_owned(), SmeltPyInt::from(5_i64)), ("b".to_owned(), SmeltPyInt::from(2_i64))]);
+        letters.subtract(chars("zz"));
+        assert_eq!(letters.total(), SmeltPyInt::from(9_i64));
+        let other = SmeltPyCounter::from_counts(SmeltList::new(vec![("a".to_owned(), SmeltPyInt::from(1_i64)), ("q".to_owned(), SmeltPyInt::from(4_i64))]));
+        assert_eq!(letters.plus(&other).py_repr(), "Counter({'a': 6, 'q': 4, 'b': 2, 'r': 2, 'c': 1, 'd': 1})");
+        assert_eq!(letters.minus(&other).py_repr(), "Counter({'a': 4, 'b': 2, 'r': 2, 'c': 1, 'd': 1})");
+        assert_eq!(SmeltPyCounter::new(chars("")).py_repr(), "Counter()");
+    }
+
+    #[test]
+    fn a_defaultdict_read_inserts_the_factorys_value_and_shares_it() {
+        let groups: SmeltPyDefaultDict<i64, SmeltList<String>> = SmeltPyDefaultDict::new(SmeltList::default, "<class 'list'>", SmeltList::new(Vec::new()));
+        groups.get_or_insert(3).push_item("abc".to_owned());
+        assert_eq!(groups.py_repr(), "defaultdict(<class 'list'>, {3: ['abc']})");
+        assert!(groups.get(&4).is_none() && !groups.contains(&4), "`get` does not insert");
+        assert!(groups.delete(&4).is_err(), "`del` of a missing key is a KeyError");
+    }
+
+    #[test]
+    fn an_ordered_dict_moves_and_pops_at_both_ends() {
+        let ordered = SmeltPyOrderedDict::new(SmeltList::new(vec![("x".to_owned(), 1_i64), ("y".to_owned(), 2), ("z".to_owned(), 3)]));
+        ordered.move_to_end(&"x".to_owned(), true).expect("present");
+        ordered.move_to_end(&"z".to_owned(), false).expect("present");
+        assert_eq!(ordered.py_repr(), "OrderedDict({'z': 3, 'y': 2, 'x': 1})");
+        assert_eq!(ordered.popitem(false).expect("non-empty"), ("z".to_owned(), 3));
+        assert_eq!(ordered.popitem(true).expect("non-empty"), ("x".to_owned(), 1));
+        ordered.clear();
+        assert!(ordered.popitem(true).is_err());
+        assert_eq!(ordered.py_repr(), "OrderedDict()");
+    }
+}

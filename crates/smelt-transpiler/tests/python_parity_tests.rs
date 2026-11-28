@@ -772,3 +772,13 @@ fn narrowing_and_dispatch() -> TestResult {
 fn sweep_semantics() -> TestResult {
     verify_python_parity("sweep_semantics")
 }
+
+/// Python's `collections` containers, typed end to end: `Counter` counts and
+/// orders like `CPython` (a missing key reads `0` and is not inserted),
+/// `defaultdict` inserts its factory's value on a missing read, `deque` is a
+/// bounded double-ended queue, and `OrderedDict` moves and pops at both ends;
+/// each prints `CPython`'s `repr`.
+#[test]
+fn collections_basics() -> TestResult {
+    verify_python_parity("collections_basics")
+}

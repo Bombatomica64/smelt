@@ -9,6 +9,7 @@ mod literals;
 /// Structural child-expression remapping over `ExprKind`.
 mod map;
 mod ops;
+mod py_collection_ops;
 mod types;
 
 /// `dump` spellings of the operation selectors.
@@ -31,4 +32,5 @@ pub use ops::{
     StringReplaceOp, StringSearchOp, StringSliceKind, StringTrimSide, TextDecoderOp, TextEncoderOp,
     UnboundRead, UriTranscodeOp, UrlField, UrlOp, UrlSearchParamsOp, regex_replace_args_text,
 };
+pub use py_collection_ops::{PyCollectionCtor, PyCollectionMethod};
 pub use types::{BinOp, UnaryOp, bin_op_text};

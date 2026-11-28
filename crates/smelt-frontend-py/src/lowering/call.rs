@@ -44,6 +44,12 @@ impl ModuleBuilder<'_> {
         {
             return Ok(expr);
         }
+        if let Some(expr) = self.py_collection_call_expression(call, body, type_hint)? {
+            return Ok(expr);
+        }
+        if let Some(expr) = self.named_tuple_call_expression(call, body)? {
+            return Ok(expr);
+        }
         if let Some(expr) = self.stdlib_module_call_expression(call, body)? {
             return Ok(expr);
         }
@@ -608,6 +614,13 @@ impl ModuleBuilder<'_> {
                     ));
                 };
                 let operand = self.expression(operand_expr, body)?;
+                if let Some(count) = self.named_tuple_len(operand, span, body) {
+                    return Ok(Some(count));
+                }
+                if let Some(len) = self.py_collection_len(operand, span, body) {
+                    let ty = self.intern_type(Type::PyInt);
+                    return Ok(Some(body.push_expr(HirExpr { kind: ExprKind::TypeAssert { value: len }, ty, span })));
+                }
                 let operand_ty = Self::expr_ty(body, operand);
                 if !self.supports_stdlib_len(operand_ty) {
                     return Err(SmeltError::unsupported(

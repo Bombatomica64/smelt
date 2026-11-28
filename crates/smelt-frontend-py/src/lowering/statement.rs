@@ -55,10 +55,12 @@ impl ModuleBuilder<'_> {
                 }
                 if Self::is_destructuring_target(target_expr) && self.destructuring_stores(target_expr) {
                     let value = self.expression(&s.value, body)?;
+                    let value = self.named_tuple_as_tuple(value, body)?.unwrap_or(value);
                     return self.destructuring_assign(target_expr, value, body, block);
                 }
                 if Self::is_destructuring_target(target_expr) {
                     let value = self.expression(&s.value, body)?;
+                    let value = self.named_tuple_as_tuple(value, body)?.unwrap_or(value);
                     let value_ty = Self::expr_ty(body, value);
                     let pat =
                         self.binding_pattern_from_target(target_expr, body, Some(value_ty))?;
@@ -97,6 +99,9 @@ impl ModuleBuilder<'_> {
                 }
                 if let Some(result) = self.class_variable_assign(target_expr, &s.value, body, block) {
                     return result;
+                }
+                if self.py_collection_subscript_assign(target_expr, &s.value, body, block)? {
+                    return Ok(());
                 }
                 let target = self.expression(target_expr, body)?;
                 let target = Self::subscript_store_target(target, body);
@@ -280,6 +285,9 @@ impl ModuleBuilder<'_> {
                     "only `del dict[key]` deletion is supported",
                 ));
             };
+            if self.py_collection_delete(sub, body, block)? {
+                continue;
+            }
             if let Expr::Slice(slice) = sub.slice.as_ref() {
                 // `del xs[a:b:c]` removes what `xs[a:b:c]` reads, in place.
                 let list = self.expression(&sub.value, body)?;

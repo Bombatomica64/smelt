@@ -159,6 +159,9 @@ impl ModuleBuilder<'_> {
                 if let Some(constant) = self.math_constant_expression(attr, body) {
                     return Ok(constant);
                 }
+                if let Some(maxlen) = self.deque_maxlen_expression(attr, body)? {
+                    return Ok(maxlen);
+                }
                 if let Some(member_expr) = self.enum_member_expression(attr, body)? {
                     return Ok(member_expr);
                 }
@@ -205,6 +208,12 @@ impl ModuleBuilder<'_> {
                     return Ok(slice);
                 }
                 let receiver = self.expression(&sub.value, body)?;
+                if let Some(read) = self.py_collection_subscript_read(receiver, &sub.slice, self.span(sub.range), body)? {
+                    return Ok(read);
+                }
+                if let Some(read) = self.named_tuple_subscript(receiver, &sub.slice, self.span(sub.range), body)? {
+                    return Ok(read);
+                }
                 let receiver_ty = Self::expr_ty(body, receiver);
                 if let Some((index, ty)) =
                     self.tuple_index_subscript(receiver_ty, &sub.slice, self.span(sub.range))?
@@ -1080,6 +1089,9 @@ impl ModuleBuilder<'_> {
         span: Span,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        if let Some(counted) = self.py_counter_arithmetic(op, lhs, rhs, span, body) {
+            return Ok(counted);
+        }
         let operand_kinds = (
             self.ctx.krate.types.get(Self::expr_ty(body, lhs)).cloned(),
             self.ctx.krate.types.get(Self::expr_ty(body, rhs)).cloned(),
@@ -1906,6 +1918,11 @@ impl ModuleBuilder<'_> {
             CmpOp::Is => BinOp::Eq,
             CmpOp::IsNot => BinOp::NotEq,
         };
+        if matches!(op, CmpOp::Eq | CmpOp::NotEq)
+            && let Some(equal) = self.py_collection_equality(op == CmpOp::NotEq, lhs, rhs, span, body)
+        {
+            return Ok(equal);
+        }
         // A numeric union operand (`int | float`) compares as the member it
         // holds: `int` with `float` is Python's exact mixed comparison.
         let numeric_union = |this: &Self, ty: TypeId| {
@@ -1980,6 +1997,13 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
         op: CmpOp,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        if let Some(contains) = self.py_collection_contains(needle, haystack, span, body)? {
+            if op == CmpOp::NotIn {
+                let ty = self.intern_type(Type::Bool);
+                return Ok(body.push_expr(HirExpr { kind: ExprKind::UnaryOp { op: UnaryOp::Not, operand: contains }, ty, span }));
+            }
+            return Ok(contains);
+        }
         let needle_ty = Self::expr_ty(body, needle);
         let haystack_ty = Self::expr_ty(body, haystack);
         let bool_ty = self.intern_type(Type::Bool);

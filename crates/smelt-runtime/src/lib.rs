@@ -142,6 +142,7 @@ mod runtime {
     include!("runtime/py_format.rs");
     include!("runtime/py_sort.rs");
     include!("runtime/py_json.rs");
+    include!("runtime/py_collections.rs");
     include!("runtime/regexp.rs");
     include!("runtime/regexp_match.rs");
     include!("runtime/sqlite.rs");

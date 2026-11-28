@@ -202,6 +202,8 @@ declare_needs! {
     PyFormat,
     /// `CPython`'s `list.sort` algorithm (`py_sort.rs`).
     PySort,
+    /// Python's `collections` containers (`py_collections.rs`).
+    PyCollections,
     /// Python's typed `json.loads` (`py_json.rs`).
     PyJsonLoads,
     /// `json.dumps(indent=..)`'s layout (`py_json.rs`).
@@ -335,12 +337,16 @@ declare_needs! {
     DepIndexMap,
 }
 
-/// [`RuntimeDemand`] holds one bit per [`Need`] in a `u128`: a 129th need would
-/// alias bit 0 in a release build, so the bound is checked where the enum is.
+/// [`RuntimeDemand`] holds one bit per [`Need`] in [`DEMAND_WORDS`] `u128`s: a
+/// need past the last word would alias a lower bit in a release build, so the
+/// bound is checked where the enum is.
 const _: () = assert!(
-    Need::ALL.len() <= 128,
-    "Need outgrew the u128 demand bitset"
+    Need::ALL.len() <= DEMAND_WORDS * 128,
+    "Need outgrew the demand bitset"
 );
+
+/// The number of `u128` words [`RuntimeDemand`]'s bitset spans.
+const DEMAND_WORDS: usize = 2;
 
 /// The declared dependency graph: a family on the left is written against every
 /// family on the right, so demanding it demands them.
@@ -380,6 +386,19 @@ const REQUIRES: &[(Need, &[Need])] = &[
     // An `int` raises Python's arithmetic errors and prints through `repr`.
     (Need::PyInt, &[Need::PyException, Need::PyRepr]),
     (Need::PyStrMethods, &[Need::PyException]),
+    // A container raises Python's lookup errors (`smelt_py_key_error` is the
+    // checked dict read's), counts in `int`s, prints through `repr`, and hands
+    // out its contents as identity-bearing lists.
+    (
+        Need::PyCollections,
+        &[
+            Need::PyException,
+            Need::PyInt,
+            Need::PyRepr,
+            Need::PythonDictRead,
+            Need::SmeltList,
+        ],
+    ),
     (Need::PyJsonLoads, &[Need::PyException, Need::PyInt]),
     // `format` of an `int` reads a `SmeltPyInt`, of a `float` its `repr`.
     (
@@ -591,8 +610,9 @@ pub(crate) struct CarrierUse {
 /// The closed set of everything one program demands of the runtime.
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct RuntimeDemand {
-    /// One bit per [`Need`], closed over [`REQUIRES`].
-    needs: u128,
+    /// One bit per [`Need`] (see [`word`] and [`bit`]), closed over
+    /// [`REQUIRES`].
+    needs: [u128; DEMAND_WORDS],
 }
 
 impl RuntimeDemand {
@@ -729,7 +749,10 @@ impl RuntimeDemand {
         // `indexmap::IndexMap`: a leaf need, added after the closure.
         if reachable.ids().any(|id| {
             matches!(mir.types.get(id), Some(Type::Dict(key, _)) if crate::emitter::dict_renders_as_index_map(mir, *key))
-        }) {
+        }) || demand.has(Need::PyCollections)
+        {
+            // The `collections` mappings and `Counter` keep their entries in
+            // an `IndexMap` too.
             demand.add(Need::DepIndexMap);
         }
         demand
@@ -756,7 +779,7 @@ impl RuntimeDemand {
     /// Whether the program demands `need`.
     #[must_use]
     pub(crate) const fn has(&self, need: Need) -> bool {
-        self.needs & bit(need) != 0
+        self.needs[word(need)] & bit(need) != 0
     }
 
     /// The proof that the program demands `need`, which the emitter needs to
@@ -790,12 +813,12 @@ impl RuntimeDemand {
 
     /// Records `need` as demanded.
     const fn add(&mut self, need: Need) {
-        self.needs |= bit(need);
+        self.needs[word(need)] |= bit(need);
     }
 
     /// Withdraws `need`.
     const fn remove(&mut self, need: Need) {
-        self.needs &= !bit(need);
+        self.needs[word(need)] &= !bit(need);
     }
 
     /// Records what one body of `language` demands, resolving its shared
@@ -1101,6 +1124,7 @@ impl RuntimeDemand {
         match class.runtime() {
             ClassRuntime::Headers => self.add(Need::Headers),
             ClassRuntime::PyException => self.add(Need::PyException),
+            ClassRuntime::PyCollections => self.add(Need::PyCollections),
             ClassRuntime::Response => self.add(Need::Response),
             ClassRuntime::Request => self.add(Need::Request),
             ClassRuntime::EventEmitter => self.add(Need::EventEmitter),
@@ -1398,13 +1422,22 @@ fn operand_reads_erased_prototype(mir: &Mir, locals: &[LocalDecl], operand: &Ope
         && mir.names.get(*field).or_else(|| mir.symbols.get(*field)) == Some("prototype")
 }
 
-/// The bit of a [`Need`].
+/// The word of [`RuntimeDemand`]'s bitset that holds a [`Need`]'s bit.
+#[expect(
+    clippy::as_conversions,
+    reason = "a fieldless enum's discriminant has no other const conversion"
+)]
+const fn word(need: Need) -> usize {
+    need as usize / 128
+}
+
+/// The bit of a [`Need`] within its [`word`].
 #[expect(
     clippy::as_conversions,
     reason = "a fieldless enum's discriminant has no other const conversion"
 )]
 const fn bit(need: Need) -> u128 {
-    1_u128 << (need as u32)
+    1_u128 << (need as u32 % 128)
 }
 
 /// Whether a function type is the one erased-callable shape: a sync function

@@ -2890,6 +2890,36 @@ macro_rules! op_group_transcribed {
                 args: many @READ,
             }
                 => (format!("py_exception_args_new [{}]", args.join(", ")));
+            /// A new Python `collections` container (`deque`, `Counter`,
+            /// `defaultdict`, `OrderedDict`): the runtime type's constructor,
+            /// with the operands [`crate::PyCollectionCtor`] documents.
+            PyCollectionNew {
+                /// Which container, built from what.
+                ctor: [$crate::PyCollectionCtor],
+                /// The constructor's operands.
+                args: many,
+            }
+                fresh(false)
+                fallible(ctor.fallible())
+                call(format!("@py_collection_new_{ctor}"))
+                => (format!("py_collection_new {ctor} [{}]", args.join(", ")));
+            /// One method of a Python `collections` container. The container is a
+            /// shared handle, so a method that changes it does so behind the
+            /// handle: the receiver is never written in place.
+            PyCollectionOp {
+                /// The runtime method.
+                method: [$crate::PyCollectionMethod],
+                /// The container.
+                receiver: one,
+                /// The method's operands, as [`crate::PyCollectionMethod`]
+                /// documents them.
+                args: many,
+            }
+                updates_state(receiver)
+                side_effect(method.has_effect())
+                fallible(method.fallible())
+                call(format!("@py_collection_{method}"))
+                => (format!("py_collection_{method} {receiver}{}", tail(", ", ", ", &args)));
             /// The exception a `raise` of an instance of a user exception class
             /// raises: the runtime's `SmeltPyException` carrying the instance.
             PyExceptionFromInstance {

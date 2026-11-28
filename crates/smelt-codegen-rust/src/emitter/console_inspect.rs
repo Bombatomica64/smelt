@@ -502,6 +502,7 @@ impl FunctionEmitter<'_> {
                 self.set_container_name(*item) == "SmeltPrimSet" && self.type_has_py_repr(*item)
             }
             Some(Type::Union(_)) => self.union_has_py_repr(ty),
+            Some(Type::Class { .. }) if self.py_collection_has_repr(ty) => true,
             Some(Type::Class { name, .. })
                 if py_text_protocol::class_has_python_repr(self.mir, *name) =>
             {

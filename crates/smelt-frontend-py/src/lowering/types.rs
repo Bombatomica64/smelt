@@ -269,6 +269,9 @@ impl ModuleBuilder<'_> {
 
     /// Lower a Python type annotation expression to a HIR [`TypeId`].
     fn annotation_to_hir(&mut self, annotation: &Expr) -> Result<TypeId, SmeltError> {
+        if let Some(error) = self.bare_py_collection_annotation(annotation) {
+            return Err(error);
+        }
         if let Expr::Name(name) = annotation {
             self.name_annotation(name.id.as_str(), name.range)
         } else if let Expr::StringLiteral(name) = annotation {
@@ -629,6 +632,9 @@ impl ModuleBuilder<'_> {
         // `Result[int, str]` — a parameterised module-level alias.
         if let Some(aliased) = self.alias_subscript_annotation(sub)? {
             return Ok(aliased);
+        }
+        if let Some(container) = self.py_collection_annotation(sub)? {
+            return Ok(container);
         }
         let span = self.span(sub.range);
         let type_name = expr_type_name(&sub.value).unwrap_or("");

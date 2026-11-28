@@ -57,7 +57,18 @@ impl ModuleBuilder<'_> {
                 Ok(self.bool_cast(operand, span, body))
             }
             Some(Type::Optional(inner, _)) => self.optional_truth(operand, inner, span, body),
-            Some(Type::Class { name, .. }) => self.instance_truth(operand, name, span, body),
+            Some(Type::Class { name, .. }) => {
+                if let Some(len) = self.py_collection_len(operand, span, body) {
+                    let int_ty = self.intern_type(Type::Int);
+                    let zero = body.push_expr(HirExpr { kind: ExprKind::Literal(Literal::Int(0)), ty: int_ty, span });
+                    return Ok(body.push_expr(HirExpr {
+                        kind: ExprKind::BinOp { op: BinOp::NotEq, lhs: len, rhs: zero },
+                        ty: bool_ty,
+                        span,
+                    }));
+                }
+                self.instance_truth(operand, name, span, body)
+            }
             Some(Type::Union(members)) => {
                 if members.iter().any(|member| !self.truth_is_to_bool(*member)) {
                     return Err(SmeltError::unsupported(

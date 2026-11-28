@@ -582,6 +582,10 @@ impl ModuleBuilder<'_> {
             // A class instance shows its `__repr__` inside a container; a
             // class with only `__str__` has `CPython`'s address-bearing repr,
             // which no port can reproduce.
+            Some(Type::Class { args, .. }) if self.py_collection_item_type(ty).is_some() => {
+                let args = args.clone();
+                args.iter().all(|arg| self.has_python_text(*arg))
+            }
             Some(Type::Class { .. }) if self.class_text_method(ty, true).is_some() => true,
             Some(Type::Class { name, .. }) => matches!(
                 self.ctx.krate.symbols.get(*name),

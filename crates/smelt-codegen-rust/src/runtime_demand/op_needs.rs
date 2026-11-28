@@ -458,6 +458,11 @@ impl RuntimeDemand {
             Rvalue::PyExceptionNew { .. } => {
                 self.add(Need::PyException);
             }
+            // The container's own type pulls its block in (`add_stdlib_class`);
+            // an op on one is listed so the dispatch stays exhaustive.
+            Rvalue::PyCollectionNew { .. } | Rvalue::PyCollectionOp { .. } => {
+                self.add(Need::PyCollections);
+            }
             Rvalue::PyStr { .. } => {
                 self.add(Need::PyRepr);
             }

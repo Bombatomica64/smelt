@@ -96,6 +96,8 @@ holds_no_types!(
     crate::GeneratorResumeKind,
     crate::StaticMember,
     crate::HeadersOp,
+    crate::PyCollectionCtor,
+    crate::PyCollectionMethod,
     crate::HostModuleOp,
     crate::HttpServerOp,
     crate::IncomingMessageOp,

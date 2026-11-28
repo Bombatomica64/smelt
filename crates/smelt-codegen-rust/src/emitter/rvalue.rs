@@ -382,6 +382,22 @@ impl FunctionEmitter<'_> {
                 self.json_body_decode_expr(response, args, target)
             }
             Rvalue::ResponseOp { op, response, args } => self.response_op_expr(*op, response, args),
+            Rvalue::PyCollectionNew { ctor, args } => {
+                let (text, source_ty) = self.py_collection_new_expr(*ctor, args, Some(dest_ty))?;
+                self.rendered_at_type(&text, source_ty, dest_ty, &self.render_scope())
+            }
+            Rvalue::PyCollectionOp {
+                method,
+                receiver,
+                args,
+            } => {
+                let (text, source_ty) = self.py_collection_op_expr(*method, receiver, args)?;
+                if source_ty == dest_ty || source_ty == self.none_ty {
+                    Ok(text)
+                } else {
+                    self.rendered_at_type(&text, source_ty, dest_ty, &self.render_scope())
+                }
+            }
             Rvalue::HeadersNew { init } => self.headers_new_expr(init.as_ref()),
             Rvalue::HeadersOp { op, headers, args } => {
                 self.headers_op_expr(*op, headers, args, dest_ty)

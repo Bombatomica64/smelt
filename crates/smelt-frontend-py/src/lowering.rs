@@ -195,6 +195,9 @@ pub(crate) struct ModuleBuilder<'ctx> {
     /// User exception classes of this module, each with its chain: its own
     /// name, then each base up to `BaseException`.
     exception_classes: HashMap<String, Vec<String>>,
+    /// The `typing.NamedTuple` classes of this module, each with its field
+    /// names in declaration order (see `lowering/named_tuple.rs`).
+    named_tuple_fields: HashMap<String, Vec<String>>,
     /// How each user exception class is constructed: whether it keeps its
     /// constructor's positional arguments as `args` and whether it has an
     /// `__init__` of its own or a program base's
@@ -491,6 +494,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             resolved_types: analysis.resolved_types,
             bindings: analysis.bindings,
             exception_classes: HashMap::new(),
+            named_tuple_fields: HashMap::new(),
             exception_constructors: HashMap::new(),
             exception_args_getters: HashMap::new(),
             handled_exceptions: Vec::new(),
@@ -559,6 +563,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         self.scope.is_module = true;
         self.module_single_binding = Self::single_binding_names(&[], &module.body);
         self.collect_exception_classes(module);
+        self.collect_named_tuple_classes(module);
         self.collect_class_attribute_stores(module);
         self.collect_super_called_methods(&module.body, None);
 
@@ -786,6 +791,10 @@ include!("lowering/format.rs");
 include!("lowering/str_format.rs");
 // Map/dict and module-call lowering helpers.
 include!("lowering/map.rs");
+// Python's `collections` containers (`deque`, `Counter`, `defaultdict`, `OrderedDict`).
+include!("lowering/stdlib_py_collections.rs");
+// `typing.NamedTuple` classes: tuple indexing, unpacking, `_replace`, `_asdict`.
+include!("lowering/named_tuple.rs");
 // Member access and constant import lowering helpers.
 include!("lowering/member.rs");
 // Type inference, built-in item, and interning helpers.

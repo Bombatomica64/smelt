@@ -170,6 +170,7 @@ impl ModuleBuilder<'_> {
             Some(Type::Tuple(items)) => items.first().copied(),
             Some(Type::PyStr) => Some(iter_ty),
             Some(Type::Generator { yield_ty, .. }) => Some(*yield_ty),
+            Some(Type::Class { .. }) => self.py_collection_item_type(iter_ty),
             _ => None,
         }
     }

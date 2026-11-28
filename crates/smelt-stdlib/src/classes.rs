@@ -42,6 +42,22 @@ pub enum StdlibClass {
     /// `StopIteration.value` is `Any`, so like an element of `args` the value
     /// offers only its `str` and `repr`.
     PyExceptionValue,
+    /// Python's `collections.deque[T]`, backed by the generated concrete
+    /// `SmeltPyDeque<T>` runtime type (a shared `VecDeque` with an optional
+    /// bound). The class's one type argument is the element type.
+    PyDeque,
+    /// Python's `collections.Counter[K]`, backed by the generated concrete
+    /// `SmeltPyCounter<K>` runtime type (a shared insertion-ordered map from
+    /// key to `int` count). The class's one type argument is the key type.
+    PyCounter,
+    /// Python's `collections.defaultdict[K, V]`, backed by the generated
+    /// concrete `SmeltPyDefaultDict<K, V>` runtime type (a shared
+    /// insertion-ordered map plus its stored `default_factory`).
+    PyDefaultDict,
+    /// Python's `collections.OrderedDict[K, V]`, backed by the generated
+    /// concrete `SmeltPyOrderedDict<K, V>` runtime type (a shared
+    /// insertion-ordered map with `move_to_end` and two-ended `popitem`).
+    PyOrderedDict,
     /// JavaScript `RegExp`, backed by the generated regex runtime shim.
     RegExp,
     /// JavaScript `Set`, represented by set HIR values.
@@ -359,6 +375,10 @@ impl StdlibClass {
                     | Self::PyException
                     | Self::PyExceptionArgs
                     | Self::PyExceptionValue
+                    | Self::PyDeque
+                    | Self::PyCounter
+                    | Self::PyDefaultDict
+                    | Self::PyOrderedDict
             )
     }
 
@@ -386,6 +406,9 @@ impl StdlibClass {
             Self::Headers => ClassRuntime::Headers,
             Self::PyException | Self::PyExceptionArgs | Self::PyExceptionValue => {
                 ClassRuntime::PyException
+            }
+            Self::PyDeque | Self::PyCounter | Self::PyDefaultDict | Self::PyOrderedDict => {
+                ClassRuntime::PyCollections
             }
             Self::Response => ClassRuntime::Response,
             Self::Request => ClassRuntime::Request,
@@ -469,6 +492,22 @@ pub const PY_EXCEPTION_ARGS_CLASS_NAME: &str = "__SmeltPyExceptionArgs";
 /// [`StdlibClass::PyExceptionValue`]).
 pub const PY_EXCEPTION_VALUE_CLASS_NAME: &str = "__SmeltPyExceptionValue";
 
+/// Reserved synthetic class name of a Python `collections.deque` (see
+/// [`StdlibClass::PyDeque`]).
+pub const PY_DEQUE_CLASS_NAME: &str = "__SmeltPyDeque";
+
+/// Reserved synthetic class name of a Python `collections.Counter` (see
+/// [`StdlibClass::PyCounter`]).
+pub const PY_COUNTER_CLASS_NAME: &str = "__SmeltPyCounter";
+
+/// Reserved synthetic class name of a Python `collections.defaultdict` (see
+/// [`StdlibClass::PyDefaultDict`]).
+pub const PY_DEFAULT_DICT_CLASS_NAME: &str = "__SmeltPyDefaultDict";
+
+/// Reserved synthetic class name of a Python `collections.OrderedDict` (see
+/// [`StdlibClass::PyOrderedDict`]).
+pub const PY_ORDERED_DICT_CLASS_NAME: &str = "__SmeltPyOrderedDict";
+
 /// `Array.prototype` methods that READ an array without mutating it.
 ///
 /// A regex match result (`exec` / `String.prototype.match`) IS a JavaScript
@@ -532,6 +571,10 @@ pub fn typescript_stdlib_class(name: &str) -> Option<StdlibClass> {
         PY_EXCEPTION_CLASS_NAME => Some(StdlibClass::PyException),
         PY_EXCEPTION_ARGS_CLASS_NAME => Some(StdlibClass::PyExceptionArgs),
         PY_EXCEPTION_VALUE_CLASS_NAME => Some(StdlibClass::PyExceptionValue),
+        PY_DEQUE_CLASS_NAME => Some(StdlibClass::PyDeque),
+        PY_COUNTER_CLASS_NAME => Some(StdlibClass::PyCounter),
+        PY_DEFAULT_DICT_CLASS_NAME => Some(StdlibClass::PyDefaultDict),
+        PY_ORDERED_DICT_CLASS_NAME => Some(StdlibClass::PyOrderedDict),
         "MatchFnResult" => Some(StdlibClass::MatchFnResult),
         "RegExp" => Some(StdlibClass::RegExp),
         "Set" => Some(StdlibClass::Set),
@@ -686,6 +729,9 @@ pub enum ClassRuntime {
     Headers,
     /// The Python exception hierarchy.
     PyException,
+    /// Python's `collections` containers (`deque`, `Counter`, `defaultdict`,
+    /// `OrderedDict`).
+    PyCollections,
     /// WHATWG `Response`.
     Response,
     /// WHATWG `Request`.

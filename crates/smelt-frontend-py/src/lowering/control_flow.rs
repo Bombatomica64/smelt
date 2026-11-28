@@ -348,6 +348,9 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
         block: smelt_hir::BlockId,
     ) -> Result<(), SmeltError> {
+        if self.py_collection_aug_assign(aug, body, block)? {
+            return Ok(());
+        }
         let span = self.span(aug.range);
         let target = self.expression(&aug.target, body)?;
         let rhs = self.expression(&aug.value, body)?;

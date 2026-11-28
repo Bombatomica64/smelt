@@ -87,7 +87,7 @@ pub use expr::{
     GeneratorResumeKind, HashOp, HeadersOp, HostModuleOp, HttpServerOp, IncomingMessageOp,
     ListCallbackOp, ListProjectionOp, ListSearchOp, ListSpliceItem, Literal, NumericExtremaOp,
     NumericFormatMethod, NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp, Param, PathOp,
-    PrimitiveCastOp, PropertyLookup, PyNumericOp, PyStrOp, PythonDivisionOp, RegexMatchOp,
+    PrimitiveCastOp, PropertyLookup, PyCollectionCtor, PyCollectionMethod, PyNumericOp, PyStrOp, PythonDivisionOp, RegexMatchOp,
     RegexReplaceArg, RequestInitMember, RequestOp, ResponseOp, ServerResponseOp, SetBinaryOp,
     SetProjectionOp, SetRelationOp, SetRemoveOp, SqliteOp, StaticMember, StringAffixOp,
     StringCaseOp, StringNormalizeForm, StringPadOp, StringPredicateOp, StringReplaceOp,

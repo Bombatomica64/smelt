@@ -180,6 +180,7 @@ mod place_type;
 mod polymorphic_cast;
 mod post_dominance;
 mod primitive_cast;
+mod py_collections;
 mod py_exception;
 mod py_int;
 mod py_str;

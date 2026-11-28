@@ -325,6 +325,7 @@ mod fn_scope_tests;
 mod lang_features_tests;
 mod name_resolution_tests;
 mod packages_tests;
+mod py_collections_tests;
 mod pytest_tests;
 mod specialization_tests;
 mod sweep_round3_tests;

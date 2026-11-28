@@ -246,6 +246,9 @@ impl ModuleBuilder<'_> {
         if let Some(collected) = self.generator_as_list(value, body) {
             return collected;
         }
+        if let Some(listed) = self.py_collection_iteration_list(value, span, body) {
+            return listed;
+        }
         let Some(Type::Set(item_ty)) = self.ctx.krate.types.get(Self::expr_ty(body, value)).cloned() else {
             return value;
         };
@@ -272,6 +275,9 @@ impl ModuleBuilder<'_> {
         let source = self.expression(arg, body)?;
         if let Some(collected) = self.generator_as_list(source, body) {
             return Ok(Some(collected));
+        }
+        if let Some(listed) = self.py_collection_iteration_list(source, span, body) {
+            return Ok(Some(listed));
         }
         let source_ty = Self::expr_ty(body, source);
         let (kind, ty) = match self.ctx.krate.types.get(source_ty) {
@@ -961,6 +967,9 @@ impl ModuleBuilder<'_> {
         span: Span,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         let source = self.expression(arg, body)?;
+        if let Some(entries) = self.py_collection_to_dict(source, span, body) {
+            return Ok(Some(entries));
+        }
         let source_ty = Self::expr_ty(body, source);
         let (kind, ty) = match self.ctx.krate.types.get(source_ty) {
             Some(Type::Dict(_, _)) => (ExprKind::DictCopy { dict: source }, source_ty),

@@ -70,11 +70,13 @@ pub(crate) enum StdlibName {
     Protocol,
     /// `enum.IntEnum`, the integer enumeration base class.
     IntEnum,
+    /// `typing.NamedTuple`, the base of a typed named-tuple class.
+    NamedTuple,
 }
 
 impl StdlibName {
     /// Every modeled definition, for reverse lookup by qualified name.
-    const ALL: [Self; 8] = [
+    const ALL: [Self; 9] = [
         Self::Object,
         Self::Abc,
         Self::AbcMeta,
@@ -83,6 +85,7 @@ impl StdlibName {
         Self::Generic,
         Self::Protocol,
         Self::IntEnum,
+        Self::NamedTuple,
     ];
 
     /// The fully qualified name of the definition (`module.attribute`).
@@ -96,6 +99,7 @@ impl StdlibName {
             Self::Generic => "typing.Generic",
             Self::Protocol => "typing.Protocol",
             Self::IntEnum => "enum.IntEnum",
+            Self::NamedTuple => "typing.NamedTuple",
         }
     }
 
