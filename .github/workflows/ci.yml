@@ -393,9 +393,10 @@ jobs:
   # workspace again in release mode (~4 min per shard, never cached); debug
   # keeps `debug_assert!` and overflow checks on in the lowering under test.
   #
-  # Each test spawns a nested cargo build with its own scratch target directory
-  # (~250 MB); an ENOSPC inside one surfaces as an ordinary test failure.
-  # `--test-threads 3` bounds that; the runner image has ~88 GB free.
+  # Each test spawns a nested cargo build in one of three shared target
+  # directories under target/tmp (tests/harness: `SharedTarget`, held by a file
+  # lock across processes), so the runtime stack builds once per directory and
+  # at most three generated builds run at once; `--test-threads 3` matches.
   runtime-tiers:
     needs: build
     if: ${{ !cancelled() && needs.build.outputs.full == 'true' && needs.build.outputs.archived == 'true' }}

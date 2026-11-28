@@ -11,8 +11,9 @@
 )]
 
 use std::{
+    fs::File,
     io,
-    path::Path,
+    path::{Path, PathBuf},
     process::{Command, Output, Stdio},
     time::{Duration, Instant},
 };
@@ -43,6 +44,123 @@ fn generated_run_limit() -> Duration {
         .filter(|secs| *secs > 0)
         .unwrap_or(60);
     Duration::from_secs(secs)
+}
+
+/// How many shared target directories generated crates build in: the most
+/// generated builds that run at once, machine-wide.
+///
+/// Every generated crate depends on the same runtime stack (`chrono-tz`,
+/// `tokio`, ...), roughly 0.8 GB of compiler memory to build. A target
+/// directory per fixture rebuilt that stack once per fixture, all at once:
+/// the fourteen `generator_runtime` fixtures peaked at 12 GB together and were
+/// OOM-killed (or thrashed, which looked like a hang) while each passed alone.
+/// `SMELT_GENERATED_TARGETS` overrides the default of three, CI's
+/// `--test-threads` for the runtime tiers.
+pub(crate) fn generated_target_count() -> usize {
+    std::env::var("SMELT_GENERATED_TARGETS")
+        .ok()
+        .and_then(|value| value.trim().parse::<usize>().ok())
+        .filter(|count| *count > 0)
+        .unwrap_or(3)
+}
+
+/// The directory the shared generated-crate target directories live in: the
+/// integration tests' own scratch directory inside the workspace target
+/// directory, so the dependency builds are reused across runs and removed by
+/// `cargo clean`. The runtime value wins over the compile-time one, for a test
+/// archive unpacked at another path.
+pub(crate) fn generated_targets_root() -> PathBuf {
+    std::env::var_os("CARGO_TARGET_TMPDIR")
+        .map_or_else(|| PathBuf::from(env!("CARGO_TARGET_TMPDIR")), PathBuf::from)
+        .join("generated-crates")
+}
+
+/// One of the [`generated_target_count`] shared target directories, held
+/// exclusively (a file lock, so other test processes wait too) until dropped.
+///
+/// The dependency artifacts stay in the directory for the next fixture; the
+/// fixture's own package is removed on drop (also while unwinding from a
+/// failed assertion), so the directory does not grow with every fixture run.
+pub(crate) struct SharedTarget {
+    /// The target directory to build in.
+    dir: PathBuf,
+    /// The manifest of the crate built here, cleaned on drop.
+    manifest: PathBuf,
+    /// The held lock; released when the guard drops.
+    _lock: File,
+}
+
+impl SharedTarget {
+    /// Takes a free shared target directory for the crate in `crate_dir`,
+    /// waiting for one when all are taken.
+    pub(crate) fn acquire(crate_dir: &Path) -> Self {
+        let root = generated_targets_root();
+        std::fs::create_dir_all(&root).expect("create the shared generated-crate target root");
+        let count = generated_target_count();
+        let open = |slot: usize| {
+            let lock = File::options()
+                .create(true)
+                .truncate(false)
+                .write(true)
+                .open(root.join(format!("slot{slot}.lock")))
+                .expect("open a shared target lock");
+            (slot, lock)
+        };
+        let free = (0..count)
+            .map(open)
+            .find(|(_, lock)| lock.try_lock().is_ok());
+        let (slot, lock) = free.unwrap_or_else(|| {
+            // All taken: wait on one, spreading waiters over the slots.
+            let spread = usize::try_from(std::process::id()).unwrap_or_default();
+            let (slot, lock) = open(spread % count);
+            lock.lock().expect("wait for a shared target directory");
+            (slot, lock)
+        });
+        Self {
+            dir: root.join(format!("slot{slot}")),
+            manifest: crate_dir.join("Cargo.toml"),
+            _lock: lock,
+        }
+    }
+
+    /// The target directory to pass as `CARGO_TARGET_DIR`.
+    pub(crate) fn dir(&self) -> &Path {
+        &self.dir
+    }
+}
+
+impl Drop for SharedTarget {
+    fn drop(&mut self) {
+        let Some(package) = std::fs::read_to_string(&self.manifest)
+            .ok()
+            .and_then(|manifest| package_name(&manifest))
+        else {
+            return;
+        };
+        // Best effort: a leftover package only costs disk, never a result.
+        drop(
+            Command::new(env!("CARGO"))
+                .args(["clean", "--quiet", "--offline", "--manifest-path"])
+                .arg(&self.manifest)
+                .args(["--package", &package])
+                .env("CARGO_TARGET_DIR", &self.dir)
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status(),
+        );
+    }
+}
+
+/// The `[package]` name of a generated `Cargo.toml`: its first `name = "..."`.
+fn package_name(manifest: &str) -> Option<String> {
+    manifest.lines().find_map(|line| {
+        let value = line
+            .trim()
+            .strip_prefix("name")?
+            .trim_start()
+            .strip_prefix('=')?;
+        Some(value.trim().trim_matches('"').to_owned())
+    })
 }
 
 /// The generated crate's `cargo test` command, unrun.
@@ -233,7 +351,12 @@ pub(crate) fn declared_test_count(source: &str) -> usize {
 /// A compile failure or a hang fails the caller here; the run's own outcome is
 /// returned for the caller to judge. The tests are compiled first, unbounded
 /// (compile time depends on the machine), so the bound covers only the run.
-pub(crate) fn run_generated_suite(crate_dir: &Path, target_dir: &Path) -> GeneratedRun {
+///
+/// Both run inside a [`SharedTarget`], held throughout so the run's bound
+/// never includes waiting for another fixture's build.
+pub(crate) fn run_generated_suite(crate_dir: &Path) -> GeneratedRun {
+    let target = SharedTarget::acquire(crate_dir);
+    let target_dir = target.dir();
     let build = cargo_test(crate_dir, target_dir)
         .arg("--no-run")
         .output()
@@ -270,8 +393,8 @@ pub(crate) fn run_generated_suite(crate_dir: &Path, target_dir: &Path) -> Genera
 }
 
 /// A judge of an emitted crate: [`run_generated_tests`] or
-/// [`run_generated_tests_expecting_failure`], as `(source, crate_dir, target_dir)`.
-pub(crate) type Judge = fn(&str, &Path, &Path);
+/// [`run_generated_tests_expecting_failure`], as `(source, crate_dir)`.
+pub(crate) type Judge = fn(&str, &Path);
 
 /// Run the crate's generated tests and hold them to the fixture `source`.
 ///
@@ -281,25 +404,20 @@ pub(crate) type Judge = fn(&str, &Path, &Path);
 /// `test(...)` registration or a lost `#[test]` produces. A failing or
 /// uncompilable generated test, or one still running after
 /// [`generated_run_limit`], fails the caller with cargo's output.
-pub(crate) fn run_generated_tests(source: &str, crate_dir: &Path, target_dir: &Path) {
-    run_generated_tests_plus(source, 0, crate_dir, target_dir);
+pub(crate) fn run_generated_tests(source: &str, crate_dir: &Path) {
+    run_generated_tests_plus(source, 0, crate_dir);
 }
 
 /// [`run_generated_tests`] for a crate that also carries `extra` hand-written
 /// Rust `#[test]`s appended after emission (a probe of runtime internals that
 /// TypeScript cannot reach): those must run and pass as well.
-pub(crate) fn run_generated_tests_plus(
-    source: &str,
-    extra: usize,
-    crate_dir: &Path,
-    target_dir: &Path,
-) {
+pub(crate) fn run_generated_tests_plus(source: &str, extra: usize, crate_dir: &Path) {
     let declared = declared_test_count(source);
     assert!(
         declared > 0,
         "the fixture declares no `test(...)`/`it(...)`: a runtime tier with nothing to run proves nothing"
     );
-    let run = run_generated_suite(crate_dir, target_dir);
+    let run = run_generated_suite(crate_dir);
     let report = &run.report;
     assert!(run.success, "generated test failed:\n{report}");
     assert!(
@@ -324,13 +442,9 @@ pub(crate) fn run_generated_tests_plus(
 /// deliberately false one is seen to fail, so this is the should-fail control.
 /// The crate must compile (a compile error is not the failure under test), every
 /// declared test must run, and at least one must report failed.
-pub(crate) fn run_generated_tests_expecting_failure(
-    source: &str,
-    crate_dir: &Path,
-    target_dir: &Path,
-) {
+pub(crate) fn run_generated_tests_expecting_failure(source: &str, crate_dir: &Path) {
     let declared = declared_test_count(source);
-    let run = run_generated_suite(crate_dir, target_dir);
+    let run = run_generated_suite(crate_dir);
     let report = &run.report;
     assert!(
         !run.success,
