@@ -5,6 +5,7 @@
 use super::super::support::{arrow_block_statements, statement_terminates};
 use crate::lowering::body_arena::BodyArena;
 use crate::lowering::erasure::NotNewErasure;
+use crate::lowering::speculation::SpeculationMark;
 use crate::lowering::state::fn_ctx::BodyKind;
 use crate::lowering::state::local_scope::ScopeGroups;
 use crate::lowering::{
@@ -291,25 +292,44 @@ impl ModuleBuilder<'_> {
     /// Such closures are lowered with the `unknown` "no hint" sentinel so the
     /// body's own returns can be inferred; only when that inference fails is
     /// the return value actually erased, and that is recorded here at the
-    /// current anchor. `closure` must be the closure expression in `body`.
+    /// current anchor. `closure` must be the closure expression in `body`,
+    /// lowered from the source function spanning `source`. A return the
+    /// checker inferred as `any` is recorded as `explicit-any`
+    /// ([`Self::checker_function_returns_any`]).
     pub(in crate::lowering) fn record_unhinted_closure_return(
         &mut self,
         closure: smelt_hir::ExprId,
+        source: oxc::span::Span,
         body: &Body,
     ) {
+        if self.closure_return_erased(closure, body) {
+            let reason = if self.checker_function_returns_any(source.start, source.end) {
+                ErasureReason::ExplicitAny
+            } else {
+                ErasureReason::MissingAnnotation
+            };
+            let _ = self.erase_with(reason, "closure return");
+        }
+    }
+
+    /// Whether the closure expression `closure` in `body` returns `unknown`
+    /// (or `Promise<unknown>`): the "no hint" sentinel its body inference
+    /// could not replace.
+    pub(in crate::lowering) fn closure_return_erased(
+        &self,
+        closure: smelt_hir::ExprId,
+        body: &Body,
+    ) -> bool {
         let return_ty = match self.ctx.krate.types.get(Self::expr_ty(body, closure)) {
             Some(Type::Function(function)) => function.return_ty,
-            _ => return,
+            _ => return false,
         };
-        let erased = match self.ctx.krate.types.get(return_ty) {
+        match self.ctx.krate.types.get(return_ty) {
             Some(Type::Unknown) => true,
             Some(Type::Future(inner)) => {
                 matches!(self.ctx.krate.types.get(*inner), Some(Type::Unknown))
             }
             _ => false,
-        };
-        if erased {
-            let _ = self.erase_with(ErasureReason::MissingAnnotation, "closure return");
         }
     }
 
@@ -1297,14 +1317,62 @@ impl ModuleBuilder<'_> {
             {
                 return_ty = self.ctx.krate.types.intern(Type::Future(return_ty));
             }
-            let closure = self.arrow_closure_body_expr(arrow, &params, return_ty, body)?;
-            if no_return_hint {
-                self.record_unhinted_closure_return(closure, body);
+            let mark = self.speculation_mark(body);
+            let mut closure = self.arrow_closure_body_expr(arrow, &params, return_ty, body)?;
+            if no_return_hint && self.closure_return_erased(closure, body) {
+                // With neither an annotation nor any contextual signature (a
+                // callback handed to an erased or `any`-typed parameter,
+                // `vi.fn(async (n: number) => n % 2 === 0)`), the body's own
+                // inference runs first, and only when it leaves the return
+                // erased does the checker's inferred return stand in for the
+                // annotation the source left out, as for a bound arrow
+                // (`checker_function_return_type`). Taking the checker first
+                // would retype closures Smelt already types: a generic callee
+                // binds its type parameters from the body's lowering
+                // (`flatMap(x => [x, x] as const)`), which the checker's
+                // tuple answer would change. The body is lowered again at the
+                // checker's return; a first lowering that declared an item
+                // (a class expression) owns its bodies and is kept instead.
+                if let Some(checker_return) = self.closure_checker_return(arrow, mark) {
+                    self.roll_back_to(mark, body);
+                    closure = self.arrow_closure_body_expr(arrow, &params, checker_return, body)?;
+                } else {
+                    self.record_unhinted_closure_return(closure, arrow.span, body);
+                }
             }
             Ok(closure)
         })();
         self.pop_type_parameter_scope();
         result
+    }
+
+    /// The checker's inferred return for the unhinted `arrow` (its
+    /// `Future` when async), when the lowering since `mark` declared no item
+    /// and so can be rolled back and redone at that return; see
+    /// [`Self::arrow_function_expression_with_hint`].
+    fn closure_checker_return(
+        &mut self,
+        arrow: &oxc::ast::ast::ArrowFunctionExpression<'_>,
+        mark: SpeculationMark,
+    ) -> Option<smelt_hir::TypeId> {
+        if self.speculation_declared_items(mark) {
+            return None;
+        }
+        // A return naming an enclosing type parameter is declined as for a
+        // declaration (`without_type_params`): `call: async (...p: Params) =>
+        // new Promise<Result>(..)` in a generic function's object literal is
+        // substituted at each call while the emitted function may not carry
+        // `Result` (remeda's funnel batch test: E0277).
+        let records_before = self.ctx.krate.erasures.len();
+        let answer = self.checker_function_return_type(arrow.span.start, arrow.span.end);
+        let Some(mut return_ty) = self.without_type_params(answer, records_before) else {
+            self.ctx.krate.erasures.truncate(records_before);
+            return None;
+        };
+        if arrow.r#async && !matches!(self.ctx.krate.types.get(return_ty), Some(Type::Future(_))) {
+            return_ty = self.ctx.krate.types.intern(Type::Future(return_ty));
+        }
+        Some(return_ty)
     }
 
     /// The return type a contextual signature fixes for a closure, if any.

@@ -385,6 +385,11 @@ impl ModuleBuilder<'_> {
             // out, exactly as for an unannotated arrow
             // (`checker_function_return_type`).
             checker_return
+        } else if self.checker_function_returns_any(function.span.start, function.span.end) {
+            // The checker inferred `any` from a body returning an `any`
+            // value: the return is the author's `any`, not a missing
+            // annotation (`checker_function_returns_any`).
+            self.erase_with(ErasureReason::ExplicitAny, "function expression return")
         } else {
             self.erase_with(
                 ErasureReason::MissingAnnotation,

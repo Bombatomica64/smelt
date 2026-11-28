@@ -218,3 +218,46 @@ fn unknown_report_reads_the_sidecar() -> TestResult {
         json,
     )
 }
+
+/// A closure whose return the checker infers as `any` records `explicit-any`,
+/// not `missing-annotation`: the return is not missing, it is the author's
+/// `any` flowing out of the body (`return target(...args)` with `target:
+/// any`). Old requirement: such a closure recorded `missing-annotation`
+/// (#534 found the shared function-expression path declining the checker's
+/// `any`). New requirement: the record names the `any` that decided it. Both
+/// reasons are avoidable, so the record moves between avoidable pools and
+/// the avoidable total is unchanged. A closure whose return the checker
+/// cannot name at all (here none) would keep `missing-annotation`.
+#[test]
+fn checker_inferred_any_closure_return_is_explicit_any() -> TestResult {
+    let project = TempProject::new()?;
+    fs::create_dir_all(project.path())?;
+    fs::write(
+        project.path().join("main.ts"),
+        "function keep(callback: any): any {\n  return callback;\n}\nfunction forward(target: any): any {\n  return keep(function (...args: number[]) {\n    return target(...args);\n  });\n}\nconsole.log(forward((a: number) => a + 1)(2));\n",
+    )?;
+    fs::write(
+        project.path().join("Smelt.toml"),
+        "[project]\nname = \"erasure-any-return\"\nversion = \"0.1.0\"\n\n[sources]\nentries = [\"main.ts\"]\n\n[output]\ntarget = \"out\"\n",
+    )?;
+    let (ok, _, stderr) = run(project.path(), &["build"])?;
+    ensure(ok, format!("build failed: {stderr}"))?;
+    let sidecar = fs::read_to_string(project.path().join("out/smelt-erasure.json"))?;
+    let json: serde_json::Value = serde_json::from_str(&sidecar)?;
+    let records = json
+        .get("records")
+        .and_then(serde_json::Value::as_array)
+        .ok_or("records")?;
+    let returns: Vec<_> = records
+        .iter()
+        .filter(|record| record["detail"] == "function expression return")
+        .collect();
+    ensure(
+        !returns.is_empty()
+            && returns
+                .iter()
+                .all(|record| record["reason"] == "explicit-any"),
+        format!("function expression return records: {returns:?}"),
+    )?;
+    Ok(())
+}

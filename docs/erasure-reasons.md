@@ -28,12 +28,12 @@ Records live in `smelt_hir::Crate::erasures` (frontends) and are returned by
 | Reason | Class | Decided where | Meaning |
 | --- | --- | --- | --- |
 | `source-unknown` | legitimate | TS annotations | the source says `unknown` |
-| `explicit-any` | avoidable | TS annotations, `as any` | the author opted out with `any`; also the parameters of functions defined in an object literal cast `as any`, which callers reach only through `any` (`unchecked_params`) |
+| `explicit-any` | avoidable | TS annotations, `as any` | the author opted out with `any`; also the parameters of functions defined in an object literal cast `as any`, which callers reach only through `any` (`unchecked_params`); also an unannotated closure's return the checker infers as `any` from a body returning an `any` value (`checker_function_returns_any`) |
 | `unfilled-generic` | avoidable | TS generics | a type argument is unfilled or defaults to `any` |
 | `type-level` | avoidable | TS annotations | conditional/indexed/mapped types, intersections, mixed-arity function unions Smelt does not evaluate |
 | `unmodeled-type` | avoidable | TS | `symbol`, callable-object surfaces |
 | `open-layout` | legitimate | TS annotations | `object`, `{}`, index signatures with open values (Bun's open-layout) |
-| `missing-annotation` | avoidable | TS/Python | no annotation and failed inference (`[]`, `new Map()`, unannotated params/returns, `*args`) |
+| `missing-annotation` | avoidable | TS/Python | no annotation and failed inference (`[]`, `new Map()`, unannotated params/returns, `*args`); an unannotated callback with no contextual signature first takes the checker's inferred return when its body's own inference leaves it erased |
 | `untyped-builtin` | avoidable | TS stdlib | a builtin whose TS result type is precise but Smelt does not model yet |
 | `external-type` | legitimate | TS stdlib | `JSON.parse`, `Response.json()`: data from outside the type system (Bun's external-type) |
 | `untyped-package` | legitimate | TS imports | a value from a module Smelt has no types for (Bun's untyped-package) |

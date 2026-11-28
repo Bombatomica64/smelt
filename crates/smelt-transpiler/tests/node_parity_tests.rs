@@ -2507,3 +2507,39 @@ fn union_field_read_arm_types() -> TestResult {
 fn typed_function_names() -> TestResult {
     verify_node_parity("typed_function_names")
 }
+
+/// An unannotated callback handed to an `any` parameter, whose body
+/// inference leaves the return erased, takes the checker's inferred return;
+/// one Smelt already types keeps the body's own answer.
+#[test]
+fn callback_return_from_the_checker() -> TestResult {
+    verify_node_parity("callback_return_from_the_checker")?;
+    // Type preservation, on the same source: each async callback's binding
+    // carries its awaited value. Before, all three were
+    // `Rc<dyn Fn(..) -> SmeltFuture<SmeltUnknown>>`.
+    let fixtures = workspace_root()?.join("crates/smelt-transpiler/tests/fixtures/node-parity");
+    let project = TempProject::new()?;
+    let root = project.path();
+    fs::create_dir_all(root.join("src"))?;
+    fs::copy(
+        fixtures.join("callback_return_from_the_checker.ts"),
+        root.join("src/main.ts"),
+    )?;
+    fs::write(
+        root.join("Smelt.toml"),
+        "[project]\nname = \"callback-return-from-the-checker\"\nversion = \"0.1.0\"\n\n[sources]\nentries = [\"src/main.ts\"]\n\n[output]\ntarget = \"./dist\"\nbuild = false\n",
+    )?;
+    smelt_in(root, &["build"])?;
+    let mut source = String::new();
+    for entry in fs::read_dir(root.join("dist/src"))? {
+        source.push_str(&fs::read_to_string(entry?.path())?);
+    }
+    for slot in [
+        "Rc<dyn Fn(JsString) -> SmeltFuture<SmeltList<f64>>>",
+        "Rc<dyn Fn(f64) -> SmeltFuture<JsString>>",
+        "Rc<dyn Fn(f64) -> SmeltFuture<f64>>",
+    ] {
+        ensure(source.contains(slot), format!("no callback typed `{slot}`"))?;
+    }
+    Ok(())
+}

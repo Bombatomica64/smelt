@@ -101,7 +101,7 @@ impl ModuleBuilder<'_> {
             }));
             let value = self.arrow_closure_body_expr(arrow, &params, return_ty, body)?;
             if no_return_hint {
-                self.record_unhinted_closure_return(value, body);
+                self.record_unhinted_closure_return(value, arrow.span, body);
             }
             // `fn_ty` was interned before the body was lowered, so its
             // `may_throw` is the syntactic guess `false`. The lowered closure

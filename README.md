@@ -105,12 +105,12 @@ calls get a concrete Rust type, a real Rust generic, or an erased type
 | examples, 180 programs ([`typedness-baseline.json`](blocker-logs/typedness-baseline.json)) | values | 8853 | 193 | 56 | 0.6% |
 |  | reads | 981 | 50 | 20 | 1.9% |
 |  | calls | 2480 | 16 | 2 | 0.1% |
-| es-toolkit, 744 programs ([`typedness-baseline-es-toolkit.json`](blocker-logs/typedness-baseline-es-toolkit.json)) | values | 14370 | 370 | 6926 | 32.0% |
+| es-toolkit, 744 programs ([`typedness-baseline-es-toolkit.json`](blocker-logs/typedness-baseline-es-toolkit.json)) | values | 14408 | 370 | 6889 | 31.8% |
 |  | reads | 366 | 52 | 977 | 70.0% |
 |  | calls | 2208 | 63 | 1165 | 33.9% |
-| remeda, 390 programs ([`typedness-baseline-remeda.json`](blocker-logs/typedness-baseline-remeda.json)) | values | 13667 | 268 | 9187 | 39.7% |
-|  | reads | 345 | 29 | 800 | 68.1% |
-|  | calls | 1733 | 51 | 2655 | 59.8% |
+| remeda, 390 programs ([`typedness-baseline-remeda.json`](blocker-logs/typedness-baseline-remeda.json)) | values | 13328 | 279 | 8937 | 39.6% |
+|  | reads | 346 | 30 | 794 | 67.9% |
+|  | calls | 1751 | 51 | 2649 | 59.5% |
 <!-- results:typedness:end -->
 
 The examples corpus is almost fully typed. The libraries are not: see the
@@ -130,9 +130,9 @@ narrowing guards) or avoidable erasure (everything else). Methodology:
 | Corpus (baseline file) | Files | Runtime prelude | Legitimate boundary | Avoidable erasure | Gate |
 | --- | ---: | ---: | ---: | ---: | --- |
 | examples ([`smelt-unknown-baseline.json`](blocker-logs/smelt-unknown-baseline.json)) | 177 | 132058 | 6990 | 0 | blocking, must stay 0 |
-| es-toolkit ([`smelt-unknown-baseline-es-toolkit.json`](blocker-logs/smelt-unknown-baseline-es-toolkit.json)) | 744 | 2486 | 33622 | 12317 | blocking, may only fall |
-| remeda ([`smelt-unknown-baseline-remeda.json`](blocker-logs/smelt-unknown-baseline-remeda.json)) | 391 | 1506 | 62265 | 20086 | advisory |
-| hono ([`smelt-unknown-baseline-hono.json`](blocker-logs/smelt-unknown-baseline-hono.json)) | 78 | 7445 | 78054 | 10078 | advisory |
+| es-toolkit ([`smelt-unknown-baseline-es-toolkit.json`](blocker-logs/smelt-unknown-baseline-es-toolkit.json)) | 744 | 2490 | 33938 | 12239 | blocking, may only fall |
+| remeda ([`smelt-unknown-baseline-remeda.json`](blocker-logs/smelt-unknown-baseline-remeda.json)) | 390 | 2186 | 45112 | 14903 | advisory |
+| hono ([`smelt-unknown-baseline-hono.json`](blocker-logs/smelt-unknown-baseline-hono.json)) | 76 | 2499 | 37698 | 8911 | advisory |
 <!-- results:unknown:end -->
 
 Every erasure site in the frontends names an `ErasureReason`

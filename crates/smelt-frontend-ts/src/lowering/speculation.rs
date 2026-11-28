@@ -51,6 +51,12 @@ impl ModuleBuilder<'_> {
         }
     }
 
+    /// Whether lowering since `mark` declared an item, which
+    /// [`Self::roll_back_to`] keeps with its bodies and erasure records.
+    pub(in crate::lowering) fn speculation_declared_items(&self, mark: SpeculationMark) -> bool {
+        self.ctx.krate.items.len() != mark.items
+    }
+
     /// Discard what lowering added to `body` and the crate since `mark`; true
     /// when `body` had grown.
     pub(in crate::lowering) fn roll_back_to(
