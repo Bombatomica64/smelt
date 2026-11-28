@@ -772,3 +772,17 @@ fn narrowing_and_dispatch() -> TestResult {
 fn sweep_semantics() -> TestResult {
     verify_python_parity("sweep_semantics")
 }
+
+/// `functools`: `reduce` with and without an initial value (an empty list
+/// without one raises a catchable `TypeError`) over ints, strings and
+/// dataclasses; `partial` with positional and keyword pre-bound arguments,
+/// called directly (keywords merged, a bound one overridable), passed as a
+/// `map`/`sorted` callback, over a stored callable, and of another partial;
+/// `@lru_cache(maxsize=None)`, `@cache` and bare `@functools.lru_cache` on
+/// recursive functions (`fib(90)` returns at once only if recursion is
+/// memoized); `@lru_cache(maxsize=2)` whose prints show each hit, miss and
+/// LRU eviction; and a `@wraps` decorator. Requirements: `CPython`'s output.
+#[test]
+fn functools_basics() -> TestResult {
+    verify_python_parity("functools_basics")
+}

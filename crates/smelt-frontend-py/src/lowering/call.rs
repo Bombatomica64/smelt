@@ -28,6 +28,15 @@ impl ModuleBuilder<'_> {
         if let Some(expr) = self.lambda_template_call(call, body)? {
             return Ok(expr);
         }
+        if let Some(expr) = self.partial_binding_call(call, body, type_hint)? {
+            return Ok(expr);
+        }
+        if let Some(expr) = self.functools_partial_call(call, body)? {
+            return Ok(expr);
+        }
+        if let Some(expr) = self.functools_reduce_call(call, body)? {
+            return Ok(expr);
+        }
         if let Some(expr) = self.generator_send_call_expression(call, body)? {
             return Ok(expr);
         }
@@ -1094,6 +1103,18 @@ impl ModuleBuilder<'_> {
                 ));
             };
             args.push(default);
+        }
+        // A module function passed where the callee takes a callable
+        // (`apply(add, 5)`) is a value there: the forwarding closure every
+        // other value position of a `def` gets (`function_item_closure`).
+        for arg in &mut args {
+            let index = usize::try_from(arg.0).unwrap_or(usize::MAX);
+            if let ExprKind::Item(item) = body.exprs[index].kind
+                && matches!(self.item_ref(item), Item::Function(_))
+            {
+                let span = Self::expr_span(body, *arg);
+                *arg = self.function_item_closure(item, *arg, span, body)?;
+            }
         }
         if let Some(meta) = signature.vararg {
             let packed_args = call

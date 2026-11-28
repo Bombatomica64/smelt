@@ -38,6 +38,9 @@ impl ModuleBuilder<'_> {
                 if self.record_lambda_template(s) {
                     return Ok(());
                 }
+                if self.record_partial_binding(s, body, block)? {
+                    return Ok(());
+                }
                 if s.targets.len() != 1 {
                     return Err(SmeltError::unsupported(
                         self.span(s.range),

@@ -569,6 +569,8 @@ pub(crate) fn dict_key_uses_js_key_map(mir: &Mir, key_ty: TypeId) -> bool {
         Some(Type::Union(items)) => items
             .iter()
             .any(|item| dict_key_uses_js_key_map(mir, *item)),
+        // A tuple of record keys is a record key (`dict_key_uses_smelt_record`).
+        Some(Type::Tuple(_)) if dict_key_uses_smelt_record(mir, key_ty) => false,
         Some(
             Type::Unknown
             | Type::IndexedAccess { .. }
@@ -611,9 +613,20 @@ pub(crate) fn dict_renders_as_index_map(mir: &Mir, key_ty: TypeId) -> bool {
 /// `Rc`-backed container, as `SmeltList` is for lists. Its key order is the
 /// program's: JavaScript own-key order, or a Python program's insertion order
 /// (the runtime's `js_key_order` flag).
+///
+/// A tuple of such keys (`dict[tuple[str, int], V]`, which only a Python
+/// program spells: a JavaScript object's keys are strings, and a `Map` is a
+/// `JsMap`) is one too: a Python tuple hashes and compares by value, which
+/// the runtime's tuple `SmeltPropertyKey` implements (up to six members).
 pub(crate) fn dict_key_uses_smelt_record(mir: &Mir, key_ty: TypeId) -> bool {
-    matches!(
-        mir.types.get(key_ty),
-        Some(Type::String | Type::PyStr | Type::Int | Type::PyInt | Type::Bool)
-    )
+    match mir.types.get(key_ty) {
+        Some(Type::String | Type::PyStr | Type::Int | Type::PyInt | Type::Bool) => true,
+        Some(Type::Tuple(items)) => {
+            (1..=6).contains(&items.len())
+                && items
+                    .iter()
+                    .all(|item| dict_key_uses_smelt_record(mir, *item))
+        }
+        _ => false,
+    }
 }

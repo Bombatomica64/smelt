@@ -1,0 +1,38 @@
+15
+115
+120
+9
+11
+6.0
+fig
+[1, 4, 9, 16, 25]
+[1, 8, 27, 64, 125]
+1024
+Hello, Ada!
+Hello, Bob?
+Hello, Eve!
+[-20, 3, 5]
+64
+832040
+2880067194370816120
+[0, 1, 1, 2, 3, 5, 8, 13, 21, 34]
+3
+2
+189477547
+[1, 1, 2, 5, 14, 42, 132, 429, 1430, 4862, 16796, 58786] 1583850964596120042686772779038896
+computing 1
+1
+computing 2
+4
+1
+computing 3
+9
+computing 2
+4
+computing 1
+1
+7
+Hi, Zed!
+TypeError: reduce() of empty iterable with no initial value
+7
+HI HI!

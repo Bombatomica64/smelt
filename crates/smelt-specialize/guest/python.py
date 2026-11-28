@@ -10,6 +10,7 @@ from __future__ import annotations
 import contextlib
 import dataclasses
 import enum
+import functools
 import hashlib
 import importlib
 import inspect
@@ -890,6 +891,22 @@ def should_materialize(
     return not imported
 
 
+def frontend_modeled_binding(value: object) -> object:
+    """The binding the frontend lowers for ``value``.
+
+    A function memoized by ``functools.lru_cache`` / ``functools.cache`` is
+    an ``_lru_cache_wrapper``, a C object with no source. The Python frontend
+    implements that memoization itself from the decorated ``def``, so the
+    binding is recorded as the source function the wrapper calls.
+    """
+    wrapper_type = getattr(functools, "_lru_cache_wrapper", None)
+    if wrapper_type is not None and isinstance(value, wrapper_type):
+        wrapped = getattr(value, "__wrapped__", None)
+        if inspect.isfunction(wrapped):
+            return wrapped
+    return value
+
+
 def module_record(
     module: types.ModuleType,
     serializer: Serializer,
@@ -899,6 +916,7 @@ def module_record(
     definitions = []
     globals_record: dict[str, int] = {}
     for name, value in sorted(vars(module).items()):
+        value = frontend_modeled_binding(value)
         if not should_materialize(module.__name__, name, value, candidate_modules):
             continue
         definitions.append(

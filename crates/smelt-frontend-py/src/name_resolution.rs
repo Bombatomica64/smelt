@@ -12,7 +12,8 @@
 //!
 //! 1. [`ModuleBindings::collect`] runs a reaching-definitions pass over the
 //!    module body, and over the body of each class, and records which
-//!    bindings may be in effect at the start of every class statement and
+//!    bindings may be in effect at the start of every class statement, every
+//!    module-level function definition and
 //!    every method definition.
 //! 2. [`ModuleBindings::resolve`] maps a `Name` / `Attribute` chain to the set
 //!    of [`Denotation`]s that can reach the use: the fully qualified name an
@@ -500,9 +501,9 @@ impl ScopeWalker<'_> {
     fn stmt(&mut self, stmt: &Stmt, flow: &mut Flow) {
         match stmt {
             Stmt::FunctionDef(function) => {
-                if self.class.is_some() {
-                    self.snapshots.insert(function.range.start(), flow.clone());
-                }
+                // A module-level `def`'s decorators resolve here too
+                // (`@functools.lru_cache`, `lowering/functools.rs`).
+                self.snapshots.insert(function.range.start(), flow.clone());
                 // Decorators and defaults run in this scope; the body (and a
                 // PEP 695 type-parameter scope) does not.
                 let mut exprs = ExprWalker::new(flow);

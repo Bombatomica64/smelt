@@ -285,6 +285,12 @@ impl ModuleBuilder<'_> {
                 format!("`{name}` is an unannotated lambda, typed only where it is called; annotate it with `Callable[...]` to use it as a value"),
             ));
         }
+        if self.scope.partials.contains_key(name) && !self.scope.locals.contains_key(name) {
+            return Err(SmeltError::unsupported(
+                span,
+                format!("`{name}` is a partial whose remaining parameters can only be passed by keyword (or whose function is generic); it can be called but not used as a value"),
+            ));
+        }
         if let Some(&local) = self.scope.locals.get(name) {
             if let Some(narrowed) = self.readable_narrowing(local, body) {
                 return Ok(self.narrowed_local_read(local, narrowed, span, body));

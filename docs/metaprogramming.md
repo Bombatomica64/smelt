@@ -40,6 +40,7 @@ callables:
 | Metaclasses that fix a layout at class-creation time | Incl. `ABCMeta`; Django `ModelBase` when a manifest is present |
 | Class decorators | Including `@dataclass` and decorator factories |
 | Function decorators / `functools.wraps` wrapper chains | Wrapper chain is materialized; each layer maps to source |
+| `functools.lru_cache` / `functools.cache` on a module-level function | Modeled by the frontend (`lowering/functools.rs`): the guest records the wrapped source function, and the frontend emits a typed module-global cache and wrapper |
 | Descriptors (data and non-data) | `__get__`/`__set__` layout captured into fields/methods |
 | `dataclasses` | Fields, defaults, generated `__init__` shape |
 | `__slots__` | Slot layout captured |

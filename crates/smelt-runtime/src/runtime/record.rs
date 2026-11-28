@@ -122,6 +122,16 @@ impl SmeltPropertyKey for JsString { fn smelt_array_index(&self) -> Option<u32> 
 //~ JavaScript array index, and both hash their bytes the way a string key does.
 //= impl SmeltPropertyKey for i64 { fn smelt_array_index(&self) -> Option<u32> { None } #[inline] fn smelt_key_hash(&self) -> u64 { smelt_field_hash_bytes(&self.to_le_bytes()) } #[inline] fn smelt_key_fingerprint(&self) -> u32 { smelt_field_fingerprint(&self.to_le_bytes()) } #[inline] fn smelt_is_internal_key(&self) -> bool { false } }
 //= impl SmeltPropertyKey for bool { fn smelt_array_index(&self) -> Option<u32> { None } #[inline] fn smelt_key_hash(&self) -> u64 { smelt_field_hash_bytes(&[u8::from(*self)]) } #[inline] fn smelt_key_fingerprint(&self) -> u32 { smelt_field_fingerprint(&[u8::from(*self)]) } #[inline] fn smelt_is_internal_key(&self) -> bool { false } }
+//~ A Python dict keyed by a tuple of record keys (`dict[tuple[str, int], V]`)
+//~ is a record too: tuples compare and hash by value in Python, so the key
+//~ hashes the hashes of its members in order, and its fingerprint folds theirs.
+//= macro_rules! smelt_tuple_property_key { ($($member:ident $index:tt),+) => { impl<$($member: SmeltPropertyKey),+> SmeltPropertyKey for ($($member,)+) { fn smelt_array_index(&self) -> Option<u32> { None } #[inline] fn smelt_key_hash(&self) -> u64 { let mut smelt_bytes = Vec::new(); $(smelt_bytes.extend_from_slice(&self.$index.smelt_key_hash().to_le_bytes());)+ smelt_field_hash_bytes(&smelt_bytes) } #[inline] fn smelt_key_fingerprint(&self) -> u32 { let mut smelt_print = 0u32; $(smelt_print = smelt_print.rotate_left(7) ^ self.$index.smelt_key_fingerprint();)+ smelt_print } #[inline] fn smelt_is_internal_key(&self) -> bool { false } } }; }
+//= smelt_tuple_property_key!(A 0);
+//= smelt_tuple_property_key!(A 0, B 1);
+//= smelt_tuple_property_key!(A 0, B 1, C 2);
+//= smelt_tuple_property_key!(A 0, B 1, C 2, D 3);
+//= smelt_tuple_property_key!(A 0, B 1, C 2, D 3, E 4);
+//= smelt_tuple_property_key!(A 0, B 1, C 2, D 3, E 4, F 5);
 // @smelt:end
 
 //~ In a Python program (`js_key_order` off) every key appends: a Python dict
