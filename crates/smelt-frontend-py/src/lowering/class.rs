@@ -381,12 +381,12 @@ impl ModuleBuilder<'_> {
                 // (`docs/design/python-multiple-inheritance.md`).
                 let mut symbols = Vec::with_capacity(several.len());
                 for (base_expr, denoted) in several {
-                    let name = denoted
+                    let resolved = denoted
                         .is_none()
                         .then(|| self.base_class_name(base_expr, scope, class_name_str))
                         .flatten()
                         .filter(|_| matches!(base_expr, Expr::Name(_) | Expr::Attribute(_)));
-                    let Some(name) = name else {
+                    let Some(name) = resolved else {
                         return Err(SmeltError::no_multiple_inheritance(
                             span,
                             class_name_str,
@@ -927,10 +927,10 @@ impl ModuleBuilder<'_> {
                     self.class_mro(class_sym)
                         .into_iter()
                         .skip(1)
-                        .find_map(|class| self.own_method_named(class, "__init__"))
+                        .find_map(|ancestor| self.own_method_named(ancestor, "__init__"))
                 });
             let init_id = match init {
-                Some(init) => self.synthesize_method_init_constructor(class_sym, class_ty, init, span)?,
+                Some(resolved_init) => self.synthesize_method_init_constructor(class_sym, class_ty, resolved_init, span)?,
                 None => self.synthesize_default_init(class_sym, class_ty, span),
             };
             constructor_id = Some(init_id);

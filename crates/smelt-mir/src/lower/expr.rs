@@ -1018,19 +1018,26 @@ impl LoweringCtx<'_> {
         ))
     }
 
+    /// The HIR class named `name`.
+    fn hir_class(&self, name: Symbol) -> Option<&smelt_hir::Class> {
+        self.krate.items.iter().find_map(|item| {
+            if let smelt_hir::Item::Class(found) = item
+                && found.name == name
+            {
+                Some(found)
+            } else {
+                None
+            }
+        })
+    }
+
     /// The method resolution order of class `class` (C3 over every program
     /// base; the base chain under single inheritance).
     pub(super) fn class_mro(&self, class: Symbol) -> Vec<Symbol> {
-        let class_item = |name: Symbol| {
-            self.krate.items.iter().find_map(|item| match item {
-                smelt_hir::Item::Class(class_item) if class_item.name == name => Some(class_item),
-                _ => None,
-            })
-        };
         // A chain of single bases is its own MRO; only a class with several
         // bases needs the C3 merge.
         let mut chain = vec![class];
-        let mut current = class_item(class);
+        let mut current = self.hir_class(class);
         while let Some(found) = current {
             if !found.extra_bases.is_empty() {
                 chain.clear();
@@ -1039,24 +1046,17 @@ impl LoweringCtx<'_> {
             match found.base {
                 Some(base) if !chain.contains(&base) => {
                     chain.push(base);
-                    current = class_item(base);
+                    current = self.hir_class(base);
                 }
-                _ => break,
+                Some(_) | None => break,
             }
         }
         if !chain.is_empty() {
             return chain;
         }
         let bases_of = |name: Symbol| {
-            self.krate
-                .items
-                .iter()
-                .find_map(|item| match item {
-                    smelt_hir::Item::Class(class_item) if class_item.name == name => {
-                        Some(class_item.program_bases())
-                    }
-                    _ => None,
-                })
+            self.hir_class(name)
+                .map(smelt_hir::Class::program_bases)
                 .unwrap_or_default()
         };
         smelt_hir::mro::linearize(class, &bases_of).unwrap_or_else(|_| vec![class])

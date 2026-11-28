@@ -117,8 +117,8 @@ impl ModuleBuilder<'_> {
     ) -> Option<ItemId> {
         let mro = self.class_mro(instance_class);
         let position = mro.iter().position(|class| *class == definer)?;
-        mro[position + 1..]
-            .iter()
+        mro.iter()
+            .skip(position.saturating_add(1))
             .find_map(|class| self.own_method_named(*class, method))
     }
 

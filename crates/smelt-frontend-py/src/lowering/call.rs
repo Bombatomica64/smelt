@@ -240,7 +240,7 @@ impl ModuleBuilder<'_> {
                 _ => None,
             })
         });
-        let return_ty = match target.map(|target| self.item_ref(target)) {
+        let return_ty = match target.map(|found| self.item_ref(found)) {
             Some(Item::Function(function)) => function.return_ty,
             _ if method == "__init__" => self.intern_type(Type::None),
             _ => {

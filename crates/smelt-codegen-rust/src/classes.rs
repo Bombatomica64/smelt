@@ -699,8 +699,8 @@ pub(crate) fn effective_class_methods(mir: &Mir, class: &MirClass) -> Vec<FuncId
     // towards the class so the order stays base-first.
     if mir.in_multiple_inheritance_hierarchy(class.name) {
         let mut methods: Vec<FuncId> = Vec::new();
-        for owner in mir.class_mro(class.name).into_iter().rev() {
-            let Some(owner) = find_class(mir, owner) else {
+        for owner_name in mir.class_mro(class.name).into_iter().rev() {
+            let Some(owner) = find_class(mir, owner_name) else {
                 continue;
             };
             for method in &owner.methods {

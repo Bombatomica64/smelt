@@ -72,9 +72,9 @@ impl ModuleBuilder<'_> {
         })?;
         // The first class of the MRO declaring it (its base chain under
         // single inheritance).
-        self.class_mro(class_sym).into_iter().find_map(|class| {
-            let class = self.class_item_named(class)?;
-            class.methods.iter().copied().find(|method_item| {
+        self.class_mro(class_sym).into_iter().find_map(|ancestor| {
+            let found = self.class_item_named(ancestor)?;
+            found.methods.iter().copied().find(|method_item| {
                 matches!(self.item_ref(*method_item), Item::Function(function)
                     if self.ctx.krate.symbols.source(function.name) == Some(method))
             })

@@ -450,7 +450,7 @@ class C(A, B):
     Ok(())
 }
 
-/// Bases whose orders conflict have no C3 linearization (CPython raises
+/// Bases whose orders conflict have no C3 linearization (`CPython` raises
 /// `TypeError` when the class statement runs): refused.
 #[test]
 fn multiple_inheritance_without_consistent_mro_rejected() -> TestResult {

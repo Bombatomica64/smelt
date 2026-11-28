@@ -215,7 +215,7 @@ impl FunctionEmitter<'_> {
             .mir
             .class_mro(class.name)
             .into_iter()
-            .filter_map(|name| crate::classes::find_class(self.mir, name))
+            .filter_map(|ancestor| crate::classes::find_class(self.mir, ancestor))
             .find_map(|current| {
                 current
                     .methods

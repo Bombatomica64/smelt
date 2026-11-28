@@ -279,6 +279,32 @@ impl Mir {
     }
 }
 
+/// The classes connected by base edges to a class with several program bases
+/// (see [`Mir::in_multiple_inheritance_hierarchy`]).
+fn multiple_inheritance_hierarchy(mir: &Mir) -> std::collections::HashSet<Symbol> {
+    let mut neighbours: HashMap<Symbol, Vec<Symbol>> = HashMap::new();
+    let mut pending = Vec::new();
+    for class in &mir.classes {
+        if !class.extra_bases.is_empty() {
+            pending.push(class.name);
+        }
+        for base in class.program_bases() {
+            neighbours.entry(class.name).or_default().push(base);
+            neighbours.entry(base).or_default().push(class.name);
+        }
+    }
+    let mut members = std::collections::HashSet::new();
+    if pending.is_empty() {
+        return members;
+    }
+    while let Some(class) = pending.pop() {
+        if members.insert(class) {
+            pending.extend(neighbours.get(&class).into_iter().flatten().copied());
+        }
+    }
+    members
+}
+
 #[cfg(test)]
 mod tests {
     use smelt_hir::{
@@ -445,30 +471,4 @@ mod tests {
         program.clear_index();
         assert!(!program.has_class(Symbol(1)));
     }
-}
-
-/// The classes connected by base edges to a class with several program bases
-/// (see [`Mir::in_multiple_inheritance_hierarchy`]).
-fn multiple_inheritance_hierarchy(mir: &Mir) -> std::collections::HashSet<Symbol> {
-    let mut neighbours: HashMap<Symbol, Vec<Symbol>> = HashMap::new();
-    let mut pending = Vec::new();
-    for class in &mir.classes {
-        if !class.extra_bases.is_empty() {
-            pending.push(class.name);
-        }
-        for base in class.program_bases() {
-            neighbours.entry(class.name).or_default().push(base);
-            neighbours.entry(base).or_default().push(class.name);
-        }
-    }
-    let mut members = std::collections::HashSet::new();
-    if pending.is_empty() {
-        return members;
-    }
-    while let Some(class) = pending.pop() {
-        if members.insert(class) {
-            pending.extend(neighbours.get(&class).into_iter().flatten().copied());
-        }
-    }
-    members
 }
