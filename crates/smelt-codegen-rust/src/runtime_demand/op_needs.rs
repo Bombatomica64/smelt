@@ -137,8 +137,11 @@ impl RuntimeDemand {
             Rvalue::GlobalObject => {
                 self.add(Need::GlobalObject);
             }
-            Rvalue::TypedArrayNew { .. } => {
+            Rvalue::TypedArrayNew { checked, .. } => {
                 self.add(Need::ByteArray);
+                if *checked {
+                    self.add(Need::TypedArrayViewChecked);
+                }
             }
             Rvalue::ByteArrayOp { .. } => {
                 self.add(Need::ByteArray);

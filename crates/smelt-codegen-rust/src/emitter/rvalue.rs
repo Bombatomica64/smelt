@@ -311,9 +311,10 @@ impl FunctionEmitter<'_> {
             Rvalue::ByteArrayOp { op, bytes, args } => {
                 self.byte_array_op_expr(*op, bytes, args, dest_ty)
             }
-            Rvalue::TypedArrayNew { class_name, args } => {
-                self.typed_array_new_expr(class_name, args)
-            }
+            // A `checked` view is fallible: `typed_array_view_call`.
+            Rvalue::TypedArrayNew {
+                class_name, args, ..
+            } => self.typed_array_new_expr(class_name, args),
             // A real read: a server must see its environment (`PORT`). The
             // profile's one fixed variable, `TZ`, never reaches here.
             Rvalue::ProcessEnvRead { name } => {
@@ -388,9 +389,12 @@ impl FunctionEmitter<'_> {
             Rvalue::OptionalCoalesce { optional, fallback } => {
                 self.optional_coalesce_expr(optional, fallback, dest_ty)
             }
+            // A `rebound` check is fallible and emitted as a call terminator
+            // (`rebound_instance_of_call`); an assignment holds only the plain one.
             Rvalue::InstanceOf {
                 value: operand,
                 class,
+                ..
             } => self.instance_of_expr(operand, *class),
             Rvalue::ClassValue { class, constructor } => {
                 self.class_value(*class, constructor.as_ref())

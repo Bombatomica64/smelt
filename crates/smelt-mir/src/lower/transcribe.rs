@@ -129,7 +129,20 @@ impl LoweringCtx<'_> {
     /// never reach an enclosing `try`: the catch block would have no predecessor
     /// and MIR would drop the handler the source wrote. With no handler active,
     /// the throwing pass sees the same terminator and marks the function.
-    pub(super) fn finish_op(&mut self, expr: &Expr, value: Rvalue) -> Result<Operand, LowerError> {
+    ///
+    /// An `instanceof` against a host class the crate reassigns is marked
+    /// `rebound` here, the one place that sees the whole crate's writes, which
+    /// makes it fallible.
+    pub(super) fn finish_op(
+        &mut self,
+        expr: &Expr,
+        mut value: Rvalue,
+    ) -> Result<Operand, LowerError> {
+        if let Rvalue::InstanceOf { class, rebound, .. } = &mut value
+            && self.rebound_host_classes.contains(class)
+        {
+            *rebound = true;
+        }
         if !value.is_fallible() {
             return self.place_callback_op(expr.ty, expr.span, value);
         }

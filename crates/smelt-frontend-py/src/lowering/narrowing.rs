@@ -211,7 +211,7 @@ impl ModuleBuilder<'_> {
                     "isinstance() of a union member whose subclass is the target is not supported",
                 ));
             }
-            return Ok(body.push_expr(HirExpr { kind: ExprKind::InstanceOf { value, class }, ty: bool_ty, span }));
+            return Ok(body.push_expr(HirExpr { kind: ExprKind::InstanceOf { value, class, rebound: false }, ty: bool_ty, span }));
         }
         let answer = if passing.len() == members.len() {
             Some(true)

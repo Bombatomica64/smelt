@@ -59,6 +59,18 @@ fn smelt_host_override_instance_of(slot: &::std::cell::RefCell<SmeltHostOverride
     match &*slot.borrow() { SmeltHostOverride::Absent => false, SmeltHostOverride::Native => marker_probe(), SmeltHostOverride::Ctor(ctor) => match smelt_function_classes(ctor) { Some(classes) => matches!(value, SmeltUnknown::Object(map) if matches!(map.get("__smelt_class"), Some(SmeltUnknown::String(class)) if classes.iter().any(|entry| class.eq_str(entry)))), None => marker_probe() } }
 }
 
+/// The check `instanceof` makes of its right-hand binding before anything else.
+//~
+//~ JavaScript throws `TypeError` when the right-hand side of `instanceof` is
+//~ not callable, so a slot left `Absent` (`globalThis.File = undefined`) or
+//~ holding a value that is no function throws instead of answering `false`.
+//~ The native builtin and a stored function or class value pass.
+fn smelt_host_override_require_constructor(slot: &::std::cell::RefCell<SmeltHostOverride>) -> Result<(), Box<dyn ::std::error::Error>> {
+    let callable = match &*slot.borrow() { SmeltHostOverride::Native => true, SmeltHostOverride::Absent => false, SmeltHostOverride::Ctor(value) => matches!(value, SmeltUnknown::Function(_)) || matches!(value, SmeltUnknown::Object(class) if class.contains_key("__smelt_class_value") || class.contains_key("__smelt_call")) };
+    if callable { return Ok(()); }
+    Err(smelt_throw(SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_error".to_owned(), SmeltUnknown::String("TypeError".into())), ("message".to_owned(), SmeltUnknown::String("Right-hand side of 'instanceof' is not callable".into())), ("stack".to_owned(), SmeltUnknown::Undefined), ("cause".to_owned(), SmeltUnknown::Undefined)])))))
+}
+
 /// Whether a host override slot is present (`false` only when `Absent`).
 fn smelt_host_override_present(slot: &::std::cell::RefCell<SmeltHostOverride>) -> bool { !matches!(&*slot.borrow(), SmeltHostOverride::Absent) }
 

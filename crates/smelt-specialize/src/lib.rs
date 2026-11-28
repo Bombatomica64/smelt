@@ -17,6 +17,7 @@ mod detection;
 mod manifest;
 mod node;
 pub mod prereq;
+pub mod process_tree;
 mod python;
 mod sandbox;
 

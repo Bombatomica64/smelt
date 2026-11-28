@@ -150,6 +150,8 @@ declare_needs! {
     Url,
     /// A throwing `new URL(..)` or `href` write.
     UrlThrowing,
+    /// A `checked` typed-array view construction, which throws `RangeError`.
+    TypedArrayViewChecked,
     /// `TextEncoder`.
     TextEncoder,
     /// `TextDecoder`.
@@ -438,6 +440,10 @@ const REQUIRES: &[(Need, &[Need])] = &[
     (Need::Base64, &[Need::Unknown]),
     (Need::RegExpCompile, &[Need::Unknown]),
     (Need::UrlThrowing, &[Need::Unknown, Need::Url]),
+    (
+        Need::TypedArrayViewChecked,
+        &[Need::Unknown, Need::ByteArray],
+    ),
     (
         Need::DataViewAccess,
         &[Need::Unknown, Need::ByteArray, Need::DataView],

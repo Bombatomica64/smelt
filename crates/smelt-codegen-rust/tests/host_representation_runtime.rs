@@ -278,6 +278,13 @@ fn instanceof_reads_the_host_override_slot() {
     // instance of the very name that built it. Restoring the slot must put the
     // native answer back, and a subclass instance still satisfies the host base
     // it extends.
+    //
+    // Corrected expectation (deleted global). Old requirement: `x instanceof
+    // File` answered `false` once `globalThis.File = undefined`. New
+    // requirement: JavaScript throws `TypeError` ("Right-hand side of
+    // 'instanceof' is not callable") for a non-callable right-hand side, which
+    // a `try` can catch, and the check works again once the slot is restored
+    // (Node agrees). The old expectation encoded Smelt's absent-slot shortcut.
     let source = r#"
 import { test, expect } from "vitest";
 test("an override class recognizes its own instances", () => {
@@ -300,12 +307,19 @@ test("a restored slot answers with the native identity again", () => {
   const native: any = new File(["content"], "example.txt");
   expect(native instanceof File).toBe(true);
 });
-test("a deleted global has no instances", () => {
+test("instanceof a deleted global throws a TypeError", () => {
   const original: any = globalThis.File;
   globalThis.File = undefined;
   const blob: any = new Blob(["content"]);
-  expect(blob instanceof File).toBe(false);
+  let caught: any = null;
+  try {
+    expect(blob instanceof File).toBe(false);
+  } catch (error) {
+    caught = error;
+  }
+  expect(caught instanceof TypeError).toBe(true);
   globalThis.File = original;
+  expect(blob instanceof File).toBe(false);
 });
 "#;
     run_fixture(source, "smelt_host_override_instanceof");
@@ -320,6 +334,13 @@ fn builtin_members_are_first_class_callable_values() {
     // namespace record modeled none of that, so every such read answered
     // `undefined` and the value silently became a null callback. A member the
     // registry does not model stays `undefined`, which is the honest answer.
+    //
+    // Corrected expectation: `Array.prototype.flatMap` used to read as
+    // `undefined` because the registry lacked it, while JavaScript answers a
+    // function of length 1. It is now modeled: a function value that maps each
+    // element and flattens one level of array results, propagating the
+    // mapper's throw and rejecting a non-callable mapper with `TypeError`
+    // (Node agrees). A name arrays really lack still reads `undefined`.
     let source = r#"
 import { test, expect } from "vitest";
 test("a prototype method is a function value with its arity", () => {
@@ -343,8 +364,23 @@ test("a static function is a value too", () => {
   expect(isArray([1])).toBe(true);
   expect(isArray(1)).toBe(false);
 });
-test("an unmodeled member stays undefined", () => {
-  expect((Array.prototype as any).flatMap).toBe(undefined);
+test("flatMap is a function value that flattens one level", () => {
+  const flatMap: any = (Array.prototype as any).flatMap;
+  expect(typeof flatMap).toBe("function");
+  expect(flatMap.length).toBe(1);
+  expect((Array.prototype as any).flatMap).toBe(flatMap);
+  expect(flatMap.call([1, 2], (n: any) => [n, n * 10])).toEqual([1, 10, 2, 20]);
+  expect(flatMap.call([1, 2], (n: any) => [[n]])).toEqual([[1], [2]]);
+  expect(flatMap.call(["a", "b"], (s: any, i: any) => s + i)).toEqual(["a0", "b1"]);
+  expect(flatMap.call([], (n: any) => [n])).toEqual([]);
+});
+test("flatMap rejects a non-callable mapper and passes a mapper's throw on", () => {
+  const flatMap: any = (Array.prototype as any).flatMap;
+  expect(() => flatMap.call([1], 5)).toThrow(TypeError);
+  expect(() => flatMap.call([1], () => { throw new RangeError("no"); })).toThrow(RangeError);
+});
+test("a member arrays do not have stays undefined", () => {
+  expect((Array.prototype as any).noSuchMember).toBe(undefined);
 });
 "#;
     run_fixture(source, "smelt_builtin_member_values");

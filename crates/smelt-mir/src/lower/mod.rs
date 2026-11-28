@@ -19,7 +19,7 @@
 //! * [`generics`] — interface field flattening and generic type substitution.
 //! * [`passes`] — whole-program analyses that run after core lowering.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 
 use smelt_hir::{BodyId, Literal as HirLiteral, Span, Type, TypeId};
@@ -123,7 +123,7 @@ struct LoweringFacts {
     /// The handler each statement of each body was lowered under.
     handler_marks: HashMap<crate::BodyOwner, scope::HandlerMarks>,
     /// The functions that are module bodies (the top level of a source file).
-    module_bodies: std::collections::HashSet<FuncId>,
+    module_bodies: HashSet<FuncId>,
 }
 
 impl LoweringFacts {
@@ -338,11 +338,13 @@ pub fn lower_hir(krate: &smelt_hir::Crate) -> Result<Mir, Vec<LowerError>> {
     let item_functions = assign_function_ids(krate, &mut slots)?;
     let global_ids = lower_globals(krate, &mut mir, &item_functions, &mut errors);
     let languages = index_source_languages(krate);
+    let rebound_host_classes = rebound_host_classes(krate);
     let tables = LoweringTables {
         item_functions: &item_functions,
         volatile_locals: &volatile,
         global_ids: &global_ids,
         languages: &languages,
+        rebound_host_classes: &rebound_host_classes,
     };
     lower_type_tables(krate, &mut mir, &item_functions, &global_ids);
     if let Err(duplicates) = crate::index::NameIndex::new(&mir) {
@@ -467,6 +469,29 @@ struct LoweringTables<'hir> {
     /// Source language of every file in the crate, keyed by the `FileId` that
     /// each expression's span carries.
     languages: &'hir HashMap<smelt_hir::FileId, smelt_hir::Language>,
+    /// Host classes the crate reassigns; see `LoweringCtx::rebound_host_classes`.
+    rebound_host_classes: &'hir HashSet<smelt_hir::Symbol>,
+}
+
+/// The host classes the crate reassigns through `globalThis.<Name> = ...`
+/// (`HostGlobalWrite`), in any module.
+///
+/// Whether an `instanceof <Name>` can throw is a fact of the whole crate: the
+/// write that leaves the binding non-callable may sit in another module, or
+/// after the check in source order.
+fn rebound_host_classes(krate: &smelt_hir::Crate) -> HashSet<smelt_hir::Symbol> {
+    krate
+        .bodies
+        .iter()
+        .flat_map(|body| body.exprs.iter())
+        .filter_map(|expr| {
+            if let smelt_hir::ExprKind::HostGlobalWrite { class, .. } = &expr.kind {
+                Some(*class)
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 /// Index every module's source language by the `FileId` its spans carry.
@@ -721,7 +746,7 @@ fn lower_interface_table_entry(
         decode_facts: generics::lower_effective_interface_decode_facts(
             krate,
             interface,
-            &mut std::collections::HashSet::new(),
+            &mut HashSet::new(),
         ),
     });
 }
@@ -789,6 +814,7 @@ fn lower_item_functions(
             volatile_locals: tables.volatile_locals,
             global_ids: tables.global_ids,
             languages: tables.languages,
+            rebound_host_classes: tables.rebound_host_classes,
             loop_index_ty: helpers.loop_index_ty,
             loop_bool_ty: helpers.loop_bool_ty,
             thrown_ty: helpers.thrown_ty,
@@ -886,6 +912,7 @@ fn lower_module_bodies(
             volatile_locals: tables.volatile_locals,
             global_ids: tables.global_ids,
             languages: tables.languages,
+            rebound_host_classes: tables.rebound_host_classes,
             loop_index_ty: helpers.loop_index_ty,
             loop_bool_ty: helpers.loop_bool_ty,
             thrown_ty: helpers.thrown_ty,

@@ -1130,14 +1130,31 @@ macro_rules! op_group_transcribed {
             /// spelling: a number is a length, a list is elements, a buffer is a
             /// re-view over shared storage, another view is an element-by-element
             /// conversion, and an erased value is the one honest dynamic boundary.
+            ///
+            /// A view over an existing buffer is validated by JavaScript: an
+            /// offset that is not a multiple of the element size, a buffer
+            /// whose length is not one (with no length given), or a window
+            /// past the buffer's end throws `RangeError`. Such a construction
+            /// is `checked`, and fallible.
             TypedArrayNew {
                 /// The source constructor name — one of the eleven views, or
                 /// `ArrayBuffer`.
                 class_name: [String],
                 /// The constructor arguments, as written.
                 args: many,
+                /// Whether this re-views a buffer in a way JavaScript can
+                /// reject: a view with an offset or length argument, or with a
+                /// lone `ArrayBuffer` argument at an element size above one
+                /// byte (a one-byte view of a whole buffer always fits).
+                checked: [bool],
             }
-                => (format!("typed_array_new {class_name}{}", tail(" ", " ", &args)));
+                fallible(*checked)
+                call("@typed_array_view".to_owned())
+                => (format!(
+                    "typed_array_new {class_name}{}{}",
+                    tail(" ", " ", &args),
+                    if *checked { " (checked)" } else { "" }
+                ));
             /// Read a member of, or call a method on, the concrete typed-array family.
             ByteArrayOp {
                 /// Which member this reads or calls.
@@ -2402,13 +2419,31 @@ macro_rules! op_group_transcribed {
                     )
                 );
             /// Test whether a value is an instance of a class.
+            ///
+            /// When the program reassigns the class's host global
+            /// (`globalThis.File = undefined`), the binding `instanceof` reads
+            /// can hold a non-constructor at run time, and JavaScript then
+            /// throws `TypeError` ("Right-hand side of 'instanceof' is not
+            /// callable"): such a check is fallible.
             InstanceOf {
                 /// Value being tested. Kept as an operand so side effects are evaluated before the check.
                 value: one @READ,
                 /// Target class symbol.
                 class: [$crate::Symbol],
+                /// Whether `class` names a host global the crate reassigns, so
+                /// the check reads a binding that may not be callable.
+                /// Frontends write `false`; MIR lowering sets it from the
+                /// crate's `HostGlobalWrite`s, which may sit in another module.
+                rebound: [bool],
             }
-                => (format!("instanceof {}, class{}", value, class.0));
+                fallible(*rebound)
+                call("@instanceof_rebound".to_owned())
+                => (format!(
+                    "instanceof {}, class{}{}",
+                    value,
+                    class.0,
+                    if *rebound { " (rebound)" } else { "" }
+                ));
             /// A static member reached through a RECEIVER class: `this.count`,
             /// `this.count = v`, `new this()`, `this.m()` or `this` inside a
             /// static method of `class` (`receiver` is `None`: the class the

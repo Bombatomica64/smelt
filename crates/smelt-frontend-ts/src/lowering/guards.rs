@@ -276,7 +276,11 @@ impl ModuleBuilder<'_> {
         };
         let ty = self.ctx.krate.types.intern(Type::Bool);
         Ok(body.push_expr(Expr {
-            kind: ExprKind::InstanceOf { value, class },
+            kind: ExprKind::InstanceOf {
+                value,
+                class,
+                rebound: false,
+            },
             ty,
             span: self.span(span.start, span.end),
         }))

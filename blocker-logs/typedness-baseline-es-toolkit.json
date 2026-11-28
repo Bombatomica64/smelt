@@ -2,7 +2,7 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 14408,
+      "concrete": 14412,
       "generic": 398,
       "erased": 6861
     },
@@ -12,7 +12,7 @@
       "erased": 977
     },
     "calls": {
-      "concrete": 2208,
+      "concrete": 2231,
       "generic": 64,
       "erased": 1164
     }
@@ -5970,7 +5970,7 @@
     },
     "src/compat/object/clone.ts": {
       "values": {
-        "concrete": 79,
+        "concrete": 80,
         "generic": 1,
         "erased": 76
       },
@@ -5980,7 +5980,7 @@
         "erased": 20
       },
       "calls": {
-        "concrete": 13,
+        "concrete": 14,
         "generic": 0,
         "erased": 3
       }
@@ -9873,14 +9873,14 @@
         "erased": 32
       },
       "calls": {
-        "concrete": 26,
+        "concrete": 29,
         "generic": 0,
         "erased": 9
       }
     },
     "src/object/clone.ts": {
       "values": {
-        "concrete": 21,
+        "concrete": 22,
         "generic": 0,
         "erased": 20
       },
@@ -9890,7 +9890,7 @@
         "erased": 12
       },
       "calls": {
-        "concrete": 2,
+        "concrete": 3,
         "generic": 0,
         "erased": 0
       }
@@ -9948,7 +9948,7 @@
     },
     "src/object/cloneDeepWith.ts": {
       "values": {
-        "concrete": 108,
+        "concrete": 110,
         "generic": 0,
         "erased": 123
       },
@@ -9958,7 +9958,7 @@
         "erased": 23
       },
       "calls": {
-        "concrete": 14,
+        "concrete": 16,
         "generic": 0,
         "erased": 13
       }
@@ -10553,7 +10553,7 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 13,
+        "concrete": 15,
         "generic": 0,
         "erased": 6
       }
@@ -10570,7 +10570,7 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 0,
+        "concrete": 1,
         "generic": 0,
         "erased": 0
       }
@@ -10662,7 +10662,7 @@
     },
     "src/predicate/isBuffer.ts": {
       "values": {
-        "concrete": 2,
+        "concrete": 3,
         "generic": 0,
         "erased": 1
       },
@@ -10672,7 +10672,7 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 0,
+        "concrete": 1,
         "generic": 0,
         "erased": 0
       }
@@ -10781,7 +10781,7 @@
     },
     "src/predicate/isEqualWith.spec.ts": {
       "values": {
-        "concrete": 1027,
+        "concrete": 1025,
         "generic": 0,
         "erased": 407
       },
@@ -10859,14 +10859,14 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 19,
+        "concrete": 21,
         "generic": 0,
         "erased": 7
       }
     },
     "src/predicate/isFile.ts": {
       "values": {
-        "concrete": 4,
+        "concrete": 5,
         "generic": 0,
         "erased": 1
       },
@@ -10876,7 +10876,7 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 1,
+        "concrete": 2,
         "generic": 0,
         "erased": 0
       }
@@ -11471,7 +11471,7 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 18,
+        "concrete": 26,
         "generic": 0,
         "erased": 0
       }
@@ -11488,7 +11488,7 @@
         "erased": 0
       },
       "calls": {
-        "concrete": 0,
+        "concrete": 1,
         "generic": 0,
         "erased": 0
       }

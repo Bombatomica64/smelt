@@ -91,6 +91,16 @@ fn an_array_carries_named_properties_and_stays_an_array() {
     // Both store spellings are covered: the dotted `a.x = 2` (the static-member
     // store) and the computed `a[k] = v` (the runtime index-assign helper).
     // Before the fix either one replaced the array with `{ x: 2 }`.
+    //
+    // Corrected expectation (named properties under `toEqual`). Old
+    // requirement: two arrays with equal elements were `toEqual` whatever named
+    // properties each carried. New requirement: Vitest's `equals` walks every
+    // own enumerable key of an array, so a named property one side holds and
+    // the other lacks makes them unequal (checked under Node by the oracle),
+    // while equal named properties, or one holding `undefined`, keep them
+    // equal. The old expectation encoded Smelt's index-only walk, not
+    // JavaScript; the runtime's `toEqual` walk now compares the named
+    // properties (`smelt_vitest_loose_named_equals`).
     let source = r#"
 import { test, expect } from "vitest";
 function erase(value: unknown): unknown {
@@ -129,12 +139,24 @@ test("named properties are shared by every handle on the array", () => {
   alias.tag = "shared";
   expect(a.tag).toBe("shared");
 });
-test("arrays with equal elements and different named properties are equal", () => {
+test("arrays with equal elements and different named properties are not equal", () => {
   const left: any = erase([1, 2, 3]);
   const right: any = erase([1, 2, 3]);
   left.every = null;
   right.concat = null;
+  expect(left).not.toEqual(right);
+  expect(right).not.toEqual(left);
+  expect(left).not.toEqual([1, 2, 3]);
+});
+test("arrays with equal elements and equal named properties are equal", () => {
+  const left: any = erase([1, 2, 3]);
+  const right: any = erase([1, 2, 3]);
+  left.tag = "t";
+  right.tag = "t";
+  left.gone = undefined;
   expect(left).toEqual(right);
+  right.tag = "u";
+  expect(left).not.toEqual(right);
 });
 "#;
     run_fixture(source, "smelt_object_model_array_named_properties");
@@ -354,6 +376,12 @@ fn a_regexp_match_is_an_array_that_carries_its_named_properties() {
     // `Array.isArray` -- getting a typed list handle whose Rust type cannot even
     // name the erased carrier -- and still read `.index` off it, ask
     // `Object.hasOwn` about it, and copy it onto a clone.
+    //
+    // Corrected expectation: a match used to be `toEqual` the plain array of
+    // its groups. Its `index` and `input` are defined named properties, which
+    // Vitest's `toEqual` compares (Node agrees), so it is NOT equal to `["c"]`
+    // in either direction; it equals a plain array carrying the same `index`
+    // and `input` (its `groups` is `undefined`, which `toEqual` skips).
     let source = r#"
 import { test, expect } from "vitest";
 function cloneArrayish<T>(value: T): unknown {
@@ -385,10 +413,14 @@ test("a match result is an array with named properties", () => {
   expect(Object.hasOwn(erased, "nope")).toBe(false);
   expect(Object.keys(erased)).toEqual(["0", "index", "input", "groups"]);
 });
-test("a match equals the plain array of its groups", () => {
+test("a match does not equal the plain array of its groups", () => {
   const erased: any = /c/.exec("abcde");
-  expect(erased).toEqual(["c"]);
-  expect(["c"]).toEqual(erased);
+  expect(erased).not.toEqual(["c"]);
+  expect(["c"]).not.toEqual(erased);
+  const twin: any = ["c"];
+  twin.index = 2;
+  twin.input = "abcde";
+  expect(erased).toEqual(twin);
 });
 test("named properties survive an Array.isArray-narrowed copy", () => {
   const cloned: any = cloneArrayish(/c/.exec("abcde"));

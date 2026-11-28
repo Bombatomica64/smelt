@@ -517,3 +517,54 @@ test("an erased DataView narrows back to its byte length", () => {
 "#;
     run_fixture(source, "smelt_data_view_boundary");
 }
+
+#[test]
+#[ignore = "slow: emits and runs a generated test crate; run in CI via --ignored"]
+fn a_misaligned_or_overlong_view_throws_a_range_error() {
+    // `new View(buffer, byteOffset?, length?)` validates its window
+    // (ECMA-262 `InitializeTypedArrayFromArrayBuffer`): an offset that is not a
+    // multiple of the element size, a whole-buffer view of a buffer whose
+    // length is not one, a negative offset, an offset past the end, or a
+    // length running past the end each throw a catchable `RangeError`. Smelt
+    // clamped the window instead, so a misaligned `Float64Array` read bytes
+    // the program never asked for. A window that fits still views the shared
+    // storage, and a one-byte view of a whole buffer never throws.
+    let source = r#"
+import { test, expect } from "vitest";
+test("a misaligned offset throws", () => {
+  const buffer = new ArrayBuffer(16);
+  expect(() => new Float64Array(buffer, 3)).toThrow(RangeError);
+  expect(() => new Int32Array(buffer, 2, 1)).toThrow(RangeError);
+  expect(() => new Uint16Array(buffer, -2)).toThrow(RangeError);
+});
+test("a buffer length that is no multiple of the element size throws", () => {
+  const odd = new ArrayBuffer(7);
+  expect(() => new Float32Array(odd)).toThrow(RangeError);
+  expect(() => new Uint16Array(odd, 2)).toThrow(RangeError);
+  expect(new Uint8Array(odd).length).toBe(7);
+  expect(new Uint16Array(odd, 2, 2).length).toBe(2);
+});
+test("a window past the end throws", () => {
+  const buffer = new ArrayBuffer(8);
+  expect(() => new Uint8Array(buffer, 9)).toThrow(RangeError);
+  expect(() => new Int16Array(buffer, 2, 4)).toThrow(RangeError);
+  expect(new Int16Array(buffer, 8).length).toBe(0);
+});
+test("a fitting window views the shared storage", () => {
+  const buffer = new ArrayBuffer(16);
+  const wide = new Float64Array(buffer, 8, 1);
+  wide[0] = 1.5;
+  expect(new Float64Array(buffer)[1]).toBe(1.5);
+  expect(wide.byteOffset).toBe(8);
+  let caught: any = null;
+  try {
+    new Float64Array(buffer, 4);
+  } catch (error) {
+    caught = error;
+  }
+  expect(caught instanceof RangeError).toBe(true);
+  expect(caught.message).toBe("start offset of Float64Array should be a multiple of 8");
+});
+"#;
+    run_fixture(source, "smelt_typed_array_view_range");
+}

@@ -184,6 +184,7 @@ impl ModuleBuilder<'_> {
                         kind: ExprKind::InstanceOf {
                             value: receiver,
                             class,
+                            rebound: false,
                         },
                         ty: bool_ty,
                         span,

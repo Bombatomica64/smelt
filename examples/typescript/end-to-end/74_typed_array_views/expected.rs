@@ -3197,7 +3197,7 @@ fn smelt_object_prototype_member(field: &str) -> Option<SmeltUnknown> {
 }
 
 /// Every modeled builtin member: `(class, kind, member, length, key)`.
-const SMELT_BUILTIN_MEMBERS: [(&str, &str, &str, f64, &'static str); 17] = [("Array", "prototype", "slice", 2.0, "Array.prototype.slice"), ("Array", "prototype", "concat", 1.0, "Array.prototype.concat"), ("Array", "prototype", "indexOf", 1.0, "Array.prototype.indexOf"), ("Array", "prototype", "lastIndexOf", 1.0, "Array.prototype.lastIndexOf"), ("Array", "prototype", "includes", 1.0, "Array.prototype.includes"), ("Array", "prototype", "join", 1.0, "Array.prototype.join"), ("Array", "static", "isArray", 1.0, "Array.isArray"), ("Math", "static", "random", 0.0, "Math.random"), ("Math", "static", "abs", 1.0, "Math.abs"), ("Math", "static", "floor", 1.0, "Math.floor"), ("Math", "static", "ceil", 1.0, "Math.ceil"), ("Math", "static", "round", 1.0, "Math.round"), ("Math", "static", "trunc", 1.0, "Math.trunc"), ("Math", "static", "sign", 1.0, "Math.sign"), ("Math", "static", "sqrt", 1.0, "Math.sqrt"), ("Math", "static", "max", 2.0, "Math.max"), ("Math", "static", "min", 2.0, "Math.min")];
+const SMELT_BUILTIN_MEMBERS: [(&str, &str, &str, f64, &'static str); 18] = [("Array", "prototype", "slice", 2.0, "Array.prototype.slice"), ("Array", "prototype", "concat", 1.0, "Array.prototype.concat"), ("Array", "prototype", "indexOf", 1.0, "Array.prototype.indexOf"), ("Array", "prototype", "lastIndexOf", 1.0, "Array.prototype.lastIndexOf"), ("Array", "prototype", "includes", 1.0, "Array.prototype.includes"), ("Array", "prototype", "join", 1.0, "Array.prototype.join"), ("Array", "prototype", "flatMap", 1.0, "Array.prototype.flatMap"), ("Array", "static", "isArray", 1.0, "Array.isArray"), ("Math", "static", "random", 0.0, "Math.random"), ("Math", "static", "abs", 1.0, "Math.abs"), ("Math", "static", "floor", 1.0, "Math.floor"), ("Math", "static", "ceil", 1.0, "Math.ceil"), ("Math", "static", "round", 1.0, "Math.round"), ("Math", "static", "trunc", 1.0, "Math.trunc"), ("Math", "static", "sign", 1.0, "Math.sign"), ("Math", "static", "sqrt", 1.0, "Math.sqrt"), ("Math", "static", "max", 2.0, "Math.max"), ("Math", "static", "min", 2.0, "Math.min")];
 /// Look one modeled builtin member up, returning its `length` and dispatch key.
 fn smelt_builtin_member_entry(class: &str, kind: &str, member: &str) -> Option<(f64, &'static str)> { SMELT_BUILTIN_MEMBERS.into_iter().find(|(entry_class, entry_kind, entry_member, _, _)| *entry_class == class && *entry_kind == kind && *entry_member == member).map(|(_, _, _, length, key)| (length, key)) }
 
@@ -3222,7 +3222,7 @@ thread_local! { static SMELT_BUILTIN_MEMBER_VALUES: ::std::cell::RefCell<::std::
 fn smelt_builtin_member_value(class: &str, kind: &str, member: &str) -> Option<SmeltUnknown> {
     let (length, key) = smelt_builtin_member_entry(class, kind, member)?;
     let receiver_method = kind == "prototype";
-    Some(SMELT_BUILTIN_MEMBER_VALUES.with(|values| values.borrow_mut().entry(key).or_insert_with(|| { let function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| Ok(smelt_builtin_member_apply(key, args))); smelt_link_function_identity_key(&function, smelt_method_identity(key).named(member)); smelt_register_function_length(&function, length); if receiver_method { smelt_register_receiver_method(&function); } SmeltUnknown::Function(function) }).clone()))
+    Some(SMELT_BUILTIN_MEMBER_VALUES.with(|values| values.borrow_mut().entry(key).or_insert_with(|| { let function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| smelt_builtin_member_apply(key, args)); smelt_link_function_identity_key(&function, smelt_method_identity(key).named(member)); smelt_register_function_length(&function, length); if receiver_method { smelt_register_receiver_method(&function); } SmeltUnknown::Function(function) }).clone()))
 }
 
 /// The receiver of a `String.prototype` method as a Rust string.
@@ -3233,11 +3233,12 @@ fn smelt_builtin_receiver_elements(value: &SmeltUnknown) -> Option<Vec<SmeltUnkn
 fn smelt_builtin_relative_index(value: &SmeltUnknown, len: usize, default: usize) -> usize { match value { SmeltUnknown::Undefined => default, other => { let raw = match other { SmeltUnknown::Number(value) => *value, _ => 0.0 }; if raw.is_nan() { 0 } else if raw < 0.0 { let from_end = len as f64 + raw; if from_end < 0.0 { 0 } else { from_end as usize } } else { (raw as usize).min(len) } } } }
 
 /// Apply one modeled builtin member to its arguments.
-fn smelt_builtin_member_apply(key: &str, args: Vec<SmeltUnknown>) -> SmeltUnknown {
+fn smelt_builtin_member_apply(key: &str, args: Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn ::std::error::Error>> {
+    if key == "Array.prototype.flatMap" { return smelt_builtin_flat_map(&args); }
     let receiver = args.first().map_or(SmeltUnknown::Undefined, Clone::clone);
     let first = args.get(1).map_or(SmeltUnknown::Undefined, Clone::clone);
     let second = args.get(2).map_or(SmeltUnknown::Undefined, Clone::clone);
-    match key {
+    Ok(match key {
         "Array.prototype.slice" => match smelt_builtin_receiver_elements(&receiver) { Some(values) => { let len = values.len(); let start = smelt_builtin_relative_index(&first, len, 0); let end = smelt_builtin_relative_index(&second, len, len); SmeltUnknown::Array(values.into_iter().skip(start).take(end.saturating_sub(start)).collect::<Vec<_>>().into()) } None => SmeltUnknown::Undefined }
         "Array.prototype.concat" => match smelt_builtin_receiver_elements(&receiver) { Some(values) => { let mut result = values; for argument in args.into_iter().skip(1) { match argument { SmeltUnknown::Array(items) => result.extend(items.into_vec()), other => result.push(other) } } SmeltUnknown::Array(result.into()) } None => SmeltUnknown::Undefined }
         "Array.prototype.indexOf" | "Array.prototype.lastIndexOf" => match smelt_builtin_receiver_elements(&receiver) { Some(values) => { let mut found: f64 = -1.0; for (index, item) in values.iter().enumerate() { if item.same_js_key(&first) { found = index as f64; if key == "Array.prototype.indexOf" { break; } } } SmeltUnknown::Number(found) } None => SmeltUnknown::Undefined }
@@ -3254,7 +3255,26 @@ fn smelt_builtin_member_apply(key: &str, args: Vec<SmeltUnknown>) -> SmeltUnknow
         "Math.sqrt" => SmeltUnknown::Number(smelt_unknown_to_number(&receiver).sqrt()),
         "Math.max" | "Math.min" => { let is_max = key == "Math.max"; let mut result = if is_max { f64::NEG_INFINITY } else { f64::INFINITY }; for argument in &args { let value = smelt_unknown_to_number(argument); if value.is_nan() { result = f64::NAN; break; } if (is_max && value > result) || (!is_max && value < result) { result = value; } } SmeltUnknown::Number(result) }
         _ => SmeltUnknown::Undefined,
+    })
+}
+
+/// `Array.prototype.flatMap` applied to an erased receiver: `args` is the
+/// receiver, the mapper, and an ignored `thisArg`.
+fn smelt_builtin_flat_map(args: &[SmeltUnknown]) -> Result<SmeltUnknown, Box<dyn ::std::error::Error>> {
+    let receiver = args.first().map_or(SmeltUnknown::Undefined, Clone::clone);
+    let Some(values) = smelt_builtin_receiver_elements(&receiver) else { return Ok(SmeltUnknown::Undefined); };
+    let Some(SmeltUnknown::Function(mapper)) = args.get(1) else { return Err(smelt_prototype_type_error("flatMap mapper function is not callable".to_owned())); };
+    let mut result = Vec::with_capacity(values.len());
+    let mut index = 0.0_f64;
+    for item in values {
+        let produced = mapper(vec![item, SmeltUnknown::Number(index), receiver.clone()])?;
+        index += 1.0;
+        match produced {
+            SmeltUnknown::Array(items) => result.extend(items.into_vec()),
+            other => result.push(other),
+        }
     }
+    Ok(SmeltUnknown::Array(result.into()))
 }
 
 /// The callable an erased value holds: a function, or a callable object's `__smelt_call`.
@@ -3881,6 +3901,30 @@ thread_local! { static SMELT_PANIC_VALUE: ::std::cell::RefCell<Option<SmeltUnkno
 fn smelt_panic_payload(error: &(dyn ::std::error::Error + 'static)) -> SmeltPanic { let value = smelt_thrown_value(error); let message = smelt_thrown_message(&value); let mut class = "Error".to_owned(); if let SmeltUnknown::Object(object) = &value { if let Some(SmeltUnknown::String(name)) = object.get("__smelt_error") { class = name.to_string(); } else if let Some(SmeltUnknown::String(name)) = object.get("name") { class = name.to_string(); } } SMELT_PANIC_VALUE.with(|slot| { *slot.borrow_mut() = Some(value); }); SmeltPanic { class, message } }
 /// Present a caught panic as the value a `catch` binds.
 fn smelt_panic_error_value(panic: &(dyn ::std::any::Any + Send)) -> SmeltUnknown { if let Some(value) = SMELT_PANIC_VALUE.with(|slot| slot.borrow_mut().take()) { if panic.downcast_ref::<SmeltPanic>().is_some() { return value; } } SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_error".to_owned(), SmeltUnknown::String(smelt_panic_class(panic).into())), ("message".to_owned(), SmeltUnknown::String(smelt_panic_message(panic).into())), ("stack".to_owned(), SmeltUnknown::Undefined), ("cause".to_owned(), SmeltUnknown::Undefined)]))) }
+
+/// A typed-array view over `buffer`, or the `RangeError` JavaScript throws for its window.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "`ToIndex` converts a checked, integral, non-negative JavaScript number to an index")]
+fn smelt_typed_array_view_throwing(kind: SmeltTypedArrayKind, buffer: &SmeltArrayBuffer, byte_offset: f64, length: Option<f64>) -> Result<SmeltTypedArray, Box<dyn ::std::error::Error>> {
+    let range_error = |message: String| smelt_throw(SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_error".to_owned(), SmeltUnknown::String("RangeError".into())), ("message".to_owned(), SmeltUnknown::String(message.into())), ("stack".to_owned(), SmeltUnknown::Undefined), ("cause".to_owned(), SmeltUnknown::Undefined)]))));
+    let to_index = |value: f64| -> Option<usize> { let integer = if value.is_nan() { 0.0 } else { value.trunc() }; if integer < 0.0 || integer > 9_007_199_254_740_991.0 { None } else { Some(integer as usize) } };
+    let (name, width) = (kind.class_name(), kind.byte_width());
+    let buffer_length = buffer.storage().borrow().len();
+    let Some(offset) = to_index(byte_offset) else { return Err(range_error(format!("Start offset {byte_offset} is outside the bounds of the buffer"))); };
+    if !offset.is_multiple_of(width) { return Err(range_error(format!("start offset of {name} should be a multiple of {width}"))); }
+    let length = match length {
+        None => {
+            if !buffer_length.is_multiple_of(width) { return Err(range_error(format!("byte length of {name} should be a multiple of {width}"))); }
+            if offset > buffer_length { return Err(range_error(format!("Start offset {offset} is outside the bounds of the buffer"))); }
+            (buffer_length - offset) / width
+        }
+        Some(requested) => {
+            let fits = to_index(requested).filter(|length| length.checked_mul(width).and_then(|bytes| bytes.checked_add(offset)).is_some_and(|end| end <= buffer_length));
+            let Some(length) = fits else { return Err(range_error(format!("Invalid typed array length: {requested}"))); };
+            length
+        }
+    };
+    Ok(SmeltTypedArray::over_buffer(kind, buffer, offset, Some(length)))
+}
 
 impl Eq for SmeltUnknown {}
 
@@ -5148,7 +5192,10 @@ impl SmeltFromUnknown for SmeltTextDecoder { fn smelt_from_unknown(value: SmeltU
 fn smelt_text_decoder_host_method(object: &SmeltObject, name: &str) -> Option<SmeltUnknown> { if !object.contains_key("__smelt_textdecoder") || name != "decode" { return None; } let decoder = <SmeltTextDecoder as SmeltFromUnknown>::smelt_from_unknown(SmeltUnknown::Object(object.clone())); Some(SmeltUnknown::Function(::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| { let bytes = args.first().cloned().map_or_else(SmeltUint8Array::new, <SmeltUint8Array as SmeltFromUnknown>::smelt_from_unknown); Ok(SmeltUnknown::String(decoder.decode(&bytes).into())) }))) }
 
 // @smelt:prelude-end — generated program below
-fn main() {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let whole_buffer: SmeltTypedArray;
+    let window: SmeltTypedArray;
+    let converted: SmeltTypedArray;
     let wide: SmeltTypedArray;
     let mut shared: SmeltTypedArray;
     let mut copied: SmeltTypedArray;
@@ -5157,6 +5204,12 @@ fn main() {
     let mut element: f64;
     let mut encoder: SmeltTextEncoder;
     let mut encoded: SmeltTypedArray;
+    let _smelt_tmp_20: f64;
+    let _smelt_tmp_21: SmeltList<f64>;
+    let _smelt_tmp_22: SmeltTypedArray;
+    let _smelt_tmp_24: f64;
+    let _smelt_tmp_25: f64;
+    let _smelt_tmp_26: f64;
     let _smelt_tmp_28: f64;
     let _smelt_tmp_29: f64;
     let _smelt_tmp_31: f64;
@@ -5243,15 +5296,17 @@ fn main() {
     let mut from_elements: SmeltTypedArray = SmeltTypedArray::with_elements(SmeltTypedArrayKind::Uint8, &_smelt_tmp_14.to_vec());
     let from_length: SmeltTypedArray = SmeltTypedArray::with_length(SmeltTypedArrayKind::Uint8, ((3.0) as f64).max(0.0) as usize);
     let buffer: SmeltArrayBuffer = SmeltArrayBuffer::new(((8.0) as f64).max(0.0) as usize);
-    let whole_buffer: SmeltTypedArray = SmeltTypedArray::over_buffer(SmeltTypedArrayKind::Float64, &buffer.clone(), 0, None);
-    let window: SmeltTypedArray = SmeltTypedArray::over_buffer(SmeltTypedArrayKind::Uint8, &buffer.clone(), ((2.0) as f64).max(0.0) as usize, Some((((4.0)) as f64).max(0.0) as usize));
-    let _smelt_tmp_20: f64 = -1.0;
-    let _smelt_tmp_21: SmeltList<f64> = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![_smelt_tmp_20]; smelt_list_items }));
-    let _smelt_tmp_22: SmeltTypedArray = SmeltTypedArray::with_elements(SmeltTypedArrayKind::Int8, &_smelt_tmp_21.to_vec());
-    let converted: SmeltTypedArray = SmeltTypedArray::with_elements(SmeltTypedArrayKind::Uint8, &_smelt_tmp_22.to_elements());
-    let _smelt_tmp_24: f64 = from_elements.clone().length();
-    let _smelt_tmp_25: f64 = from_elements.clone().byte_length();
-    let _smelt_tmp_26: f64 = from_elements.clone().byte_offset();
+    let _smelt_tmp_18: SmeltTypedArray = smelt_typed_array_view_throwing(SmeltTypedArrayKind::Float64, &buffer.clone(), 0.0, None)?;
+    whole_buffer = _smelt_tmp_18;
+    let _smelt_tmp_19: SmeltTypedArray = smelt_typed_array_view_throwing(SmeltTypedArrayKind::Uint8, &buffer.clone(), ((2.0) as f64), Some(((4.0) as f64)))?;
+    window = _smelt_tmp_19;
+    _smelt_tmp_20 = -1.0;
+    _smelt_tmp_21 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![_smelt_tmp_20]; smelt_list_items }));
+    _smelt_tmp_22 = SmeltTypedArray::with_elements(SmeltTypedArrayKind::Int8, &_smelt_tmp_21.to_vec());
+    converted = SmeltTypedArray::with_elements(SmeltTypedArrayKind::Uint8, &_smelt_tmp_22.to_elements());
+    _smelt_tmp_24 = from_elements.clone().length();
+    _smelt_tmp_25 = from_elements.clone().byte_length();
+    _smelt_tmp_26 = from_elements.clone().byte_offset();
     let _ = { println!("{} {} {}", smelt_console_number(_smelt_tmp_24), smelt_console_number(_smelt_tmp_25), smelt_console_number(_smelt_tmp_26)); };
     _smelt_tmp_28 = from_length.length();
     _smelt_tmp_29 = buffer.clone().byte_length();
@@ -5404,5 +5459,5 @@ fn main() {
     _smelt_tmp_154 = encoded.clone().subarray((1.0) as i64, None);
     _smelt_tmp_155 = _smelt_tmp_154.length();
     let _ = { println!("{} {}", smelt_console_number(_smelt_tmp_155), smelt_console_number(encoded.get(0.0).unwrap_or_else(smelt_number_hole))); };
-    return;
+    return Ok(());
 }
