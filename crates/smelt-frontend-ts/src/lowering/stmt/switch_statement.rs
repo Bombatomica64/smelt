@@ -118,8 +118,8 @@ impl ModuleBuilder<'_> {
             // spells `continue` inside a `match` arm inside a loop.
             // Rejecting the second was the only reason Hono's HTML
             // escaper (`utils/html.ts`, `default: continue` inside the
-            // scan loop) was a blocker. The synthetic-loop lowering
-            // used for real fallthrough still rejects it, and says why.
+            // scan loop) was a blocker. The `===` chain used for real
+            // fallthrough emits it the same way.
             let case_ends =
                 self.with_narrowing(case_narrowing, |this| -> Result<bool, SmeltError> {
                     let mut case_ends = false;
@@ -218,16 +218,39 @@ impl ModuleBuilder<'_> {
         Ok(())
     }
 
+    /// The label of the region a `switch`'s `break` leaves, unique per
+    /// `switch` (its source offset).
+    pub(in crate::lowering) fn switch_break_symbol(
+        &mut self,
+        switch_stmt: &oxc::ast::ast::SwitchStatement<'_>,
+    ) -> smelt_hir::Symbol {
+        self.ctx
+            .krate
+            .symbols
+            .intern(&format!("__smelt_switch_break_{}", switch_stmt.span.start))
+    }
+
     /// Whether a case of `switch_stmt` holds an unlabelled `break` below its
     /// top level (the statements of the case and of a block that is one of
     /// them), outside any loop or nested `switch` (whose `break` it would be).
     pub(in crate::lowering) fn switch_has_nested_break(
         switch_stmt: &oxc::ast::ast::SwitchStatement<'_>,
     ) -> bool {
+        Self::switch_breaks(switch_stmt, false)
+    }
+
+    /// Whether a case of `switch_stmt` holds an unlabelled `break` that leaves
+    /// it: [`Self::switch_has_nested_break`], plus (`top_level`) one at a
+    /// case's top level, which leaves a `===` chain too (a `Match` arm ends by
+    /// itself instead).
+    pub(in crate::lowering) fn switch_breaks(
+        switch_stmt: &oxc::ast::ast::SwitchStatement<'_>,
+        top_level: bool,
+    ) -> bool {
         switch_stmt.cases.iter().any(|case| {
             case.consequent.iter().any(|statement| match statement {
                 Statement::BlockStatement(block) => block.body.iter().any(nested_break),
-                Statement::BreakStatement(_) => false,
+                Statement::BreakStatement(break_stmt) => top_level && break_stmt.label.is_none(),
                 other => nested_break(other),
             })
         })

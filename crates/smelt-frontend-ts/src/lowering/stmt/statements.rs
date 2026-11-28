@@ -497,20 +497,24 @@ impl ModuleBuilder<'_> {
             Statement::SwitchStatement(switch_stmt) => {
                 // A switch with real fallthrough (a case body that can reach
                 // the next case) cannot lower to a HIR `Match`; route it
-                // through the general single-iteration-loop lowering where JS
-                // `break` maps to the loop break.
+                // through the general `===` chain, in a labelled region its
+                // `break` leaves.
                 let scrutinee = self.expression(&switch_stmt.discriminant, body)?;
                 // The `Match` arms compare by literal label against a text,
                 // number or boolean scrutinee. A switch the labels cannot
                 // express that way (an erased or union discriminant, a label
                 // that is no literal: `case undefined`, `case Kind.A`) is a
                 // chain of `===` tests, exactly JavaScript's definition of
-                // `switch`, through the same loop lowering.
+                // `switch`, through the same chain lowering.
                 if Self::switch_has_fallthrough(switch_stmt)
                     || !self.switch_matches_by_label(switch_stmt, Self::expr_ty(body, scrutinee))
                 {
-                    // Its `break` is the synthetic loop's.
-                    let enclosing_switch = self.switch_break_label.take();
+                    // Every `break` of it, top-level or nested, leaves the
+                    // chain's labelled region.
+                    let break_label = Self::switch_breaks(switch_stmt, true)
+                        .then(|| self.switch_break_symbol(switch_stmt));
+                    let enclosing_switch =
+                        std::mem::replace(&mut self.switch_break_label, break_label);
                     let lowered =
                         self.switch_fallthrough_statement(switch_stmt, scrutinee, body, block);
                     self.switch_break_label = enclosing_switch;
@@ -520,12 +524,8 @@ impl ModuleBuilder<'_> {
                 // ..`) leaves the switch: the `Match` is lowered inside a
                 // labelled region that `break` targets. A top-level `break`
                 // ends its case by ending the arm (below).
-                let break_label = Self::switch_has_nested_break(switch_stmt).then(|| {
-                    self.ctx
-                        .krate
-                        .symbols
-                        .intern(&format!("__smelt_switch_break_{}", switch_stmt.span.start))
-                });
+                let break_label = Self::switch_has_nested_break(switch_stmt)
+                    .then(|| self.switch_break_symbol(switch_stmt));
                 let enclosing_switch = std::mem::replace(&mut self.switch_break_label, break_label);
                 let lowered = self.match_switch_statement(switch_stmt, scrutinee, body, block);
                 self.switch_break_label = enclosing_switch;

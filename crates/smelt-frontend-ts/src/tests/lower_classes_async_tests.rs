@@ -1418,9 +1418,9 @@ fn rejects_async_functions_without_promise_return_type() -> Result<(), String> {
 }
 
 #[test]
-fn lowers_switch_fallthrough_as_single_pass_loop() -> Result<(), String> {
+fn lowers_switch_fallthrough_as_equality_chain() -> Result<(), String> {
     // Genuine fallthrough (a case body reaching the next case) lowers through
-    // the single-iteration-loop chain instead of a HIR `Match`.
+    // the `===` chain instead of a HIR `Match`.
     let mut ctx = HirCtx::new();
     let _module_id = lower_ok(
         ts!("export function label(status: string): string {

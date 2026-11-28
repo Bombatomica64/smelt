@@ -93,12 +93,16 @@ Planted defects, each detected:
 
 An unlabelled `break` below a `case`'s top level (`case 1: if (c) break; ..`) left the enclosing *loop*: the TS
 frontend lowered it as a plain `Break`. It now leaves the `switch`: the `Match` is lowered inside a labelled region
-the `break` targets (`stmt/switch_statement.rs`, `switch_break_label`); a loop or a fallthrough `switch` (a
-single-iteration loop) inside the case clears the label, so their `break` stays theirs.
+the `break` targets (`stmt/switch_statement.rs`, `switch_break_label`); a loop inside the case clears the label,
+and a nested `switch` sets its own, so their `break` stays theirs.
+
+A `switch` lowered as a `===` chain (fallthrough, or labels that are not literals) was a single-iteration
+`while (true) { ..; break }` loop, so a nested `continue` bound to it: `case 0: if (c) continue;` re-ran the chain
+instead of continuing the enclosing loop (silently wrong), and a top-level one was refused. The chain now sits in
+the same kind of labelled region, which every `break` of the switch leaves (`stmt/switch_fallthrough.rs`); a
+`continue` binds to the enclosing loop at any depth. Node parity: `switch_chain_continue`.
 
 ## 4. Not covered
 
 * A shared `return`/`throw` reached by two arms before the join (two `case`s falling into one `return`) is an exit:
   such a branch keeps the per-arm emission. It does not compound across sequential statements.
-* A nested `continue` inside a fallthrough `switch` (one lowered as a single-iteration loop) still binds to that
-  loop; only a top-level `continue` is refused there.

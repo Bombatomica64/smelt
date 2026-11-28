@@ -2542,4 +2542,14 @@ fn callback_return_from_the_checker() -> TestResult {
         ensure(source.contains(slot), format!("no callback typed `{slot}`"))?;
     }
     Ok(())
+/// `continue` inside a `switch` lowered as a `===` chain (fallthrough, or
+/// labels that are not literals), at the case's top level or nested in an
+/// `if`, a block or a `try`/`finally`, in `for`, `while`, `do`/`while` and
+/// `for...of` loops, beside labelled `continue`/`break`, an inner loop's own
+/// `break`/`continue` and a nested chain. The chain was a single-iteration
+/// loop, so a nested `continue` re-ran the chain instead of continuing the
+/// enclosing loop; it now sits in a labelled region only its `break` leaves.
+#[test]
+fn switch_chain_continue() -> TestResult {
+    verify_node_parity("switch_chain_continue")
 }

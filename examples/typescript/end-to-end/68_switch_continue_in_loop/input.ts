@@ -10,10 +10,9 @@
 // (`src/utils/html.ts`), whose `default` arm continues the scan loop, could not
 // lower at all.
 //
-// The switch lowering that handles real FALLTHROUGH still rejects `continue`,
-// and for a reason that is not conservatism: it builds a synthetic
-// single-iteration loop, so a `continue` inside it would bind to that loop
-// instead of the source one. That needs labeled loops, not this rule.
+// The switch lowering that handles real FALLTHROUGH (a `===` chain) emits
+// `continue` the same way: its `break` leaves a labelled region, so a
+// `continue` still binds to the source loop.
 
 // The Hono shape: scan a string, and skip characters that need no escaping.
 function escapeHtml(str: string): string {
