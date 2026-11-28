@@ -88,6 +88,9 @@ macro_rules! define_expr_text {
                     format!("global_set {} = {}", item_ref(krate, *item), expr_ref(*value))
                 }
                 ExprKind::GeneratorYield { value } => format!("yield {}", expr_ref(*value)),
+                ExprKind::GeneratorYieldDelegated { delegate, value } => {
+                    format!("yield {} delegating to {}", expr_ref(*value), expr_ref(*delegate))
+                }
                 ExprKind::Call { .. }
                 | ExprKind::Method { .. }
                 | ExprKind::New { .. }

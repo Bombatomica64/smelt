@@ -73,7 +73,7 @@ async function consume(): Promise<string> {
         "{source}"
     );
     assert!(
-        source.contains("iterator.clone().resume(SmeltGeneratorCommand::Next(Default::default()))"),
+        source.contains("iterator.clone().resume(SmeltGeneratorCommand::Next(None))"),
         "{source}"
     );
 }

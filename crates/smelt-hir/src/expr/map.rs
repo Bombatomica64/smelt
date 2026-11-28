@@ -132,6 +132,12 @@ macro_rules! define_try_map_child_exprs {
                         args: map_vec(args, f)?,
                     },
                     Self::GeneratorYield { value } => Self::GeneratorYield { value: f(value)? },
+                    Self::GeneratorYieldDelegated { delegate, value } => {
+                        Self::GeneratorYieldDelegated {
+                            delegate: f(delegate)?,
+                            value: f(value)?,
+                        }
+                    }
                     Self::Method {
                         receiver,
                         method,

@@ -268,8 +268,12 @@ macro_rules! define_rvalue_text {
                     value,
                     unwind,
                     cleanup,
+                    delegate,
                 } => {
                     let mut text = format!("yield {}", operand_text(value));
+                    if let Some(delegate) = delegate {
+                        push_fmt(&mut text, format_args!(" delegating to {}", operand_text(delegate)));
+                    }
                     if let Some(handler) = unwind {
                         push_fmt(&mut text, format_args!(" unwind bb{}", handler.catch_block.0));
                     }

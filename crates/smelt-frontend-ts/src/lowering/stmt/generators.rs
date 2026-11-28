@@ -3,7 +3,9 @@
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
 use oxc::ast::ast::{Argument, Expression};
-use smelt_hir::{Body, Expr, ExprKind, GeneratorResumeKind, Literal, Stmt, Type};
+use smelt_hir::{
+    Body, Expr, ExprKind, GeneratorResumeKind, Literal, LocalDecl, Pattern, Stmt, Type,
+};
 
 impl ModuleBuilder<'_> {
     /// Lower a generator suspension point while preserving its concrete yield type.
@@ -247,6 +249,37 @@ impl ModuleBuilder<'_> {
                     break;
                 }
             }
+            // An `[Symbol.iterator]()` that answers a hand-written iterator
+            // (a class instance, `return this`) is driven through the
+            // carrier over its protocol methods, which forwards what the
+            // outer generator receives (`next(v)`, `throw(e)`, `return(v)`).
+            if resolved.is_none()
+                && let Some(generator) = self.iteration_generator(value, span, body)?
+                && let Some(Type::Generator {
+                    yield_ty,
+                    return_ty,
+                    ..
+                }) = self
+                    .ctx
+                    .krate
+                    .types
+                    .get(Self::expr_ty(body, generator))
+                    .cloned()
+            {
+                if !self.type_assignable_to(yield_ty, outer_yield_ty) {
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "yield* item type is not assignable to the outer yield type",
+                    ));
+                }
+                return Ok(self.delegation_steps(
+                    generator,
+                    (yield_ty, return_ty),
+                    outer_yield_ty,
+                    span,
+                    body,
+                ));
+            }
             let Some((iterator, generator_ty, return_ty)) = resolved else {
                 return Err(SmeltError::unsupported(
                     span,
@@ -267,11 +300,192 @@ impl ModuleBuilder<'_> {
             });
             (generator, return_ty)
         };
+        if !outer_is_async
+            && let Some(Type::Generator {
+                is_async: false,
+                yield_ty,
+                return_ty: delegate_return_ty,
+                ..
+            }) = self
+                .ctx
+                .krate
+                .types
+                .get(Self::expr_ty(body, generator))
+                .cloned()
+        {
+            return Ok(self.delegation_steps(
+                generator,
+                (yield_ty, delegate_return_ty),
+                outer_yield_ty,
+                span,
+                body,
+            ));
+        }
         Ok(body.push_expr(Expr {
             kind: ExprKind::GeneratorDelegate { generator },
             ty: return_ty,
             span,
         }))
+    }
+
+    /// `yield* generator` in a synchronous generator, as ECMA-262 states it:
+    /// a block expression
+    ///
+    /// ```text
+    /// { const d = generator;
+    ///   let step = d.next();
+    ///   while (!step.done) step = <yield step.value, delegating to d>;
+    ///   step.value }
+    /// ```
+    ///
+    /// Each suspension (HIR `GeneratorYieldDelegated`) forwards the command
+    /// the outer generator is resumed with to `d`: `next(v)` and `throw(e)`
+    /// answer `d`'s next step, and a `return(v)` that `d` completes ends the
+    /// outer generator through its `finally` blocks, as a `return` there
+    /// would. The first `d.next()` carries no value, as `yield*`'s does.
+    fn delegation_steps(
+        &mut self,
+        generator: smelt_hir::ExprId,
+        (yield_ty, return_ty): (smelt_hir::TypeId, smelt_hir::TypeId),
+        outer_yield_ty: smelt_hir::TypeId,
+        span: smelt_hir::Span,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let generator_ty = Self::expr_ty(body, generator);
+        let step_ty = self.ctx.krate.types.intern(Type::GeneratorResult {
+            yield_ty,
+            return_ty,
+        });
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        let block = body.push_block(span);
+        let local = |this: &mut Self, arena: &mut Body, name: &str, ty, mutable| {
+            let symbol = this.intern_synthesized_name(name);
+            arena.push_local(LocalDecl {
+                name: Some(symbol),
+                ty,
+                mutable,
+                span,
+            })
+        };
+        let read = |arena: &mut Body, of, ty| {
+            arena.push_expr(Expr {
+                kind: ExprKind::Local(of),
+                ty,
+                span,
+            })
+        };
+        let delegate = local(self, body, "__smelt_delegate", generator_ty, false);
+        let delegate_pat = body.push_pattern(Pattern::Binding(delegate));
+        body.push_stmt_to_block(
+            block,
+            Stmt::Let {
+                pat: delegate_pat,
+                ty: generator_ty,
+                value: Some(generator),
+            },
+        );
+        let step = local(self, body, "__smelt_delegate_step", step_ty, true);
+        let first_receiver = read(body, delegate, generator_ty);
+        let first = body.push_expr(Expr {
+            kind: ExprKind::GeneratorNext {
+                generator: first_receiver,
+                value: None,
+                kind: GeneratorResumeKind::Next,
+            },
+            ty: step_ty,
+            span,
+        });
+        let step_pat = body.push_pattern(Pattern::Binding(step));
+        body.push_stmt_to_block(
+            block,
+            Stmt::Let {
+                pat: step_pat,
+                ty: step_ty,
+                value: Some(first),
+            },
+        );
+        // `while (!step.done) step = yield step.value (delegating to d);`
+        let tested = read(body, step, step_ty);
+        let done = body.push_expr(Expr {
+            kind: ExprKind::GeneratorDone { result: tested },
+            ty: bool_ty,
+            span,
+        });
+        let open = body.push_expr(Expr {
+            kind: ExprKind::UnaryOp {
+                op: smelt_hir::UnaryOp::Not,
+                operand: done,
+            },
+            ty: bool_ty,
+            span,
+        });
+        let steps = body.push_block(span);
+        let yielded_step = read(body, step, step_ty);
+        let step_value = body.push_expr(Expr {
+            kind: ExprKind::GeneratorValue {
+                result: yielded_step,
+            },
+            ty: yield_ty,
+            span,
+        });
+        // As a `yield` does: the value at the outer yield type, unless that
+        // is still being inferred from the body.
+        let exposed = if yield_ty == outer_yield_ty
+            || matches!(
+                self.ctx.krate.types.get(outer_yield_ty),
+                Some(Type::Unknown)
+            ) {
+            step_value
+        } else {
+            body.push_expr(Expr {
+                kind: ExprKind::TypeAssert { value: step_value },
+                ty: outer_yield_ty,
+                span,
+            })
+        };
+        let forwarded_to = read(body, delegate, generator_ty);
+        let suspend = body.push_expr(Expr {
+            kind: ExprKind::GeneratorYieldDelegated {
+                delegate: forwarded_to,
+                value: exposed,
+            },
+            ty: step_ty,
+            span,
+        });
+        let target = read(body, step, step_ty);
+        body.push_stmt_to_block(
+            steps,
+            Stmt::Assign {
+                target,
+                value: suspend,
+            },
+        );
+        body.push_stmt_to_block(
+            block,
+            Stmt::While {
+                cond: open,
+                body: steps,
+            },
+        );
+        let completed_step = read(body, step, step_ty);
+        let completion = body.push_expr(Expr {
+            kind: ExprKind::GeneratorValue {
+                result: completed_step,
+            },
+            ty: return_ty,
+            span,
+        });
+        if let Some(slot) = usize::try_from(block.0)
+            .ok()
+            .and_then(|index| body.blocks.get_mut(index))
+        {
+            slot.tail = Some(completion);
+        }
+        body.push_expr(Expr {
+            kind: ExprKind::Block(block),
+            ty: return_ty,
+            span,
+        })
     }
 
     /// Lower a generator `next`, `return`, or `throw` call, resuming the generator.
@@ -280,7 +494,13 @@ impl ModuleBuilder<'_> {
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        let Expression::StaticMemberExpression(member) = &call.callee else {
+        // `it.return!(v)` / `it.throw!(e)`: the iterator interfaces declare
+        // both optional, so a typed call asserts them present.
+        let callee = match &call.callee {
+            Expression::TSNonNullExpression(asserted) => &asserted.expression,
+            callee => callee,
+        };
+        let Expression::StaticMemberExpression(member) = callee else {
             return Ok(None);
         };
         let method = member.property.name.as_str();

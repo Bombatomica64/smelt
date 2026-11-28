@@ -1,6 +1,7 @@
 # The iterator protocol: hand-written iterators
 
-Status: implemented. Replaces the refusal #552 added for item 4 of the round-3 audit ("iterating an instance whose
+Status: implemented (resume forwarding, `yield*` over hand-written iterators and adapter identity: the
+iterator-protocol completion). Replaces the refusal #552 added for item 4 of the round-3 audit ("iterating an instance whose
 `[Symbol.iterator]()` returns a hand-written iterator object"). Code: `crates/smelt-frontend-ts/src/lowering/stmt/iterator_protocol.rs`.
 
 ## 0. The problem
@@ -52,44 +53,78 @@ erased resume channel it was.)
 `lowering::stmt::iterator_protocol` turns a hand-written iterator into that carrier:
 
 * **Iterator object literal in an `Iterator<T, R>` slot** (a return, an argument, an annotated binding):
-  `{ next, return }` is not built as a record. `next` and `return` are lowered as functions answering
-  `IteratorResult<T, R>` (their contextual type), and become the arguments of the adapter below. A function-valued
-  `[Symbol.iterator]` or `throw` member is accepted and not kept.
+  `{ next, return, throw }` is not built as a record. Each member is lowered as a function answering
+  `IteratorResult<T, R>` (their contextual type), in source order, and becomes an argument of the adapter below. A
+  function-valued `[Symbol.iterator]` member is accepted and not kept.
 * **Instance of a class (or record/interface value) whose `next()` answers `IteratorResult<T, R>`**, in an
   `Iterator<T>` slot (`[Symbol.iterator](): IterableIterator<T> { return this; }`, `drain(new Range())`) or
-  answered by `[Symbol.iterator]()` to a consumer: the adapter over its methods.
+  answered by `[Symbol.iterator]()` to a consumer or to `yield*`: the adapter over its methods.
 * **A generator of another type** in an `Iterator<T>` slot (a `Generator<T>` whose `TNext` is erased): the adapter
-  over its own `next`/`return`.
+  over its own `next`/`return`/`throw`.
 * **Step literal `{ value, done }` in an `IteratorResult<T, R>` slot**: `done: false` (or no `done`) builds
   `Yielded(value)`, `done: true` builds `Complete(value)` (`value` evaluated and dropped when `R` is `undefined`),
   and a computed `done` evaluates both properties once, in source order, then picks the arm at run time
   (HIR ops `GeneratorYielded` / `GeneratorCompleted`).
 
-The adapter is a synthesized generator closure, called once with the iterator (or its `next`/`return` closures):
+The adapter is the runtime carrier `SmeltGenerator::from_protocol` (HIR/MIR op `GeneratorFromProtocol`), built by an
+immediately called synthesized closure over the iterator that hands it one closure per protocol method:
 
 ```text
-function* (it) {
-  while (true) {
-    const step = it.next();
-    if (step.done) return;          // a done step never closes the iterator
-    let open = true;
-    try { yield step.value; open = false; }
-    finally { if (open) it.return(); }
-  }
-}
+(it) => from_protocol(
+  it,                                         // the adapted object: its identity
+  () => it.next(),     (sent: N) => it.next(sent),
+  () => it.return(),   (value: R) => it.return(value),
+  (error: unknown) => it.throw(error),
+)
 ```
 
-A consumer that leaves early resumes the generator with `Return` at the `yield`, as it closes any generator, so
-the `finally` calls the iterator's `return()`. A normal resume clears `open` first; a `done` step and a `next()`
-that throws leave outside the `try`. That is `IteratorClose`, by construction, for every consumer that already
-closes generators (`for...of`'s `finally`). An iterator without `return()` gets no `try`.
+(those the iterator has; the `(sent)`/`(value)` forms only when the method declares a parameter and the channel is
+not `undefined`). Each resume command the carrier receives is then exactly one call of the matching method, as
+JavaScript's consumers make it:
+
+* `Next(None)` calls `next()` (`for...of`, spread, destructuring, `gen.next()`), `Next(Some(v))` calls `next(v)`
+  (`gen.next(v)`, `yield*` forwarding). The resume command carries whether a value was sent
+  (`SmeltGeneratorCommand::Next(Option<N>)`, `Return(Option<R>)`): a generator body reads `None` as its resume
+  type's default, as before, and a hand-written `next(sent?)` sees `undefined`. The first `gen.next(v)` reaches the
+  iterator too (only a generator body discards the value that starts it).
+* `Return(..)` calls `return()` / `return(v)` and answers its step (which may even yield); an iterator without
+  `return` completes with the value sent. `for...of` leaving early, and a destructuring that took what it binds,
+  send `Return(None)`: that is `IteratorClose`, and a `done` step or a throwing `next()` never reach it.
+* `Throw(e)` calls `throw(e)`; without `throw` it closes the iterator and throws the `TypeError` `yield*` throws
+  ("The iterator does not provide a 'throw' method.").
+
+The carrier does not latch completion: a `next()` after a `done` step calls the hand-written `next()` again, as
+JavaScript does (a generator body still answers `done` for good). Identity: the carrier keeps the adapted object
+(when it is a reference class's handle), so `===` compares that object's cell address
+(`SmeltGenerator::identity`, `binary_ops::reference_identity_expr`): `obj[Symbol.iterator]() === obj` holds for a
+class adapted at its annotated `[Symbol.iterator](): IterableIterator<T> { return this; }`, and two adapters of one
+object are `===`.
 
 Consumers go through one helper, `iteration_generator` (`[Symbol.iterator]()` as a generator, or the adapter over
-what it answers): `for...of`, array spread, `Array.from`, `new Set(x)`, `new Map(x)`, and array destructuring.
-Destructuring without a rest element takes at most as many values as it binds and then closes the iterator (new
-op `GeneratorTake`, runtime `SmeltGenerator::try_take_yields`), so `const [a, b] = naturals()` terminates; with a
-rest element it drains the iterator. An iterable passed for an `Iterable<T>` parameter (lowered as a list) is
-drained into that list. `obj[Symbol.iterator]()` written by the source is the typed method call.
+what it answers): `for...of`, array spread, `Array.from`, `new Set(x)`, `new Map(x)`, array destructuring and
+`yield*`. Destructuring without a rest element takes at most as many values as it binds and then closes the
+iterator (op `GeneratorTake`, runtime `SmeltGenerator::try_take_yields`), so `const [a, b] = naturals()`
+terminates; with a rest element it drains it. An iterable passed for an `Iterable<T>` parameter (lowered as a
+list) is drained into that list. `obj[Symbol.iterator]()` written by the source is the typed method call.
+
+### `yield*`
+
+In a synchronous generator, `yield* d` over any synchronous carrier (a generator, an adapted hand-written iterator)
+is lowered as ECMA-262 states it, a block expression
+
+```text
+{ const d = <carrier>; let step = d.next();
+  while (!step.done) step = <yield step.value, delegating to d>;
+  step.value }
+```
+
+whose suspension (HIR `GeneratorYieldDelegated`, MIR `GeneratorYield { delegate: Some(d), .. }`) forwards the
+command the outer generator is resumed with to `d`: `next(v)` and `throw(e)` answer `d`'s next step (a throw from
+`d` takes the catch or `finally` around the suspension), and a `return(v)` that `d` completes ends the outer
+generator with `d`'s value through the outer `finally` blocks, as a `return` at that point would; a `return(v)`
+that `d` answers with a yield continues the delegation. Being a `yield` in MIR, the step reuses the catch and
+`finally` edges every `yield` has (definite assignment, reachability). `yield*` over a list, a string, a tuple, a
+union, and in an async generator keeps the `GeneratorDelegate` loop.
 
 ## 3. Why it is typed
 
@@ -124,21 +159,24 @@ still refused.
   (it reached rustc as an erased record where a `SmeltGenerator` was expected). Typing it needs object literals with
   methods to lower as typed records whose methods bind `this`, a redesign of object-literal lowering in general. Keep
   the state in closures (section 0) or a class.
-* **Identity of a class adapted at its own annotation**: `[Symbol.iterator](): IterableIterator<T> { return this; }`
-  converts `this` into the carrier, so `obj[Symbol.iterator]() === obj` is `false`. It holds for a generator, for a
-  value already in an `IterableIterator<T>` slot, and for an unannotated `return this` (section 4). Making it hold
-  here needs either the method retyped from its body (the class instead of the declared carrier, which changes an
-  overridable signature) or a runtime identity link between an adapter and its source object that `===` consults
-  across carrier and class types. `next()` called directly on an adapted `Iterator<T>` after it completed answers
-  `done` without calling the hand-written `next()` again (the carrier remembers completion).
-* **Done values with an open `TReturn`**: `{ value: 0, done: true }` in an annotated `IteratorResult<number>` (whose
-  `TReturn` the lib leaves at `any`) drops the `0`. Keeping a value of type `any` needs an erased return channel
-  (`SmeltUnknown`). Declare `TReturn`, or leave the method unannotated (section 4 infers it).
-* **`throw()` and `next(value)` forwarding.** Only `yield*` delegation and explicit resume calls reach them; `yield*`
-  over a hand-written iterator is still refused. Forwarding `next(value)` must tell a resume without a value (`for...of`,
-  which resumes the carrier with `Default`, `0` for a number) from one with a value, since a hand-written
-  `next(sent?)` sees `undefined` there. That is a change to the generator resume protocol. Async iterators
-  (`[Symbol.asyncIterator]`, `for await`) are unchanged.
+* **Identity through a by-value class.** The carrier takes its identity from a reference class's handle. A class that
+  is never compared by `===` and has no other reason to be a reference (its `next()` writes a field, as almost every
+  iterator's does) is a by-value struct with no identity, so two adapters of it compare as two objects
+  (`a[Symbol.iterator]() === a[Symbol.iterator]()` with no `===` on `a` itself). A generator adapted to another
+  carrier type has no object to keep either.
+* **Done values through an open `TReturn` slot.** An annotated `next(): IteratorResult<T>` (the lib leaves `TReturn` at
+  `any`) takes its return type from the steps its body returns (section 4's rule over the checker's type of each
+  returned step literal), so `return { value: 0, done: true }` keeps the `0` (`open_step_return_type`). A value that
+  then flows through a slot whose `TReturn` the source leaves at `any` (`Iterator<T>`, `IterableIterator<T>`) is
+  dropped there: the source typed the completion `any`, keeping it would need the erased channel (`SmeltUnknown`),
+  and every read of it in TypeScript is already `any`-typed. Declare `TReturn` to keep it
+  (`Iterator<T, number>`). A completion read after a carrier finished answers the return type's default
+  (`""` for a `string`), where JavaScript answers `undefined`.
+* **`next(value)` into a generator body.** A `yield` evaluates to its resume type's default when resumed without a
+  value (`gen.next()`, `for...of`), where JavaScript gives `undefined`; that is TypeScript's own unsoundness
+  (`Generator<T, R, number>.next()` is accepted) and changes nothing for a `TNext` that includes `undefined`, which
+  lowers to an `Option`. Async iterators (`[Symbol.asyncIterator]`, `for await`) are unchanged, and `yield*` in an
+  async generator does not forward `return(v)`.
 * `Iterable<T>` stays a list: an iterable passed for an `Iterable<T>` parameter is drained eagerly, so an infinite one
   does not terminate there. Streaming it means lowering `Iterable<T>` to a lazy carrier at every consumer of such a
   parameter (the corpora use `Iterable<T>` widely as a list), an ABI change of its own.

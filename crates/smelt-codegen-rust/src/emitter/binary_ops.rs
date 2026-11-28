@@ -1427,6 +1427,10 @@ impl FunctionEmitter<'_> {
                     | Type::Tuple(_)
                     | Type::Class { .. }
                     | Type::Function(_)
+                    | Type::Generator {
+                        is_async: false,
+                        ..
+                    }
             )
         )
     }
@@ -1467,6 +1471,14 @@ impl FunctionEmitter<'_> {
     fn reference_identity_expr(&self, text: &RustExpr, ty: TypeId) -> Option<RustExpr> {
         match self.mir.types.get(ty)? {
             Type::List(_) => Some(text.postfix(".id()")),
+            // A generator is its state machine, or the hand-written iterator
+            // object it adapts: `SmeltGenerator::identity` answers that
+            // object's cell address, the space a reference class's identity
+            // below reads, so `obj[Symbol.iterator]() === obj` holds for an
+            // iterator class that answers `this`.
+            Type::Generator {
+                is_async: false, ..
+            } => Some(text.postfix(".identity()")),
             Type::Dict(key, _)
                 if self.dict_uses_smelt_record(*key) || self.dict_uses_js_key_map(*key) =>
             {

@@ -1,0 +1,69 @@
+d next got 1
+{ value: 'd1', done: false }
+d next got undefined
+{ value: 'd2', done: false }
+d next got 2
+{ value: 'd3', done: false }
+d return got 7
+{ value: 7, done: true }
+d next got 3
+{ value: 40, done: true }
+d next got 4
+{ value: 50, done: true }
+t throw got bad
+{ value: 'recovered', done: false }
+t return got undefined
+{ value: -1, done: true }
+f next got undefined
+for f1
+f next got undefined
+for f2
+f next got undefined
+for f3
+f next got undefined
+b next got undefined
+break at b1
+b return got undefined
+x next got undefined
+x return got undefined
+destructured x1
+y next got undefined
+{ value: 'y1', done: false }
+y next got 5
+{ value: 'y2', done: false }
+y next got 6
+{ value: 'y3', done: false }
+y next got 7
+inner returned 40
+outer finally
+{ value: 41, done: true }
+{ value: undefined, done: true }
+y next got undefined
+{ value: 'y1', done: false }
+y throw got thrown in
+{ value: 'recovered', done: false }
+y return got 99
+outer finally
+{ value: 99, done: true }
+{ value: undefined, done: true }
+quiet next got undefined
+{ value: 0, done: false }
+quiet next got 9
+{ value: 1, done: false }
+quiet return got undefined
+true The iterator does not provide a 'throw' method.
+true
+quiet next got undefined
+quiet next got 0
+quiet next got 2
+quiet next got 4
+quiet next got 6
+quiet next got 8
+final q end
+{ value: 1, done: false }
+inner got 11
+{ value: 2, done: false }
+inner finally
+wrapper finally
+{ value: 50, done: true }
+{ value: undefined, done: true }

@@ -566,8 +566,87 @@ impl ModuleBuilder<'_> {
             ty: result_ty,
             span: iter_span,
         });
-        let update_value =
-            self.generator_resume_expr(generator_local, generator_ty, iter_span, body);
+        // Whether the loop is inside its body: cleared around each resume, so
+        // a `next()` that throws leaves the iterator unclosed, as
+        // `IteratorClose` specifies (only an abrupt exit of the body closes
+        // it). A generator that threw is finished anyway, but a hand-written
+        // iterator's `return()` would run.
+        let open_symbol = self.intern_synthesized_name("__smelt_generator_open");
+        let open_local = body.push_local(LocalDecl {
+            name: Some(open_symbol),
+            ty: bool_ty,
+            mutable: true,
+            span: iter_span,
+        });
+        let open_pat = body.push_pattern(Pattern::Binding(open_local));
+        let open_init = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::Bool(true)),
+            ty: bool_ty,
+            span: iter_span,
+        });
+        body.push_stmt_to_block(
+            block,
+            Stmt::Let {
+                pat: open_pat,
+                ty: bool_ty,
+                value: Some(open_init),
+            },
+        );
+        let set_open = |arena: &mut Body, into: smelt_hir::BlockId, open: bool| {
+            let target = arena.push_expr(Expr {
+                kind: ExprKind::Local(open_local),
+                ty: bool_ty,
+                span: iter_span,
+            });
+            let flag = arena.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::Bool(open)),
+                ty: bool_ty,
+                span: iter_span,
+            });
+            arena.push_stmt_to_block(
+                into,
+                Stmt::Assign {
+                    target,
+                    value: flag,
+                },
+            );
+        };
+        let resume_block = body.push_block(iter_span);
+        set_open(body, resume_block, false);
+        let resumed = self.generator_resume_expr(generator_local, generator_ty, iter_span, body);
+        let next_symbol = self.intern_synthesized_name("__smelt_generator_next");
+        let next_local = body.push_local(LocalDecl {
+            name: Some(next_symbol),
+            ty: result_ty,
+            mutable: false,
+            span: iter_span,
+        });
+        let next_pat = body.push_pattern(Pattern::Binding(next_local));
+        body.push_stmt_to_block(
+            resume_block,
+            Stmt::Let {
+                pat: next_pat,
+                ty: result_ty,
+                value: Some(resumed),
+            },
+        );
+        set_open(body, resume_block, true);
+        let next_read = body.push_expr(Expr {
+            kind: ExprKind::Local(next_local),
+            ty: result_ty,
+            span: iter_span,
+        });
+        if let Some(slot) = usize::try_from(resume_block.0)
+            .ok()
+            .and_then(|index| body.blocks.get_mut(index))
+        {
+            slot.tail = Some(next_read);
+        }
+        let update_value = body.push_expr(Expr {
+            kind: ExprKind::Block(resume_block),
+            ty: result_ty,
+            span: iter_span,
+        });
 
         // ECMAScript closes the iterator when the loop is left before it is
         // done (`IteratorClose`): a `break`, a `return` or a throw out of the
@@ -596,10 +675,24 @@ impl ModuleBuilder<'_> {
             ty: bool_ty,
             span: iter_span,
         });
-        let close_cond = body.push_expr(Expr {
+        let not_done = body.push_expr(Expr {
             kind: ExprKind::UnaryOp {
                 op: smelt_hir::UnaryOp::Not,
                 operand: close_done,
+            },
+            ty: bool_ty,
+            span: iter_span,
+        });
+        let still_open = body.push_expr(Expr {
+            kind: ExprKind::Local(open_local),
+            ty: bool_ty,
+            span: iter_span,
+        });
+        let close_cond = body.push_expr(Expr {
+            kind: ExprKind::BinOp {
+                op: smelt_hir::BinOp::And,
+                lhs: still_open,
+                rhs: not_done,
             },
             ty: bool_ty,
             span: iter_span,

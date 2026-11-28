@@ -24,7 +24,8 @@
 
 use super::Respeller;
 use crate::lowering::ModuleBuilder;
-use oxc::ast::ast::{MethodDefinition, PropertyKey};
+use oxc::ast::ast::{MethodDefinition, PropertyKey, TSType, TSTypeName};
+use oxc::ast_visit::{Visit, walk};
 use oxc::span::GetSpan;
 use smelt_hir::TypeId;
 use smelt_ts_model::{TsTypeFacts, TsTypeId, TsTypeKind};
@@ -258,4 +259,165 @@ impl ModuleBuilder<'_> {
         }
         lowered
     }
+
+    /// `annotated`, the lowered return annotation of `function`, with the
+    /// step's `TReturn` taken from the body when the annotation is the lib's
+    /// `IteratorResult<T>` (or `IteratorResult<T, any>`), which leaves
+    /// `TReturn` at `any`.
+    ///
+    /// Smelt reads an open `TReturn` as `undefined`, which dropped the value
+    /// of `return { value: 0, done: true }` (Node keeps it: `next()` answers
+    /// `{ value: 0, done: true }`). The checker types each step the body
+    /// returns as the literal it is (`{ value: number; done: true }`), so the
+    /// return type is the union of the values of the returned steps whose
+    /// `done` is not `false`, by the rule of an unannotated `next()` (module
+    /// docs). The annotation's `any` is assignable to that type, so the method
+    /// still satisfies `Iterator<T>`. A body whose completions are all
+    /// `undefined`, a returned value that is no step literal type, a value
+    /// type that does not lower without erasure, or no checker facts keep
+    /// `annotated`: there the open `TReturn` is the dynamic boundary the
+    /// source wrote, and its value is not kept (see
+    /// `docs/design/iterator-protocol.md`, section 5).
+    pub(in crate::lowering) fn open_step_return_type(
+        &mut self,
+        function: &oxc::ast::ast::Function<'_>,
+        annotation: &TSType<'_>,
+        annotated: TypeId,
+    ) -> TypeId {
+        let Some(smelt_hir::Type::GeneratorResult {
+            yield_ty,
+            return_ty,
+        }) = self.ctx.krate.types.get(annotated).cloned()
+        else {
+            return annotated;
+        };
+        if function.generator
+            || function.r#async
+            || !matches!(
+                self.ctx.krate.types.get(return_ty),
+                Some(smelt_hir::Type::None)
+            )
+            || !leaves_return_open(annotation)
+        {
+            return annotated;
+        }
+        let (Some(facts), Some(body)) = (self.ts_facts, function.body.as_ref()) else {
+            return annotated;
+        };
+        let mut returns = ReturnedExpressions::default();
+        walk::walk_function_body(&mut returns, body);
+        let mut completions = Vec::new();
+        for (start, end) in returns.spans {
+            let Some(values) = facts
+                .type_id_at(&self.path, start, end)
+                .and_then(|returned| step_values(facts, returned))
+            else {
+                return annotated;
+            };
+            completions.extend(values.returns);
+        }
+        let is_undefined = |ty: &Option<TsTypeId>| {
+            ty.is_none_or(|ty| {
+                matches!(
+                    facts.types.get(ty).map(|ty| &ty.kind),
+                    Some(TsTypeKind::Undefined | TsTypeKind::Void)
+                )
+            })
+        };
+        let span = annotation.span();
+        let respeller = Respeller {
+            builder: self,
+            facts,
+            annotation: (span.start, span.end),
+            records: false,
+        };
+        let mut spelled: Vec<String> = Vec::new();
+        for ty in completions.iter().filter(|ty| !is_undefined(ty)).flatten() {
+            let Some(text) = respeller.respell(*ty, 0) else {
+                return annotated;
+            };
+            if !spelled.contains(&text) {
+                spelled.push(text);
+            }
+        }
+        if spelled.is_empty() {
+            return annotated;
+        }
+        if completions.iter().any(is_undefined) {
+            spelled.push("undefined".to_owned());
+        }
+        let records_before = self.ctx.krate.erasures.len();
+        let Some(completion) = self
+            .lower_respelled_annotation(&spelled.join(" | "), span.start, span.end)
+            .filter(|ty| !self.type_mentions_unknown(*ty))
+        else {
+            self.ctx.krate.erasures.truncate(records_before);
+            return annotated;
+        };
+        self.ctx
+            .krate
+            .types
+            .intern(smelt_hir::Type::GeneratorResult {
+                yield_ty,
+                return_ty: completion,
+            })
+    }
+}
+
+/// Whether `annotation` is `IteratorResult<T>` or `IteratorResult<T, any>`:
+/// the step whose `TReturn` the lib leaves at `any`. (The caller has already
+/// lowered it to the lib's step type, so the name is not the source's own.)
+fn leaves_return_open(annotation: &TSType<'_>) -> bool {
+    let TSType::TSTypeReference(reference) = annotation else {
+        return false;
+    };
+    let TSTypeName::IdentifierReference(name) = &reference.type_name else {
+        return false;
+    };
+    if name.name != "IteratorResult" {
+        return false;
+    }
+    let args = reference
+        .type_arguments
+        .as_ref()
+        .map(|args| args.params.as_slice())
+        .unwrap_or_default();
+    match args {
+        [_] => true,
+        [_, returned] => matches!(returned, TSType::TSAnyKeyword(_)),
+        _ => false,
+    }
+}
+
+/// The spans of the expressions a function body returns, outside nested
+/// functions and classes (whose `return`s are their own).
+#[derive(Default)]
+struct ReturnedExpressions {
+    /// `(start, end)` of each `return` argument; a bare `return;` returns
+    /// `undefined` and is no step.
+    spans: Vec<(u32, u32)>,
+}
+
+impl<'a> Visit<'a> for ReturnedExpressions {
+    fn visit_return_statement(&mut self, it: &oxc::ast::ast::ReturnStatement<'a>) {
+        if let Some(argument) = &it.argument {
+            let span = argument.span();
+            self.spans.push((span.start, span.end));
+        }
+    }
+
+    fn visit_function(
+        &mut self,
+        _it: &oxc::ast::ast::Function<'a>,
+        _flags: oxc::syntax::scope::ScopeFlags,
+    ) {
+    }
+
+    fn visit_arrow_function_expression(
+        &mut self,
+        _it: &oxc::ast::ast::ArrowFunctionExpression<'a>,
+    ) {
+    }
+
+    fn visit_class(&mut self, _it: &oxc::ast::ast::Class<'a>) {}
 }

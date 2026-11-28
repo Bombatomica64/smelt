@@ -2272,6 +2272,38 @@ fn iterator_protocol_infinite() -> TestResult {
     verify_node_parity("iterator_protocol_infinite")
 }
 
+/// A hand-written iterator receives what its consumer sends: `next(v)`,
+/// `return(v)` and `throw(e)` reach its own methods through an
+/// `Iterator<T, R, N>` value (the first `next(v)` included, a carrier that
+/// completed still calls `next()` again), `for...of` and destructuring call
+/// `next()` and `return()` with no argument, and `yield*` forwards each
+/// (`next(v)`, `throw(e)`, and `return(v)` ending the outer generator with
+/// the delegate's value through its `finally`); without `throw` the delegate
+/// is closed and a `TypeError` thrown. The protocol used to drop every sent
+/// value and `yield*` refused a hand-written iterator.
+#[test]
+fn iterator_protocol_resume() -> TestResult {
+    verify_node_parity("iterator_protocol_resume")
+}
+
+/// A class adapted at its annotated `[Symbol.iterator](): IterableIterator<T>`
+/// (`return this`) stays that object: `obj[Symbol.iterator]() === obj`, two
+/// adapters of one object are `===` and share its state, another instance is
+/// not it. The adapter used to be a fresh value, `!==` its object.
+#[test]
+fn iterator_protocol_identity() -> TestResult {
+    verify_node_parity("iterator_protocol_identity")
+}
+
+/// An annotated `next(): IteratorResult<T>` (the lib leaves `TReturn` at
+/// `any`) keeps the value of its `done: true` steps, typed from the steps the
+/// body returns, where Smelt used to read the open `TReturn` as `undefined`
+/// and drop it; a body whose completions are all `undefined` stays so.
+#[test]
+fn iterator_protocol_open_return() -> TestResult {
+    verify_node_parity("iterator_protocol_open_return")
+}
+
 /// An unannotated method, static method, getter, async method, abstract
 /// override or function declaration returns the type TypeScript inferred
 /// from its body, as an unannotated function expression already did.

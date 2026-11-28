@@ -115,6 +115,19 @@ macro_rules! define_expr_kind {
                 /// Value exposed by the suspension point.
                 value: ExprId,
             },
+            /// One step of `yield* delegate`: suspend exposing `value` (the
+            /// delegate's last yield), then forward the command the consumer
+            /// resumes with to `delegate` (`next(v)`, `throw(e)`,
+            /// `return(v)`) and evaluate to the delegate's next step
+            /// (`IteratorResult<T, R>`). A delegate that completes a forwarded
+            /// `return(v)` ends this generator with its value, through the
+            /// `finally` blocks around the suspension, as a `return` would.
+            GeneratorYieldDelegated {
+                /// The delegate generator the resume command goes to.
+                delegate: ExprId,
+                /// Value exposed by the suspension point.
+                value: ExprId,
+            },
             Closure(ClosureExpr),
             Method {
                 receiver: ExprId,
@@ -267,6 +280,7 @@ macro_rules! define_expr_runs_code_or_stores {
                     Self::GlobalSet { .. }
                     | Self::Call { .. }
                     | Self::GeneratorYield { .. }
+                    | Self::GeneratorYieldDelegated { .. }
                     | Self::Method { .. }
                     | Self::Block(_)
                     | Self::New { .. }

@@ -12,12 +12,13 @@
 //! consumer already drives that carrier. This module makes a hand-written
 //! iterator one:
 //!
-//! * an iterator object literal `{ next, return }` in an `Iterator<T>` slot,
-//!   and an instance of a class with `next(): IteratorResult<T>` (in such a
-//!   slot, or answered by `[Symbol.iterator]()`), becomes a generator through
-//!   [`ModuleBuilder::protocol_generator`]: a synthesized generator closure
-//!   that calls `next()`, yields each step's value, and calls `return()` from
-//!   a `finally` around the `yield` when the consumer closes it early;
+//! * an iterator object literal `{ next, return, throw }` in an `Iterator<T>`
+//!   slot, and an instance of a class with `next(): IteratorResult<T>` (in such
+//!   a slot, or answered by `[Symbol.iterator]()`), becomes the carrier
+//!   `SmeltGenerator::from_protocol` through [`ModuleBuilder::protocol_generator`]:
+//!   each resume of the carrier calls the matching protocol method (`next()`
+//!   or `next(v)`, `return()` or `return(v)`, `throw(e)`), so what a consumer
+//!   sends reaches the iterator and `return()` runs when one closes it early;
 //! * a step literal `{ value, done }` in an `IteratorResult<T, R>` slot is the
 //!   step itself ([`ModuleBuilder::iterator_result_literal`]).
 //!
@@ -27,79 +28,107 @@
 //! iterator is fine); `return()` runs exactly when the consumer leaves before
 //! the iterator is done (`break`, `return`, a throw out of the loop body, a
 //! destructuring that took what it binds) and never after a `done` step or a
-//! `next()` that threw.
+//! `next()` that threw; a value sent with `next(v)`, `return(v)` or `throw(e)`
+//! reaches the method, and a resume without one calls it with no argument.
 
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
+use crate::lowering::erasure::NotNewErasure;
 use oxc::ast::ast::{Expression, ObjectExpression, ObjectPropertyKind, PropertyKey, PropertyKind};
 use oxc::ast_visit::{Visit, walk};
 use smelt_hir::{
-    Body, ClosureExpr, ClosureThis, Expr, ExprId, ExprKind, FunctionType, Literal, LocalDecl,
-    LocalId, Param, Pattern, Span, Stmt, Type, TypeId,
+    Body, CaptureMode, ClosureCapture, ClosureExpr, ClosureThis, Expr, ExprId, ExprKind,
+    FunctionType, LocalDecl, LocalId, Param, Pattern, Span, Stmt, Type, TypeId,
 };
 
-/// How the adapter generator reaches a hand-written iterator's `next` and
-/// `return`.
+/// A hand-written iterator's protocol methods, each as the function type it
+/// is called at (a class method's signature, a record member's or an object
+/// literal's closure type), each answering a step `IteratorResult<T, R>`.
+#[derive(Clone, Copy, Debug)]
+struct ProtocolMethods {
+    /// `next`, callable with no argument.
+    next: TypeId,
+    /// `return`, when the iterator has one, callable with no argument.
+    close: Option<TypeId>,
+    /// `throw`, when the iterator has one.
+    throw: Option<TypeId>,
+}
+
+/// How the carrier reaches a hand-written iterator's protocol methods.
 #[derive(Clone, Copy, Debug)]
 enum ProtocolAccess {
     /// The methods of a class instance (the adapter's one parameter).
     Method {
         /// The instance's type.
         instance_ty: TypeId,
-        /// `next()`'s step type.
-        next_ty: TypeId,
-        /// `return()`'s result type, when the class declares one.
-        return_ty: Option<TypeId>,
+        /// Its protocol methods.
+        methods: ProtocolMethods,
     },
     /// The function-valued members of a record or interface value (the
     /// adapter's one parameter), called as the closures they are.
     Member {
         /// The record's type.
         instance_ty: TypeId,
-        /// `next`'s function type.
-        next_fn: TypeId,
-        /// `return`'s function type, when the record declares one.
-        return_fn: Option<TypeId>,
+        /// Its protocol members.
+        methods: ProtocolMethods,
     },
     /// A generator of another type than the slot's (`Generator<T>`, whose
     /// resume channel is erased, in an `Iterator<T>` slot): resumed with
-    /// `next` and closed with `return` (the adapter's one parameter).
+    /// `next`, `return` and `throw` (the adapter's one parameter).
     Generator {
         /// The generator's type.
         generator_ty: TypeId,
         /// Its step type.
         step_ty: TypeId,
     },
-    /// An iterator object literal's `next` and `return` closures (the
-    /// adapter's parameters, in that order).
+    /// An iterator object literal's `next`, `return` and `throw` closures (the
+    /// adapter's parameters, in that order, those present).
     Closures {
-        /// `next`'s function type.
-        next_fn: TypeId,
-        /// `return`'s function type, when the literal spells one.
-        return_fn: Option<TypeId>,
+        /// The closures' types.
+        methods: ProtocolMethods,
     },
 }
 
-impl ProtocolAccess {
-    /// Whether the iterator has a `return()` for the adapter to close it with.
-    const fn closes(self) -> bool {
+/// Which protocol method a carrier closure calls.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum ProtocolCall {
+    /// `next()` / `next(sent)`.
+    Next,
+    /// `return()` / `return(value)`.
+    Return,
+    /// `throw(error)`.
+    Throw,
+}
+
+impl ProtocolCall {
+    /// The source name of the method.
+    const fn name(self) -> &'static str {
         match self {
-            Self::Method { return_ty, .. } => return_ty.is_some(),
-            Self::Generator { .. } => true,
-            Self::Member { return_fn, .. } | Self::Closures { return_fn, .. } => {
-                return_fn.is_some()
-            }
+            Self::Next => "next",
+            Self::Return => "return",
+            Self::Throw => "throw",
+        }
+    }
+
+    /// The generator resume this call is on a generator.
+    const fn resume_kind(self) -> smelt_hir::GeneratorResumeKind {
+        match self {
+            Self::Next => smelt_hir::GeneratorResumeKind::Next,
+            Self::Return => smelt_hir::GeneratorResumeKind::Return,
+            Self::Throw => smelt_hir::GeneratorResumeKind::Throw,
         }
     }
 }
 
-/// Which protocol method the adapter calls.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum ProtocolCall {
-    /// `next()`.
-    Next,
-    /// `return()`.
-    Return,
+/// What a carrier closure sends its protocol method.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum ProtocolArg {
+    /// Nothing: `next()`, `return()`.
+    Absent,
+    /// The value the consumer sent, of this type: the carrier's resume type
+    /// for `next(sent)`, its return type for `return(value)`, the thrown
+    /// value for `throw(error)`.
+    Sent(TypeId),
 }
 
 /// Finds a `this` that belongs to the function being visited: one outside any
@@ -146,11 +175,13 @@ impl ModuleBuilder<'_> {
     }
 
     /// The protocol `value` of type `ty` exposes as a hand-written iterator:
-    /// a class instance whose `next()` takes no argument and answers a typed
-    /// step (`IteratorResult<T, R>`), or a record/interface value whose `next`
-    /// member is such a function. `return` is used when present, so the
-    /// consumer can close the iterator. `None` for any other type, a
-    /// generator included (it is the carrier already).
+    /// a class instance whose `next()` is callable with no argument and
+    /// answers a typed step (`IteratorResult<T, R>`), or a record/interface
+    /// value whose `next` member is such a function. `return` (callable with
+    /// no argument) and `throw` are used when present and answering a step,
+    /// so a consumer can close the iterator and `yield*` can forward a throw.
+    /// A generator of another type is driven through its own resumes. `None`
+    /// for any other type.
     fn iterator_protocol_access(&mut self, ty: TypeId) -> Option<ProtocolAccess> {
         if let Some(Type::Generator {
             is_async: false,
@@ -174,45 +205,88 @@ impl ModuleBuilder<'_> {
         if !self.declares_own_members(ty) {
             return None;
         }
-        let next = self.intern_source_name("next");
-        let close = self.intern_source_name("return");
         // A miss records an erasure for the absent member; the question is a
         // probe, so nothing it recorded stays.
         let records_before = self.ctx.krate.erasures.len();
-        let member_fn = |this: &mut Self, member| match this.class_field_type(ty, member) {
-            Ok(member_ty) => match this.ctx.krate.types.get(member_ty) {
-                Some(Type::Function(function))
-                    if function.params.is_empty() || function.required_params == Some(0) =>
-                {
-                    Some((member_ty, function.return_ty))
-                }
-                _ => None,
-            },
-            Err(_) => None,
+        let member_fn = |this: &mut Self, call: ProtocolCall| {
+            let member = this.intern_source_name(call.name());
+            let member_ty = this.class_field_type(ty, member).ok()?;
+            // A member's function type does not record how many parameters
+            // are optional (`next(sent?: number)`); its declared signature does.
+            let required = this.declared_required_params(name, member);
+            this.protocol_method_type(member_ty, call, required)
         };
-        let next_member = member_fn(self, next);
-        let return_member = member_fn(self, close);
+        let next = member_fn(self, ProtocolCall::Next);
+        let close = member_fn(self, ProtocolCall::Return);
+        let throw = member_fn(self, ProtocolCall::Throw);
         self.ctx.krate.erasures.truncate(records_before);
-        let (next_fn, next_ty) = next_member?;
-        if !matches!(
-            self.ctx.krate.types.get(next_ty),
-            Some(Type::GeneratorResult { .. })
-        ) {
-            return None;
-        }
+        let methods = ProtocolMethods {
+            next: next?,
+            close,
+            throw,
+        };
         if self.find_interface(name).is_some() {
             Some(ProtocolAccess::Member {
                 instance_ty: ty,
-                next_fn,
-                return_fn: return_member.map(|(function, _)| function),
+                methods,
             })
         } else {
             Some(ProtocolAccess::Method {
                 instance_ty: ty,
-                next_ty,
-                return_ty: return_member.map(|(_, returned)| returned),
+                methods,
             })
         }
+    }
+
+    /// `function_ty` when it can be called as the protocol method `call`: a
+    /// function answering a step `IteratorResult<T, R>`, callable with no
+    /// argument (`next`, `return`) or with at most the thrown value (`throw`).
+    /// `required` overrides the function type's own count of required
+    /// parameters (a class or interface member's declared signature).
+    fn protocol_method_type(
+        &self,
+        function_ty: TypeId,
+        call: ProtocolCall,
+        required: Option<usize>,
+    ) -> Option<TypeId> {
+        let Some(Type::Function(function)) = self.ctx.krate.types.get(function_ty) else {
+            return None;
+        };
+        let most_required = usize::from(call == ProtocolCall::Throw);
+        // A class method's function type records no count; the checker has
+        // already accepted the value where an iterator is expected (or in a
+        // `for...of`), which requires its `next()` callable with no argument,
+        // and a call with fewer arguments passes `undefined` for the rest.
+        let required = required.or(function.required_params).unwrap_or(0);
+        (required <= most_required
+            && matches!(
+                self.ctx.krate.types.get(function.return_ty),
+                Some(Type::GeneratorResult { .. })
+            ))
+        .then_some(function_ty)
+    }
+
+    /// How many leading parameters the method `member` of the class or
+    /// interface `owner` requires, from its declared signature; `None` when
+    /// neither declares it here (an inherited method).
+    fn declared_required_params(
+        &self,
+        owner: smelt_hir::Symbol,
+        member: smelt_hir::Symbol,
+    ) -> Option<usize> {
+        if let Some(interface) = self.find_interface(owner) {
+            return interface
+                .methods
+                .iter()
+                .find(|method| method.name == member)
+                .and_then(|method| method.required_params);
+        }
+        let text = crate::lowering::support::source_spelling(&self.ctx.krate, owner)?;
+        self.classes
+            .methods(text)?
+            .iter()
+            .find(|method| method.name == member)
+            .and_then(|method| method.required_params)
     }
 
     /// Whether `ty` is the erased record an object literal with
@@ -229,10 +303,11 @@ impl ModuleBuilder<'_> {
     /// The step type `access`'s `next()` answers.
     fn protocol_step_type(&self, access: ProtocolAccess) -> Option<TypeId> {
         let step = match access {
-            ProtocolAccess::Method { next_ty, .. } => next_ty,
             ProtocolAccess::Generator { step_ty, .. } => step_ty,
-            ProtocolAccess::Member { next_fn, .. } | ProtocolAccess::Closures { next_fn, .. } => {
-                match self.ctx.krate.types.get(next_fn) {
+            ProtocolAccess::Method { methods, .. }
+            | ProtocolAccess::Member { methods, .. }
+            | ProtocolAccess::Closures { methods } => {
+                match self.ctx.krate.types.get(methods.next) {
                     Some(Type::Function(function)) => function.return_ty,
                     _ => return None,
                 }
@@ -266,44 +341,44 @@ impl ModuleBuilder<'_> {
         }))
     }
 
-    /// One call of `access`'s `next()` or `return()` inside the adapter body
-    /// `adapter`, whose parameters are `params`.
+    /// One call of `access`'s protocol method `call` with `args`, inside a
+    /// carrier closure whose captures of the iterator are `captured` (its
+    /// one value, or an object literal's closures in [`ProtocolAccess::Closures`]
+    /// order).
     fn protocol_call(
         &mut self,
         access: ProtocolAccess,
         call: ProtocolCall,
-        params: &[LocalId],
+        args: Vec<ExprId>,
+        captured: &[LocalId],
         span: Span,
-        adapter: &mut Body,
+        closure: &mut Body,
     ) -> Option<ExprId> {
-        let member = match call {
-            ProtocolCall::Next => self.intern_source_name("next"),
-            ProtocolCall::Return => self.intern_source_name("return"),
+        let method_of = |methods: ProtocolMethods| match call {
+            ProtocolCall::Next => Some(methods.next),
+            ProtocolCall::Return => methods.close,
+            ProtocolCall::Throw => methods.throw,
         };
-        let function_ty =
-            |types: &smelt_hir::TypeInterner, function: TypeId| match types.get(function) {
-                Some(Type::Function(function)) => Some(function.return_ty),
-                _ => None,
-            };
+        let returned = |types: &smelt_hir::TypeInterner, function: TypeId| match types.get(function)
+        {
+            Some(Type::Function(function)) => Some(function.return_ty),
+            _ => None,
+        };
         match access {
             ProtocolAccess::Generator {
                 generator_ty,
                 step_ty,
             } => {
-                let generator = adapter.push_expr(Expr {
-                    kind: ExprKind::Local(*params.first()?),
+                let generator = closure.push_expr(Expr {
+                    kind: ExprKind::Local(*captured.first()?),
                     ty: generator_ty,
                     span,
                 });
-                let kind = match call {
-                    ProtocolCall::Next => smelt_hir::GeneratorResumeKind::Next,
-                    ProtocolCall::Return => smelt_hir::GeneratorResumeKind::Return,
-                };
-                Some(adapter.push_expr(Expr {
+                Some(closure.push_expr(Expr {
                     kind: ExprKind::GeneratorNext {
                         generator,
-                        value: None,
-                        kind,
+                        value: args.first().copied(),
+                        kind: call.resume_kind(),
                     },
                     ty: step_ty,
                     span,
@@ -311,106 +386,211 @@ impl ModuleBuilder<'_> {
             }
             ProtocolAccess::Method {
                 instance_ty,
-                next_ty,
-                return_ty,
+                methods,
             } => {
-                let returned = match call {
-                    ProtocolCall::Next => next_ty,
-                    ProtocolCall::Return => return_ty?,
-                };
-                let receiver = adapter.push_expr(Expr {
-                    kind: ExprKind::Local(*params.first()?),
+                let ty = returned(&self.ctx.krate.types, method_of(methods)?)?;
+                let receiver = closure.push_expr(Expr {
+                    kind: ExprKind::Local(*captured.first()?),
                     ty: instance_ty,
                     span,
                 });
-                Some(adapter.push_expr(Expr {
+                let method = self.intern_source_name(call.name());
+                Some(closure.push_expr(Expr {
                     kind: ExprKind::Method {
                         receiver,
-                        method: member,
-                        args: Vec::new(),
+                        method,
+                        args,
                     },
-                    ty: returned,
+                    ty,
                     span,
                 }))
             }
             ProtocolAccess::Member {
                 instance_ty,
-                next_fn,
-                return_fn,
+                methods,
             } => {
-                let function = match call {
-                    ProtocolCall::Next => next_fn,
-                    ProtocolCall::Return => return_fn?,
-                };
-                let returned = function_ty(&self.ctx.krate.types, function)?;
-                let receiver = adapter.push_expr(Expr {
-                    kind: ExprKind::Local(*params.first()?),
+                let function = method_of(methods)?;
+                let ty = returned(&self.ctx.krate.types, function)?;
+                let receiver = closure.push_expr(Expr {
+                    kind: ExprKind::Local(*captured.first()?),
                     ty: instance_ty,
                     span,
                 });
-                let callee = adapter.push_expr(Expr {
-                    kind: ExprKind::Field {
-                        receiver,
-                        field: member,
-                    },
+                let field = self.intern_source_name(call.name());
+                let callee = closure.push_expr(Expr {
+                    kind: ExprKind::Field { receiver, field },
                     ty: function,
                     span,
                 });
-                Some(adapter.push_expr(Expr {
-                    kind: ExprKind::ClosureCall {
-                        callee,
-                        args: Vec::new(),
-                    },
-                    ty: returned,
+                Some(closure.push_expr(Expr {
+                    kind: ExprKind::ClosureCall { callee, args },
+                    ty,
                     span,
                 }))
             }
-            ProtocolAccess::Closures { next_fn, return_fn } => {
-                let (function, local) = match call {
-                    ProtocolCall::Next => (next_fn, *params.first()?),
-                    ProtocolCall::Return => (return_fn?, *params.get(1)?),
+            ProtocolAccess::Closures { methods } => {
+                let function = method_of(methods)?;
+                let ty = returned(&self.ctx.krate.types, function)?;
+                // The captures are `next`, then `return` and `throw` when present.
+                let index = match call {
+                    ProtocolCall::Next => 0,
+                    ProtocolCall::Return => 1,
+                    ProtocolCall::Throw => 1 + usize::from(methods.close.is_some()),
                 };
-                let returned = function_ty(&self.ctx.krate.types, function)?;
-                let callee = adapter.push_expr(Expr {
-                    kind: ExprKind::Local(local),
+                let callee = closure.push_expr(Expr {
+                    kind: ExprKind::Local(*captured.get(index)?),
                     ty: function,
                     span,
                 });
-                Some(adapter.push_expr(Expr {
-                    kind: ExprKind::ClosureCall {
-                        callee,
-                        args: Vec::new(),
-                    },
-                    ty: returned,
+                Some(closure.push_expr(Expr {
+                    kind: ExprKind::ClosureCall { callee, args },
+                    ty,
                     span,
                 }))
             }
         }
     }
 
-    /// The generator of type `generator_ty` that drives the hand-written
-    /// iterator `access` reaches through `args`: an immediately called,
-    /// synthesized generator closure equivalent to
+    /// Whether `access`'s method `call` declares a parameter, so the value a
+    /// consumer sends reaches it (`next(sent)`, `return(value)`,
+    /// `throw(error)`). A generator takes one on every resume.
+    fn protocol_method_takes_value(&self, access: ProtocolAccess, call: ProtocolCall) -> bool {
+        let methods = match access {
+            ProtocolAccess::Generator { .. } => return true,
+            ProtocolAccess::Method { methods, .. }
+            | ProtocolAccess::Member { methods, .. }
+            | ProtocolAccess::Closures { methods } => methods,
+        };
+        let method = match call {
+            ProtocolCall::Next => Some(methods.next),
+            ProtocolCall::Return => methods.close,
+            ProtocolCall::Throw => methods.throw,
+        };
+        method.is_some_and(|method| {
+            matches!(self.ctx.krate.types.get(method), Some(Type::Function(function)) if !function.params.is_empty())
+        })
+    }
+
+    /// The carrier closure calling `access`'s method `call`: `() =>
+    /// it.next()`, `(sent: N) => it.next(sent)`, ..., built in `outer` (the
+    /// adapter's body), capturing the adapter's parameters `iterator`. With
+    /// [`ProtocolArg::Sent`] the closure takes the value, and passes it on
+    /// when `pass` (the method declares a parameter).
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "one closure per protocol method; each argument is a distinct part of it"
+    )]
+    fn protocol_closure(
+        &mut self,
+        access: ProtocolAccess,
+        call: ProtocolCall,
+        arg: ProtocolArg,
+        pass: bool,
+        iterator: &[(LocalId, TypeId, smelt_hir::Symbol)],
+        span: Span,
+        outer: &mut Body,
+    ) -> Option<ExprId> {
+        let mut closure = Body::new(None, span);
+        let mut captures = Vec::new();
+        let mut capture_locals = Vec::new();
+        for &(source_local, ty, symbol) in iterator {
+            let body_local = closure.push_local(LocalDecl {
+                name: Some(symbol),
+                ty,
+                mutable: false,
+                span,
+            });
+            captures.push(ClosureCapture {
+                source_local,
+                body_local: Some(body_local),
+                symbol,
+                ty,
+                mode: CaptureMode::ByValue,
+            });
+            capture_locals.push(body_local);
+        }
+        let mut params = Vec::new();
+        let mut args = Vec::new();
+        if let ProtocolArg::Sent(ty) = arg {
+            let symbol = self.intern_synthesized_name("__smelt_iterator_sent");
+            let local = closure.push_local(LocalDecl {
+                name: Some(symbol),
+                ty,
+                mutable: false,
+                span,
+            });
+            closure.params.push(local);
+            params.push(Param {
+                name: symbol,
+                local,
+                ty,
+                span,
+            });
+            if pass {
+                args.push(closure.push_expr(Expr {
+                    kind: ExprKind::Local(local),
+                    ty,
+                    span,
+                }));
+            }
+        }
+        let call_expr =
+            self.protocol_call(access, call, args, &capture_locals, span, &mut closure)?;
+        let return_ty = Self::expr_ty(&closure, call_expr);
+        closure.blocks.first_mut()?.tail = Some(call_expr);
+        let body_id = self.ctx.krate.push_body(closure);
+        let param_tys = params.iter().map(|param| param.ty).collect::<Vec<_>>();
+        let required_params = Some(param_tys.len());
+        let closure_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
+            params: param_tys,
+            rest: None,
+            required_params,
+            mutable_params: Vec::new(),
+            return_ty,
+            is_async: false,
+            // MIR marks a closure whose body can throw (a throwing method).
+            may_throw: false,
+        }));
+        Some(outer.push_expr(Expr {
+            kind: ExprKind::Closure(ClosureExpr {
+                params,
+                rest: None,
+                required_params,
+                return_ty,
+                captures,
+                body: body_id,
+                name: None,
+                length: None,
+                function_item: None,
+                this_binding: ClosureThis::Own,
+                span,
+            }),
+            ty: closure_ty,
+            span,
+        }))
+    }
+
+    /// The carrier of type `generator_ty` over the hand-written iterator
+    /// `access` reaches through `args`: an immediately called, synthesized
+    /// closure over the iterator that answers
+    /// `SmeltGenerator::from_protocol` (HIR op `GeneratorFromProtocol`) of a
+    /// closure per protocol method,
     ///
     /// ```text
-    /// function* (it) {
-    ///   while (true) {
-    ///     const step = it.next();
-    ///     if (step.done) return;
-    ///     let open = true;
-    ///     try { yield step.value; open = false; }
-    ///     finally { if (open) it.return(); }
-    ///   }
-    /// }
+    /// (it) => from_protocol(
+    ///   it,                          // identity of the adapted object
+    ///   () => it.next(), (sent) => it.next(sent),
+    ///   () => it.return(), (value) => it.return(value),
+    ///   (error) => it.throw(error),
+    /// )
     /// ```
     ///
-    /// The generator is lazy, so `next()` runs once per step the consumer
-    /// asks for. A consumer that leaves early resumes it with `Return` at the
-    /// `yield` (as it closes any generator), which runs the `finally` and so
-    /// the iterator's `return()`; a normal resume clears `open` first, and a
-    /// `done` step or a throwing `next()` leave the loop outside the `try`, so
-    /// neither closes the iterator, as `IteratorClose` specifies. An iterator
-    /// without `return()` has no `try`.
+    /// (those the iterator has). Every resume of the carrier is then one call
+    /// of the matching method, as JavaScript's consumers make it: `for...of`
+    /// calls `next()` with no argument and `return()` when it leaves early
+    /// (`IteratorClose`), `gen.next(v)` and `yield*` send `v` to `next(v)`,
+    /// and `yield*` forwards `throw(e)` and `return(v)`. The carrier is lazy,
+    /// so an infinite iterator is fine.
     fn protocol_generator(
         &mut self,
         access: ProtocolAccess,
@@ -421,26 +601,17 @@ impl ModuleBuilder<'_> {
     ) -> Option<ExprId> {
         let Some(Type::Generator {
             is_async: false,
-            yield_ty,
             return_ty,
             next_ty,
+            ..
         }) = self.ctx.krate.types.get(generator_ty).cloned()
         else {
             return None;
         };
-        let step_ty = self.protocol_step_type(access)?;
-        let Some(Type::GeneratorResult {
-            yield_ty: step_yield_ty,
-            return_ty: step_return_ty,
-        }) = self.ctx.krate.types.get(step_ty).cloned()
-        else {
-            return None;
-        };
-        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        self.protocol_step_type(access)?;
         let mut adapter = Body::new(None, span);
-        adapter.set_generator(true);
 
-        // Parameters: the iterator, or its `next` and `return` closures.
+        // Parameters: the iterator, or its `next`, `return` and `throw` closures.
         let param_specs: Vec<(&str, TypeId)> = match access {
             ProtocolAccess::Method { instance_ty, .. }
             | ProtocolAccess::Member { instance_ty, .. }
@@ -448,16 +619,17 @@ impl ModuleBuilder<'_> {
                 generator_ty: instance_ty,
                 ..
             } => vec![("__smelt_iterator", instance_ty)],
-            ProtocolAccess::Closures { next_fn, return_fn } => {
-                let mut specs = vec![("__smelt_iterator_next", next_fn)];
-                if let Some(return_fn) = return_fn {
-                    specs.push(("__smelt_iterator_return", return_fn));
-                }
-                specs
-            }
+            ProtocolAccess::Closures { methods } => [
+                ("__smelt_iterator_next", Some(methods.next)),
+                ("__smelt_iterator_return", methods.close),
+                ("__smelt_iterator_throw", methods.throw),
+            ]
+            .into_iter()
+            .filter_map(|(name, ty)| Some((name, ty?)))
+            .collect(),
         };
         let mut params = Vec::new();
-        let mut param_locals = Vec::new();
+        let mut iterator = Vec::new();
         for (name, ty) in param_specs {
             let symbol = self.intern_synthesized_name(name);
             let local = adapter.push_local(LocalDecl {
@@ -467,7 +639,7 @@ impl ModuleBuilder<'_> {
                 span,
             });
             adapter.params.push(local);
-            param_locals.push(local);
+            iterator.push((local, ty, symbol));
             params.push(Param {
                 name: symbol,
                 local,
@@ -476,193 +648,97 @@ impl ModuleBuilder<'_> {
             });
         }
 
-        // `const step = it.next();`
-        let loop_block = adapter.push_block(span);
-        let step_symbol = self.intern_synthesized_name("__smelt_iterator_step");
-        let step_local = adapter.push_local(LocalDecl {
-            name: Some(step_symbol),
-            ty: step_ty,
-            mutable: false,
-            span,
-        });
-        let step_pat = adapter.push_pattern(Pattern::Binding(step_local));
-        let next_call = self.protocol_call(
-            access,
-            ProtocolCall::Next,
-            &param_locals,
-            span,
-            &mut adapter,
-        )?;
-        adapter.push_stmt_to_block(
-            loop_block,
-            Stmt::Let {
-                pat: step_pat,
-                ty: step_ty,
-                value: Some(next_call),
-            },
-        );
-
-        // `if (step.done) return step.value;` (no value when `R` is undefined).
-        let done_step = adapter.push_expr(Expr {
-            kind: ExprKind::Local(step_local),
-            ty: step_ty,
-            span,
-        });
-        let done = adapter.push_expr(Expr {
-            kind: ExprKind::GeneratorDone { result: done_step },
-            ty: bool_ty,
-            span,
-        });
-        let completed = adapter.push_block(span);
-        let completion = if matches!(self.ctx.krate.types.get(return_ty), Some(Type::None)) {
-            None
-        } else {
-            let returned_step = adapter.push_expr(Expr {
-                kind: ExprKind::Local(step_local),
-                ty: step_ty,
-                span,
-            });
-            let returned = adapter.push_expr(Expr {
-                kind: ExprKind::GeneratorValue {
-                    result: returned_step,
-                },
-                ty: step_return_ty,
-                span,
-            });
-            Some(if step_return_ty == return_ty {
-                returned
-            } else {
-                adapter.push_expr(Expr {
-                    kind: ExprKind::TypeAssert { value: returned },
-                    ty: return_ty,
-                    span,
-                })
-            })
+        let (has_return, has_throw) = match access {
+            ProtocolAccess::Generator { .. } => (true, true),
+            ProtocolAccess::Method { methods, .. }
+            | ProtocolAccess::Member { methods, .. }
+            | ProtocolAccess::Closures { methods } => {
+                (methods.close.is_some(), methods.throw.is_some())
+            }
         };
-        adapter.push_stmt_to_block(completed, Stmt::Return(completion));
-        adapter.push_stmt_to_block(
-            loop_block,
-            Stmt::If {
-                cond: done,
-                then_block: completed,
-                else_block: None,
-            },
-        );
-
-        // `yield step.value;`
-        let yielded_step = adapter.push_expr(Expr {
-            kind: ExprKind::Local(step_local),
-            ty: step_ty,
-            span,
-        });
-        let value = adapter.push_expr(Expr {
-            kind: ExprKind::GeneratorValue {
-                result: yielded_step,
-            },
-            ty: step_yield_ty,
-            span,
-        });
-        let value = if step_yield_ty == yield_ty {
-            value
-        } else {
-            adapter.push_expr(Expr {
-                kind: ExprKind::TypeAssert { value },
-                ty: yield_ty,
-                span,
-            })
+        // A resume or return channel of `undefined` sends nothing to forward.
+        let channel_carries =
+            |this: &Self, ty: TypeId| !matches!(this.ctx.krate.types.get(ty), Some(Type::None));
+        let closure = |this: &mut Self, call, arg, into: &mut Body| {
+            let pass = this.protocol_method_takes_value(access, call);
+            this.protocol_closure(access, call, arg, pass, &iterator, span, into)
         };
-        let suspend = adapter.push_expr(Expr {
-            kind: ExprKind::GeneratorYield { value },
-            ty: next_ty,
-            span,
-        });
-        if access.closes() {
-            // `let open = true; try { yield ..; open = false; }
-            //  finally { if (open) it.return(); }`
-            let open_symbol = self.intern_synthesized_name("__smelt_iterator_open");
-            let open_local = adapter.push_local(LocalDecl {
-                name: Some(open_symbol),
-                ty: bool_ty,
-                mutable: true,
-                span,
-            });
-            let open_pat = adapter.push_pattern(Pattern::Binding(open_local));
-            let open_init = adapter.push_expr(Expr {
-                kind: ExprKind::Literal(Literal::Bool(true)),
-                ty: bool_ty,
-                span,
-            });
-            adapter.push_stmt_to_block(
-                loop_block,
-                Stmt::Let {
-                    pat: open_pat,
-                    ty: bool_ty,
-                    value: Some(open_init),
-                },
-            );
-            let protected = adapter.push_block(span);
-            adapter.push_stmt_to_block(protected, Stmt::Expr(suspend));
-            let open_target = adapter.push_expr(Expr {
-                kind: ExprKind::Local(open_local),
-                ty: bool_ty,
-                span,
-            });
-            let closed = adapter.push_expr(Expr {
-                kind: ExprKind::Literal(Literal::Bool(false)),
-                ty: bool_ty,
-                span,
-            });
-            adapter.push_stmt_to_block(
-                protected,
-                Stmt::Assign {
-                    target: open_target,
-                    value: closed,
-                },
-            );
-            let finally = adapter.push_block(span);
-            let closing = adapter.push_block(span);
-            let return_call = self.protocol_call(
-                access,
-                ProtocolCall::Return,
-                &param_locals,
-                span,
+        let next = closure(self, ProtocolCall::Next, ProtocolArg::Absent, &mut adapter)?;
+        let next_with = if channel_carries(self, next_ty)
+            && self.protocol_method_takes_value(access, ProtocolCall::Next)
+        {
+            Some(closure(
+                self,
+                ProtocolCall::Next,
+                ProtocolArg::Sent(next_ty),
                 &mut adapter,
-            )?;
-            adapter.push_stmt_to_block(closing, Stmt::Expr(return_call));
-            let still_open = adapter.push_expr(Expr {
-                kind: ExprKind::Local(open_local),
-                ty: bool_ty,
-                span,
-            });
-            adapter.push_stmt_to_block(
-                finally,
-                Stmt::If {
-                    cond: still_open,
-                    then_block: closing,
-                    else_block: None,
-                },
-            );
-            adapter.push_stmt_to_block(
-                loop_block,
-                Stmt::TryCatch {
-                    body: protected,
-                    catch_binding: None,
-                    catch_body: None,
-                    finally_body: Some(finally),
-                },
-            );
+            )?)
         } else {
-            adapter.push_stmt_to_block(loop_block, Stmt::Expr(suspend));
-        }
-        let forever = adapter.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::Bool(true)),
-            ty: bool_ty,
+            None
+        };
+        let close = if has_return {
+            Some(closure(
+                self,
+                ProtocolCall::Return,
+                ProtocolArg::Absent,
+                &mut adapter,
+            )?)
+        } else {
+            None
+        };
+        let close_with = if has_return
+            && channel_carries(self, return_ty)
+            && self.protocol_method_takes_value(access, ProtocolCall::Return)
+        {
+            Some(closure(
+                self,
+                ProtocolCall::Return,
+                ProtocolArg::Sent(return_ty),
+                &mut adapter,
+            )?)
+        } else {
+            None
+        };
+        let throw_with = if has_throw {
+            // The thrown value is the carrier's throw channel, the tagged
+            // value `SmeltGeneratorCommand::Throw` already channel_carries (a
+            // JavaScript throw may be any value); the method call converts it
+            // to the parameter type the iterator's `throw` declares.
+            let thrown = self.unknown_type(NotNewErasure::RuntimeHelperSignature);
+            Some(closure(
+                self,
+                ProtocolCall::Throw,
+                ProtocolArg::Sent(thrown),
+                &mut adapter,
+            )?)
+        } else {
+            None
+        };
+        let source = match access {
+            ProtocolAccess::Method { instance_ty, .. }
+            | ProtocolAccess::Member { instance_ty, .. } => {
+                let (local, ..) = *iterator.first()?;
+                Some(adapter.push_expr(Expr {
+                    kind: ExprKind::Local(local),
+                    ty: instance_ty,
+                    span,
+                }))
+            }
+            ProtocolAccess::Generator { .. } | ProtocolAccess::Closures { .. } => None,
+        };
+        let carrier_expr = adapter.push_expr(Expr {
+            kind: ExprKind::GeneratorFromProtocol {
+                source,
+                next,
+                next_with,
+                close,
+                close_with,
+                throw_with,
+            },
+            ty: generator_ty,
             span,
         });
-        adapter.push_stmt(Stmt::While {
-            cond: forever,
-            body: loop_block,
-        });
+        adapter.blocks.first_mut()?.tail = Some(carrier_expr);
 
         let param_tys = params.iter().map(|param| param.ty).collect::<Vec<_>>();
         let body_id = self.ctx.krate.push_body(adapter);
@@ -673,10 +749,9 @@ impl ModuleBuilder<'_> {
             mutable_params: Vec::new(),
             return_ty: generator_ty,
             is_async: false,
-            // MIR marks a closure whose body can throw (a throwing `next()`).
             may_throw: false,
         }));
-        let closure = body.push_expr(Expr {
+        let adapter_closure = body.push_expr(Expr {
             kind: ExprKind::Closure(ClosureExpr {
                 params,
                 rest: None,
@@ -695,7 +770,7 @@ impl ModuleBuilder<'_> {
         });
         Some(body.push_expr(Expr {
             kind: ExprKind::ClosureCall {
-                callee: closure,
+                callee: adapter_closure,
                 args,
             },
             ty: generator_ty,
@@ -1203,17 +1278,16 @@ impl ModuleBuilder<'_> {
         ))
     }
 
-    /// An iterator literal `{ next, return }` in an `Iterator<T, R, N>` slot
-    /// (`generator_ty`): the adapter generator over its `next` and `return`
-    /// functions ([`Self::protocol_generator`]), each lowered as a function
-    /// answering `IteratorResult<T, R>`. A `[Symbol.iterator]` or `throw`
-    /// function member is allowed and not kept: the generator is its own
-    /// iterator, and no consumer of a synchronous iterator calls `throw`.
+    /// An iterator literal `{ next, return, throw }` in an `Iterator<T, R, N>`
+    /// slot (`generator_ty`): the carrier over its functions
+    /// ([`Self::protocol_generator`]), each lowered as a function answering
+    /// `IteratorResult<T, R>`, in source order. A `[Symbol.iterator]` function
+    /// member is allowed and not kept: the carrier is its own iterator.
     ///
     /// # Errors
     /// Unsupported, for a literal without `next`, with another member (the
     /// state of such an iterator belongs in closures or a class), or whose
-    /// `next`/`return` reads its own `this`.
+    /// protocol functions read their own `this`.
     fn iterator_object_literal(
         &mut self,
         object: &ObjectExpression<'_>,
@@ -1236,8 +1310,7 @@ impl ModuleBuilder<'_> {
                 format!("an iterator object literal {why} is not lowered yet"),
             ))
         };
-        let mut next = None;
-        let mut close = None;
+        let mut members: Vec<(ProtocolCall, &Expression<'_>)> = Vec::new();
         for property in &object.properties {
             let ObjectPropertyKind::ObjectProperty(property) = property else {
                 return refuse(self, object.span, "with a spread member");
@@ -1255,22 +1328,26 @@ impl ModuleBuilder<'_> {
                 }
                 return refuse(self, property.span, "with a computed member");
             }
-            match Self::literal_key_name(&property.key) {
-                Some("next") if next.is_none() => next = Some(&property.value),
-                Some("return") if close.is_none() => close = Some(&property.value),
-                Some("throw") if is_function => {}
+            let call = match Self::literal_key_name(&property.key) {
+                Some("next") => ProtocolCall::Next,
+                Some("return") => ProtocolCall::Return,
+                Some("throw") => ProtocolCall::Throw,
                 _ => {
                     return refuse(
                         self,
                         property.span,
-                        "with members besides `next` and `return` (keep its state in closures or a class)",
+                        "with members besides `next`, `return` and `throw` (keep its state in closures or a class)",
                     );
                 }
+            };
+            if members.iter().any(|(seen, _)| *seen == call) {
+                return refuse(self, property.span, "with a repeated protocol member");
             }
+            members.push((call, &property.value));
         }
-        let Some(next) = next else {
+        if !members.iter().any(|(call, _)| *call == ProtocolCall::Next) {
             return refuse(self, object.span, "without `next`");
-        };
+        }
         let step_ty = self.ctx.krate.types.intern(Type::GeneratorResult {
             yield_ty,
             return_ty,
@@ -1284,7 +1361,9 @@ impl ModuleBuilder<'_> {
             is_async: false,
             may_throw: false,
         }));
-        let lower_member = |this: &mut Self, member: &Expression<'_>, into: &mut Body| {
+        // Members evaluate in source order.
+        let mut lowered = Vec::with_capacity(members.len());
+        for (call, member) in members {
             if let Expression::FunctionExpression(function) = member {
                 let mut finder = OwnThisFinder::default();
                 if let Some(function_body) = &function.body {
@@ -1292,50 +1371,46 @@ impl ModuleBuilder<'_> {
                 }
                 if finder.found {
                     return Err(SmeltError::unsupported(
-                        this.span(function.span.start, function.span.end),
-                        "an iterator object literal whose `next`/`return` reads `this` is not lowered yet (use an arrow over closure state, or a class)",
+                        self.span(function.span.start, function.span.end),
+                        "an iterator object literal whose `next`/`return`/`throw` reads `this` is not lowered yet (use an arrow over closure state, or a class)",
                     ));
                 }
             }
-            let lowered = this.expression_with_hint(member, into, Some(step_fn))?;
-            let lowered_ty = Self::expr_ty(into, lowered);
-            let answers_step = matches!(
-                this.ctx.krate.types.get(lowered_ty),
-                Some(Type::Function(function))
-                    if function.return_ty == step_ty
-                        && (function.params.is_empty() || function.required_params == Some(0))
-            );
+            let value = self.expression_with_hint(member, body, Some(step_fn))?;
+            let value_ty = Self::expr_ty(body, value);
+            let answers_step = self
+                .protocol_method_type(value_ty, call, None)
+                .is_some_and(|_| {
+                    matches!(
+                        self.ctx.krate.types.get(value_ty),
+                        Some(Type::Function(function)) if function.return_ty == step_ty
+                    )
+                });
             if !answers_step {
                 return Err(SmeltError::unsupported(
-                    Self::body_expr_span(into, lowered),
-                    "an iterator's `next`/`return` must be a function answering its `IteratorResult<T>`",
+                    Self::body_expr_span(body, value),
+                    "an iterator's `next`/`return`/`throw` must be a function answering its `IteratorResult<T>`",
                 ));
             }
-            Ok::<_, SmeltError>((lowered, lowered_ty))
-        };
-        // Members evaluate in source order.
-        let next_first = close.is_none_or(|close| {
-            oxc::span::GetSpan::span(next).start < oxc::span::GetSpan::span(close).start
-        });
-        let (next_value, close_value) = if next_first {
-            let next_value = lower_member(self, next, body)?;
-            let close_value = close
-                .map(|close| lower_member(self, close, body))
-                .transpose()?;
-            (next_value, close_value)
-        } else {
-            let close_value = close
-                .map(|close| lower_member(self, close, body))
-                .transpose()?;
-            let next_value = lower_member(self, next, body)?;
-            (next_value, close_value)
+            lowered.push((call, value, value_ty));
+        }
+        let member = |call: ProtocolCall| lowered.iter().find(|(seen, ..)| *seen == call).copied();
+        let next = member(ProtocolCall::Next);
+        let close = member(ProtocolCall::Return);
+        let throw = member(ProtocolCall::Throw);
+        let Some((_, next_value, next_fn)) = next else {
+            return refuse(self, object.span, "without `next`");
         };
         let access = ProtocolAccess::Closures {
-            next_fn: next_value.1,
-            return_fn: close_value.map(|(_, ty)| ty),
+            methods: ProtocolMethods {
+                next: next_fn,
+                close: close.map(|(_, _, ty)| ty),
+                throw: throw.map(|(_, _, ty)| ty),
+            },
         };
-        let mut args = vec![next_value.0];
-        args.extend(close_value.map(|(value, _)| value));
+        let mut args = vec![next_value];
+        args.extend(close.map(|(_, value, _)| value));
+        args.extend(throw.map(|(_, value, _)| value));
         Ok(self.protocol_generator(access, args, generator_ty, span, body))
     }
 }

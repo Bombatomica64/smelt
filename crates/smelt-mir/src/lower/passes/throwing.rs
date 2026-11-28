@@ -263,6 +263,17 @@ fn statement_can_throw(
     {
         return true;
     }
+    // One step of `yield*` forwards the resume to its delegate, whose throw
+    // (a `throw(e)` it rethrows, a throwing `next()`) ends this generator.
+    if matches!(
+        value,
+        Rvalue::GeneratorYield {
+            delegate: Some(_),
+            ..
+        }
+    ) {
+        return true;
+    }
     // A call through a type parameter's bound reaches whichever implementation
     // the receiver's concrete class carries, so it throws when any of them can.
     if let Rvalue::BoundMethod { bound, method, .. } = value
