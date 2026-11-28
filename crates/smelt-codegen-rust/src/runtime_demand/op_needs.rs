@@ -384,8 +384,8 @@ impl RuntimeDemand {
             Rvalue::TypeofValue { .. } => {
                 self.add(Need::Typeof);
             }
-            // A collection iterator is a generator (`smelt_live_iterator`).
-            Rvalue::CollectionIterator { .. } => {
+            // A collection or array iterator is a generator (`smelt_live_iterator`).
+            Rvalue::CollectionIterator { .. } | Rvalue::ListIterator { .. } => {
                 self.add(Need::IteratorResult);
             }
             Rvalue::DefineProperties { .. } => {

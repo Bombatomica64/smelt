@@ -2784,6 +2784,14 @@ impl<Y: 'static, R: Clone + Default + 'static, N: 'static> SmeltGenerator<Y, R, 
         Self { resume: ::std::rc::Rc::new(::std::cell::RefCell::new(Box::new(resume))), completed: ::std::rc::Rc::new(::std::cell::RefCell::new(None)), started: ::std::rc::Rc::new(::std::cell::Cell::new(true)), latches: false, source }
     }
 }
+impl<Y: 'static, R: Clone + Default + 'static, N: 'static> SmeltGenerator<Y, R, N> {
+    #[allow(dead_code)]
+    fn map_yield<B: 'static>(self, convert: impl Fn(Y) -> B + 'static) -> SmeltGenerator<B, R, N> {
+        let source = self.source.clone();
+        let inner = self;
+        SmeltGenerator { resume: ::std::rc::Rc::new(::std::cell::RefCell::new(Box::new(move |command| inner.try_resume(command).map(|step| match step { SmeltGeneratorResult::Yielded(value) => SmeltGeneratorResult::Yielded(convert(value)), SmeltGeneratorResult::Complete(value) => SmeltGeneratorResult::Complete(value) })))), completed: ::std::rc::Rc::new(::std::cell::RefCell::new(None)), started: ::std::rc::Rc::new(::std::cell::Cell::new(true)), latches: false, source }
+    }
+}
 fn smelt_live_iterator<Y: 'static>(mut at: impl FnMut(usize) -> Option<Y> + 'static) -> SmeltGenerator<Y, (), ()> {
     let mut index = 0_usize;
     SmeltGenerator::new(move |_command| Ok(at(index).map_or(SmeltGeneratorResult::Complete(()), |value| { index = index.saturating_add(1); SmeltGeneratorResult::Yielded(value) })))

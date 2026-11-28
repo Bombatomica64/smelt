@@ -791,6 +791,39 @@ impl FunctionEmitter<'_> {
                 element_text = element_text.delimited()
             )));
         }
+        // A generator at another yield type (an `Iterable<number>`'s iterator
+        // handed to an `Iterable<unknown>` slot): the same generator, each
+        // yielded value converted (`SmeltGenerator::map_yield`). Its return
+        // and resume types must agree.
+        if let (
+            Some(&Type::Generator {
+                is_async: false,
+                yield_ty: source_yield,
+                return_ty: source_return,
+                next_ty: source_next,
+            }),
+            Some(&Type::Generator {
+                is_async: false,
+                yield_ty: target_yield,
+                return_ty: target_return,
+                next_ty: target_next,
+            }),
+        ) = (self.mir.types.get(source), self.mir.types.get(target))
+            && source_yield != target_yield
+            && source_return == target_return
+            && source_next == target_next
+        {
+            let converted = self.rendered_at_type(
+                &RustExpr::path("smelt_value"),
+                source_yield,
+                target_yield,
+                scope,
+            )?;
+            return Ok(value_text.postfix(format!(
+                ".map_yield(move |smelt_value| {})",
+                converted.delimited()
+            )));
+        }
         // An iterator step at another step type (`entries().next()` read as
         // `IteratorYieldResult<[number, string]>`): each arm's payload is
         // converted to the target's yield or return type.

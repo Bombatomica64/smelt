@@ -1053,7 +1053,11 @@ fn compute_owned_callback_params(mir: &Mir) -> Result<HashSet<(FuncId, LocalId)>
             if !matches!(mir.types.get(local.ty), Some(Type::Function(_))) {
                 continue;
             }
-            if callback_param_escapes_locally(mir, function, *param)?
+            // A generator's parameters move into its producer, which outlives
+            // the call: a callback (an `Iterable<T>`'s thunk among them) is
+            // held, not borrowed.
+            if function.is_generator
+                || callback_param_escapes_locally(mir, function, *param)?
                 || callback_param_compared_by_identity(function, *param)
             {
                 owned.insert((function.id, *param));

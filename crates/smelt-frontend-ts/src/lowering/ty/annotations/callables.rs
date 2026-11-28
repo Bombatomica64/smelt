@@ -39,7 +39,12 @@ impl ModuleBuilder<'_> {
         };
         Some(
             self.ts_type_to_hir(&annotation.type_annotation)
-                .map(|target| (parameter.name.to_string(), Some(target))),
+                .map(|target| {
+                    (
+                        parameter.name.to_string(),
+                        Some(self.narrowing_target(target)),
+                    )
+                }),
         )
     }
 
@@ -69,8 +74,25 @@ impl ModuleBuilder<'_> {
         };
         Some(
             self.ts_type_to_hir(&annotation.type_annotation)
-                .map(|target| (parameter.name.to_string(), target)),
+                .map(|target| (parameter.name.to_string(), self.narrowing_target(target))),
         )
+    }
+
+    /// A predicate's or assertion's target as the type it narrows to. A
+    /// narrowing names a view of the value it tests, never a conversion of
+    /// it, so an `Iterable<T>` target (`value is Iterable<unknown>`) is read as
+    /// the array view `T[]` (`iterable_member_as_array`): the lazy thunk an
+    /// `Iterable<T>` slot builds is no representation a tested value already
+    /// has, while reading a narrowed erased value as an array iterates it
+    /// through the same erased protocol.
+    fn narrowing_target(&mut self, target: smelt_hir::TypeId) -> smelt_hir::TypeId {
+        match self.ctx.krate.types.get(target).cloned() {
+            Some(Type::Optional(inner, absence)) => {
+                let inner = self.iterable_member_as_array(inner);
+                self.ctx.krate.types.intern(Type::Optional(inner, absence))
+            }
+            _ => self.iterable_member_as_array(target),
+        }
     }
 
     /// Convert a TypeScript function type node into HIR callable metadata.

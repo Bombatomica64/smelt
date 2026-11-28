@@ -36,7 +36,7 @@ A hand-written port gives the protocol one typed shape: a trait object behind a 
 |---|---|---|
 | `Iterator<T, R, N>`, `IterableIterator<T, R, N>`, `IteratorObject<T, R, N>` | `Type::Generator { yield: T, return: R, next: N }` | `SmeltGenerator<T, R, N>` |
 | `IteratorResult<T, R>`, `IteratorYieldResult<T>` | `Type::GeneratorResult { yield: T, return: R }` | `SmeltGeneratorResult<T, R>` (`Yielded(T)` / `Complete(R)`) |
-| `Iterable<T>` (unchanged) | `Type::List(T)` | `SmeltList<T>` |
+| `Iterable<T>` | `Type::Function(() => Generator { T, undefined, undefined })` (its `[Symbol.iterator]`) | `Rc<dyn Fn() -> SmeltGenerator<T, (), ()>>` |
 
 `SmeltGenerator` is a shared handle to one `FnMut(command) -> step` state machine: exactly an object with `next()`
 (and `return()`, the `Return` command). So an `Iterator<T>` value is one whatever produced it: a `function*`, a
@@ -126,6 +126,37 @@ that `d` answers with a yield continues the delegation. Being a `yield` in MIR, 
 `finally` edges every `yield` has (definite assignment, reachability). `yield*` over a list, a string, a tuple, a
 union, and in an async generator keeps the `GeneratorDelegate` loop.
 
+### `Iterable<T>`
+
+`Iterable<T>` is the interface `{ [Symbol.iterator](): Iterator<T> }`, and Smelt lowers a one-method interface as
+that method: an `Iterable<T>` is the thunk `() => Iterator<T>` (`lowering/stmt/iterable_values.rs`). It used to be
+`T[]`, so an argument was drained into a list at the call: an infinite iterable never returned, and the producer's side
+effects all ran before the consumer's.
+
+* A value in an `Iterable<T>` slot (an argument, a return, an annotated binding) becomes a thunk over it, evaluated
+  once where the slot is. Each call of the thunk answers a fresh iterator: an array's live element iterator (op
+  `ListIterator`), a `Set`'s members, a `Map`'s entries, a string's code points, a class's `[Symbol.iterator]()`
+  (adapted as above), or a generator itself (its own iterator, so a second iteration finds it exhausted, as in
+  JavaScript). The value is lowered with the hint `T[]` first, so a literal takes its element types from `T`.
+* Every consumer reaches an iterable through `iteration_generator`, which calls the thunk: `for...of`, spread,
+  `Array.from`, `new Set`/`new Map`, destructuring, `yield*`, and `xs[Symbol.iterator]()` written by the source. A
+  consumer that iterates twice gets two iterators, so an array restarts.
+* An erased value read as an `Iterable<T>` (`x as Iterable<T>`) becomes a thunk that iterates it through the erased
+  protocol each time it is called (its elements extracted to `T` as `T[]` would extract them): the erased boundary
+  the source wrote stays where it was, and laziness is not kept across it.
+* A generator's function-typed parameters (an `Iterable<T>` among them) are owned, since they move into its producer
+  (`compute_owned_callback_params`).
+* Beside an array arm in a union (`ArrayLike<T> | Iterable<T>`), inside an intersection (`P & Iterable<P>`), and as
+  a type guard's or assertion's target (`value is Iterable<unknown>`), `Iterable<T>` keeps its array view `T[]`
+  (`iterable_member_as_array`). A union of an array with a function value, or an intersection with one, has no
+  concrete representation and would erase; a narrowing names a view of the value it tests, never a conversion. A
+  value converted for such a slot is drained into the array there, as every `Iterable<T>` was before.
+
+The thunk is precise: no erasure, `T` as declared. Like every interface-typed value it is not the object it was made
+from: `Array.isArray(xs)` of an `Iterable<number>` parameter given an array is `false`, and `===` compares thunks.
+A function value of type `() => Iterator<T>` is never an iterable in TypeScript (iterating one, or passing one where
+an iterable is expected, is a type error), so the representations share it.
+
 ## 3. Why it is typed
 
 The element type is the one the source declares (`Iterator<number>`: `SmeltGenerator<f64, (), ()>`;
@@ -177,9 +208,6 @@ still refused.
   (`Generator<T, R, number>.next()` is accepted) and changes nothing for a `TNext` that includes `undefined`, which
   lowers to an `Option`. Async iterators (`[Symbol.asyncIterator]`, `for await`) are unchanged, and `yield*` in an
   async generator does not forward `return(v)`.
-* `Iterable<T>` stays a list: an iterable passed for an `Iterable<T>` parameter is drained eagerly, so an infinite one
-  does not terminate there. Streaming it means lowering `Iterable<T>` to a lazy carrier at every consumer of such a
-  parameter (the corpora use `Iterable<T>` widely as a list), an ABI change of its own.
 
 ## 6. Related fixes the adapter needed
 

@@ -1959,6 +1959,17 @@ macro_rules! op_group_transcribed {
             }
                 fresh(true)
                 => (format!("collection_iterator {op} set={set} {collection}"));
+            /// A live iterator over an array's elements (`arr[Symbol.iterator]()`),
+            /// typed as a generator of the element type: it reads the array by
+            /// position at each step, so it sees elements pushed after it was
+            /// made, as JavaScript's array iterator does. What an
+            /// `Iterable<T>` built from an array answers each time it is
+            /// iterated.
+            ListIterator {
+                /// The array.
+                list: one,
+            }
+                => (format!("list_iterator {list}"));
             /// Split a string into a list of strings.
             StringSplit {
                 /// String value to split.

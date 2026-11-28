@@ -66,6 +66,20 @@ impl FunctionEmitter<'_> {
         self.value_at_type_in(operand, target, &self.render_scope())
     }
 
+    /// Whether `function` is an `Iterable<T>`'s thunk, `() => Iterator<T>`: no
+    /// parameters, answering a synchronous generator that returns and takes
+    /// `undefined` (the frontend's `iterable_thunk_type`).
+    pub(super) fn is_iterable_thunk(&self, function: &FunctionType) -> bool {
+        function.params.is_empty()
+            && !function.is_async
+            && matches!(
+                self.mir.types.get(function.return_ty),
+                Some(Type::Generator { is_async: false, return_ty, next_ty, .. })
+                    if matches!(self.mir.types.get(*return_ty), Some(Type::None))
+                        && matches!(self.mir.types.get(*next_ty), Some(Type::None))
+            )
+    }
+
     /// Converts an operand to Rust text at an explicitly given render scope.
     ///
     /// The scope-taking form of [`Self::value_at_type`]. Every arm below — and
@@ -1136,6 +1150,26 @@ impl FunctionEmitter<'_> {
             }
             Some(Type::Class { .. }) => {
                 Ok(RustExpr::atom("Default::default()"))
+            }
+            // An erased value read as an `Iterable<T>` (`x as Iterable<T>`): the
+            // iterable's thunk (`() => Iterator<T>`), each call of which
+            // iterates the erased value afresh through the erased iteration
+            // protocol (its elements extracted to `T` as `T[]` would extract
+            // them: an array, a string's code points, a `Set`, a `Map`'s
+            // entries, a `[Symbol.iterator]()` object) and steps through them.
+            // An erased value is no function, so `extract_function` below does
+            // not apply.
+            Some(Type::Function(function)) if self.is_iterable_thunk(function) => {
+                let Some(Type::Generator { yield_ty, .. }) = self.mir.types.get(function.return_ty) else {
+                    return Err(EmitError::new("an iterable thunk answers a generator"));
+                };
+                let items_ty = self.type_id(Type::List(*yield_ty))?;
+                let items = self.extract_rendered(&RustExpr::path("smelt_erased_iterable.clone()"), items_ty, scope)?;
+                let thunk_ty = self.rendered_type(target)?;
+                Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
+                    "{{ let smelt_erased_iterable = ({text}).into_smelt_unknown(); ::std::rc::Rc::new(move || {{ let smelt_items: SmeltList<_> = {items}; smelt_live_iterator(move |smelt_index| smelt_items.get_index(smelt_index)) }}) as {thunk_ty} }}",
+                    text = text.delimited(), items = items.delimited()
+                ))))
             }
             Some(Type::Function(function)) => self.extract_function(target, function, scope, &smelt_owned_text),
             // An already-erased `SmeltUnknown` at a `Type::Future` position is a

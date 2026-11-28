@@ -316,6 +316,21 @@ impl FunctionEmitter<'_> {
                 ))
                 .delegating_with([&item_value]))
             }
+            // An iterator that returns and takes `undefined` (what an
+            // `Iterable<T>` thunk answers, `SmeltGenerator<T, (), ()>`) has a
+            // natural placeholder: one that is already done. Any other
+            // generator would need a value of its return type to complete
+            // with.
+            Type::Generator {
+                is_async: false,
+                return_ty,
+                next_ty,
+                ..
+            } if matches!(self.mir.types.get(*return_ty), Some(Type::None))
+                && matches!(self.mir.types.get(*next_ty), Some(Type::None)) =>
+            {
+                Ok(RustExpr::atom("smelt_live_iterator(|_| None)"))
+            }
             Type::Generator { .. } => Err(EmitError::new("a generator value has no eager default")),
             Type::GeneratorResult { return_ty, .. } => Ok(RustExpr::atom(format!(
                 "SmeltGeneratorResult::Complete({})",

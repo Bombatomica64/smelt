@@ -43,8 +43,11 @@ impl ModuleBuilder<'_> {
             }));
         }
         let anchor = self.expression_span(expression);
+        // A value for an `Iterable<T>` slot is spelled as the array it most
+        // often is (`[["a", 1]]` takes its tuples from `T`), then converted.
+        let shape_hint = type_hint.map(|hint| self.iterable_shape_hint(hint));
         let lowered = self.with_erasure_anchor(anchor, |this| {
-            this.expression_shape_with_hint(expression, body, type_hint)
+            this.expression_shape_with_hint(expression, body, shape_hint)
         })?;
         let lowered =
             self.kept_map_literal_at_record(oxc::span::GetSpan::span(expression), lowered, body);
@@ -52,7 +55,7 @@ impl ModuleBuilder<'_> {
         let lowered = self.int32_read_as_number(lowered, body);
         // A hand-written iterator in an `Iterator<T>` slot, or an iterable in
         // an `Iterable<T>` one, is converted as the protocol converts it.
-        let lowered = self.iterator_value_at_slot(lowered, type_hint, body)?;
+        let lowered = self.protocol_value_at_slot(lowered, type_hint, body)?;
         Ok(self.in_own_language_view(lowered, body))
     }
 

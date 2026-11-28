@@ -121,6 +121,18 @@ impl<Y: 'static, R: Clone + Default + 'static, N: 'static> SmeltGenerator<Y, R, 
         Self { resume: ::std::rc::Rc::new(::std::cell::RefCell::new(Box::new(resume))), completed: ::std::rc::Rc::new(::std::cell::RefCell::new(None)), started: ::std::rc::Rc::new(::std::cell::Cell::new(true)), latches: false, source }
     }
 }
+impl<Y: 'static, R: Clone + Default + 'static, N: 'static> SmeltGenerator<Y, R, N> {
+    //~ This generator seen at another yield type: every command goes to it,
+    //~ and each value it yields is converted by `convert` (an iterator handed
+    //~ to a slot typed with another element type, `Iterator<unknown>` among
+    //~ them). It is the same iterator, so it does not latch on its own.
+    #[allow(dead_code)]
+    fn map_yield<B: 'static>(self, convert: impl Fn(Y) -> B + 'static) -> SmeltGenerator<B, R, N> {
+        let source = self.source.clone();
+        let inner = self;
+        SmeltGenerator { resume: ::std::rc::Rc::new(::std::cell::RefCell::new(Box::new(move |command| inner.try_resume(command).map(|step| match step { SmeltGeneratorResult::Yielded(value) => SmeltGeneratorResult::Yielded(convert(value)), SmeltGeneratorResult::Complete(value) => SmeltGeneratorResult::Complete(value) })))), completed: ::std::rc::Rc::new(::std::cell::RefCell::new(None)), started: ::std::rc::Rc::new(::std::cell::Cell::new(true)), latches: false, source }
+    }
+}
 //~ A collection iterator (`map.keys()`, `set.values()`, `map.entries()`):
 //~ single-pass over the collection's live store, reading position `index`
 //~ through `at` until it answers `None`. It is a generator, so it has

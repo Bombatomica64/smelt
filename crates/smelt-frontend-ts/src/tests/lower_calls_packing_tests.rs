@@ -10025,13 +10025,20 @@ export function tally(values: number[]): number {
 
 #[test]
 fn lowers_erased_iterator_next_done_value_loop() -> Result<(), String> {
-    // Driving an erased `Iterable<unknown>` through the manual iterator protocol
-    // — `data[Symbol.iterator]().next()` then `while (!step.done)` reading
-    // `step.value` — is the es-toolkit `fp/pipe.ts` shape. The iterator element
-    // type is never statically resolved, so `.next()` yields the dynamic
-    // boundary and the `.done`/`.value` reads must route through the erased
-    // object-field path instead of hitting the "field access is only lowered
-    // for Record/class/interface" gate on a unit-typed value.
+    // Driving an `Iterable<unknown>` through the manual iterator protocol —
+    // `data[Symbol.iterator]().next()` then `while (!step.done)` reading
+    // `step.value` — is the es-toolkit `fp/pipe.ts` shape.
+    //
+    // Corrected expectation (iterator-protocol completion, item 4). Old
+    // requirement: `Iterable<unknown>` lowered as `unknown[]`, whose
+    // `[Symbol.iterator]()` had no typed iterator, so `step` had to be the
+    // erased `Unknown` boundary and `.done`/`.value` erased field reads. New
+    // requirement: `Iterable<T>` is its `[Symbol.iterator]` thunk
+    // (`() => Iterator<T>`, `docs/design/iterator-protocol.md`), so the call
+    // answers the typed `Iterator<unknown>` and `step` is the typed step
+    // `IteratorResult<unknown>`: only the element stays `unknown`, as the
+    // source declares it. The guarantee the old test kept (the loop lowers,
+    // no field-access refusal) holds with a stronger type.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
         ts!(r"
@@ -10051,18 +10058,18 @@ export function drive(data: Iterable<unknown>): unknown[] {
     let module = module(&ctx, module_id)?;
     let drive = named_function_item(&ctx, module, "drive")?;
     let body = function_body(&ctx, drive)?;
-    // The erased iterator loop variable must carry the dynamic-boundary
-    // `Unknown` type, not `None`, so the `.done`/`.value` reads lower against a
-    // real `SmeltUnknown` object.
-    let has_unknown_step = body.locals.iter().any(|local| {
+    let has_typed_step = body.locals.iter().any(|local| {
         local
             .name
             .is_some_and(|name| ctx.krate.symbols.get(name) == Some("step"))
-            && matches!(ctx.krate.types.get(local.ty), Some(Type::Unknown))
+            && matches!(
+                ctx.krate.types.get(local.ty),
+                Some(Type::GeneratorResult { .. })
+            )
     });
     ensure!(
-        has_unknown_step,
-        "erased iterator `step` should lower to the Unknown dynamic boundary"
+        has_typed_step,
+        "the iterator `step` should be the typed `IteratorResult<unknown>`"
     );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
@@ -10070,10 +10077,14 @@ export function drive(data: Iterable<unknown>): unknown[] {
 
 #[test]
 fn lowers_erased_iterator_field_reads() -> Result<(), String> {
-    // The `.done`/`.value` reads on an erased iterator result are plain dynamic
-    // object-field accesses; confirm they lower to `Field` reads (rather than
-    // hard-erroring) so codegen can emit the erased `smelt_get_object_field`
-    // path.
+    // The `.done`/`.value` reads on the step of an `Iterable<unknown>`'s
+    // iterator.
+    //
+    // Corrected expectation (iterator-protocol completion, item 4). Old
+    // requirement: the step was erased, so the reads were dynamic `Field`
+    // reads. New requirement: the step is the typed `IteratorResult<unknown>`
+    // (see `lowers_erased_iterator_next_done_value_loop`), so they are the
+    // protocol's `GeneratorDone` / `GeneratorValue` reads.
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
         ts!(r"
@@ -10088,16 +10099,7 @@ export function firstValue(data: Iterable<unknown>): unknown {
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
-    let has_field_read = ctx.krate.bodies.iter().any(|body| {
-        body.exprs.iter().any(|expr| {
-            matches!(&expr.kind, ExprKind::Field { field, .. }
-                if matches!(ctx.krate.symbols.get(*field), Some("done" | "value")))
-        })
-    });
-    ensure!(
-        has_field_read,
-        "erased iterator `.done`/`.value` should lower to dynamic Field reads"
-    );
+    ensure_exprs!(&ctx, GeneratorDone, GeneratorValue);
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
