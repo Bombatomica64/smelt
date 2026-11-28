@@ -566,6 +566,16 @@ test("nested NaN", () => {
 
 /// Synchronous generators must preserve their suspension points instead of
 /// eagerly collecting every yielded value before the caller can resume them.
+///
+/// Corrected expectation: a `yield` resumed with `Throw` used to wrap the
+/// command's payload, `smelt_panic_throw(smelt_throw(smelt_error))`, because
+/// `SmeltGeneratorCommand::Throw` carried the thrown `SmeltUnknown` value. It
+/// now carries the error channel's `Box<dyn Error>` (so a Python
+/// `SmeltPyException` thrown into a generator reaches an `except` around the
+/// `yield`), and JavaScript's `gen.throw(v)` wraps `v` with `smelt_throw` where
+/// it sends the command. The yield therefore re-raises the box as it is,
+/// `smelt_panic_throw(smelt_error)`: the same payload crosses the same panic
+/// route, wrapped once at the sender instead of at the receiver.
 #[test]
 fn emits_resumable_synchronous_generator() {
     let source = source_for(
@@ -622,9 +632,9 @@ let smelt_generator_input = ::std::rc::Rc::new(::std::cell::RefCell::new(None));
 let smelt_generator_producer_input = smelt_generator_input.clone();
 let smelt_generator = genawaiter::rc::Gen::new(move |smelt_co| { let smelt_generator_input = smelt_generator_producer_input; async move {
 let _smelt_tmp_0: f64 = 1.0;
-let _smelt_tmp_1: SmeltUnknown = { smelt_co.yield_(_smelt_tmp_0).await; let smelt_command = smelt_generator_input.borrow_mut().take().unwrap_or_else(|| SmeltGeneratorCommand::Next(Default::default())); match smelt_command { SmeltGeneratorCommand::Next(smelt_value) => smelt_value, SmeltGeneratorCommand::Return(smelt_value) => return smelt_value, SmeltGeneratorCommand::Throw(smelt_error) => smelt_panic_throw(smelt_throw(smelt_error)) } };
+let _smelt_tmp_1: SmeltUnknown = { smelt_co.yield_(_smelt_tmp_0).await; let smelt_command = smelt_generator_input.borrow_mut().take().unwrap_or_else(|| SmeltGeneratorCommand::Next(Default::default())); match smelt_command { SmeltGeneratorCommand::Next(smelt_value) => smelt_value, SmeltGeneratorCommand::Return(smelt_value) => return smelt_value, SmeltGeneratorCommand::Throw(smelt_error) => smelt_panic_throw(smelt_error) } };
 let _smelt_tmp_2: f64 = 2.0;
-let _smelt_tmp_3: SmeltUnknown = { smelt_co.yield_(_smelt_tmp_2).await; let smelt_command = smelt_generator_input.borrow_mut().take().unwrap_or_else(|| SmeltGeneratorCommand::Next(Default::default())); match smelt_command { SmeltGeneratorCommand::Next(smelt_value) => smelt_value, SmeltGeneratorCommand::Return(smelt_value) => return smelt_value, SmeltGeneratorCommand::Throw(smelt_error) => smelt_panic_throw(smelt_throw(smelt_error)) } };
+let _smelt_tmp_3: SmeltUnknown = { smelt_co.yield_(_smelt_tmp_2).await; let smelt_command = smelt_generator_input.borrow_mut().take().unwrap_or_else(|| SmeltGeneratorCommand::Next(Default::default())); match smelt_command { SmeltGeneratorCommand::Next(smelt_value) => smelt_value, SmeltGeneratorCommand::Return(smelt_value) => return smelt_value, SmeltGeneratorCommand::Throw(smelt_error) => smelt_panic_throw(smelt_error) } };
 return JsString::from("done");
 } });
 let mut smelt_generator = smelt_generator;
