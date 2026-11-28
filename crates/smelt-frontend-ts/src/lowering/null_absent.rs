@@ -193,10 +193,28 @@ impl ModuleBuilder<'_> {
                 "undefined"
             };
             let string_ty = self.ctx.krate.types.intern(Type::String);
-            return body.push_expr(Expr {
+            let span = self.span(start, end);
+            let word = body.push_expr(Expr {
                 kind: ExprKind::Literal(Literal::String(word.to_owned())),
                 ty: string_ty,
-                span: self.span(start, end),
+                span,
+            });
+            // The operand still runs: `${void list.push(4)}` and `${log()}`
+            // (a `void` call) are the word AFTER their effect. Only a literal
+            // or a local read has none to keep.
+            if matches!(
+                body.expr_at(operand).map(|expr| &expr.kind),
+                Some(ExprKind::Literal(_) | ExprKind::Local(_))
+            ) {
+                return word;
+            }
+            let block = body.push_block(span);
+            body.push_stmt_to_block(block, smelt_hir::Stmt::Expr(operand));
+            body.blocks[block.0 as usize].tail = Some(word);
+            return body.push_expr(Expr {
+                kind: ExprKind::Block(block),
+                ty: string_ty,
+                span,
             });
         }
         if matches!(

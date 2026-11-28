@@ -29,6 +29,25 @@ impl ModuleBuilder<'_> {
         span: Span,
         lower: impl FnOnce(&mut Self, &mut Body) -> Result<smelt_hir::ExprId, SmeltError>,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        self.lower_in_place(body, span, lower)
+    }
+
+    /// Lower an expression whose effects must run where the expression is
+    /// evaluated, among its sibling operands in source order: the statements
+    /// `lower` pushes go to a fresh block, wrapped as an `ExprKind::Block`
+    /// whose tail is the value (MIR runs a block operand's statements when it
+    /// lowers that operand). Without effects the value is returned unwrapped.
+    ///
+    /// The statement sink of an expression is the *enclosing statement's*
+    /// block, so an effect pushed there runs before every operand of that
+    /// statement: `[box.items.size, (s.add(9), s.size)]` read `box.items.size`
+    /// after `s.add(9)` (a ternary arm's `k++` likewise ran on both arms).
+    pub(in crate::lowering) fn lower_in_place(
+        &mut self,
+        body: &mut Body,
+        span: Span,
+        lower: impl FnOnce(&mut Self, &mut Body) -> Result<smelt_hir::ExprId, SmeltError>,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
         let arm_block = body.push_block(span);
         let arm_expr = self.with_stmt_block(arm_block, |this| lower(this, body))?;
         if body.blocks[arm_block.0 as usize].stmts.is_empty() {

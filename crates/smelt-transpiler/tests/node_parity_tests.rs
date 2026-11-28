@@ -2564,3 +2564,14 @@ fn callback_return_from_the_checker() -> TestResult {
 fn switch_chain_continue() -> TestResult {
     verify_node_parity("switch_chain_continue")
 }
+
+/// The effects of a comma expression, of `void x`, and of a `void` call
+/// interpolated in a template run where the expression is evaluated, among its
+/// sibling operands in source order. They were pushed into the enclosing
+/// statement's block, so `[box.items.size, (s.add(9), s.size)]` read the size
+/// after the add; an interpolated `None`-typed operand was replaced by its
+/// word and never ran (`${void list.push(4)}`, `${log()}`).
+#[test]
+fn in_place_effects() -> TestResult {
+    verify_node_parity("in_place_effects")
+}
