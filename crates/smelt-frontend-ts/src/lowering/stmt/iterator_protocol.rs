@@ -35,7 +35,6 @@ use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
 use crate::lowering::erasure::NotNewErasure;
 use oxc::ast::ast::{Expression, ObjectExpression, ObjectPropertyKind, PropertyKey, PropertyKind};
-use oxc::ast_visit::{Visit, walk};
 use smelt_hir::{
     Body, CaptureMode, ClosureCapture, ClosureExpr, ClosureThis, Expr, ExprId, ExprKind,
     FunctionType, LocalDecl, LocalId, Param, Pattern, Span, Stmt, Type, TypeId,
@@ -129,32 +128,6 @@ enum ProtocolArg {
     /// for `next(sent)`, its return type for `return(value)`, the thrown
     /// value for `throw(error)`.
     Sent(TypeId),
-}
-
-/// Finds a `this` that belongs to the function being visited: one outside any
-/// nested non-arrow function, whose own `this` it would be.
-#[derive(Default)]
-struct OwnThisFinder {
-    /// Whether such a `this` was seen.
-    found: bool,
-}
-
-impl<'a> Visit<'a> for OwnThisFinder {
-    fn visit_this_expression(&mut self, _it: &oxc::ast::ast::ThisExpression) {
-        self.found = true;
-    }
-
-    fn visit_function(
-        &mut self,
-        _it: &oxc::ast::ast::Function<'a>,
-        _flags: oxc::syntax::scope::ScopeFlags,
-    ) {
-        // A nested `function` has its own `this`.
-    }
-
-    fn visit_class(&mut self, _it: &oxc::ast::ast::Class<'a>) {
-        // So do a nested class's members.
-    }
 }
 
 impl ModuleBuilder<'_> {
@@ -1364,17 +1337,13 @@ impl ModuleBuilder<'_> {
         // Members evaluate in source order.
         let mut lowered = Vec::with_capacity(members.len());
         for (call, member) in members {
-            if let Expression::FunctionExpression(function) = member {
-                let mut finder = OwnThisFinder::default();
-                if let Some(function_body) = &function.body {
-                    walk::walk_function_body(&mut finder, function_body);
-                }
-                if finder.found {
-                    return Err(SmeltError::unsupported(
-                        self.span(function.span.start, function.span.end),
-                        "an iterator object literal whose `next`/`return`/`throw` reads `this` is not lowered yet (use an arrow over closure state, or a class)",
-                    ));
-                }
+            if let Expression::FunctionExpression(function) = member
+                && crate::lowering::own_this::function_reads_own_this(function)
+            {
+                return Err(SmeltError::unsupported(
+                    self.span(function.span.start, function.span.end),
+                    "an iterator object literal whose `next`/`return`/`throw` reads `this` is not lowered yet (use an arrow over closure state, or a class)",
+                ));
             }
             let value = self.expression_with_hint(member, body, Some(step_fn))?;
             let value_ty = Self::expr_ty(body, value);
