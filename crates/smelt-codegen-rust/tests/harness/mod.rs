@@ -446,10 +446,6 @@ const NODE_OPEN_DEFECTS: &[(&str, &str)] = &[
         "vitest runs a file's tests in one module instance, so the previous test's key is still there; \
          Smelt's generated tests each start from fresh module state",
     ),
-    (
-        "an unmodeled member stays undefined",
-        "`Array.prototype.flatMap` is a function in JavaScript; Smelt's host model has no such member yet",
-    ),
 ];
 
 /// What the Node oracle reported for one fixture.

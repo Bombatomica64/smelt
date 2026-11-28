@@ -93,6 +93,8 @@ pub const BUILTIN_MEMBER_FUNCTIONS: &[BuiltinMember] = &[
     proto("Array", "lastIndexOf", 1),
     proto("Array", "includes", 1),
     proto("Array", "join", 1),
+    // Runs its mapper per element and flattens one level of array results.
+    proto("Array", "flatMap", 1),
     statics("Array", "isArray", 1),
     // `Math`'s numeric functions are handed around as values
     // (`times(n, Math.random)`, `xs.map(Math.abs)`) as often as they are
@@ -159,6 +161,6 @@ mod tests {
     /// An unmodeled member has no entry, so the runtime answers `undefined`.
     #[test]
     fn unmodeled_member_is_absent() {
-        assert!(builtin_member("Array", BuiltinMemberKind::Prototype, "flatMap").is_none());
+        assert!(builtin_member("Array", BuiltinMemberKind::Prototype, "copyWithin").is_none());
     }
 }
