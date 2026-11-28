@@ -1,6 +1,6 @@
 # Design decisions, November 2026
 
-Status: decided by the project owner on 2026-11-28. Each section records the problem, the options that were
+Status: decided by the project owner on 2026-11-28; C and D revised the same day (C1 and D2 replace C2 and D1, see below). Each section records the problem, the options that were
 weighed, the decision, and what the implementation must guarantee. Implementation PRs link back here and
 extend the referenced design docs; this file is the record of *what* was chosen and *why*.
 
@@ -47,38 +47,40 @@ when tried in #566.
 whole-program fact computed before lowering); a field never observed for presence stays `Option<T>`. Narrowing by
 the optional discriminant is typed (extends #553's literal narrowing). The ts-pattern pin must hold.
 
-## C. Function identity — decision: C2
+## C. Function identity — decision: C1 (revised; replaces C2)
 
 **Problem.** A function used where an object type is expected is wrapped into a record view, so identity is
-lost: after `const n: Named = hello`, `n === hello` is `false` (Node: `true`), and properties written through one
-are not seen through the other.
+lost: after `const n: Named = hello`, `n === hello` is `false` (Node: `true`).
 
 **Options.**
-- C1: every function value carries a stable identity, record views carry it, `===`/`Object.is` compare it.
-- C2: represent a function that has (or acquires) properties as a single callable object from creation: one
-  shared allocation holding the callable and its property slots, so every view is the same object.
+- C1: every function value that can be wrapped carries a small identity token; the record built when it is
+  wrapped copies the token; `===` and `Object.is` compare tokens.
+- C2: represent a function that has (or acquires) properties as a single callable object from creation.
+- C3: keep `false` and document it as a limit of the subset.
 
-**Decision: C2** (chosen over the C1 recommendation): identity correct by construction rather than by a rule every
-wrapping site must uphold.
+**Decision: C1.** C2 was chosen first, then replaced after the product direction settled on idiomatic Rust
+output and Rc-leak safety: C2 turns every such function into an `Rc<RefCell<…>>` callable with dynamic dispatch
+(non-idiomatic) and makes self-referencing closures strong `Rc` cycles (a leak class).
 
-**Guarantees.** For a function value that is read as an object (property reads/writes, `name`/`length`, use at an
-object or callable-interface type), the function and every view of it are one reference: `===`, `Object.is`, and
-property writes agree with Node. Plain functions never used as objects keep their current lean representation
-(no cost for code that does not observe the object side). Extends `docs/design/record-identity.md`.
+**Guarantees.** No new `Rc`, `RefCell` or back-reference; plain functions never wrapped stay plain `fn`s/closures;
+the only cost is one id field on the wrapping record. `===`/`Object.is` between a function and any record that
+wraps it agree with Node. Property writes through a wrapping record are not seen through the bare function (and
+vice versa): that remains a documented limit, not covered by C1.
 
-## D. `import * as NS` used as a value — decision: D1
+## D. `import * as NS` used as a value — decision: D2 (revised; replaces D1)
 
 **Problem.** Using a namespace import as a value (`Object.keys(NS)`, passing `NS` to a function, `NS[k]` with a
 literal-union `k`) erases it ("imported value" / untyped-package).
 
 **Options.**
-- D1: a generated, typed struct per module whose accessors read the module's live bindings; writes through the
-  namespace throw a `TypeError` as in JavaScript (module namespace objects are frozen).
-- D2: a typed snapshot record at import time (misses live-binding updates).
+- D1: a generated struct per module with live accessors (thread-local `RefCell` state behind accessor functions).
+- D2: a plain typed struct of the module's exports (constants and function pointers), built where needed.
 - D3: keep erased.
 
-**Decision: D1.** This is step 4 of `docs/design/record-identity.md`.
+**Decision: D2.** D1 was chosen first, then replaced for idiomatic output: live bindings need a global mutable
+layer hand-written Rust would not have. D2 is exact for `export const` and functions, which never change.
 
-**Guarantees.** Reads through the namespace see later updates to `export let` bindings; key enumeration order
-matches the spec (sorted export names); `NS[k]` with a literal-union `k` is a typed match over exports; writes
-and deletes throw; identity is stable (`NS === NS2` for two imports of the same module).
+**Guarantees.** `NS.x`, `NS` passed as a value, `Object.keys(NS)` in spec order (sorted export names) and
+`NS[k]` for a literal-union `k` (a typed match) are typed, no `SmeltUnknown`. A module that exports a mutable
+`export let` read through a namespace value is refused with a clear diagnostic naming the binding. Writes through
+`NS` are a type error in TypeScript already. No `Rc` cycles, no thread-local state.
