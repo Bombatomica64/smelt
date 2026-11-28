@@ -95,6 +95,11 @@ impl ModuleBuilder<'_> {
                     );
                     return Ok(());
                 }
+                if let Expr::Subscript(sub) = target_expr
+                    && let Expr::Slice(slice) = sub.slice.as_ref()
+                {
+                    return self.slice_assign(sub, slice, &s.value, body, block);
+                }
                 if let Some(result) = self.class_variable_assign(target_expr, &s.value, body, block) {
                     return result;
                 }
@@ -256,6 +261,75 @@ impl ModuleBuilder<'_> {
                 format!("unsupported statement: {}", stmt_kind_name(stmt)),
             )),
         }
+    }
+
+    /// `xs[a:b] = value` / `xs[a:b:c] = value` on a list
+    /// (`ExprKind::PythonSliceAssign`). As in `CPython` the value is evaluated
+    /// first (and materialized as a list of the target's item type), then the
+    /// target list, then the bounds.
+    fn slice_assign(
+        &mut self,
+        sub: &ruff_python_ast::ExprSubscript,
+        slice: &ruff_python_ast::ExprSlice,
+        value: &Expr,
+        body: &mut Body,
+        block: smelt_hir::BlockId,
+    ) -> Result<(), SmeltError> {
+        let span = self.span(sub.range);
+        // An empty display (`xs[a:b] = []`) evaluates nothing and takes the
+        // target's type, so it is built after the target is read.
+        let empty_display = matches!(value, Expr::List(list) if list.elts.is_empty())
+            || matches!(value, Expr::Tuple(tuple) if tuple.elts.is_empty());
+        let evaluated = if empty_display {
+            None
+        } else {
+            let raw = self.expression(value, body)?;
+            let items = self.iterable_as_list(raw, body);
+            let items_ty = Self::expr_ty(body, items);
+            let items_local = body.push_local(self.synthetic_local("__smelt_slice_items", items_ty, false, span));
+            let items_pat = body.push_pattern(HirPattern::Binding(items_local));
+            body.push_stmt_to_block(block, HirStmt::Let { pat: items_pat, ty: items_ty, value: Some(items) });
+            Some((items_local, items_ty))
+        };
+        let list = self.expression(&sub.value, body)?;
+        let list_ty = Self::expr_ty(body, list);
+        let (items_local, items_ty) = match evaluated {
+            Some(found) => found,
+            None => {
+                let empty = body.push_expr(HirExpr { kind: ExprKind::ListLit(Vec::new()), ty: list_ty, span });
+                let items_local = body.push_local(self.synthetic_local("__smelt_slice_items", list_ty, false, span));
+                let items_pat = body.push_pattern(HirPattern::Binding(items_local));
+                body.push_stmt_to_block(block, HirStmt::Let { pat: items_pat, ty: list_ty, value: Some(empty) });
+                (items_local, list_ty)
+            }
+        };
+        if !matches!(self.ctx.krate.types.get(list_ty), Some(Type::List(_))) {
+            return Err(SmeltError::unsupported(
+                span,
+                "slice assignment (`seq[a:b] = ..`) needs a list (a str or tuple raises TypeError)",
+            ));
+        }
+        if items_ty != list_ty {
+            return Err(SmeltError::unsupported(
+                self.span(value.range()),
+                "slice assignment needs an iterable of the list's item type",
+            ));
+        }
+        let mut bound = |bound_ast: Option<&Expr>, this: &mut Self| {
+            bound_ast.map(|bound_expr| this.slice_bound(bound_expr, body)).transpose()
+        };
+        let start = bound(slice.lower.as_deref(), self)?;
+        let end = bound(slice.upper.as_deref(), self)?;
+        let step = bound(slice.step.as_deref(), self)?;
+        let items = body.push_expr(HirExpr { kind: ExprKind::Local(items_local), ty: items_ty, span });
+        let none_ty = self.intern_type(Type::None);
+        let assign = body.push_expr(HirExpr {
+            kind: ExprKind::PythonSliceAssign { list, start, end, step, items },
+            ty: none_ty,
+            span,
+        });
+        body.push_stmt_to_block(block, HirStmt::Expr(assign));
+        Ok(())
     }
 
     /// Lower a Python `del target[, target]...` statement.

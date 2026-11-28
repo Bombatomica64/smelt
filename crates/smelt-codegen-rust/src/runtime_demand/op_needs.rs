@@ -479,6 +479,7 @@ impl RuntimeDemand {
             }
             Rvalue::PythonStepSlice { .. }
             | Rvalue::PythonSliceDelete { .. }
+            | Rvalue::PythonSliceAssign { .. }
             | Rvalue::PythonListExtrema { .. }
             | Rvalue::ListIndex { .. }
             | Rvalue::ListRemove { .. } => {

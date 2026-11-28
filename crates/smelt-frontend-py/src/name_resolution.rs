@@ -70,11 +70,15 @@ pub(crate) enum StdlibName {
     Protocol,
     /// `enum.IntEnum`, the integer enumeration base class.
     IntEnum,
+    /// `enum.Enum`, the enumeration base class.
+    Enum,
+    /// `enum.auto`, the automatic member value.
+    Auto,
 }
 
 impl StdlibName {
     /// Every modeled definition, for reverse lookup by qualified name.
-    const ALL: [Self; 8] = [
+    const ALL: [Self; 10] = [
         Self::Object,
         Self::Abc,
         Self::AbcMeta,
@@ -83,6 +87,8 @@ impl StdlibName {
         Self::Generic,
         Self::Protocol,
         Self::IntEnum,
+        Self::Enum,
+        Self::Auto,
     ];
 
     /// The fully qualified name of the definition (`module.attribute`).
@@ -96,6 +102,8 @@ impl StdlibName {
             Self::Generic => "typing.Generic",
             Self::Protocol => "typing.Protocol",
             Self::IntEnum => "enum.IntEnum",
+            Self::Enum => "enum.Enum",
+            Self::Auto => "enum.auto",
         }
     }
 

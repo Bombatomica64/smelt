@@ -28,6 +28,8 @@ struct ClassBases {
     is_abstract: bool,
     /// Whether the class derives from `enum.IntEnum`.
     is_int_enum: bool,
+    /// Whether the class derives from `enum.Enum` (`lowering/enums.rs`).
+    is_enum: bool,
     /// Type parameters declared by a `typing.Generic[...]` marker base.
     type_params: Vec<TypeParamDef>,
     /// The single non-marker base class, if any.
@@ -127,6 +129,7 @@ impl ModuleBuilder<'_> {
         let ClassBases {
             is_abstract: is_abstract_class,
             is_int_enum,
+            is_enum,
             type_params,
             base: declared_base,
             is_protocol,
@@ -164,7 +167,7 @@ impl ModuleBuilder<'_> {
             &target,
             base,
             &type_params,
-            is_int_enum,
+            (is_int_enum, is_enum),
             &mut kind,
             hir_module,
         )?;
@@ -264,6 +267,7 @@ impl ModuleBuilder<'_> {
         let mut bases = ClassBases {
             is_abstract: false,
             is_int_enum: false,
+            is_enum: false,
             type_params: Vec::new(),
             base: None,
             is_protocol: false,
@@ -332,6 +336,10 @@ impl ModuleBuilder<'_> {
         }
         bases.base = match positional.as_slice() {
             [] => None,
+            [(_, Some(StdlibName::Enum))] => {
+                bases.is_enum = true;
+                None
+            }
             [(base_expr, denoted)] => {
                 if materialized.is_none() {
                     let resolution = self
@@ -490,7 +498,7 @@ impl ModuleBuilder<'_> {
         target: &MaterializedClassTarget<'_>,
         base: Option<Symbol>,
         type_params: &[TypeParamDef],
-        is_int_enum: bool,
+        (is_int_enum, is_enum): (bool, bool),
         kind: &mut ClassKind,
         hir_module: &mut Module,
     ) -> Result<(ClassBodyLowering, ItemId), SmeltError> {
@@ -556,7 +564,18 @@ impl ModuleBuilder<'_> {
 
         // Class variables are registered on the class item before any method
         // body is lowered, so `Class.NAME` / `self.NAME` in a method resolve.
-        let static_fields_out = self.class_variables(class, is_int_enum, hir_module)?;
+        let mut static_fields_out = self.class_variables(class, is_int_enum || is_enum, hir_module)?;
+        // An `Enum`'s members, fields, constructor and text methods
+        // (`lowering/enums.rs`).
+        if is_enum {
+            let parts = self.lower_enum_parts(class, target)?;
+            fields.extend(parts.fields);
+            static_fields_out.extend(parts.static_fields);
+            constructor_id = Some(parts.constructor);
+            hir_module.items.push(parts.constructor);
+            hir_module.items.extend(parts.methods.iter().copied());
+            method_ids.extend(parts.methods);
+        }
         self.set_class_static_fields(class_item_id, static_fields_out.clone());
 
         for body_stmt in &class.body {
@@ -595,6 +614,8 @@ impl ModuleBuilder<'_> {
                         .push(field.clone());
                     fields.push(field);
                 }
+                // Already lowered as the members (`lower_enum_parts`).
+                Stmt::Assign(_) if is_enum => {}
                 Stmt::Assign(assign) if is_int_enum => {
                     self.int_enum_member_assign(class_name_str, assign, &mut enum_members)?;
                 }
@@ -603,7 +624,30 @@ impl ModuleBuilder<'_> {
                 // machinery. It declares no class variable: Smelt derives both
                 // from the class's own lowered shape, exactly as `__all__` is
                 // skipped at module level.
-                Stmt::Assign(assign) if is_class_metadata_assignment(assign) => {}
+                Stmt::Assign(assign) if is_class_metadata_assignment(assign) => {
+                    if let [Expr::Name(target)] = assign.targets.as_slice()
+                        && target.id.as_str() == "__match_args__"
+                    {
+                        let names = match assign.value.as_ref() {
+                            Expr::Tuple(tuple) => tuple
+                                .elts
+                                .iter()
+                                .map(|elt| match elt {
+                                    Expr::StringLiteral(name) => Some(name.value.to_str().to_owned()),
+                                    _ => None,
+                                })
+                                .collect::<Option<Vec<_>>>(),
+                            _ => None,
+                        }
+                        .ok_or_else(|| {
+                            SmeltError::unsupported(
+                                self.span(assign.range),
+                                "`__match_args__` must be a tuple of attribute-name strings",
+                            )
+                        })?;
+                        self.class_match_args.insert(class_sym, names);
+                    }
+                }
                 // A bare `NAME = <literal>` in a non-enum class body declares a
                 // class variable, already lowered by `class_variables` above.
                 Stmt::Assign(_) if !is_int_enum => {}

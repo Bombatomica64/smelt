@@ -3,7 +3,7 @@
 use ruff_python_ast::{Expr, ExprSubscript};
 use ruff_text_size::Ranged;
 use smelt_hir::{
-    Body, BoolFoldOp, Expr as HirExpr, ExprKind, FileId, PrimitiveCastOp, RegexMatchOp,
+    Body, BoolFoldOp, Expr as HirExpr, ExprKind, FileId, Pattern as HirPattern, PrimitiveCastOp, RegexMatchOp, Stmt as HirStmt,
     SetBinaryOp, SetRelationOp, SetRemoveOp, Span, StringReplaceOp, Type, UrlField,
 };
 use smelt_stdlib::RuleId;

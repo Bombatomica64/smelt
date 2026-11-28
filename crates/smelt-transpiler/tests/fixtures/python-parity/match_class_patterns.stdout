@@ -1,0 +1,18 @@
+origin
+y-axis 5
+x-axis 3
+diagonal 2
+small x 1, y 7
+elsewhere
+from origin to 3,4
+vertical at 2
+1,1 -> 2,2
+dot a
+big circle 20
+circle 3 c
+point 4,5
+unit square
+square 3 area 9
+square-ish rect 2
+rect width 4
+some shape

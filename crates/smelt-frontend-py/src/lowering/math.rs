@@ -371,12 +371,21 @@ impl ModuleBuilder<'_> {
         if let [iterable] = args.as_slice() {
             let list = self.order_free_iterable_as_list(*iterable, span, body);
             if let Some(Type::List(item_ty)) = self.ctx.krate.types.get(Self::expr_ty(body, list)).cloned() {
-                let key = self.extrema_key_argument(&call.arguments.keywords, item_ty, body)?;
+                let (default_keywords, key_keywords): (Vec<_>, Vec<_>) = call
+                    .arguments
+                    .keywords
+                    .iter()
+                    .cloned()
+                    .partition(|keyword| keyword.arg.as_ref().map(ruff_python_ast::Identifier::as_str) == Some("default"));
+                let key = self.extrema_key_argument(&key_keywords, item_ty, body)?;
                 if key.is_none() && !self.is_python_orderable(item_ty) {
                     return Err(SmeltError::unsupported(
                         span,
                         "Python min() and max() of an iterable require bool, int, float or str items",
                     ));
+                }
+                if let Some(default) = default_keywords.first() {
+                    return self.extrema_with_default(op, list, item_ty, key, &default.value, span, body);
                 }
                 return Ok(body.push_expr(HirExpr {
                     kind: ExprKind::PythonListExtrema { op, list, key },
@@ -418,6 +427,56 @@ impl ModuleBuilder<'_> {
             ty,
             span,
         }))
+    }
+
+    /// `min(iterable, default=d)` / `max(..)`: `d` when the iterable is
+    /// empty, else its extremum (`CPython` raises `ValueError` only without a
+    /// default). `d` is evaluated once, before the test, as a call argument
+    /// is. A default of another type than the items makes the result their
+    /// union, as `ty` types it (`max(xs, default=None)` is `int | None`).
+    #[expect(clippy::too_many_arguments, reason = "the extremum, its operands and where it lowers")]
+    fn extrema_with_default(
+        &mut self,
+        op: NumericExtremaOp,
+        list: smelt_hir::ExprId,
+        item_ty: TypeId,
+        key: Option<smelt_hir::ExprId>,
+        default: &Expr,
+        span: Span,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let list_ty = Self::expr_ty(body, list);
+        let outer = body.push_block(span);
+        let list_local = body.push_local(self.synthetic_local("__smelt_extrema_items", list_ty, false, span));
+        let list_pat = body.push_pattern(HirPattern::Binding(list_local));
+        body.push_stmt_to_block(outer, HirStmt::Let { pat: list_pat, ty: list_ty, value: Some(list) });
+        let default_value = self.expression(default, body)?;
+        let default_ty = Self::expr_ty(body, default_value);
+        let default_local = body.push_local(self.synthetic_local("__smelt_extrema_default", default_ty, false, span));
+        let default_pat = body.push_pattern(HirPattern::Binding(default_local));
+        body.push_stmt_to_block(outer, HirStmt::Let { pat: default_pat, ty: default_ty, value: Some(default_value) });
+        let ty = if default_ty == item_ty {
+            item_ty
+        } else {
+            let joined = self.union_from_types(vec![item_ty, default_ty], span)?;
+            if !self.type_assignable_to(item_ty, joined) || !self.type_assignable_to(default_ty, joined) {
+                return Err(SmeltError::unsupported(span, "min()/max() default must be the items' type, or a type a union with it holds"));
+            }
+            joined
+        };
+        let items = body.push_expr(HirExpr { kind: ExprKind::Local(list_local), ty: list_ty, span });
+        let nonempty = self.nonempty_test(items, span, body);
+        let items = body.push_expr(HirExpr { kind: ExprKind::Local(list_local), ty: list_ty, span });
+        let extremum = body.push_expr(HirExpr { kind: ExprKind::PythonListExtrema { op, list: items, key }, ty: item_ty, span });
+        let fallback = body.push_expr(HirExpr { kind: ExprKind::Local(default_local), ty: default_ty, span });
+        let chosen = body.push_expr(HirExpr {
+            kind: ExprKind::Conditional { cond: nonempty, then_expr: extremum, else_expr: fallback },
+            ty,
+            span,
+        });
+        let outer_idx = usize::try_from(outer.0).map_err(|error| SmeltError::unsupported(span, error.to_string()))?;
+        body.blocks[outer_idx].tail = Some(chosen);
+        Ok(body.push_expr(HirExpr { kind: ExprKind::Block(outer), ty, span }))
     }
 
     /// The `key=` callback of `min(iterable, key=...)` / `max(...)`, lowered

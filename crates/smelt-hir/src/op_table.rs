@@ -3181,6 +3181,27 @@ macro_rules! op_group_custom {
                 fallible(true)
                 call("@python_slice_delete".to_owned())
                 => (format!("python_slice_delete {list}, {}, {}, {}", opt(&start), opt(&end), opt(&step)));
+            /// Python's `xs[start:end:step] = items`: without a step (or a step
+            /// of 1) the slice `CPython`'s `slice.indices` picks is replaced by
+            /// `items`, which may resize the list; with another step each
+            /// picked position takes one item, and a length mismatch is a
+            /// `ValueError` (as is a zero step).
+            PythonSliceAssign {
+                /// List to mutate.
+                list: one @RECV_MUT,
+                /// Optional start bound.
+                start: opt,
+                /// Optional end bound.
+                end: opt,
+                /// Optional step.
+                step: opt,
+                /// The replacement items (a list, evaluated before the target).
+                items: one,
+            }
+                mutates(Some(list))
+                fallible(true)
+                call("@python_slice_assign".to_owned())
+                => (format!("python_slice_assign {list}, {}, {}, {}, {items}", opt(&start), opt(&end), opt(&step)));
             /// Clear all items from a list and return `None`.
             ListClear {
                 /// List value to mutate.
