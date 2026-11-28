@@ -205,6 +205,9 @@ pub(crate) struct ProgramFacts {
     /// Some structural view converts a property
     /// (`crate::structural_views::StructuralViews::has_converted_fields`).
     pub(crate) converted_views: bool,
+    /// Some record carries the identity of the function it was built from
+    /// (`crate::function_identity`).
+    pub(crate) function_tokens: bool,
 }
 
 impl ProgramFacts {
@@ -218,6 +221,7 @@ impl ProgramFacts {
             widened_classes: !context.widened_classes().is_empty()
                 || context.structural_views().has_converted_fields(),
             converted_views: context.structural_views().has_converted_fields(),
+            function_tokens: context.has_function_tokens(),
         }
     }
 }
@@ -273,6 +277,8 @@ pub(crate) fn flag_for(
         "widened_views" => Some(facts.widened_classes),
         // The checked store of a structural view's converted property.
         "converted_views" => Some(facts.converted_views),
+        // The token type of a record built from a function value.
+        "function_tokens" => Some(facts.function_tokens),
         // A Python program's dicts keep insertion order; JavaScript's own-key
         // order moves array-index keys to the front.
         "js_key_order" => Some(!demand.has(Need::PyDictOrder)),

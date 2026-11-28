@@ -345,6 +345,13 @@ pub struct HirCtx {
     /// is itself erased (`export const falsey: unknown[]`); see
     /// `lowering::module_init::identity_slots`.
     pub source_erased_consts: HashSet<(smelt_hir::FileId, String)>,
+    /// Module-level `let`/`var` bindings lifted to a mutable global: the
+    /// bindings a module namespace VALUE cannot copy, since a later
+    /// reassignment would not reach the copy (`lowering::namespace_value`).
+    pub reassignable_globals: HashSet<ItemId>,
+    /// The struct of each module namespace used as a value, with its keys in
+    /// the namespace's order (`lowering::namespace_value`).
+    pub namespace_structs: HashMap<smelt_hir::Symbol, Vec<String>>,
     /// Exported object constants whose values can be projected by `Object.values`.
     pub object_value_collections: ExportTable<ConstCollection>,
     /// Exported array/set constants that can be inlined by later modules.
@@ -545,6 +552,8 @@ impl HirCtx {
             identity_slots: HashMap::new(),
             identity_slot_log: Vec::new(),
             source_erased_consts: HashSet::new(),
+            reassignable_globals: HashSet::new(),
+            namespace_structs: HashMap::new(),
             object_value_collections: Published::default(),
             const_collections: Published::default(),
             enum_members: Published::default(),

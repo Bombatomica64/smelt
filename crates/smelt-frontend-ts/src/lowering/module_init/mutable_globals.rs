@@ -497,6 +497,9 @@ impl ModuleBuilder<'_> {
             module.items.push(item);
             self.items.insert(name.to_owned(), item);
             self.mutable_global_items.insert(name.to_owned(), item);
+            if !is_const {
+                self.ctx.reassignable_globals.insert(item);
+            }
         }
     }
 

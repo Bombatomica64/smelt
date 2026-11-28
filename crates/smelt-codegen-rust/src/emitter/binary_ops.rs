@@ -1097,36 +1097,58 @@ impl FunctionEmitter<'_> {
         {
             return Ok(None);
         }
-        let key = |operand: &Operand| -> Result<String, EmitError> {
-            let text = self.operand_expr(operand)?;
-            let is_borrowed = match operand.place() {
-                Some(place) => self.is_function_parameter_place(place)?,
-                None => false,
-            };
-            let erased_rest = self.renders_erased_function(operand)?;
-            Ok(if is_borrowed {
-                format!(
-                    "(({text}) as *const _ as *const () as usize)",
-                    text = text.delimited()
-                )
-            } else if erased_rest {
-                format!(
-                    "::std::rc::Rc::as_ptr(&{text}.callback) as *const () as usize",
-                    text = text.tight()
-                )
-            } else {
-                format!(
-                    "::std::rc::Rc::as_ptr(&{text}) as *const () as usize",
-                    text = text.tight()
-                )
-            })
-        };
-        let (left, right) = (key(lhs)?, key(rhs)?);
+        let (left, right) = (
+            self.function_identity_key_text(lhs, FunctionKeyForm::Key)?,
+            self.function_identity_key_text(rhs, FunctionKeyForm::Key)?,
+        );
         Ok(Some(RustExpr::loose(if with_runtime {
             format!("smelt_function_identity_of({left}) == smelt_function_identity_of({right})")
         } else {
             format!("({left}) == ({right})")
         })))
+    }
+
+    /// The identity key of the function value `operand` (`usize`), or, for
+    /// [`FunctionKeyForm::Token`], the `SmeltFunctionToken` a record built from
+    /// it carries ([`crate::function_identity`]).
+    ///
+    /// A borrowed callback points at the callable allocation itself, so its
+    /// address is the same key `smelt_callable_object_key` gives that
+    /// allocation's `Rc`; an erased-rest callable is keyed by its inner
+    /// callback; every other function value is its `Rc`.
+    pub(super) fn function_identity_key_text(
+        &self,
+        operand: &Operand,
+        form: FunctionKeyForm,
+    ) -> Result<String, EmitError> {
+        let text = self.operand_expr(operand)?;
+        let is_borrowed = match operand.place() {
+            Some(place) => self.is_function_parameter_place(place)?,
+            None => false,
+        };
+        let erased_rest = self.renders_erased_function(operand)?;
+        let token = crate::function_identity::FUNCTION_TOKEN_TYPE;
+        Ok(match form {
+            FunctionKeyForm::Key if is_borrowed => format!(
+                "(({text}) as *const _ as *const () as usize)",
+                text = text.delimited()
+            ),
+            FunctionKeyForm::Key if erased_rest => format!(
+                "::std::rc::Rc::as_ptr(&{text}.callback) as *const () as usize",
+                text = text.tight()
+            ),
+            FunctionKeyForm::Key => format!(
+                "::std::rc::Rc::as_ptr(&{text}) as *const () as usize",
+                text = text.tight()
+            ),
+            FunctionKeyForm::Token if is_borrowed => {
+                format!("{token}::of_borrowed({text})", text = text.delimited())
+            }
+            FunctionKeyForm::Token if erased_rest => {
+                format!("{token}::of(&{text}.callback)", text = text.tight())
+            }
+            FunctionKeyForm::Token => format!("{token}::of(&{text})", text = text.tight()),
+        })
     }
 
     /// Emits structural equality for a value that NESTS floats, or that is or
@@ -2255,6 +2277,9 @@ impl FunctionEmitter<'_> {
         if let Some(text) = self.unknown_binary_expr(op, lhs, rhs)? {
             return Ok(text);
         }
+        if let Some(text) = self.function_token_equality_expr(op, lhs, rhs)? {
+            return Ok(text);
+        }
         if let Some(text) = self.strict_identity_expr(op, lhs, rhs)? {
             return Ok(text);
         }
@@ -2525,4 +2550,14 @@ impl FunctionEmitter<'_> {
             self.value_at_type(operand, float_ty)?.delimited()
         )))
     }
+}
+
+/// What [`FunctionEmitter::function_identity_key_text`] spells for a function
+/// value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum FunctionKeyForm {
+    /// Its identity key, a `usize`.
+    Key,
+    /// The `SmeltFunctionToken` a record built from it carries.
+    Token,
 }

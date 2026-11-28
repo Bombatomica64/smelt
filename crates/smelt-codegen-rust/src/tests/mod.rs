@@ -299,6 +299,7 @@ mod erased_rest_callback_tests;
 mod erased_runtime_shape_tests;
 mod exhaustive_walker_tests;
 mod fetch_types_tests;
+mod function_identity_tests;
 mod function_semantics_tests;
 mod generic_call_site_tests;
 mod generics_tests;

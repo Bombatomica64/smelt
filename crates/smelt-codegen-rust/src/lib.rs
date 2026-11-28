@@ -88,6 +88,7 @@ pub(crate) mod dict_adoption;
 mod emitter;
 mod erased_list_alias;
 mod error;
+pub(crate) mod function_identity;
 mod gates;
 pub(crate) mod generic_bindings;
 pub(crate) mod generic_elision;

@@ -129,6 +129,17 @@ impl ModuleBuilder<'_> {
         if let Some(expr) = self.typed_array_projection(op, dict, dict_ty, call.span, body) {
             return Ok(Some(expr));
         }
+        // A namespace value's keys are its export names, fixed by the module
+        // (`lowering::namespace_value`).
+        if op == DictProjectionOp::Keys
+            && let Some(expr) = self.namespace_keys_expression(
+                dict_ty,
+                self.span(call.span.start, call.span.end),
+                body,
+            )
+        {
+            return Ok(Some(expr));
+        }
         let (key_type, value_type) = match self.ctx.krate.types.get(dict_ty) {
             Some(Type::Dict(key_type, value_type)) => (*key_type, *value_type),
             Some(

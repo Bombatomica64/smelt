@@ -18,6 +18,7 @@
 //! or `&dyn Fn` handle has no name storage of its own. An anonymous function
 //! answers the empty string.
 
+use super::binary_ops::FunctionKeyForm;
 use super::slot_function_names::{FunctionSlot, SlotFunctions};
 use super::*;
 use crate::rust::RustExpr;
@@ -360,6 +361,18 @@ impl FunctionEmitter<'_> {
             };
             let field_name = self.context.names().field_text(self.mir, field.name);
             parts.push(format!("{field_name}: {value}", value = value.delimited()));
+        }
+        // The record IS the function in JavaScript: it carries the function's
+        // identity, so `===` and `Object.is` still see one object
+        // (`crate::function_identity`).
+        if self.context.carries_function_identity(*class)
+            && let Some(function_value) = operand
+        {
+            parts.push(format!(
+                "{}: {}",
+                crate::function_identity::FUNCTION_IDENTITY_FIELD,
+                self.function_identity_key_text(function_value, FunctionKeyForm::Token)?
+            ));
         }
         Ok(Some(self.finish_record_literal(
             *class,

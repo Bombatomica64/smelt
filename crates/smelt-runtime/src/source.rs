@@ -179,6 +179,10 @@ const MODULES: &[RuntimeModule] = &[
         source: include_str!("runtime/function_object.rs"),
     },
     RuntimeModule {
+        name: "function_token",
+        source: include_str!("runtime/function_token.rs"),
+    },
+    RuntimeModule {
         name: "generator",
         source: include_str!("runtime/generator.rs"),
     },
