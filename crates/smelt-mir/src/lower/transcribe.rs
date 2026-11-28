@@ -133,7 +133,11 @@ impl LoweringCtx<'_> {
     /// An `instanceof` against a host class the crate reassigns is marked
     /// `rebound` here, the one place that sees the whole crate's writes, which
     /// makes it fallible.
-    pub(super) fn finish_op(&mut self, expr: &Expr, mut value: Rvalue) -> Result<Operand, LowerError> {
+    pub(super) fn finish_op(
+        &mut self,
+        expr: &Expr,
+        mut value: Rvalue,
+    ) -> Result<Operand, LowerError> {
         if let Rvalue::InstanceOf { class, rebound, .. } = &mut value
             && self.rebound_host_classes.contains(class)
         {

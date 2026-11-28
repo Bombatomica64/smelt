@@ -440,7 +440,10 @@ const REQUIRES: &[(Need, &[Need])] = &[
     (Need::Base64, &[Need::Unknown]),
     (Need::RegExpCompile, &[Need::Unknown]),
     (Need::UrlThrowing, &[Need::Unknown, Need::Url]),
-    (Need::TypedArrayViewChecked, &[Need::Unknown, Need::ByteArray]),
+    (
+        Need::TypedArrayViewChecked,
+        &[Need::Unknown, Need::ByteArray],
+    ),
     (
         Need::DataViewAccess,
         &[Need::Unknown, Need::ByteArray, Need::DataView],

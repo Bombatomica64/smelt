@@ -1,8 +1,8 @@
 //! `instanceof`: user classes, host classes and their markers, erased values and
 //! host overrides.
 
-use super::*;
 use super::call::RenderedCall;
+use super::*;
 use crate::rust::RustExpr;
 
 impl FunctionEmitter<'_> {

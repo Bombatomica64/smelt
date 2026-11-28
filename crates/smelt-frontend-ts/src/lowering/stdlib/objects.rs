@@ -1630,7 +1630,11 @@ impl ModuleBuilder<'_> {
             {
                 let class = self.intern_type_name(entry.class_name);
                 checks.push(body.push_expr(Expr {
-                    kind: ExprKind::InstanceOf { value, class, rebound: false },
+                    kind: ExprKind::InstanceOf {
+                        value,
+                        class,
+                        rebound: false,
+                    },
                     ty,
                     span,
                 }));

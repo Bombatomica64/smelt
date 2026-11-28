@@ -1065,9 +1065,9 @@ fn typed_array_from_literal_passes_its_elements_to_the_host_construct() -> Resul
         .exprs
         .iter()
         .find_map(|expr| match &expr.kind {
-            ExprKind::TypedArrayNew { class_name, args, .. } if class_name == "Uint8Array" => {
-                Some(args.clone())
-            }
+            ExprKind::TypedArrayNew {
+                class_name, args, ..
+            } if class_name == "Uint8Array" => Some(args.clone()),
             _ => None,
         })
         .ok_or_else(|| "expected a `Uint8Array` construction".to_owned())?;
