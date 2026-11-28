@@ -71,14 +71,12 @@ fn scratch_root() -> PathBuf {
 fn run_fixture(source: &str, crate_name: &str) {
     let root = scratch_root();
     let crate_dir = root.join("crate");
-    let target_dir = root.join("target");
     std::fs::create_dir_all(&crate_dir).expect("create crate dir");
-    std::fs::create_dir_all(&target_dir).expect("create target dir");
     let outcome = std::panic::catch_unwind(|| {
         emit_program(source, crate_name, &crate_dir);
-        run_generated_tests(source, &crate_dir, &target_dir);
+        run_generated_tests(source, &crate_dir);
     });
-    // The scratch root holds a whole nested cargo target directory, so it is
+    // The scratch root holds the emitted crate (built in a shared target), so it is
     // removed on the FAILURE path too. `SMELT_KEEP_RUNTIME_SCRATCH=1` keeps it
     // for a debugging session.
     if std::env::var_os("SMELT_KEEP_RUNTIME_SCRATCH").is_none() {

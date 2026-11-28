@@ -370,7 +370,7 @@ impl ModuleBuilder<'_> {
     /// `void` is only about the RESULT. Answering the literal without lowering
     /// the operand dropped the call, so a `node:http` handler written that
     /// way never answered a single request. The operand runs as an expression
-    /// statement of the block the `void` is lowered into; `result` is the
+    /// statement of a block evaluated where the `void` is; `result` is the
     /// literal the caller's context spells `undefined` with.
     pub(in crate::lowering) fn void_expression(
         &mut self,
@@ -378,15 +378,19 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
         result: Literal,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        let operand = self.expression(&unary.argument, body)?;
-        let effect = Stmt::Expr(operand);
-        self.push_stmt_to_sink(body, effect);
-        let ty = self.ctx.krate.types.intern(Type::None);
-        Ok(body.push_expr(Expr {
-            kind: ExprKind::Literal(result),
-            ty,
-            span: self.span(unary.span.start, unary.span.end),
-        }))
+        // The operand runs where `void` is evaluated (`lower_in_place`), not
+        // ahead of the enclosing statement's earlier operands.
+        let span = self.span(unary.span.start, unary.span.end);
+        self.lower_in_place(body, span, |this, body| {
+            let operand = this.expression(&unary.argument, body)?;
+            this.push_stmt_to_sink(body, Stmt::Expr(operand));
+            let ty = this.ctx.krate.types.intern(Type::None);
+            Ok(body.push_expr(Expr {
+                kind: ExprKind::Literal(result),
+                ty,
+                span,
+            }))
+        })
     }
 
     pub(in crate::lowering) fn in_expression(

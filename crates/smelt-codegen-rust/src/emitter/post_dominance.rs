@@ -197,6 +197,11 @@ impl FunctionEmitter<'_> {
     }
 }
 
+/// How many candidate joins [`FunctionEmitter::shared_exit_join_candidates`]
+/// offers: each costs one post-dominator table, and the nearest meeting point
+/// is almost always the first.
+const SHARED_EXIT_CANDIDATES: usize = 4;
+
 impl FunctionEmitter<'_> {
     /// Where the arms `arms` of the branch at `branch` (an `if`'s two, or a
     /// `match`'s targets) rejoin: the branch's immediate post-dominator over
@@ -222,11 +227,33 @@ impl FunctionEmitter<'_> {
             return Some(join);
         }
         let exclusive = self.arm_exclusive_terminators(Some(branch), arms, boundaries);
-        if exclusive.is_empty() {
-            return None;
+        if !exclusive.is_empty()
+            && let Some(join) = self.rejoin_with_neutral(branch, arms, boundaries, &exclusive)
+        {
+            return Some(join);
         }
+        // Arms that share a `return`/`throw` before they meet (two `case`s
+        // whose calls throw into one `catch` that returns): see
+        // [`Self::shared_exit_join_candidates`].
+        self.shared_exit_join_candidates(Some(branch), arms, boundaries)
+            .into_iter()
+            .find_map(|(candidate, neutral)| {
+                self.rejoin_with_neutral(branch, arms, boundaries, &neutral)
+                    .filter(|join| *join == candidate)
+            })
+    }
+
+    /// The immediate post-dominator of `branch` with `throw` blocks and
+    /// `neutral` constraining no join, when at least two of `arms` reach it.
+    fn rejoin_with_neutral(
+        &self,
+        branch: smelt_mir::BlockId,
+        arms: &[smelt_mir::BlockId],
+        boundaries: &[smelt_mir::BlockId],
+        neutral: &BlockIdSet,
+    ) -> Option<smelt_mir::BlockId> {
         let table = immediate_post_dominators_with(self.function, |block| {
-            matches!(block.terminator, Some(Terminator::Throw(_))) || exclusive.contains(&block.id)
+            matches!(block.terminator, Some(Terminator::Throw(_))) || neutral.contains(&block.id)
         });
         let join = usize::try_from(branch.0)
             .ok()
@@ -247,6 +274,118 @@ impl FunctionEmitter<'_> {
             })
             .count();
         (reaching >= 2).then_some(join)
+    }
+
+    /// Candidate joins for `arms` when several of them share a `return`/
+    /// `throw` before they meet, nearest first, each with the terminators it
+    /// lets bypass it: those the arms reach (walking forward without crossing
+    /// `boundaries` or `branch`) that are not reachable from the candidate.
+    ///
+    /// Such a shared exit is no join (no path continues past it), but it is
+    /// not exclusive to one arm either, so [`Self::arm_exclusive_terminators`]
+    /// leaves it constraining the post-dominators and the branch has none:
+    /// every arm then re-emitted the whole rest of the region, `3^n` copies
+    /// for `n` sequential `try { switch .. } catch { return .. }`. A
+    /// candidate `J` is right when it post-dominates the branch with those
+    /// exits neutral (the caller checks): every path either passes `J` or
+    /// leaves through an exit `J` cannot reach, which the arms emit, once per
+    /// arm that reaches it, as they would without the join. A `return` after
+    /// `J` is reachable from it, so it still ends the paths.
+    ///
+    /// The candidates are the blocks two or more arms reach that no other such
+    /// block reaches first (the earliest meeting points), ordered by how much
+    /// code each reaches (more is nearer: a block reaches everything the
+    /// blocks after it reach), at most [`SHARED_EXIT_CANDIDATES`] of them.
+    /// Empty when no exit is shared.
+    pub(super) fn shared_exit_join_candidates(
+        &self,
+        branch: Option<smelt_mir::BlockId>,
+        arms: &[smelt_mir::BlockId],
+        boundaries: &[smelt_mir::BlockId],
+    ) -> Vec<(smelt_mir::BlockId, BlockIdSet)> {
+        let successors_of = |block_id: smelt_mir::BlockId| {
+            self.block(block_id)
+                .ok()
+                .and_then(|block| block.terminator.as_ref())
+                .map(control_flow::control_flow_successors)
+                .unwrap_or_default()
+        };
+        let is_exit = |block_id: smelt_mir::BlockId| {
+            self.block(block_id).is_ok_and(|block| {
+                matches!(
+                    block.terminator,
+                    Some(Terminator::Return(_) | Terminator::Throw(_))
+                )
+            })
+        };
+        let reach = |from: smelt_mir::BlockId| {
+            let mut seen = BlockIdSet::default();
+            let mut pending = vec![from];
+            while let Some(block_id) = pending.pop() {
+                if Some(block_id) == branch
+                    || boundaries.contains(&block_id)
+                    || !seen.insert(block_id)
+                {
+                    continue;
+                }
+                pending.extend(successors_of(block_id));
+            }
+            seen
+        };
+        let mut distinct = arms.to_vec();
+        distinct.sort_by_key(|arm| arm.0);
+        distinct.dedup();
+        let mut reached_by: rustc_hash::FxHashMap<smelt_mir::BlockId, usize> =
+            rustc_hash::FxHashMap::default();
+        for arm in &distinct {
+            for block_id in reach(*arm) {
+                let count = reached_by.entry(block_id).or_default();
+                *count = count.saturating_add(1);
+            }
+        }
+        let shared = |block_id: &smelt_mir::BlockId| {
+            reached_by.get(block_id).is_some_and(|count| *count >= 2)
+        };
+        if !reached_by
+            .keys()
+            .any(|block_id| shared(block_id) && is_exit(*block_id))
+        {
+            return Vec::new();
+        }
+        let exits = reached_by
+            .keys()
+            .copied()
+            .filter(|block_id| is_exit(*block_id))
+            .collect::<Vec<_>>();
+        // A meeting point no other one leads into.
+        let entered = reached_by
+            .keys()
+            .filter(|block_id| shared(block_id))
+            .flat_map(|block_id| successors_of(*block_id))
+            .collect::<BlockIdSet>();
+        let mut candidates = reached_by
+            .keys()
+            .copied()
+            .filter(|block_id| {
+                shared(block_id) && !entered.contains(block_id) && !distinct.contains(block_id)
+            })
+            .chain(distinct.iter().copied().filter(|arm| shared(arm)))
+            .map(|candidate| (candidate, reach(candidate)))
+            .collect::<Vec<_>>();
+        candidates
+            .sort_by_key(|(candidate, reached)| (std::cmp::Reverse(reached.len()), candidate.0));
+        candidates.truncate(SHARED_EXIT_CANDIDATES);
+        candidates
+            .into_iter()
+            .map(|(candidate, reached)| {
+                let neutral = exits
+                    .iter()
+                    .copied()
+                    .filter(|exit| !reached.contains(exit))
+                    .collect::<BlockIdSet>();
+                (candidate, neutral)
+            })
+            .collect()
     }
 
     /// The `return`/`throw` blocks that exactly one of `arms` reaches, walking

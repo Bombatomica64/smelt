@@ -87,8 +87,8 @@ impl SmeltBlob {
     pub fn new() -> Self { Self::from_bytes(Vec::new(), String::new()) }
     //~ A blob over owned bytes, with a fresh JS reference identity.
     pub fn from_bytes(bytes: Vec<u8>, blob_type: String) -> Self { Self { id: smelt_next_object_id(), bytes: ::std::rc::Rc::new(bytes), blob_type, file_name: None, last_modified: 0.0, instance_class: None } }
-    //~ `lastModified` defaults to 0 rather than the wall clock, keeping a
-    //~ generated program deterministic; the erased record already did this.
+    //~ A `File` built without `lastModified` takes the wall clock (epoch
+    //~ milliseconds), as JavaScript's `File` constructor does.
     //~ The same, as a `File`: the two extra data properties are present.
     pub fn file_from_bytes(bytes: Vec<u8>, blob_type: String, name: String, last_modified: f64) -> Self { Self { id: smelt_next_object_id(), bytes: ::std::rc::Rc::new(bytes), blob_type, file_name: Some(name), last_modified, instance_class: None } }
     //~ The two concrete `BlobPart` arms. A string part contributes its UTF-8
@@ -102,7 +102,7 @@ impl SmeltBlob {
     //~ A blob from blob parts, with optional `File` metadata.
     pub fn from_blob_parts(parts: Vec<SmeltBlob>, blob_type: impl SmeltHostText, file_name: Option<impl SmeltHostText>, last_modified: Option<f64>) -> Self { let blob_type = blob_type.into_host_string(); let file_name = file_name.map(SmeltHostText::into_host_string); let mut bytes: Vec<u8> = Vec::new(); for part in &parts { bytes.extend_from_slice(&part.bytes); } Self::with_metadata(bytes, blob_type, file_name, last_modified) }
     //~ Pick the plain-blob or file constructor from the optional metadata.
-    pub fn with_metadata(bytes: Vec<u8>, blob_type: String, file_name: Option<String>, last_modified: Option<f64>) -> Self { match file_name { Some(name) => Self::file_from_bytes(bytes, blob_type, name, last_modified.unwrap_or(0.0)), None => Self::from_bytes(bytes, blob_type) } }
+    pub fn with_metadata(bytes: Vec<u8>, blob_type: String, file_name: Option<String>, last_modified: Option<f64>) -> Self { match file_name { Some(name) => Self::file_from_bytes(bytes, blob_type, name, last_modified.unwrap_or_else(|| ::std::time::SystemTime::now().duration_since(::std::time::UNIX_EPOCH).map_or(0.0, |elapsed| (elapsed.as_secs_f64() * 1000.0).trunc()))), None => Self::from_bytes(bytes, blob_type) } }
     //~ JS reference identity of this blob.
     pub fn id(&self) -> usize { self.id }
     //~ Whether this blob is a `File`.

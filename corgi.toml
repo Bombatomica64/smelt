@@ -3,3 +3,4 @@
 [extra-inputs]
 smelt-specialize = ["guest/**"]
 smelt-ts-types = ["vendor/**"]
+smelt-codegen-rust = ["tests/harness/vitest_shim.mjs"]

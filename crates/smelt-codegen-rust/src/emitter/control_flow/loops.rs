@@ -1259,11 +1259,42 @@ impl FunctionEmitter<'_> {
     /// `starts` reaches before the loop's virtual exit (see
     /// [`Self::loop_branch_join`], whose arms are the branch's successors): a
     /// member of every start's post-dominator set, a start itself included.
+    ///
+    /// A `return`/`throw` only one arm reaches is neutral; when that finds no
+    /// join and arms share one, each candidate of
+    /// [`Self::shared_exit_join_candidates`] is tried with the exits it
+    /// bypasses neutral, and kept when it is the answer.
     pub(in crate::emitter) fn loop_region_join(
         &self,
         starts: &[smelt_mir::BlockId],
         continue_target: smelt_mir::BlockId,
         break_target: Option<smelt_mir::BlockId>,
+    ) -> Option<smelt_mir::BlockId> {
+        let mut boundaries = self.flow.pending_joins();
+        boundaries.push(continue_target);
+        boundaries.extend(break_target);
+        let exclusive = self.arm_exclusive_terminators(None, starts, &boundaries);
+        if let Some(join) =
+            self.loop_region_join_with(starts, continue_target, break_target, &exclusive)
+        {
+            return Some(join);
+        }
+        self.shared_exit_join_candidates(None, starts, &boundaries)
+            .into_iter()
+            .find_map(|(candidate, neutral)| {
+                self.loop_region_join_with(starts, continue_target, break_target, &neutral)
+                    .filter(|join| *join == candidate)
+            })
+    }
+
+    /// [`Self::loop_region_join`] with the `return`/`throw` blocks in
+    /// `neutral` constraining no join.
+    fn loop_region_join_with(
+        &self,
+        starts: &[smelt_mir::BlockId],
+        continue_target: smelt_mir::BlockId,
+        break_target: Option<smelt_mir::BlockId>,
+        neutral: &BlockIdSet,
     ) -> Option<smelt_mir::BlockId> {
         let pending = self.flow.pending_joins();
         let is_exit = |block: smelt_mir::BlockId| {
@@ -1276,13 +1307,9 @@ impl FunctionEmitter<'_> {
                 .map(control_flow_successors)
                 .unwrap_or_default()
         };
-        // A `return`/`throw` only one arm reaches leaves through that arm's
-        // own `return`, so it constrains no join (see
-        // `branch_rejoin_post_dominator`): it has no successor at all below.
-        let mut boundaries = pending.clone();
-        boundaries.push(continue_target);
-        boundaries.extend(break_target);
-        let neutral = self.arm_exclusive_terminators(None, starts, &boundaries);
+        // A neutral `return`/`throw` leaves through its arm's own `return`,
+        // so it constrains no join (see `branch_rejoin_post_dominator`): it
+        // has no successor at all below.
         let mut region = Vec::new();
         let mut seen = BlockIdSet::default();
         let mut stack = starts.to_vec();

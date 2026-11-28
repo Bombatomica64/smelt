@@ -21,10 +21,8 @@ impl ModuleBuilder<'_> {
             // so any statement that leaves the case body answers the question —
             // a `break` leaves the switch and a `continue` leaves for the
             // enclosing loop's next iteration. Counting only `break` sent a
-            // switch whose non-last case ends in `continue` down the
-            // synthetic-loop lowering, which rejects `continue` outright (it
-            // would bind to the synthetic loop), so a shape the match path
-            // handles correctly was reported as unimplemented.
+            // switch whose non-last case ends in `continue` down the `===`
+            // chain lowering instead of the `Match` one.
             // `statement_terminates` deliberately does not call `break`/
             // `continue` terminating — they leave a statement sequence without
             // leaving the function — hence the explicit check here.
@@ -70,13 +68,19 @@ impl ModuleBuilder<'_> {
     /// Lower a switch statement as a chain of `===` tests: one with genuine
     /// fallthrough, or one [`Self::switch_matches_by_label`] rejects.
     ///
-    /// The switch becomes a single-iteration `while` loop: each case lowers to
-    /// `if matched || scrutinee === label { matched = true; <body> }`, a JS
-    /// `break` inside a case body maps to the loop break, and a trailing
-    /// `default` body runs whenever control reaches the end of the chain —
-    /// exactly when JavaScript reaches it (no label matched, or an earlier
-    /// case fell through without breaking). A loop-tail `break` makes the
-    /// loop run once.
+    /// Each case lowers to
+    /// `if matched || scrutinee === label { matched = true; <body> }`, and a trailing `default` body runs whenever control reaches
+    /// the end of the chain — exactly when JavaScript reaches it (no label
+    /// matched, or an earlier case fell through without breaking).
+    ///
+    /// When a case holds a `break` of this switch, the chain sits in a
+    /// labelled region (`'label: { .. }`) that `break` leaves
+    /// (`switch_break_label`). A `continue` is not the switch's: it stays the
+    /// enclosing loop's, at any depth, exactly as in JavaScript. The chain was
+    /// a single-iteration `while (true) { ..; break }` loop, which captured a
+    /// nested `continue` (`case 0: if (c) continue;` re-ran the chain instead
+    /// of the enclosing loop's next iteration) and had to refuse a top-level
+    /// one.
     pub(in crate::lowering) fn switch_fallthrough_statement(
         &mut self,
         switch_stmt: &oxc::ast::ast::SwitchStatement<'_>,
@@ -91,22 +95,6 @@ impl ModuleBuilder<'_> {
                 return Err(SmeltError::unsupported(
                     span,
                     "switch fallthrough lowering requires the default case to be last",
-                ));
-            }
-            // A top-level `continue` would bind to the synthetic loop instead
-            // of the enclosing one; keep the strict path's rejection.
-            let has_top_level_continue = case.consequent.iter().any(|statement| match statement {
-                Statement::ContinueStatement(_) => true,
-                Statement::BlockStatement(block_stmt) => block_stmt
-                    .body
-                    .iter()
-                    .any(|nested| matches!(nested, Statement::ContinueStatement(_))),
-                _ => false,
-            });
-            if has_top_level_continue {
-                return Err(SmeltError::unsupported(
-                    span,
-                    "switch continue lowering is not implemented yet",
                 ));
             }
         }
@@ -149,13 +137,22 @@ impl ModuleBuilder<'_> {
                 value: Some(false_expr),
             },
         );
-        let loop_block = body.push_block(span);
+        let label = self.switch_break_label;
+        if let Some(label) = label {
+            body.push_stmt_to_block(
+                block,
+                Stmt::LabelStart {
+                    label,
+                    loops: false,
+                },
+            );
+        }
         let mut pending_label_conds: Vec<smelt_hir::ExprId> = Vec::new();
         for case in &switch_stmt.cases {
             let Some(test) = &case.test else {
                 // Trailing default: runs whenever the chain reaches it.
                 for case_statement in &case.consequent {
-                    self.statement_in_block(case_statement, body, loop_block)?;
+                    self.statement_in_block(case_statement, body, block)?;
                 }
                 continue;
             };
@@ -221,7 +218,7 @@ impl ModuleBuilder<'_> {
                 self.statement_in_block(case_statement, body, case_block)?;
             }
             body.push_stmt_to_block(
-                loop_block,
+                block,
                 Stmt::If {
                     cond,
                     then_block: case_block,
@@ -229,19 +226,9 @@ impl ModuleBuilder<'_> {
                 },
             );
         }
-        body.push_stmt_to_block(loop_block, Stmt::Break);
-        let loop_cond = body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::Bool(true)),
-            ty: bool_ty,
-            span,
-        });
-        body.push_stmt_to_block(
-            block,
-            Stmt::While {
-                cond: loop_cond,
-                body: loop_block,
-            },
-        );
+        if let Some(label) = label {
+            body.push_stmt_to_block(block, Stmt::LabelEnd(label));
+        }
         Ok(())
     }
 }

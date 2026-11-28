@@ -13,36 +13,37 @@ module examples/typescript/end-to-end/165_void_operand_runs/input.ts (ModuleId(0
     #2: fn() -> Float = @1(bump)
     #3: Float = call #2()
     #4: None = undefined
-    #5: Float = global_get @0(count)
-    #6: None = %0
-    #7: None = undefined
-    #8: Bool = JsStrictEq #6, #7
-    #9: None = @4(console_log)
-    #10: None = call #9(#5, #8)
-    #11: String = "from callback"
-    #12: List<String> = [#11]
-    #13: String = %1
-    #14: async fn(String) -> Future<None> = @2(later)
-    #15: Future<None> = call #14(#13)
-    #16: None = async_spawn_local(#15)
-    #17: String = "top"
-    #18: async fn(String) -> Future<None> = @2(later)
-    #19: Future<None> = call #18(#17)
-    #20: None = async_spawn_local(#19)
-    #21: Future<None> = async_exit_drain()
-    #22: None = await #21
+    #5: None = block BlockId(1)
+    #6: Float = global_get @0(count)
+    #7: None = %0
+    #8: None = undefined
+    #9: Bool = JsStrictEq #7, #8
+    #10: None = @4(console_log)
+    #11: None = call #10(#6, #9)
+    #12: String = "from callback"
+    #13: List<String> = [#12]
+    #14: String = %1
+    #15: async fn(String) -> Future<None> = @2(later)
+    #16: Future<None> = call #15(#14)
+    #17: None = async_spawn_local(#16)
+    #18: String = "top"
+    #19: async fn(String) -> Future<None> = @2(later)
+    #20: Future<None> = call #19(#18)
+    #21: None = async_spawn_local(#20)
+    #22: Future<None> = async_exit_drain()
+    #23: None = await #22
   stmts
     s0: #1
     s1: #3
-    s2: let %0: None = #4
-    s3: #10
-    s4: #16
-    s5: for %1 in #12 BlockId(1)
-    s6: #20
-    s7: #22
+    s2: let %0: None = #5
+    s3: #11
+    s4: #17
+    s5: for %1 in #13 BlockId(2)
+    s6: #21
+    s7: #23
   async state machine
     states [state0, state1]
-    suspend #22 on #21 -> state23
+    suspend #23 on #22 -> state24
 
 interned types
   t0 = Float

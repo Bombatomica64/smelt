@@ -59,17 +59,14 @@ fn scratch_root() -> PathBuf {
 fn run_blob_fixture(source: &str, crate_name: &str) {
     let root = scratch_root();
     let crate_dir = root.join("crate");
-    let target_dir = root.join("target");
     std::fs::create_dir_all(&crate_dir).expect("create crate dir");
-    std::fs::create_dir_all(&target_dir).expect("create target dir");
     let outcome = std::panic::catch_unwind(|| {
         emit_program(source, crate_name, &crate_dir);
-        run_generated_tests(source, &crate_dir, &target_dir);
+        run_generated_tests(source, &crate_dir);
     });
-    // The scratch root holds a whole nested cargo target directory, so it is
-    // removed on the FAILURE path too: leaving one behind per failing case is
-    // what fills `/tmp`, and an ENOSPC inside a later nested build reads as a
-    // failing assertion rather than as a full disk.
+    // The scratch root holds the emitted crate (its build lives in the
+    // harness shared target directories); it is removed on the FAILURE path
+    // too, rather than left behind in `/tmp` once per failing case.
     // `SMELT_KEEP_RUNTIME_SCRATCH=1` keeps it for a debugging session.
     if std::env::var_os("SMELT_KEEP_RUNTIME_SCRATCH").is_none() {
         drop(std::fs::remove_dir_all(&root));
@@ -154,8 +151,16 @@ test("a file carries the two extra data properties", () => {
   expect(file.type).toBe("text/csv");
   expect(file.size).toBe(6);
 });
-test("lastModified defaults to 0 rather than the wall clock", () => {
-  expect(new File(["a"], "a.txt").lastModified).toBe(0);
+test("lastModified defaults to the wall clock", () => {
+  // Corrected expectation. Old requirement: a `File` built without
+  // `lastModified` reads 0 (chosen for determinism). New requirement: it reads
+  // the clock at construction, between two `Date.now()` readings around it;
+  // that is what the File API specifies and what Node computes (the runtime
+  // tiers' Node oracle flagged the 0).
+  const before = Date.now();
+  const lastModified = new File(["a"], "a.txt").lastModified;
+  const after = Date.now();
+  expect(lastModified >= before && lastModified <= after).toBe(true);
 });
 test("a file does not equal a same-bytes blob", () => {
   expect(new File(["a"], "a.txt")).not.toEqual(new Blob(["a"]));

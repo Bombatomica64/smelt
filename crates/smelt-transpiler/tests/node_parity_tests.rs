@@ -2324,6 +2324,17 @@ fn sequential_branch_rejoins() -> TestResult {
     verify_node_parity("sequential_branch_rejoins")
 }
 
+/// Branches whose arms share a `return`/`throw` before they meet, in sequence:
+/// a `switch` inside a `try` whose two calling `case`s throw into one `catch`
+/// that returns or rethrows, in a function, a loop body and a closure. Such a
+/// branch kept the per-arm emission (`3^n` copies of the rest); the code
+/// after it is now emitted once (`shared_exit_join_candidates`), and every
+/// path, thrown or not, must still run the same code in the same order.
+#[test]
+fn shared_exit_rejoins() -> TestResult {
+    verify_node_parity("shared_exit_rejoins")
+}
+
 /// Unannotated protocol methods take the iterator type the TypeScript checker
 /// infers from their result's structure (`checker_types::iterator_shape`): a
 /// `[Symbol.iterator]()` answering an object literal `{ next, return }` (whose
@@ -2542,4 +2553,27 @@ fn callback_return_from_the_checker() -> TestResult {
         ensure(source.contains(slot), format!("no callback typed `{slot}`"))?;
     }
     Ok(())
+}
+
+/// `continue` inside a `switch` lowered as a `===` chain (fallthrough, or
+/// labels that are not literals), at the case's top level or nested in an
+/// `if`, a block or a `try`/`finally`, in `for`, `while`, `do`/`while` and
+/// `for...of` loops, beside labelled `continue`/`break`, an inner loop's own
+/// `break`/`continue` and a nested chain. The chain was a single-iteration
+/// loop, so a nested `continue` re-ran the chain instead of continuing the
+/// enclosing loop; it now sits in a labelled region only its `break` leaves.
+#[test]
+fn switch_chain_continue() -> TestResult {
+    verify_node_parity("switch_chain_continue")
+}
+
+/// The effects of a comma expression, of `void x`, and of a `void` call
+/// interpolated in a template run where the expression is evaluated, among its
+/// sibling operands in source order. They were pushed into the enclosing
+/// statement's block, so `[box.items.size, (s.add(9), s.size)]` read the size
+/// after the add; an interpolated `None`-typed operand was replaced by its
+/// word and never ran (`${void list.push(4)}`, `${log()}`).
+#[test]
+fn in_place_effects() -> TestResult {
+    verify_node_parity("in_place_effects")
 }

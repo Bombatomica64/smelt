@@ -605,8 +605,10 @@ impl ModuleBuilder<'_> {
                 self.tagged_template_expression(tagged, body)
             }
             // `(a, b, c)` evaluates every operand in order and yields the last:
-            // the earlier ones run as expression statements of the block it is
-            // lowered into, as `void x` runs its operand.
+            // the earlier ones run as expression statements of a block
+            // evaluated where the comma expression sits (`lower_in_place`), so
+            // they run after the sibling operands before it, not ahead of the
+            // whole enclosing statement.
             Expression::SequenceExpression(sequence) => {
                 let Some((last, effects)) = sequence.expressions.split_last() else {
                     return Err(SmeltError::unsupported(
@@ -614,11 +616,14 @@ impl ModuleBuilder<'_> {
                         "an empty comma expression is not valid source",
                     ));
                 };
-                for effect in effects {
-                    let operand = self.expression(effect, body)?;
-                    self.push_stmt_to_sink(body, smelt_hir::Stmt::Expr(operand));
-                }
-                self.expression_with_hint(last, body, type_hint)
+                let span = self.expression_span(expression);
+                self.lower_in_place(body, span, |this, body| {
+                    for effect in effects {
+                        let operand = this.expression(effect, body)?;
+                        this.push_stmt_to_sink(body, smelt_hir::Stmt::Expr(operand));
+                    }
+                    this.expression_with_hint(last, body, type_hint)
+                })
             }
             _ => Err(SmeltError::unsupported(
                 self.expression_span(expression),

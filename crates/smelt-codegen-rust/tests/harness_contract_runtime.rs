@@ -29,9 +29,50 @@ use std::{
 mod harness;
 
 use harness::{
-    TestCounts, declared_test_count, emit_program, parse_test_counts, run_generated_tests,
+    SharedTarget, TestCounts, declared_test_count, emit_program, generated_target_count,
+    generated_targets_root, parse_test_counts, run_generated_tests,
     run_generated_tests_expecting_failure,
 };
+
+/// Generated builds share a bounded pool of target directories: however many
+/// fixtures run at once, at most [`generated_target_count`] hold one, and no
+/// two hold the same. A target directory per fixture, all building at once,
+/// is what OOM-killed `generator_runtime` (fourteen copies of the runtime
+/// stack compiling together, 12 GB) while each fixture passed alone.
+#[test]
+fn concurrent_fixtures_share_a_bounded_pool_of_target_directories() {
+    let bound = generated_target_count();
+    let holding = std::sync::Mutex::new(Vec::<PathBuf>::new());
+    let most = AtomicUsize::new(0);
+    std::thread::scope(|scope| {
+        for _ in 0..bound.saturating_mul(3) {
+            scope.spawn(|| {
+                // No manifest in the directory, so the drop has nothing to clean.
+                let target = SharedTarget::acquire(Path::new("/nonexistent-smelt-crate"));
+                {
+                    let mut held = holding.lock().expect("holding lock");
+                    assert!(
+                        !held.iter().any(|dir| dir == target.dir()),
+                        "two fixtures were handed the same target directory {}",
+                        target.dir().display()
+                    );
+                    held.push(target.dir().to_path_buf());
+                    most.fetch_max(held.len(), Ordering::SeqCst);
+                }
+                std::thread::sleep(std::time::Duration::from_millis(30));
+                holding
+                    .lock()
+                    .expect("holding lock")
+                    .retain(|dir| dir != target.dir());
+            });
+        }
+    });
+    let held_at_once = most.into_inner();
+    assert!(
+        (1..=bound).contains(&held_at_once),
+        "{held_at_once} target directories were held at once; the bound is {bound}"
+    );
+}
 
 #[test]
 fn the_summary_sums_every_test_binary() {
@@ -112,13 +153,11 @@ fn strip_test_attributes(dir: &Path) {
 fn judge_rejects(source: &str, crate_name: &str, plant: fn(&Path), judge: harness::Judge) -> bool {
     let root = scratch_root();
     let crate_dir = root.join("crate");
-    let target_dir = root.join("target");
     std::fs::create_dir_all(&crate_dir).expect("create crate dir");
-    std::fs::create_dir_all(&target_dir).expect("create target dir");
     emit_program(source, crate_name, &crate_dir);
     plant(&crate_dir.join("src"));
     let rejected = std::panic::catch_unwind(AssertUnwindSafe(|| {
-        judge(source, &crate_dir, &target_dir);
+        judge(source, &crate_dir);
     }))
     .is_err();
     if std::env::var_os("SMELT_KEEP_RUNTIME_SCRATCH").is_none() {
@@ -145,6 +184,20 @@ fn an_untouched_crate_meets_the_contract() {
         |_| {},
         run_generated_tests,
     ));
+    // The fixture's own artifacts left the shared target directory with it;
+    // only the shared dependency builds stay.
+    let leftovers: Vec<_> = (0..generated_target_count())
+        .map(|slot| generated_targets_root().join(format!("slot{slot}/debug/deps")))
+        .filter_map(|deps| std::fs::read_dir(deps).ok())
+        .flatten()
+        .filter_map(Result::ok)
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|name| name.starts_with("smelt_harness_contract_control"))
+        .collect();
+    assert!(
+        leftovers.is_empty(),
+        "the fixture left its build in the shared target directory: {leftovers:?}"
+    );
 }
 
 #[test]

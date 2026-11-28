@@ -293,6 +293,9 @@ export function run(seed: number): number {{
 ///   (`emit_switch_at_post_dominator`: the `if` rejoins after the `try`);
 /// * an `if`/`else` whose arm may throw or return (`2^n`: a `throw`, or a
 ///   `return` inside one arm, ended the paths a post-dominator must meet).
+/// * a `switch` inside a `try` whose two calling `case`s throw into one
+///   `catch` that returns or rethrows (`3^n`: a `return`/`throw` more than one
+///   arm reaches is no arm's own exit: `shared_exit_join_candidates`).
 fn branch_rejoin_programs(n: usize) -> Vec<(String, String)> {
     let shapes = [
         (
@@ -310,6 +313,14 @@ fn branch_rejoin_programs(n: usize) -> Vec<(String, String)> {
         (
             "switch inside try",
             "  try { switch (total % 3) { case 0: total = risky(total); break; default: total -= 1; } } catch (error) { total -= {i}; }\n",
+        ),
+        (
+            "switch inside try whose catch returns",
+            "  try { switch (total % 3) { case 0: total = risky(total); break; case 1: total = risky(total + {i}); break; default: total -= 1; } } catch (error) { return -{i}; }\n",
+        ),
+        (
+            "switch inside try whose catch rethrows",
+            "  try { switch (total % 3) { case 0: total = risky(total); break; case 1: total = risky(total + {i}); break; default: total -= 1; } } catch (error) { throw new Error('again'); }\n",
         ),
         (
             "try/catch",
