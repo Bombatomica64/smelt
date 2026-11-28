@@ -108,13 +108,10 @@ impl FunctionEmitter<'_> {
             let thrown = if unwind.is_some() || !(self.function.is_async || self.function.can_throw)
             {
                 thrown
+            } else if cleanup.is_some() {
+                format!("{{ {cleanup_text} return Err(smelt_error) }}")
             } else {
-                let error = crate::thrown::throw_expr(&RustExpr::path("smelt_error"));
-                if cleanup.is_some() {
-                    format!("{{ {cleanup_text} return Err({}) }}", error.delimited())
-                } else {
-                    format!("return Err({})", error.delimited())
-                }
+                "return Err(smelt_error)".to_owned()
             };
             let resume = self.delegated_resume_text(delegate, &returned, &thrown)?;
             return Ok(RustExpr::atom(format!(
@@ -187,14 +184,12 @@ impl FunctionEmitter<'_> {
                 delegate_text.parenthesized_if_needed()
             )
         };
-        let caught = crate::thrown::thrown_value_expr(&RustExpr::path("smelt_error_box"));
         Ok(format!(
-            "let smelt_returning = matches!(smelt_command, SmeltGeneratorCommand::Return(_)); let smelt_command = match smelt_command {{ SmeltGeneratorCommand::Next(smelt_value) => SmeltGeneratorCommand::Next(smelt_value.map(|smelt_value: {outer_next}| {sent})), SmeltGeneratorCommand::Return(smelt_value) => {forward_return}, SmeltGeneratorCommand::Throw(smelt_error) => SmeltGeneratorCommand::Throw(smelt_error) }}; match {receiver}.try_resume(smelt_command) {{ Ok(SmeltGeneratorResult::Complete(smelt_value)) if smelt_returning => {{ let smelt_value = {completed}; {returned} }}, Ok(smelt_step) => smelt_step, Err(smelt_error_box) => {{ let smelt_error = {caught}; {thrown} }} }}",
+            "let smelt_returning = matches!(smelt_command, SmeltGeneratorCommand::Return(_)); let smelt_command = match smelt_command {{ SmeltGeneratorCommand::Next(smelt_value) => SmeltGeneratorCommand::Next(smelt_value.map(|smelt_value: {outer_next}| {sent})), SmeltGeneratorCommand::Return(smelt_value) => {forward_return}, SmeltGeneratorCommand::Throw(smelt_error) => SmeltGeneratorCommand::Throw(smelt_error) }}; match {receiver}.try_resume(smelt_command) {{ Ok(SmeltGeneratorResult::Complete(smelt_value)) if smelt_returning => {{ let smelt_value = {completed}; {returned} }}, Ok(smelt_step) => smelt_step, Err(smelt_error) => {thrown} }}",
             sent = sent.delimited(),
             outer_next = self.rendered_type(outer_next_ty)?,
             receiver = delegate_text.parenthesized_if_needed(),
             completed = completed.delimited(),
-            caught = caught.delimited(),
         ))
     }
 
@@ -510,10 +505,12 @@ impl FunctionEmitter<'_> {
         // The runtime calls a method that takes the value with it owned; a
         // callback type that passes its parameter by shared reference
         // (`callback_param_is_shared_reference`) is called through a closure
-        // that lends it.
+        // that lends it. `throw` receives the command's error box, whose
+        // thrown value the closure passes on (`smelt_thrown_value`).
         let step_rust = self.rendered_type(step_ty)?;
         let method = |operand: Option<&Operand>,
-                      param: Option<TypeId>|
+                      param: Option<TypeId>,
+                      thrown: bool|
          -> Result<String, EmitError> {
             let Some(operand) = operand else {
                 return Ok("None".to_owned());
@@ -526,6 +523,15 @@ impl FunctionEmitter<'_> {
                 }
                 _ => false,
             };
+            let lend = if lends { "&" } else { "" };
+            if thrown {
+                let value = crate::thrown::thrown_value_expr(&RustExpr::path("smelt_error"));
+                return Ok(format!(
+                    "Some({{ let smelt_method = {adapted}; ::std::rc::Rc::new(move |smelt_error: Box<dyn ::std::error::Error>| smelt_method({lend}{value})) as ::std::rc::Rc<dyn Fn(Box<dyn ::std::error::Error>) -> Result<{step_rust}, Box<dyn ::std::error::Error>>> }})",
+                    adapted = adapted.delimited(),
+                    value = value.delimited()
+                ));
+            }
             let Some(param) = param.filter(|_| lends) else {
                 return Ok(format!("Some({})", adapted.delimited()));
             };
@@ -546,10 +552,10 @@ impl FunctionEmitter<'_> {
         Ok(RustExpr::atom(format!(
             "SmeltGenerator::from_protocol({source}, {next}, {next_with}, {close}, {close_with}, {throw_with})",
             next = next.delimited(),
-            next_with = method(next_with, Some(next_ty))?,
-            close = method(close, None)?,
-            close_with = method(close_with, Some(return_ty))?,
-            throw_with = method(throw_with, Some(unknown_ty))?,
+            next_with = method(next_with, Some(next_ty), false)?,
+            close = method(close, None, false)?,
+            close_with = method(close_with, Some(return_ty), false)?,
+            throw_with = method(throw_with, Some(unknown_ty), true)?,
         )))
     }
 

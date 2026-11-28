@@ -135,7 +135,12 @@ impl FunctionEmitter<'_> {
                 unwind,
                 cleanup,
                 delegate,
-            } => self.generator_yield_expr(value, unwind.as_ref(), cleanup.as_ref(), delegate.as_ref()),
+            } => self.generator_yield_expr(
+                value,
+                unwind.as_ref(),
+                cleanup.as_ref(),
+                delegate.as_ref(),
+            ),
             Rvalue::GeneratorDone { result } => self.generator_done_expr(result),
             Rvalue::GeneratorStarted { generator } => {
                 Ok(self.operand_expr(generator)?.postfix(".is_started()"))
@@ -157,7 +162,12 @@ impl FunctionEmitter<'_> {
             } => self.generator_from_protocol_expr(
                 source.as_ref(),
                 next,
-                [next_with.as_ref(), close.as_ref(), close_with.as_ref(), throw_with.as_ref()],
+                [
+                    next_with.as_ref(),
+                    close.as_ref(),
+                    close_with.as_ref(),
+                    throw_with.as_ref(),
+                ],
                 dest_ty,
             ),
             Rvalue::List(items) => self.list_literal_expr(value, items, dest_ty),
