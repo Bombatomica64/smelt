@@ -119,6 +119,20 @@ impl FunctionEmitter<'_> {
                     text(1)?
                 )
             }
+            PyStrOp::Partition | PyStrOp::RPartition => format!(
+                "smelt_py_str_partition({}, {}, {})",
+                text(0)?,
+                text(1)?,
+                op == PyStrOp::RPartition
+            ),
+            PyStrOp::SplitLines => format!(
+                "SmeltList::from(smelt_py_str_splitlines({}, {}))",
+                text(0)?,
+                number(1)?
+            ),
+            PyStrOp::ExpandTabs => {
+                format!("smelt_py_str_expandtabs({}, {})", text(0)?, number(1)?)
+            }
         };
         Ok(RustExpr::chain(call))
     }
@@ -135,6 +149,9 @@ impl FunctionEmitter<'_> {
         } else if matches!(op, PyStrOp::Split | PyStrOp::RSplit) {
             let text = self.type_id(Type::PyStr)?;
             self.type_id(Type::List(text))?
+        } else if matches!(op, PyStrOp::Partition | PyStrOp::RPartition) {
+            let text = self.type_id(Type::PyStr)?;
+            self.type_id(Type::Tuple(vec![text, text, text]))?
         } else {
             self.type_id(Type::PyStr)?
         };
@@ -145,7 +162,9 @@ impl FunctionEmitter<'_> {
     }
 
     /// Python's `format(value, spec)` over an `int`, a `float` or a `str`:
-    /// the runtime's `py_format.rs` helper for the value's type.
+    /// the runtime's `py_format.rs` helper for the value's type. `spec` is the
+    /// Rust `&str` expression of the spec: a literal, or a borrow of the text
+    /// a dynamic spec built.
     pub(super) fn py_format_call(
         &self,
         value: &Operand,
@@ -153,15 +172,15 @@ impl FunctionEmitter<'_> {
     ) -> Result<(RenderedCall, TypeId), EmitError> {
         let helper = match self.mir.types.get(self.operand_ty(value)?) {
             Some(Type::PyInt) => format!(
-                "smelt_py_format_int({}, {spec:?})",
+                "smelt_py_format_int({}, {spec})",
                 self.py_int_ref_expr(value)?.delimited()
             ),
             Some(Type::Float) => format!(
-                "smelt_py_format_float({}, {spec:?})",
+                "smelt_py_format_float({}, {spec})",
                 self.operand_expr(value)?.delimited()
             ),
             Some(Type::PyStr) => format!(
-                "smelt_py_format_str(&{}, {spec:?})",
+                "smelt_py_format_str(&{}, {spec})",
                 self.operand_borrow_expr(value)?.tight()
             ),
             _ => {

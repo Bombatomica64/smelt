@@ -245,6 +245,7 @@ impl FunctionEmitter<'_> {
             | Rvalue::PyListPopAt { .. }
             | Rvalue::PyListDeleteAt { .. }
             | Rvalue::PyFormat { .. }
+            | Rvalue::PyFormatDynamic { .. }
             | Rvalue::JsonParse { .. } => Err(EmitError::new(
                 "internal: a fallible operation reached the assignment path",
             )),

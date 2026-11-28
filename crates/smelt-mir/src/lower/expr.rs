@@ -525,6 +525,17 @@ impl LoweringCtx<'_> {
                     },
                 )?
             }
+            ExprKind::PyFormatDynamic { value, spec } => {
+                let formatted = self.lower_expr(*value)?;
+                let spec_text = self.lower_expr(*spec)?;
+                self.finish_op(
+                    &expr,
+                    Rvalue::PyFormatDynamic {
+                        value: formatted,
+                        spec: spec_text,
+                    },
+                )?
+            }
             ExprKind::PyListPopAt { list, index } => {
                 let index_operand = self.lower_expr(*index)?;
                 let (list_operand, writeback) = self.lower_mutation_receiver(*list)?;

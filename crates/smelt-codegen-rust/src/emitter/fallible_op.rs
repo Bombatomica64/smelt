@@ -480,7 +480,11 @@ impl FunctionEmitter<'_> {
                 RenderedCall::propagating(self.python_list_delete_at_expr(list, index)?),
                 self.type_id(Type::None)?,
             ),
-            Rvalue::PyFormat { value, spec } => self.py_format_call(value, spec)?,
+            Rvalue::PyFormat { value, spec } => self.py_format_call(value, &format!("{spec:?}"))?,
+            Rvalue::PyFormatDynamic { value, spec } => self.py_format_call(
+                value,
+                &format!("&{}", self.operand_borrow_expr(spec)?.tight()),
+            )?,
             Rvalue::ErasedPatternCall {
                 method,
                 receiver,

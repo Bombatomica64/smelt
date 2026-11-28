@@ -53,6 +53,12 @@ impl ModuleBuilder<'_> {
     /// A lambda carries no annotations, so `expected_param_tys` is the only
     /// source of its parameter types. `expected_return` is the context's declared
     /// return, the hint the body is lowered under when there is one.
+    ///
+    /// Positional parameters past the ones the context passes must all have
+    /// defaults (`lambda x, i=i: x + i`, the idiom that freezes a loop
+    /// variable): each default is evaluated once, when the lambda expression
+    /// runs, into a fresh temporary the body captures under the parameter's
+    /// name, which is what a call that never passes the argument sees.
     fn lambda_closure(
         &mut self,
         lambda: &ruff_python_ast::ExprLambda,
@@ -60,8 +66,47 @@ impl ModuleBuilder<'_> {
         expected_return: Option<TypeId>,
         body: &mut Body,
     ) -> Result<LoweredClosure, SmeltError> {
-        let closure = self.lambda_spec(lambda, expected_param_tys, expected_return)?;
-        self.python_closure(&closure, body)
+        let span = self.span(lambda.range);
+        let frozen: Vec<&ruff_python_ast::ParameterWithDefault> = lambda
+            .parameters
+            .as_ref()
+            .map(|params| params.posonlyargs.iter().chain(&params.args).skip(expected_param_tys.len()).collect())
+            .unwrap_or_default();
+        if frozen.is_empty() || frozen.iter().any(|param| param.default.is_none()) {
+            let closure = self.lambda_spec(lambda, expected_param_tys, expected_return)?;
+            return self.python_closure(&closure, body);
+        }
+        let block = body.push_block(span);
+        let mut shadowed = Vec::with_capacity(frozen.len());
+        for param in &frozen {
+            let Some(default) = param.default.as_deref() else {
+                continue;
+            };
+            let value = self.expression(default, body)?;
+            let ty = Self::expr_ty(body, value);
+            let name = param.parameter.name.as_str();
+            // A temporary, not a Python variable: each evaluation of the
+            // lambda freezes its own value (see `python_local_reassigned_around_capture`).
+            let local = body.push_local(LocalDecl { name: None, ty, mutable: false, span });
+            let pat = body.push_pattern(HirPattern::Binding(local));
+            body.push_stmt_to_block(block, HirStmt::Let { pat, ty, value: Some(value) });
+            shadowed.push((name.to_owned(), self.scope.locals.insert(name.to_owned(), local)));
+        }
+        let lowered = self
+            .lambda_spec(lambda, expected_param_tys, expected_return)
+            .and_then(|closure| self.python_closure(&closure, body));
+        // The temporaries are visible to the lambda body only.
+        for (name, previous) in shadowed.into_iter().rev() {
+            match previous {
+                Some(local) => self.scope.locals.insert(name, local),
+                None => self.scope.locals.remove(&name),
+            };
+        }
+        let closure = lowered?;
+        let block_index = usize::try_from(block.0).map_err(|error| SmeltError::unsupported(span, error.to_string()))?;
+        body.blocks[block_index].tail = Some(closure.expr);
+        let ty = Self::expr_ty(body, closure.expr);
+        Ok(LoweredClosure { expr: body.push_expr(HirExpr { kind: ExprKind::Block(block), ty, span }), return_ty: closure.return_ty })
     }
 
     /// Lower default expressions for a Python lambda parameter list.
@@ -105,7 +150,13 @@ impl ModuleBuilder<'_> {
                 ));
             }
             let positional = params.posonlyargs.iter().chain(&params.args);
-            let positional_count = positional.clone().count();
+            // Defaulted parameters past the passed ones are bound by
+            // `lambda_closure`, not by the call.
+            let positional_count = positional
+                .clone()
+                .enumerate()
+                .take_while(|(index, param)| *index < expected_param_tys.len() || param.default.is_none())
+                .count();
             if positional_count > expected_param_tys.len() {
                 return Err(SmeltError::unsupported(
                     span,

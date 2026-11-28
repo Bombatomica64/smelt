@@ -666,6 +666,8 @@ impl ModuleBuilder<'_> {
                     may_throw: false,
                 })))
             }
+            // A generator: its yield type, nothing sent in, nothing returned.
+            "Iterator" | "Generator" => self.generator_annotation(sub, type_name, span),
             "Awaitable" | "Coroutine" => {
                 let inner = self.annotation_to_hir(&sub.slice)?;
                 Ok(self.intern_type(Type::Future(inner)))

@@ -491,8 +491,12 @@ def shout() -> str:
 fn fstring_format_spec_lowers_to_py_format() -> TestResult {
     // A written-out spec formats through `PyFormat` (the parity fixture
     // `fstring_format_specs` checks the text); a spec with a nested
-    // replacement field is still refused. Old requirement: every spec was
-    // rejected.
+    // replacement field builds its text at run time and formats through
+    // `PyFormatDynamic` (the parity fixture `str_sweep` checks the text
+    // against CPython). Old requirements: every spec was rejected; later a
+    // nested spec was still refused. Corrected because CPython evaluates the
+    // nested fields after the value and formats with the spec they build,
+    // which `PyFormatDynamic` does with the same format helpers.
     let source = py!(r#"
 def render(value: float) -> str:
     return f"{value:.2f}"
@@ -509,11 +513,10 @@ def render(value: float, width: int) -> str:
     return f"{value:{width}}"
 "#);
     let mut nested_ctx = HirCtx::new();
-    let errors = lower_errors(nested, &mut nested_ctx)?;
-    let error = first_error(&errors)?;
+    lower_module(nested, &mut nested_ctx)?;
     ensure(
-        error.message.contains("nested replacement field"),
-        "nested spec refused",
+        all_exprs(&nested_ctx).any(|expr| matches!(&expr.kind, ExprKind::PyFormatDynamic { .. })),
+        "expected a nested spec to format through PyFormatDynamic",
     )
 }
 

@@ -247,6 +247,9 @@ struct FnScope {
     single_binding: HashSet<String>,
     /// The narrowed type of each local an enclosing `isinstance` test proved.
     narrowed: HashMap<smelt_hir::LocalId, TypeId>,
+    /// The yield type of the generator function being lowered, if it is one
+    /// (`lowering/generators.rs`).
+    generator: Option<TypeId>,
 }
 
 /// How a call site packs its arguments for a callable local: what a `Callable`
@@ -694,6 +697,8 @@ include!("lowering/truthiness.rs");
 include!("lowering/exceptions.rs");
 // Match statement and block lowering helpers.
 include!("lowering/match.rs");
+// Generator functions: `yield` and the generator a call answers.
+include!("lowering/generators.rs");
 // Literal and base expression lowering helpers.
 include!("lowering/literals.rs");
 include!("lowering/call.rs");

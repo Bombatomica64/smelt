@@ -517,11 +517,49 @@ impl ModuleBuilder<'_> {
         if self.class_method_dispatch(Self::expr_ty(body, raw_iter), "__iter__").is_some() {
             return self.protocol_for_statement(for_stmt, raw_iter, body, block);
         }
+        if let Some(Type::Generator { is_async: false, .. }) = self.ctx.krate.types.get(Self::expr_ty(body, raw_iter)) {
+            return self.generator_for_loop(for_stmt, raw_iter, body, block);
+        }
         let iter = self.for_iterable(raw_iter, body);
         let iter_ty = Self::expr_ty(body, iter);
         let item_ty = self
             .iter_item_type(iter_ty)
             .unwrap_or_else(|| self.intern_type(Type::None));
+        // A loop variable a nested function or lambda reads is one variable
+        // of the enclosing scope, assigned each iteration: the closure sees
+        // its value when it is called (Python's late binding), not the
+        // iteration it was created in. It is declared before the loop and
+        // assigned from a per-iteration temporary, so it is a reassigned
+        // captured local like any other.
+        if let Expr::Name(target_name) = for_stmt.target.as_ref()
+            && Self::closures_read_name(&for_stmt.body, target_name.id.as_str())
+        {
+            let span = self.span(for_stmt.range);
+            let name_str = target_name.id.as_str();
+            let variable = body.push_local(LocalDecl {
+                name: Some(self.intern_name(name_str)),
+                ty: item_ty,
+                mutable: true,
+                span: self.span(target_name.range),
+            });
+            let declared = body.push_pattern(HirPattern::Binding(variable));
+            body.push_stmt_to_block(block, HirStmt::Let { pat: declared, ty: item_ty, value: None });
+            self.scope.locals.insert(name_str.to_owned(), variable);
+            let item = body.push_local(self.synthetic_local("__smelt_loop_item", item_ty, false, span));
+            let pat = body.push_pattern(HirPattern::Binding(item));
+            let loop_block = body.push_block(span);
+            let target = body.push_expr(HirExpr { kind: ExprKind::Local(variable), ty: item_ty, span });
+            let value = body.push_expr(HirExpr { kind: ExprKind::Local(item), ty: item_ty, span });
+            body.push_stmt_to_block(loop_block, HirStmt::Assign { target, value });
+            self.with_narrowings(&[], |this| {
+                for stmt in &for_stmt.body {
+                    this.statement_in_block(stmt, body, loop_block)?;
+                }
+                Ok::<(), SmeltError>(())
+            })?;
+            body.push_stmt_to_block(block, HirStmt::For { pat, iter, body: loop_block });
+            return Ok(());
+        }
         let pat = self.binding_pattern_from_target(&for_stmt.target, body, Some(item_ty))?;
         let loop_block = self.block_from_stmts(&for_stmt.body, body)?;
 
@@ -534,6 +572,46 @@ impl ModuleBuilder<'_> {
             },
         );
         Ok(())
+    }
+
+    /// Whether a nested `def` or `lambda` among `stmts` reads `name`.
+    fn closures_read_name(stmts: &[Stmt], name: &str) -> bool {
+        /// Finds a read of the name inside a nested function.
+        struct Finder<'a> {
+            /// The name looked for.
+            name: &'a str,
+            /// How many nested functions enclose the visit.
+            depth: usize,
+            /// Whether a nested function reads it.
+            found: bool,
+        }
+        impl<'b> ruff_python_ast::visitor::Visitor<'b> for Finder<'_> {
+            fn visit_stmt(&mut self, stmt: &'b Stmt) {
+                if let Stmt::FunctionDef(_) = stmt {
+                    self.depth = self.depth.saturating_add(1);
+                    ruff_python_ast::visitor::walk_stmt(self, stmt);
+                    self.depth = self.depth.saturating_sub(1);
+                } else {
+                    ruff_python_ast::visitor::walk_stmt(self, stmt);
+                }
+            }
+            fn visit_expr(&mut self, expr: &'b Expr) {
+                match expr {
+                    Expr::Lambda(_) => {
+                        self.depth = self.depth.saturating_add(1);
+                        ruff_python_ast::visitor::walk_expr(self, expr);
+                        self.depth = self.depth.saturating_sub(1);
+                    }
+                    Expr::Name(read) if self.depth > 0 && read.id.as_str() == self.name => self.found = true,
+                    _ => ruff_python_ast::visitor::walk_expr(self, expr),
+                }
+            }
+        }
+        let mut finder = Finder { name, depth: 0, found: false };
+        for stmt in stmts {
+            ruff_python_ast::visitor::Visitor::visit_stmt(&mut finder, stmt);
+        }
+        finder.found
     }
 
     /// Enter a loop: push its entry on `loop_break_flags` and, when it has an

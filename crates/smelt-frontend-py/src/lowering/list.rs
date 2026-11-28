@@ -243,6 +243,9 @@ impl ModuleBuilder<'_> {
     /// is projected to the list of its items, any other value is returned
     /// unchanged for the builtin's own type check.
     pub(super) fn order_free_iterable_as_list(&mut self, value: smelt_hir::ExprId, span: Span, body: &mut Body) -> smelt_hir::ExprId {
+        if let Some(collected) = self.generator_as_list(value, body) {
+            return collected;
+        }
         let Some(Type::Set(item_ty)) = self.ctx.krate.types.get(Self::expr_ty(body, value)).cloned() else {
             return value;
         };
@@ -267,6 +270,9 @@ impl ModuleBuilder<'_> {
             return Ok(Some(expr));
         }
         let source = self.expression(arg, body)?;
+        if let Some(collected) = self.generator_as_list(source, body) {
+            return Ok(Some(collected));
+        }
         let source_ty = Self::expr_ty(body, source);
         let (kind, ty) = match self.ctx.krate.types.get(source_ty) {
             Some(Type::List(_)) => (ExprKind::ListCopy { list: source }, source_ty),

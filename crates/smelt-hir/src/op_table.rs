@@ -3110,6 +3110,18 @@ macro_rules! op_group_custom {
                 fallible(true)
                 call("@py_format".to_owned())
                 => (format!("py_format {value}, {spec:?}"));
+            /// [`PyFormat`](Self::PyFormat) with a spec built at run time (an
+            /// f-string's `{value:{width}.{precision}f}`): the value is
+            /// evaluated first, then the spec's nested replacement fields.
+            PyFormatDynamic {
+                /// The formatted value.
+                value: one,
+                /// The format spec text, a `str`.
+                spec: one @READ,
+            }
+                fallible(true)
+                call("@py_format".to_owned())
+                => (format!("py_format_dynamic {value}, {spec}"));
             /// Python's `xs.pop(i)`: remove and return the item at `i` (negative
             /// from the end); an empty list or an `i` out of range raises
             /// `IndexError`.

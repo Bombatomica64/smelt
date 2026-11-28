@@ -537,40 +537,47 @@ impl ModuleBuilder<'_> {
                                 segments.push(TextSegment::Literal(literal.value.to_string()));
                             }
                             ruff_python_ast::InterpolatedStringElement::Interpolation(interp) => {
-                                // A format spec with a nested replacement field
-                                // (`{x:{width}}`) is built at run time; only a
-                                // spec written out in full is supported.
-                                let spec = match &interp.format_spec {
-                                    None => None,
-                                    Some(format_spec) => {
-                                        let mut text = String::new();
-                                        for spec_element in &format_spec.elements {
-                                            match spec_element {
-                                                ruff_python_ast::InterpolatedStringElement::Literal(literal) => text.push_str(&literal.value),
-                                                ruff_python_ast::InterpolatedStringElement::Interpolation(_) => {
-                                                    return Err(SmeltError::unsupported(
-                                                        self.span(interp.range),
-                                                        "an f-string format spec with a nested replacement field (`{x:{width}}`) is not supported",
-                                                    ));
-                                                }
-                                            }
+                                // A spec written out in full is formatted by
+                                // `PyFormat`; one with nested replacement fields
+                                // (`{x:{width}.{precision}f}`) is built at run
+                                // time, after the value (`PyFormatDynamic`).
+                                let mut spec_text = String::new();
+                                let mut nested = false;
+                                if let Some(format_spec) = &interp.format_spec {
+                                    for spec_element in &format_spec.elements {
+                                        match spec_element {
+                                            ruff_python_ast::InterpolatedStringElement::Literal(literal) => spec_text.push_str(&literal.value),
+                                            ruff_python_ast::InterpolatedStringElement::Interpolation(_) => nested = true,
                                         }
-                                        Some(text).filter(|written| !written.is_empty())
                                     }
-                                };
+                                }
+                                let spec = Some(spec_text).filter(|written| !written.is_empty() && !nested);
                                 // `{x=}` writes its own source text, then the
                                 // value: its `repr` unless a conversion or a
                                 // format spec says otherwise.
                                 let conversion = interp.debug_text.as_ref().map_or(interp.conversion, |debug| {
                                     segments.push(TextSegment::Literal(debug.as_str().to_owned()));
-                                    if interp.conversion == ruff_python_ast::ConversionFlag::None && spec.is_none() {
+                                    if interp.conversion == ruff_python_ast::ConversionFlag::None && spec.is_none() && !nested {
                                         ruff_python_ast::ConversionFlag::Repr
                                     } else {
                                         interp.conversion
                                     }
                                 });
                                 let interpolated = self.expression(&interp.expression, body)?;
-                                let expr = self.interpolation_text(interpolated, conversion, spec, self.span(interp.range), body)?;
+                                let expr = match interp.format_spec.as_deref().filter(|_| nested) {
+                                    Some(format_spec) => {
+                                        // The value itself is formatted; only a
+                                        // conversion (`!r`, `!s`, `!a`) makes it a `str` first.
+                                        let shown = if conversion == ruff_python_ast::ConversionFlag::None {
+                                            interpolated
+                                        } else {
+                                            self.interpolation_text(interpolated, conversion, None, self.span(interp.range), body)?
+                                        };
+                                        let spec_expr = self.nested_format_spec(format_spec, body)?;
+                                        self.dynamic_formatted_value(shown, spec_expr, self.span(interp.range), body)?
+                                    }
+                                    None => self.interpolation_text(interpolated, conversion, spec, self.span(interp.range), body)?,
+                                };
                                 segments.push(TextSegment::Expr(expr));
                             }
                         }
@@ -767,6 +774,78 @@ impl ModuleBuilder<'_> {
         };
         let ty = self.intern_type(Type::PyStr);
         Ok(body.push_expr(HirExpr { kind: ExprKind::PyFormat { value: shown, spec }, ty, span }))
+    }
+
+    /// The `str` a format spec with nested replacement fields builds: its
+    /// literal parts and each field's text, in order (`{width}` is
+    /// `format(width, "")`, a field's own conversion and spec applying).
+    fn nested_format_spec(
+        &mut self,
+        format_spec: &ruff_python_ast::InterpolatedStringFormatSpec,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let str_ty = self.intern_type(Type::PyStr);
+        let span = self.span(format_spec.range);
+        let mut text = body.push_expr(HirExpr { kind: ExprKind::Literal(Literal::String(String::new())), ty: str_ty, span });
+        for element in &format_spec.elements {
+            let part = match element {
+                ruff_python_ast::InterpolatedStringElement::Literal(literal) => body.push_expr(HirExpr {
+                    kind: ExprKind::Literal(Literal::String(literal.value.to_string())),
+                    ty: str_ty,
+                    span,
+                }),
+                ruff_python_ast::InterpolatedStringElement::Interpolation(field) => {
+                    let mut inner_spec = String::new();
+                    for inner in field.format_spec.iter().flat_map(|spec| spec.elements.iter()) {
+                        match inner {
+                            ruff_python_ast::InterpolatedStringElement::Literal(literal) => inner_spec.push_str(&literal.value),
+                            ruff_python_ast::InterpolatedStringElement::Interpolation(_) => {
+                                return Err(SmeltError::unsupported(
+                                    self.span(field.range),
+                                    "a format spec nests replacement fields one level deep at most",
+                                ));
+                            }
+                        }
+                    }
+                    let value = self.expression(&field.expression, body)?;
+                    let field_span = self.span(field.range);
+                    let shown = self.interpolation_text(value, field.conversion, Some(inner_spec).filter(|spec| !spec.is_empty()), field_span, body)?;
+                    if Self::expr_ty(body, shown) == str_ty {
+                        shown
+                    } else {
+                        self.python_text_expr(shown, false, field_span, body)?
+                    }
+                }
+            };
+            text = body.push_expr(HirExpr { kind: ExprKind::BinOp { op: BinOp::Add, lhs: text, rhs: part }, ty: str_ty, span });
+        }
+        Ok(text)
+    }
+
+    /// `format(value, spec)` for a spec built at run time: an `int`, `float`,
+    /// `bool` (as the `int` it is) or `str`, as [`Self::formatted_value`].
+    fn dynamic_formatted_value(
+        &mut self,
+        value: smelt_hir::ExprId,
+        spec: smelt_hir::ExprId,
+        span: Span,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let shown = match self.ctx.krate.types.get(Self::expr_ty(body, value)) {
+            Some(Type::PyInt | Type::Float | Type::PyStr) => value,
+            Some(Type::Bool) => {
+                let ty = self.intern_type(Type::PyInt);
+                body.push_expr(HirExpr { kind: ExprKind::TypeAssert { value }, ty, span })
+            }
+            _ => {
+                return Err(SmeltError::unsupported(
+                    span,
+                    "a format spec is supported for int, float, bool and str values",
+                ));
+            }
+        };
+        let ty = self.intern_type(Type::PyStr);
+        Ok(body.push_expr(HirExpr { kind: ExprKind::PyFormatDynamic { value: shown, spec }, ty, span }))
     }
 
     /// Lower a Python conditional expression (`then if cond else else_`).
