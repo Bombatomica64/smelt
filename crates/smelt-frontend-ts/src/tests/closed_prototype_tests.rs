@@ -50,7 +50,10 @@ export function call(value: any): unknown {
 "#),
         &mut ctx,
     )?;
-    ensure_signature(&ctx, "call", "call(value: Unknown) -> Unknown")?;
+    // `value: any` declares an implicit type parameter in HIR; codegen drops
+    // it because the body reads a member off the value
+    // (`docs/design/any-as-generic.md`), so the parameter stays `Unknown`.
+    ensure_signature(&ctx, "call", "call<Any0>(value: Unknown) -> Unknown")?;
     ensure_exprs!(&ctx, StringCase, BindThis);
     ensure!(crate_has_field(&ctx, "anchor"), "no read of field `anchor`");
     Ok(())

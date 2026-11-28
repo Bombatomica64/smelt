@@ -145,7 +145,7 @@ pub use options::{
 /// per source file. Uses the emitter's own type rendering so it matches the
 /// generated crate; see `emitter::typedness`.
 pub fn measure_typedness(mir: &Mir) -> Result<TypednessMeasurement, EmitError> {
-    emitter::typedness::measure(mir)
+    emitter::typedness::measure(&implicit_generics::settled(mir))
 }
 
 /// Tests for the code generator.

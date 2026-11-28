@@ -67,6 +67,8 @@ naming the check (`AnyN of f: the body does more than pass the value along`,
 or `.. a caller passes a function, a future or a nullish value`). The frontend
 retracted its own `explicit-any` record at that annotation when it declared
 the candidate, so each `any` keeps exactly one record while it stays erased.
+`smelt check` runs no backend and cannot tell which candidates `build` lifts,
+so it reports every candidate as the `explicit-any` its annotation wrote.
 
 A lifted candidate is an ordinary type parameter from then on: the crate-wide
 lifting decision (`liftable_type_params`, the body trial) treats it like a
@@ -125,4 +127,8 @@ reasons), the implicit parameter renders erased and is recorded as
   indexing `object?.[path]` and the crate failed to compile (E0308); without
   check 2, `isUndefined(undefined)` read back `null` and the runtime ratchet
   failed (`isUndefined.spec.ts:6`). `generic_lifting_cli_tests::
-  any_parameter_passed_along_is_an_implicit_generic` pins both cases.
+  any_parameter_passed_along_is_an_implicit_generic` pins the pass-through and
+  nullish cases (re-planted: disabling check 2 fails it on `is_nothing`), and
+  codegen's `a_dynamic_global_object_read_resolves_a_modeled_builtin_constructor`
+  failed while check 1 missed a parameter used as an index operand
+  (`globalThis[name]`).

@@ -24,7 +24,12 @@
 //! first dynamic boundary in its body (where it crosses `IntoSmeltUnknown`),
 //! and a function this rule does not lift emits exactly what it emitted before.
 
-use std::collections::HashMap;
+#![expect(
+    clippy::redundant_pub_crate,
+    reason = "`settled` is shared with the crate's emission entry points"
+)]
+
+use std::{borrow::Cow, collections::HashMap};
 
 use smelt_hir::{ErasureReason, ErasureRecord, Symbol, Type, TypeId};
 use smelt_mir::{Callee, LocalId, Mir, MirFunction, Operand, Place, Rvalue, Statement, Terminator};
@@ -59,20 +64,50 @@ pub fn settle_implicit_generics(mir: &mut Mir) -> Vec<ErasureRecord> {
                 }
             }
         }
-        let function = &mut mir.functions[index];
-        function
+        let Some(settled) = mir.functions.get_mut(index) else {
+            continue;
+        };
+        settled
             .type_params
             .retain(|param| !dropped.contains(&param.name));
         for (local, ty) in lifted {
             if let Some(decl) = usize::try_from(local.0)
                 .ok()
-                .and_then(|slot| function.locals.get_mut(slot))
+                .and_then(|slot| settled.locals.get_mut(slot))
             {
                 decl.ty = ty;
             }
         }
     }
     records
+}
+
+/// `mir` with every implicit type parameter settled: borrowed when it
+/// already is (the transpiler settles once, in `lower_to_emittable_mir`), a
+/// settled copy otherwise, so a caller that hands the emitter MIR straight
+/// from lowering (codegen's own tests, embedders) emits the same program.
+/// The copy's records are dropped: only the transpiler writes a sidecar.
+pub(crate) fn settled(mir: &Mir) -> Cow<'_, Mir> {
+    let unsettled = mir.functions.iter().any(|function| {
+        function.type_params.iter().any(|param| {
+            param.implicit_param.is_some_and(|position| {
+                !function
+                    .params
+                    .get(position)
+                    .and_then(|local| usize::try_from(local.0).ok())
+                    .and_then(|slot| function.locals.get(slot))
+                    .is_some_and(|decl| {
+                        mir.types.get(decl.ty) == Some(&Type::TypeParam { name: param.name })
+                    })
+            })
+        })
+    });
+    if !unsettled {
+        return Cow::Borrowed(mir);
+    }
+    let mut copy = mir.clone();
+    let _records = settle_implicit_generics(&mut copy);
+    Cow::Owned(copy)
 }
 
 /// Decide the implicit parameter `name`, standing for parameter `position`
@@ -145,14 +180,13 @@ fn passes_through(mir: &Mir, function: &MirFunction, param: LocalId, param_ty: T
             .and_then(|index| locals.get(index))
             .map(|decl| decl.ty)
     };
-    let is_erased =
-        |ty: Option<TypeId>| matches!(ty.and_then(|ty| mir.types.get(ty)), Some(Type::Unknown));
+    let is_erased = |found: Option<TypeId>| {
+        matches!(found.and_then(|ty| mir.types.get(ty)), Some(Type::Unknown))
+    };
     let mentions = |operand: &Operand| {
-        matches!(
-            operand.place(),
-            Some(Place::Local(local) | Place::Field { base: local, .. } | Place::Index { base: local, .. })
-                if *local == param
-        )
+        operand
+            .place()
+            .is_some_and(|place| place_mentions(place, param))
     };
     let whole = |operand: &Operand| matches!(operand, Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) if *local == param);
     let absent_only = crate::generic_inspection::absent_only_locals(&locals, &function.blocks);
@@ -224,8 +258,9 @@ fn passes_through(mir: &Mir, function: &MirFunction, param: LocalId, param_ty: T
                         continue;
                     }
                     let accepts = whole(arg)
-                        && callee
-                            .is_some_and(|callee| callee_param_accepts_any(mir, callee, position));
+                        && callee.is_some_and(|target_fn| {
+                            callee_param_accepts_any(mir, target_fn, position)
+                        });
                     if !accepts {
                         return false;
                     }
@@ -240,7 +275,7 @@ fn passes_through(mir: &Mir, function: &MirFunction, param: LocalId, param_ty: T
             Terminator::Call {
                 callee, args, dest, ..
             } => {
-                if *dest == param || args.iter().any(|arg| mentions(arg)) {
+                if *dest == param || args.iter().any(mentions) {
                     return false;
                 }
                 let reads = match callee {
@@ -250,7 +285,7 @@ fn passes_through(mir: &Mir, function: &MirFunction, param: LocalId, param_ty: T
                         rvalue.reads(|operand| reads |= mentions(operand));
                         reads
                     }
-                    _ => false,
+                    Callee::Static(_) | Callee::Builtin(_) | Callee::BaseInit(_) => false,
                 };
                 if reads {
                     return false;
@@ -277,6 +312,27 @@ fn passes_through(mir: &Mir, function: &MirFunction, param: LocalId, param_ty: T
         }
     }
     true
+}
+
+/// Whether `place` reads `param`: as its base, or anywhere in an index
+/// operand (`globalThis[name]` keys a lookup with the parameter, which reads
+/// its value as a property key).
+fn place_mentions(place: &Place, param: LocalId) -> bool {
+    match place {
+        Place::Local(local) | Place::Field { base: local, .. } => *local == param,
+        Place::Index { base, index, .. } => {
+            *base == param
+                || index
+                    .place()
+                    .is_some_and(|inner| place_mentions(inner, param))
+        }
+        Place::Global { projection, .. } => match projection {
+            smelt_mir::GlobalProjection::Index { index, .. } => index
+                .place()
+                .is_some_and(|inner| place_mentions(inner, param)),
+            smelt_mir::GlobalProjection::Field(_) => false,
+        },
+    }
 }
 
 /// Whether parameter `position` of `callee` takes an `any` value as it is:
@@ -360,7 +416,7 @@ fn holds_uncarriable(
         Some(kind) => kind
             .children()
             .into_iter()
-            .any(|child| holds_uncarriable(mir, child, memo, depth + 1)),
+            .any(|child| holds_uncarriable(mir, child, memo, depth.saturating_add(1))),
     };
     memo.insert(ty, answer);
     answer

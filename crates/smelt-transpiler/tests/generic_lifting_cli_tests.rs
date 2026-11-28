@@ -427,24 +427,8 @@ console.log(isGiven<string>(), isGiven(0), isGiven(''), isGiven(box));
     )
 }
 
-/// Rule: an `any` parameter the body only passes along is an implicit type
-/// parameter (`docs/design/any-as-generic.md`,
-/// `smelt_codegen_rust::settle_implicit_generics`).
-///
-/// Behaviour: the program prints Node's output, including `null` and
-/// `undefined` kept apart and an `any` reassigned or inspected in the body.
-/// Type preservation:
-/// - `forward` (hands `x` to an erased callee), `holder` (beside a declared
-///   `T`, asks only `w == null`) and `variadic` (a rest list beside it) take
-///   `x` as a Rust generic, and their callers pass `5`, `"s"` and `[1, 2]`
-///   at their own types, not through the erased carrier;
-/// - `sink` (`String(x)` reads the value) and `rebind` (reassigns `x`) keep
-///   `SmeltUnknown`;
-/// - `isNothing` keeps `SmeltUnknown`: a caller passes `undefined`, and a
-///   generic `()` would lose `undefined` against `null`.
-#[test]
-fn any_parameter_passed_along_is_an_implicit_generic() -> TestResult {
-    let source = r#"function sink(x: any, label: string): string {
+/// The program of [`any_parameter_passed_along_is_an_implicit_generic`].
+const ANY_PARAMETERS_SOURCE: &str = r#"function sink(x: any, label: string): string {
   return label + String(x);
 }
 function forward(x: any, label: string): string {
@@ -478,6 +462,25 @@ export function main(): void {
 }
 main();
 "#;
+
+/// Rule: an `any` parameter the body only passes along is an implicit type
+/// parameter (`docs/design/any-as-generic.md`,
+/// `smelt_codegen_rust::settle_implicit_generics`).
+///
+/// Behaviour: the program prints Node's output, including `null` and
+/// `undefined` kept apart and an `any` reassigned or inspected in the body.
+/// Type preservation:
+/// - `forward` (hands `x` to an erased callee), `holder` (beside a declared
+///   `T`, asks only `w == null`) and `variadic` (a rest list beside it) take
+///   `x` as a Rust generic, and their callers pass `5`, `"s"` and `[1, 2]`
+///   at their own types, not through the erased carrier;
+/// - `sink` (`String(x)` reads the value) and `rebind` (reassigns `x`) keep
+///   `SmeltUnknown`;
+/// - `isNothing` keeps `SmeltUnknown`: a caller passes `undefined`, and a
+///   generic `()` would lose `undefined` against `null`.
+#[test]
+fn any_parameter_passed_along_is_an_implicit_generic() -> TestResult {
+    let source = ANY_PARAMETERS_SOURCE;
     let expected = "a5\nbs\nfalse\n1\nv5\n2\nagainr7\ntrue false false\n";
     let (generated, stdout) = build_and_run("any_parameter_passed_along", source)?;
     let bounds = "Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static";

@@ -24,9 +24,13 @@ pub fn emit_crate(
     let src_dir = output_dir.join("src");
     fs::create_dir_all(&src_dir)?;
     let allocator = options.effective_allocator();
-    let root = emit_root(mir, allocator, Vec::new(), |_function, _context| {
-        FreeFunctionHome::Root
-    })?;
+    let settled_mir = crate::implicit_generics::settled(mir);
+    let root = emit_root(
+        &settled_mir,
+        allocator,
+        Vec::new(),
+        |_function, _context| FreeFunctionHome::Root,
+    )?;
     let source = root.source();
     assert_runtime_symbols_defined([source.as_str()])?;
     write_if_changed(
@@ -71,7 +75,8 @@ pub fn emit_crate_with_modules_reporting(
     let src_dir = output_dir.join("src");
     fs::create_dir_all(&src_dir)?;
     let allocator = options.effective_allocator();
-    let mapped = emit_mapped_sources(mir, krate, modules, allocator)?;
+    let settled_mir = crate::implicit_generics::settled(mir);
+    let mapped = emit_mapped_sources(&settled_mir, krate, modules, allocator)?;
     assert_runtime_symbols_defined(
         std::iter::once(mapped.root.as_str())
             .chain(mapped.modules.iter().map(|module| module.source.as_str())),
