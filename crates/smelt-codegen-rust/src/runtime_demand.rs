@@ -28,7 +28,7 @@ use smelt_mir::{
     BasicBlock, Callee, Constant, LocalDecl, LocalId, Mir, Operand, Place, Read, Rvalue, Statement,
     Terminator,
 };
-use smelt_stdlib::{BackendDependency, StdlibClass};
+use smelt_stdlib::{BackendDependency, ClassRuntime, StdlibClass};
 
 use crate::reachable_types::ReachableTypes;
 use crate::stdlib::{module_hash_set_key_safe, stdlib_class_of_class_symbol};
@@ -1056,46 +1056,33 @@ impl RuntimeDemand {
         if class.is_blob_runtime_type() {
             self.add(Need::Blob);
         }
-        match class {
-            StdlibClass::Headers => self.add(Need::Headers),
-            StdlibClass::PyException | StdlibClass::PyExceptionArgs => self.add(Need::PyException),
-            StdlibClass::Response => self.add(Need::Response),
-            StdlibClass::Request => self.add(Need::Request),
-            StdlibClass::EventEmitter => self.add(Need::EventEmitter),
-            StdlibClass::SqliteDatabase | StdlibClass::SqliteStatement => self.add(Need::Sqlite),
-            StdlibClass::HttpServer
-            | StdlibClass::IncomingMessage
-            | StdlibClass::ServerResponse => {
-                self.add(Need::HttpServer);
-            }
-            StdlibClass::UrlSearchParams => self.add(Need::UrlSearchParams),
-            StdlibClass::Date => self.add(Need::Date),
-            StdlibClass::Url => self.add(Need::Url),
-            StdlibClass::CryptoKey => self.add(Need::CryptoKey),
-            StdlibClass::HostConstructor => self.add(Need::HostConstructor),
-            StdlibClass::FormData => self.add(Need::FormData),
-            StdlibClass::TextEncoder => self.add(Need::TextEncoder),
-            StdlibClass::TextDecoder => self.add(Need::TextDecoder),
-            StdlibClass::TypedArray | StdlibClass::ArrayBuffer => self.add(Need::ByteArray),
-            StdlibClass::DataView => {
+        // `StdlibClass` is `#[non_exhaustive]`, so its own crate classifies
+        // every class (`StdlibClass::runtime`); this match over the answer is
+        // exhaustive, so a new block cannot be silently skipped here.
+        match class.runtime() {
+            ClassRuntime::Headers => self.add(Need::Headers),
+            ClassRuntime::PyException => self.add(Need::PyException),
+            ClassRuntime::Response => self.add(Need::Response),
+            ClassRuntime::Request => self.add(Need::Request),
+            ClassRuntime::EventEmitter => self.add(Need::EventEmitter),
+            ClassRuntime::Sqlite => self.add(Need::Sqlite),
+            ClassRuntime::HttpServer => self.add(Need::HttpServer),
+            ClassRuntime::UrlSearchParams => self.add(Need::UrlSearchParams),
+            ClassRuntime::Date => self.add(Need::Date),
+            ClassRuntime::Url => self.add(Need::Url),
+            ClassRuntime::CryptoKey => self.add(Need::CryptoKey),
+            ClassRuntime::HostConstructor => self.add(Need::HostConstructor),
+            ClassRuntime::FormData => self.add(Need::FormData),
+            ClassRuntime::TextEncoder => self.add(Need::TextEncoder),
+            ClassRuntime::TextDecoder => self.add(Need::TextDecoder),
+            ClassRuntime::ByteArray => self.add(Need::ByteArray),
+            ClassRuntime::DataView => {
                 self.add(Need::ByteArray);
                 self.add(Need::DataView);
             }
-            StdlibClass::NodeHash => self.add(Need::NodeHash),
-            StdlibClass::RegExp => self.add(Need::DepRegress),
-            // No block of their own: what they need comes with the types
-            // that hold them (the carrier, the containers).
-            StdlibClass::Map
-            | StdlibClass::Match
-            | StdlibClass::MatchGroups
-            | StdlibClass::MatchFnResult
-            | StdlibClass::Set
-            | StdlibClass::ReadableStream
-            | StdlibClass::Blob
-            | StdlibClass::File => {}
-            // `StdlibClass` is `#[non_exhaustive]`: a class added to
-            // `smelt-stdlib` lands here until it is listed above.
-            _ => {}
+            ClassRuntime::NodeHash => self.add(Need::NodeHash),
+            ClassRuntime::RegExp => self.add(Need::DepRegress),
+            ClassRuntime::Carried => {}
         }
     }
 

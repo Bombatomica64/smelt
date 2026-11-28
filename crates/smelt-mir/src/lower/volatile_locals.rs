@@ -121,45 +121,6 @@ fn expr_kind(body: &Body, id: ExprId) -> Option<&ExprKind> {
         .map(|expr| &expr.kind)
 }
 
-/// Whether `kind` itself runs source code, suspends, or stores in place.
-const fn runs_code_or_stores(kind: &ExprKind) -> bool {
-    matches!(
-        kind,
-        ExprKind::Call { .. }
-            | ExprKind::ClosureCall { .. }
-            | ExprKind::ClosureCallSpread { .. }
-            | ExprKind::ClosureCallRest { .. }
-            | ExprKind::ErasedFunctionMethodCall { .. }
-            | ExprKind::Method { .. }
-            | ExprKind::Construct { .. }
-            | ExprKind::ConstructLike { .. }
-            | ExprKind::New { .. }
-            | ExprKind::Block(_)
-            | ExprKind::Await(_)
-            | ExprKind::AsyncOp { .. }
-            | ExprKind::GeneratorYield { .. }
-            | ExprKind::GlobalSet { .. }
-            | ExprKind::ListClear { .. }
-            | ExprKind::ListExtend { .. }
-            | ExprKind::ListInsert { .. }
-            | ExprKind::ListPop { .. }
-            | ExprKind::PyListPopAt { .. }
-            | ExprKind::PyListDeleteAt { .. }
-            | ExprKind::ListPush { .. }
-            | ExprKind::ListRemove { .. }
-            | ExprKind::ListReverse { .. }
-            | ExprKind::ListShift { .. }
-            | ExprKind::ListSort { .. }
-            | ExprKind::ListUnshift { .. }
-            | ExprKind::ListSplice { .. }
-            | ExprKind::ListFill { .. }
-            | ExprKind::ListCopyWithin { .. }
-            | ExprKind::DictSet { .. }
-            | ExprKind::DictAssign { .. }
-            | ExprKind::CallableObjectAssign { .. }
-    )
-}
-
 /// Whether evaluating `id` can run source code or store, given what `memo` knows:
 /// it does so itself, a child does, or it is handed a function it can call.
 fn can_run_code(
@@ -181,7 +142,7 @@ fn can_run_code(
             .is_some_and(|expr| matches!(types.get(expr.ty), Some(Type::Function(_))))
     };
     let kids = children(kind);
-    let answer = runs_code_or_stores(kind)
+    let answer = kind.runs_code_or_stores()
         || read_may_run_accessor(body, types, kind)
         || (!matches!(
             kind,

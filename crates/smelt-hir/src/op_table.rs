@@ -50,6 +50,12 @@
 //!   read of a value of that type observes. Unlike `mutates`, the operand is not
 //!   written in place, so it stays immutable to the MIR's own analyses.
 //! * `fresh(condition)`: the result is a newly allocated list no one else holds.
+//! * `side_effect(true)`: evaluating the op runs source code it is not handed
+//!   as a function-typed operand (a closure call, a constructor, an awaited
+//!   operation), or stores somewhere its `mutates` operand does not name.
+//!   `ExprKind::runs_code_or_stores` answers it, with `mutates`, for the
+//!   lowering's evaluation-order analysis (`volatile_locals`): a read before
+//!   such an op is taken where it is evaluated.
 //!
 //! A field may also state its role for list escape analysis, `name: kind @ROLE`,
 //! with `ROLE` a constant of `operand_roles` or a parenthesised expression over
@@ -144,6 +150,15 @@ macro_rules! op_fresh {
     () => { false };
     (fresh ($condition:expr) $($rest:tt)*) => { $condition };
     ($other:ident $value:tt $($rest:tt)*) => { $crate::op_fresh!($($rest)*) };
+}
+
+/// Expands to an entry's `side_effect` flag; by default an op runs no source
+/// code and stores only through its `mutates` operand.
+#[macro_export]
+macro_rules! op_side_effect {
+    () => { false };
+    (side_effect ($flag:expr) $($rest:tt)*) => { $flag };
+    ($other:ident $value:tt $($rest:tt)*) => { $crate::op_side_effect!($($rest)*) };
 }
 
 /// Hands `callback` every operation, the transcribed group then the custom one.
@@ -313,6 +328,7 @@ macro_rules! op_group_transcribed {
                 /// The spelled constructor arguments.
                 args: many,
             }
+                side_effect(true)
                 => (format!("construct {callee}({})", args.join(", ")));
             /// JavaScript `new value.constructor(args)` on an erased `value`: a new
             /// object of the kind `value` is, an array for an array, whose
@@ -323,6 +339,7 @@ macro_rules! op_group_transcribed {
                 /// The spelled constructor arguments.
                 args: many,
             }
+                side_effect(true)
                 => (format!("construct_like {value}({})", args.join(", ")));
             /// Call a closure value with a runtime argument vector from spread syntax.
             ClosureCallSpread {
@@ -331,6 +348,7 @@ macro_rules! op_group_transcribed {
                 /// Runtime argument list.
                 args: one @CALLED,
             }
+                side_effect(true)
                 => (format!("closure_call {callee}(...{args})"));
             /// Call a function value whose whole signature is one rest parameter,
             /// with that rest list written out: `items` are its elements. Packed
@@ -341,6 +359,7 @@ macro_rules! op_group_transcribed {
                 /// The elements of the rest list.
                 items: many @CALLED,
             }
+                side_effect(true)
                 => (format!("closure_call {callee}(rest {})", items.join(", ")));
             /// Read a field through a TypeScript optional-chain receiver.
             OptionalField {
@@ -1759,6 +1778,7 @@ macro_rules! op_group_transcribed {
                 /// where `def` is a record variable rather than an object literal).
                 spreads: many,
             }
+                side_effect(true)
                 => (
                     format!(
                         "callable_object_assign {callable}, {{{}}}{}",
@@ -2529,6 +2549,7 @@ macro_rules! op_group_transcribed {
                 /// Operation inputs.
                 args: many @CALLED,
             }
+                side_effect(true)
                 => (format!("{op}({})", args.join(", ")));
             /// One of the four ECMA-262 URI transcoding globals applied to `operand`:
             /// `encodeURI`, `encodeURIComponent`, `decodeURI`, `decodeURIComponent`.
@@ -2939,6 +2960,7 @@ macro_rules! op_group_custom {
                 /// Call arguments.
                 args: many @CALLED,
             }
+                side_effect(true)
                 => (format!("closure_call {callee}({})", args.join(", ")));
             /// `f.call(thisArg, ..args)` / `f.apply(thisArg, argsArray)` on an
             /// erased `f`, resolved at run time as JavaScript resolves it: a
@@ -2954,6 +2976,7 @@ macro_rules! op_group_custom {
                 /// The source arguments, `thisArg` first.
                 args: many @CALLED,
             }
+                side_effect(true)
                 => (format!("{receiver}.{method}!({})", args.join(", ")));
             /// Call a method through a TypeScript optional-chain receiver.
             OptionalMethod {

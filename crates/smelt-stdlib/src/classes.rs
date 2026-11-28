@@ -366,6 +366,47 @@ impl StdlibClass {
         matches!(self, Self::Blob | Self::File)
     }
 
+    /// The runtime block of the generated crate this class's values need: one
+    /// row per class, matched exhaustively here (inside the crate that
+    /// declares the `#[non_exhaustive]` enum), so a new class must name its
+    /// block before it compiles. The backend maps each [`ClassRuntime`] to its
+    /// own demand, also exhaustively. Blob and File are answered by
+    /// [`Self::is_blob_runtime_type`] besides.
+    #[must_use]
+    pub const fn runtime(self) -> ClassRuntime {
+        match self {
+            Self::Headers => ClassRuntime::Headers,
+            Self::PyException | Self::PyExceptionArgs => ClassRuntime::PyException,
+            Self::Response => ClassRuntime::Response,
+            Self::Request => ClassRuntime::Request,
+            Self::EventEmitter => ClassRuntime::EventEmitter,
+            Self::SqliteDatabase | Self::SqliteStatement => ClassRuntime::Sqlite,
+            Self::HttpServer | Self::IncomingMessage | Self::ServerResponse => {
+                ClassRuntime::HttpServer
+            }
+            Self::UrlSearchParams => ClassRuntime::UrlSearchParams,
+            Self::Date => ClassRuntime::Date,
+            Self::Url => ClassRuntime::Url,
+            Self::CryptoKey => ClassRuntime::CryptoKey,
+            Self::HostConstructor => ClassRuntime::HostConstructor,
+            Self::FormData => ClassRuntime::FormData,
+            Self::TextEncoder => ClassRuntime::TextEncoder,
+            Self::TextDecoder => ClassRuntime::TextDecoder,
+            Self::TypedArray | Self::ArrayBuffer => ClassRuntime::ByteArray,
+            Self::DataView => ClassRuntime::DataView,
+            Self::NodeHash => ClassRuntime::NodeHash,
+            Self::RegExp => ClassRuntime::RegExp,
+            Self::Map
+            | Self::Match
+            | Self::MatchGroups
+            | Self::MatchFnResult
+            | Self::Set
+            | Self::ReadableStream
+            | Self::Blob
+            | Self::File => ClassRuntime::Carried,
+        }
+    }
+
     /// The string parameters a listener for `event` receives, when this class
     /// publishes a known schema for it.
     ///
@@ -612,6 +653,54 @@ const PAIR_ITERABLE_MEMBERS: &[&str] = &["entries", "forEach", "keys", "values"]
 pub fn stdlib_class_instance_has_property(class: StdlibClass, member: &str) -> Option<bool> {
     let own = stdlib_class_instance_members(class)?;
     Some(own.iter().any(|members| members.contains(&member)) || is_object_prototype_member(member))
+}
+
+/// The runtime block a [`StdlibClass`] needs in the generated crate
+/// ([`StdlibClass::runtime`]). Not `#[non_exhaustive]`: the backend matches it
+/// exhaustively, so a new block is wired there before it compiles.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClassRuntime {
+    /// No block of its own: what it needs comes with the types that hold it
+    /// (the carrier, the containers).
+    Carried,
+    /// WHATWG `Headers`.
+    Headers,
+    /// The Python exception hierarchy.
+    PyException,
+    /// WHATWG `Response`.
+    Response,
+    /// WHATWG `Request`.
+    Request,
+    /// `node:events` `EventEmitter`.
+    EventEmitter,
+    /// The SQLite binding.
+    Sqlite,
+    /// `node:http` servers, requests and responses.
+    HttpServer,
+    /// WHATWG `URLSearchParams`.
+    UrlSearchParams,
+    /// JavaScript `Date`.
+    Date,
+    /// WHATWG `URL`.
+    Url,
+    /// Web Crypto `CryptoKey`.
+    CryptoKey,
+    /// A host constructor value.
+    HostConstructor,
+    /// WHATWG `FormData`.
+    FormData,
+    /// WHATWG `TextEncoder`.
+    TextEncoder,
+    /// WHATWG `TextDecoder`.
+    TextDecoder,
+    /// Typed arrays and `ArrayBuffer`.
+    ByteArray,
+    /// `DataView`, over the byte-array block.
+    DataView,
+    /// `node:crypto` hashes.
+    NodeHash,
+    /// `RegExp`, through the regex engine dependency.
+    RegExp,
 }
 
 /// The primitive type of a modeled host data property; see

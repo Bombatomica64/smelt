@@ -231,3 +231,113 @@ macro_rules! define_expr_state_update {
 }
 
 crate::for_each_op!(define_expr_state_update);
+
+/// Generates [`ExprKind::runs_code_or_stores`] from the op table's `mutates`
+/// and `side_effect` facts.
+macro_rules! define_expr_runs_code_or_stores {
+    ($(
+        $(#[$meta:meta])*
+        $name:ident $({ $($(#[$field_meta:meta])* $field:ident : $kind:tt $(@ $role:tt)?),* $(,)? })?
+        $($fact:ident $fact_value:tt)*
+        => $display:tt;
+    )*) => {
+        impl ExprKind {
+            /// Whether evaluating this expression itself (not its children) can
+            /// run source code, suspend, or store in place: a read of a field or
+            /// element before it can see a different value than before.
+            ///
+            /// An op answers from its `mutates` and `side_effect` facts, so a new
+            /// op states it in the table. A function-typed operand the op is
+            /// handed (an array callback) is the caller's to check.
+            #[must_use]
+            #[expect(
+                unused_variables,
+                reason = "each arm binds every field; a fact reads the ones it needs"
+            )]
+            pub const fn runs_code_or_stores(&self) -> bool {
+                match self {
+                    $(
+                        Self::$name $({ $($field,)* })? => {
+                            let mutated: Option<&ExprId> = $crate::op_mutates!($($fact $fact_value)*);
+                            mutated.is_some() || $crate::op_side_effect!($($fact $fact_value)*)
+                        }
+                    )*
+                    // The hand-written variants outside the op table. Listed,
+                    // not `_`, so a new variant must state its effect here.
+                    Self::GlobalSet { .. }
+                    | Self::Call { .. }
+                    | Self::GeneratorYield { .. }
+                    | Self::Method { .. }
+                    | Self::Block(_)
+                    | Self::New { .. }
+                    | Self::BaseConstructorInit { .. }
+                    | Self::Await(_) => true,
+                    Self::Literal(_)
+                    | Self::Local(_)
+                    | Self::Item(_)
+                    | Self::GlobalGet { .. }
+                    | Self::Closure(_)
+                    | Self::Field { .. }
+                    | Self::Index { .. }
+                    | Self::TypeAssert { .. }
+                    | Self::BinOp { .. }
+                    | Self::UnaryOp { .. }
+                    | Self::Conditional { .. }
+                    | Self::Lambda { .. }
+                    | Self::ListLit(_)
+                    | Self::SetLit(_)
+                    | Self::DictLit(_)
+                    | Self::TupleLit(_) => false,
+                }
+            }
+        }
+    };
+}
+
+crate::for_each_op!(define_expr_runs_code_or_stores);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `runs_code_or_stores` reads the op table: every in-place mutator
+    /// (`mutates`) and every op that calls code (`side_effect`) answers true,
+    /// a pure read false. The hand-kept list it replaced missed the `Set` and
+    /// most `Dict` mutators, so a field read before `s.add(x)` was not ordered.
+    #[test]
+    fn runs_code_or_stores_follows_the_op_table_facts() {
+        let id = ExprId(0);
+        for effectful in [
+            ExprKind::SetAdd { set: id, item: id },
+            ExprKind::DictClear { dict: id },
+            ExprKind::DictPopItem { dict: id },
+            ExprKind::ClosureCall {
+                callee: id,
+                args: Vec::new(),
+            },
+            ExprKind::ListSplice {
+                list: id,
+                start: id,
+                delete_count: None,
+                items: Vec::new(),
+                mutate: true,
+            },
+            ExprKind::Block(BlockId(0)),
+        ] {
+            assert!(effectful.runs_code_or_stores(), "{effectful:?}");
+        }
+        for pure in [
+            ExprKind::ListContains { list: id, item: id },
+            ExprKind::ListSplice {
+                list: id,
+                start: id,
+                delete_count: None,
+                items: Vec::new(),
+                mutate: false,
+            },
+            ExprKind::Local(LocalId(0)),
+        ] {
+            assert!(!pure.runs_code_or_stores(), "{pure:?}");
+        }
+    }
+}
