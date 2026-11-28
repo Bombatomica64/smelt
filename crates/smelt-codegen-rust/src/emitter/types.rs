@@ -635,8 +635,8 @@ impl FunctionEmitter<'_> {
                 Ok(rendered)
             }
             Resolved::Erased => {
-                let param = self.symbol_name(name).unwrap_or("?").to_owned();
-                self.note_backend_erasure(ErasureReason::ErasedGeneric, param);
+                let detail = self.erased_generic_detail(name, substitution);
+                self.note_backend_erasure(ErasureReason::ErasedGeneric, detail);
                 Ok(RustType::erased())
             }
         }

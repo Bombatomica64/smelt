@@ -742,6 +742,25 @@ impl EmitContext {
         )
     }
 
+    /// Why `name` of `function` does not lift (see
+    /// [`crate::generic_lifting::type_param_refusal`]).
+    pub(crate) fn type_param_refusal(
+        &self,
+        mir: &Mir,
+        function: &MirFunction,
+        name: Symbol,
+    ) -> Option<&'static str> {
+        crate::generic_lifting::type_param_refusal(
+            mir,
+            function,
+            &self.owned_callback_params,
+            &self.bound_traits,
+            &self.type_param_elision,
+            &self.erased_arguments,
+            name,
+        )
+    }
+
     /// Whether `function` declares any real Rust generic of its own (see
     /// [`crate::generic_lifting::function_emits_rust_generics`]).
     pub(crate) fn function_emits_rust_generics(&self, mir: &Mir, function: &MirFunction) -> bool {

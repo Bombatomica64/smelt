@@ -39791,8 +39791,8 @@
     }
   ],
   "erasure": {
-    "records": 4148,
-    "avoidable": 3489,
+    "records": 4233,
+    "avoidable": 3574,
     "by_reason": [
       {
         "reason": "explicit-any",
@@ -39802,7 +39802,7 @@
       {
         "reason": "erased-generic",
         "class": "avoidable",
-        "count": 681
+        "count": 766
       },
       {
         "reason": "by-name",
@@ -39888,6 +39888,13 @@
     "avoidable_lines_total": 2793,
     "avoidable_lines": [
       {
+        "file": "src/array/xorBy.ts",
+        "line": 24,
+        "reason": "erased-generic",
+        "count": 7,
+        "detail": "T of callee difference_by: unbound at this caller"
+      },
+      {
         "file": "src/compat/function/bind.ts",
         "line": 26,
         "reason": "explicit-any",
@@ -39900,6 +39907,34 @@
         "count": 6
       },
       {
+        "file": "src/object/toMerged.ts",
+        "line": 52,
+        "reason": "erased-generic",
+        "count": 6,
+        "detail": "S: in a closure of a function that does not lift it"
+      },
+      {
+        "file": "src/compat/array/every.ts",
+        "line": 98,
+        "reason": "erased-generic",
+        "count": 5,
+        "detail": "R of callee property: unbound at this caller"
+      },
+      {
+        "file": "src/compat/array/findLastIndex.ts",
+        "line": 60,
+        "reason": "erased-generic",
+        "count": 5,
+        "detail": "R of callee property: unbound at this caller"
+      },
+      {
+        "file": "src/compat/array/intersectionBy.ts",
+        "line": 125,
+        "reason": "erased-generic",
+        "count": 5,
+        "detail": "T of callee intersection_by: unbound at this caller"
+      },
+      {
         "file": "src/compat/array/reduce.ts",
         "line": 131,
         "reason": "explicit-any",
@@ -39910,6 +39945,13 @@
         "line": 172,
         "reason": "explicit-any",
         "count": 5
+      },
+      {
+        "file": "src/compat/array/some.ts",
+        "line": 82,
+        "reason": "erased-generic",
+        "count": 5,
+        "detail": "R of callee property: unbound at this caller"
       },
       {
         "file": "src/compat/function/partialRight.ts",
@@ -39934,6 +39976,27 @@
         "line": 765,
         "reason": "explicit-any",
         "count": 5
+      },
+      {
+        "file": "src/compat/array/differenceBy.ts",
+        "line": 166,
+        "reason": "erased-generic",
+        "count": 4,
+        "detail": "T of callee difference_by: unbound at this caller"
+      },
+      {
+        "file": "src/compat/array/differenceWith.ts",
+        "line": 144,
+        "reason": "erased-generic",
+        "count": 4,
+        "detail": "T of callee difference_with: unbound at this caller"
+      },
+      {
+        "file": "src/compat/array/findIndex.ts",
+        "line": 27,
+        "reason": "erased-generic",
+        "count": 4,
+        "detail": "R of callee property: unbound at this caller"
       },
       {
         "file": "src/compat/array/groupBy.ts",
@@ -40052,6 +40115,13 @@
         "count": 4
       },
       {
+        "file": "src/compat/object/mapValues.ts",
+        "line": 170,
+        "reason": "erased-generic",
+        "count": 4,
+        "detail": "T: in a closure of a function that does not lift it"
+      },
+      {
         "file": "src/compat/object/omitBy.ts",
         "line": 81,
         "reason": "erased-union",
@@ -40072,11 +40142,18 @@
         "count": 4
       },
       {
+        "file": "src/compat/util/iteratee.ts",
+        "line": 71,
+        "reason": "erased-generic",
+        "count": 4,
+        "detail": "R of callee property: unbound at this caller"
+      },
+      {
         "file": "src/function/curry.spec.ts",
         "line": 12,
         "reason": "erased-generic",
         "count": 4,
-        "detail": "P1"
+        "detail": "P1: another function's parameter (a demoted callee's result or argument)"
       },
       {
         "file": "src/function/curry.ts",
@@ -40095,7 +40172,7 @@
         "line": 12,
         "reason": "erased-generic",
         "count": 4,
-        "detail": "P1"
+        "detail": "P1: another function's parameter (a demoted callee's result or argument)"
       },
       {
         "file": "src/function/curryRight.ts",
@@ -40173,10 +40250,10 @@
       },
       {
         "file": "src/object/toMerged.ts",
-        "line": 52,
+        "line": 51,
         "reason": "erased-generic",
         "count": 4,
-        "detail": "S"
+        "detail": "S of callee merge_with: unbound at this caller"
       },
       {
         "file": "src/predicate/isEmptyObject.spec.ts",
@@ -40227,17 +40304,38 @@
         "detail": "empty array literal"
       },
       {
+        "file": "src/array/unionBy.ts",
+        "line": 25,
+        "reason": "erased-generic",
+        "count": 3,
+        "detail": "T of callee uniq_by: unbound at this caller"
+      },
+      {
         "file": "src/compat/_internal/mapToEntries.ts",
         "line": 1,
         "reason": "explicit-any",
         "count": 3
       },
       {
-        "file": "src/compat/array/every.ts",
-        "line": 98,
+        "file": "src/compat/array/dropRightWhile.ts",
+        "line": 80,
         "reason": "erased-generic",
         "count": 3,
-        "detail": "R"
+        "detail": "T of callee drop_right_while: unbound at this caller"
+      },
+      {
+        "file": "src/compat/array/dropWhile.ts",
+        "line": 33,
+        "reason": "erased-generic",
+        "count": 3,
+        "detail": "T: in a closure of a function that does not lift it"
+      },
+      {
+        "file": "src/compat/array/dropWhile.ts",
+        "line": 41,
+        "reason": "erased-generic",
+        "count": 3,
+        "detail": "T of callee drop_while: unbound at this caller"
       },
       {
         "file": "src/compat/array/every.ts",
@@ -40261,25 +40359,11 @@
         "detail": "union of 2 arms"
       },
       {
-        "file": "src/compat/array/findIndex.ts",
-        "line": 27,
-        "reason": "erased-generic",
-        "count": 3,
-        "detail": "R"
-      },
-      {
         "file": "src/compat/array/findLast.ts",
         "line": 127,
         "reason": "erased-union",
         "count": 3,
         "detail": "union of 2 arms"
-      },
-      {
-        "file": "src/compat/array/findLastIndex.ts",
-        "line": 60,
-        "reason": "erased-generic",
-        "count": 3,
-        "detail": "R"
       },
       {
         "file": "src/compat/array/flatMapDepth.ts",
@@ -40301,6 +40385,20 @@
         "count": 3
       },
       {
+        "file": "src/compat/array/groupBy.ts",
+        "line": 84,
+        "reason": "erased-generic",
+        "count": 3,
+        "detail": "T of callee group_by: unbound at this caller"
+      },
+      {
+        "file": "src/compat/array/invokeMap.ts",
+        "line": 54,
+        "reason": "erased-generic",
+        "count": 3,
+        "detail": "R of invoke_map: no inference source in the emitted signature"
+      },
+      {
         "file": "src/compat/array/map.ts",
         "line": 131,
         "reason": "explicit-any",
@@ -40320,11 +40418,18 @@
         "detail": "union of 2 arms"
       },
       {
-        "file": "src/compat/array/some.ts",
-        "line": 82,
+        "file": "src/compat/array/reject.ts",
+        "line": 84,
         "reason": "erased-generic",
         "count": 3,
-        "detail": "R"
+        "detail": "T of reject: no inference source in the emitted signature"
+      },
+      {
+        "file": "src/compat/array/remove.ts",
+        "line": 61,
+        "reason": "erased-generic",
+        "count": 3,
+        "detail": "T of callee remove: unbound at this caller"
       },
       {
         "file": "src/compat/array/some.ts",
@@ -40332,6 +40437,48 @@
         "reason": "erased-union",
         "count": 3,
         "detail": "union of 2 arms"
+      },
+      {
+        "file": "src/compat/array/takeRightWhile.ts",
+        "line": 93,
+        "reason": "erased-generic",
+        "count": 3,
+        "detail": "F of callee negate: unbound at this caller"
+      },
+      {
+        "file": "src/compat/array/unionBy.ts",
+        "line": 150,
+        "reason": "erased-generic",
+        "count": 3,
+        "detail": "T of callee last: unbound at this caller"
+      },
+      {
+        "file": "src/compat/array/unionWith.ts",
+        "line": 97,
+        "reason": "erased-generic",
+        "count": 3,
+        "detail": "T of callee last: unbound at this caller"
+      },
+      {
+        "file": "src/compat/array/uniqBy.ts",
+        "line": 24,
+        "reason": "erased-generic",
+        "count": 3,
+        "detail": "T of callee uniq_by: unbound at this caller"
+      },
+      {
+        "file": "src/compat/array/xorBy.ts",
+        "line": 92,
+        "reason": "erased-generic",
+        "count": 3,
+        "detail": "T of callee last: unbound at this caller"
+      },
+      {
+        "file": "src/compat/array/xorWith.ts",
+        "line": 88,
+        "reason": "erased-generic",
+        "count": 3,
+        "detail": "T of callee last: unbound at this caller"
       },
       {
         "file": "src/compat/function/bindKey.ts",
@@ -40374,7 +40521,28 @@
         "line": 29,
         "reason": "erased-generic",
         "count": 3,
-        "detail": "T"
+        "detail": "T: in a closure of a function that does not lift it"
+      },
+      {
+        "file": "src/compat/math/maxBy.ts",
+        "line": 34,
+        "reason": "erased-generic",
+        "count": 3,
+        "detail": "T of callee max_by: unbound at this caller"
+      },
+      {
+        "file": "src/compat/math/meanBy.ts",
+        "line": 28,
+        "reason": "erased-generic",
+        "count": 3,
+        "detail": "T of callee mean_by: unbound at this caller"
+      },
+      {
+        "file": "src/compat/math/minBy.ts",
+        "line": 34,
+        "reason": "erased-generic",
+        "count": 3,
+        "detail": "T of callee min_by: unbound at this caller"
       },
       {
         "file": "src/compat/object/assign.ts",
@@ -40481,15 +40649,15 @@
       {
         "file": "src/compat/object/mapKeys.ts",
         "line": 56,
-        "reason": "explicit-any",
-        "count": 3
-      },
-      {
-        "file": "src/compat/object/mapValues.ts",
-        "line": 170,
         "reason": "erased-generic",
         "count": 3,
-        "detail": "T"
+        "detail": "T: in a closure of a function that does not lift it"
+      },
+      {
+        "file": "src/compat/object/mapKeys.ts",
+        "line": 56,
+        "reason": "explicit-any",
+        "count": 3
       },
       {
         "file": "src/compat/object/mapValues.ts",
@@ -40527,6 +40695,20 @@
         "reason": "erased-union",
         "count": 3,
         "detail": "union of 3 arms"
+      },
+      {
+        "file": "src/compat/object/toDefaulted.ts",
+        "line": 167,
+        "reason": "erased-generic",
+        "count": 3,
+        "detail": "S of callee defaults: unbound at this caller"
+      },
+      {
+        "file": "src/compat/object/transform.ts",
+        "line": 126,
+        "reason": "erased-generic",
+        "count": 3,
+        "detail": "T of callee for_each: unbound at this caller"
       },
       {
         "file": "src/compat/object/update.ts",
@@ -40583,13 +40765,6 @@
         "count": 3
       },
       {
-        "file": "src/compat/util/iteratee.ts",
-        "line": 71,
-        "reason": "erased-generic",
-        "count": 3,
-        "detail": "R"
-      },
-      {
         "file": "src/compat/util/method.ts",
         "line": 22,
         "reason": "explicit-any",
@@ -40606,7 +40781,7 @@
         "line": 20,
         "reason": "erased-generic",
         "count": 3,
-        "detail": "P1"
+        "detail": "P1: another function's parameter (a demoted callee's result or argument)"
       },
       {
         "file": "src/function/curry.ts",
@@ -40619,7 +40794,7 @@
         "line": 20,
         "reason": "erased-generic",
         "count": 3,
-        "detail": "P1"
+        "detail": "P1: another function's parameter (a demoted callee's result or argument)"
       },
       {
         "file": "src/function/curryRight.ts",
@@ -40650,7 +40825,7 @@
         "line": 22,
         "reason": "erased-generic",
         "count": 3,
-        "detail": "K"
+        "detail": "K of map_values: a call site passes an erased argument at a type-parameter position"
       },
       {
         "file": "src/object/mergeWith.ts",
@@ -40750,91 +40925,91 @@
         "line": 5,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "T"
+        "detail": "T of callee difference_by: unbound at this caller"
       },
       {
         "file": "src/array/differenceBy.spec.ts",
         "line": 10,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "T"
+        "detail": "T of callee difference_by: unbound at this caller"
       },
       {
         "file": "src/array/flatMapAsync.spec.ts",
         "line": 6,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "R"
+        "detail": "R of callee flat_map_async: unbound at this caller"
       },
       {
         "file": "src/array/flatMapAsync.spec.ts",
         "line": 20,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "R"
+        "detail": "R of callee flat_map_async: unbound at this caller"
       },
       {
         "file": "src/array/flatMapAsync.spec.ts",
         "line": 28,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "R"
+        "detail": "R of callee flat_map_async: unbound at this caller"
       },
       {
         "file": "src/array/flatMapAsync.spec.ts",
         "line": 76,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "R"
+        "detail": "R of callee flat_map_async: unbound at this caller"
       },
       {
         "file": "src/array/flatMapDeep.ts",
         "line": 19,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "T"
+        "detail": "T of flat_map_deep: the body-cleanliness trial demoted the function"
       },
       {
         "file": "src/array/flatMapDeep.ts",
         "line": 20,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "T"
+        "detail": "T: in a closure of a function that does not lift it"
       },
       {
         "file": "src/array/groupBy.ts",
         "line": 42,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "K"
+        "detail": "K of group_by: bounded parameter without a liftable bound trait"
       },
       {
         "file": "src/array/intersectionBy.spec.ts",
         "line": 5,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "T"
+        "detail": "T of callee intersection_by: unbound at this caller"
       },
       {
         "file": "src/array/intersectionBy.spec.ts",
         "line": 10,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "T"
+        "detail": "T of callee intersection_by: unbound at this caller"
       },
       {
         "file": "src/array/intersectionBy.spec.ts",
         "line": 28,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "T"
+        "detail": "T of callee intersection_by: unbound at this caller"
       },
       {
         "file": "src/array/keyBy.ts",
         "line": 37,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "K"
+        "detail": "K of key_by: bounded parameter without a liftable bound trait"
       },
       {
         "file": "src/array/limitAsync.ts",
@@ -40853,21 +41028,21 @@
         "line": 6,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "R"
+        "detail": "R of callee map_async: unbound at this caller"
       },
       {
         "file": "src/array/mapAsync.spec.ts",
         "line": 20,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "R"
+        "detail": "R of callee map_async: unbound at this caller"
       },
       {
         "file": "src/array/mapAsync.spec.ts",
         "line": 41,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "R"
+        "detail": "R of callee map_async: unbound at this caller"
       },
       {
         "file": "src/array/maxBy.spec.ts",
@@ -40888,300 +41063,133 @@
         "line": 5,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "T"
+        "detail": "T of callee partition: unbound at this caller"
       },
       {
         "file": "src/array/partition.spec.ts",
         "line": 29,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "T"
+        "detail": "T of callee partition: unbound at this caller"
       },
       {
         "file": "src/array/partition.spec.ts",
         "line": 40,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "T"
+        "detail": "T of callee partition: unbound at this caller"
       },
       {
         "file": "src/array/partition.spec.ts",
         "line": 52,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "T"
+        "detail": "T of callee partition: unbound at this caller"
       },
       {
         "file": "src/array/partition.spec.ts",
         "line": 64,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "T"
+        "detail": "T of callee partition: unbound at this caller"
       },
       {
         "file": "src/array/reduceAsync.spec.ts",
         "line": 6,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "T"
+        "detail": "T of callee reduce_async: unbound at this caller"
       },
       {
         "file": "src/array/reduceAsync.spec.ts",
         "line": 25,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "T"
+        "detail": "T of callee reduce_async: unbound at this caller"
       },
       {
         "file": "src/array/reduceAsync.spec.ts",
         "line": 35,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "T"
+        "detail": "T of callee reduce_async: unbound at this caller"
       },
       {
         "file": "src/array/reduceAsync.spec.ts",
         "line": 46,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "T"
+        "detail": "T of callee reduce_async: unbound at this caller"
       },
       {
         "file": "src/array/reduceAsync.spec.ts",
         "line": 60,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "T"
+        "detail": "T of callee reduce_async: unbound at this caller"
       },
       {
         "file": "src/array/reduceAsync.spec.ts",
         "line": 71,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "T"
+        "detail": "T of callee reduce_async: unbound at this caller"
       },
       {
         "file": "src/array/reduceAsync.spec.ts",
         "line": 83,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "T"
+        "detail": "T of callee reduce_async: unbound at this caller"
       },
       {
         "file": "src/array/reduceAsync.spec.ts",
         "line": 101,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "T"
+        "detail": "T of callee reduce_async: unbound at this caller"
       },
       {
         "file": "src/array/reduceAsync.spec.ts",
         "line": 111,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "T"
+        "detail": "T of callee reduce_async: unbound at this caller"
       },
       {
         "file": "src/array/reduceAsync.spec.ts",
         "line": 121,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "T"
+        "detail": "T of callee reduce_async: unbound at this caller"
       },
       {
         "file": "src/array/reduceAsync.spec.ts",
         "line": 132,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "T"
+        "detail": "T of callee reduce_async: unbound at this caller"
       },
       {
         "file": "src/array/reduceAsync.spec.ts",
         "line": 146,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "T"
+        "detail": "T of callee reduce_async: unbound at this caller"
       },
       {
         "file": "src/array/reduceAsync.spec.ts",
         "line": 157,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "T"
+        "detail": "T of callee reduce_async: unbound at this caller"
       },
       {
         "file": "src/array/reduceAsync.spec.ts",
         "line": 170,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "T"
-      },
-      {
-        "file": "src/array/reduceAsync.ts",
-        "line": 83,
-        "reason": "erased-generic",
-        "count": 2,
-        "detail": "T"
-      },
-      {
-        "file": "src/array/unionBy.ts",
-        "line": 25,
-        "reason": "erased-generic",
-        "count": 2,
-        "detail": "T"
-      },
-      {
-        "file": "src/array/uniqBy.ts",
-        "line": 29,
-        "reason": "erased-generic",
-        "count": 2,
-        "detail": "T"
-      },
-      {
-        "file": "src/array/xorBy.ts",
-        "line": 24,
-        "reason": "erased-generic",
-        "count": 2,
-        "detail": "T"
-      },
-      {
-        "file": "src/array/zipObject.ts",
-        "line": 31,
-        "reason": "erased-generic",
-        "count": 2,
-        "detail": "P"
-      },
-      {
-        "file": "src/compat/_internal/IsWritable.d.ts",
-        "line": 3,
-        "reason": "type-level",
-        "count": 2
-      },
-      {
-        "file": "src/compat/_internal/assignValue.ts",
-        "line": 3,
-        "reason": "explicit-any",
-        "count": 2
-      },
-      {
-        "file": "src/compat/_internal/falsey.ts",
-        "line": 2,
-        "reason": "dynamic-operator",
-        "count": 2,
-        "detail": "array hole"
-      },
-      {
-        "file": "src/compat/_internal/setToEntries.ts",
-        "line": 1,
-        "reason": "explicit-any",
-        "count": 2
-      },
-      {
-        "file": "src/compat/array/countBy.ts",
-        "line": 28,
-        "reason": "explicit-any",
-        "count": 2
-      },
-      {
-        "file": "src/compat/array/countBy.ts",
-        "line": 34,
-        "reason": "explicit-any",
-        "count": 2
-      },
-      {
-        "file": "src/compat/array/differenceBy.ts",
-        "line": 166,
-        "reason": "erased-generic",
-        "count": 2,
-        "detail": "T"
-      },
-      {
-        "file": "src/compat/array/differenceWith.ts",
-        "line": 144,
-        "reason": "erased-generic",
-        "count": 2,
-        "detail": "T"
-      },
-      {
-        "file": "src/compat/array/dropRightWhile.ts",
-        "line": 80,
-        "reason": "erased-generic",
-        "count": 2,
-        "detail": "T"
-      },
-      {
-        "file": "src/compat/array/dropWhile.ts",
-        "line": 33,
-        "reason": "erased-generic",
-        "count": 2,
-        "detail": "T"
-      },
-      {
-        "file": "src/compat/array/dropWhile.ts",
-        "line": 41,
-        "reason": "erased-generic",
-        "count": 2,
-        "detail": "T"
-      },
-      {
-        "file": "src/compat/array/dropWhile.ts",
-        "line": 41,
-        "reason": "erased-union",
-        "count": 2,
-        "detail": "union of 2 arms"
-      },
-      {
-        "file": "src/compat/array/every.ts",
-        "line": 111,
-        "reason": "explicit-any",
-        "count": 2
-      },
-      {
-        "file": "src/compat/array/findIndex.ts",
-        "line": 27,
-        "reason": "erased-union",
-        "count": 2,
-        "detail": "union of 2 arms"
-      },
-      {
-        "file": "src/compat/array/flatMap.ts",
-        "line": 116,
-        "reason": "erased-generic",
-        "count": 2,
-        "detail": "R"
-      },
-      {
-        "file": "src/compat/array/flatMap.ts",
-        "line": 116,
-        "reason": "explicit-any",
-        "count": 2
-      },
-      {
-        "file": "src/compat/array/flattenDeep.ts",
-        "line": 17,
-        "reason": "type-level",
-        "count": 2
-      },
-      {
-        "file": "src/compat/array/forEach.ts",
-        "line": 150,
-        "reason": "erased-union",
-        "count": 2,
-        "detail": "union of 3 arms"
-      },
-      {
-        "file": "src/compat/array/forEachRight.ts",
-        "line": 150,
-        "reason": "erased-union",
-        "count": 2,
-        "detail": "union of 3 arms"
-      },
-      {
-        "file": "src/compat/array/groupBy.ts",
-        "line": 89,
-        "reason": "untyped-builtin",
-        "count": 2,
-        "detail": "Array.from(iterable)"
+        "detail": "T of callee reduce_async: unbound at this caller"
       }
     ]
   }

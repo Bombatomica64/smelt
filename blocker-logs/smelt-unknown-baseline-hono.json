@@ -20170,8 +20170,8 @@
     }
   ],
   "erasure": {
-    "records": 2438,
-    "avoidable": 2239,
+    "records": 2474,
+    "avoidable": 2275,
     "by_reason": [
       {
         "reason": "type-level",
@@ -20191,7 +20191,7 @@
       {
         "reason": "erased-generic",
         "class": "avoidable",
-        "count": 204
+        "count": 240
       },
       {
         "reason": "unmodeled-type",
@@ -20297,21 +20297,21 @@
         "line": 186,
         "reason": "erased-generic",
         "count": 4,
-        "detail": "BasePath"
+        "detail": "BasePath: another function's parameter (a demoted callee's result or argument)"
       },
       {
         "file": "src/hono.ts",
         "line": 26,
         "reason": "erased-generic",
         "count": 4,
-        "detail": "BasePath"
+        "detail": "BasePath: another function's parameter (a demoted callee's result or argument)"
       },
       {
         "file": "src/preset/tiny.ts",
         "line": 16,
         "reason": "erased-generic",
         "count": 4,
-        "detail": "BasePath"
+        "detail": "BasePath: another function's parameter (a demoted callee's result or argument)"
       },
       {
         "file": "src/types.ts",
@@ -20324,6 +20324,13 @@
         "line": 1103,
         "reason": "explicit-any",
         "count": 4
+      },
+      {
+        "file": "src/compose.test.ts",
+        "line": 804,
+        "reason": "erased-generic",
+        "count": 3,
+        "detail": "E of callee compose: unbound at this caller"
       },
       {
         "file": "src/context.ts",
@@ -20386,9 +20393,23 @@
       {
         "file": "src/compose.test.ts",
         "line": 46,
+        "reason": "erased-generic",
+        "count": 2,
+        "detail": "E of callee compose: unbound at this caller"
+      },
+      {
+        "file": "src/compose.test.ts",
+        "line": 46,
         "reason": "unresolved-class",
         "count": 2,
         "detail": "Error"
+      },
+      {
+        "file": "src/compose.test.ts",
+        "line": 55,
+        "reason": "erased-generic",
+        "count": 2,
+        "detail": "E of callee compose: unbound at this caller"
       },
       {
         "file": "src/compose.test.ts",
@@ -20400,9 +20421,23 @@
       {
         "file": "src/compose.test.ts",
         "line": 82,
+        "reason": "erased-generic",
+        "count": 2,
+        "detail": "E of callee compose: unbound at this caller"
+      },
+      {
+        "file": "src/compose.test.ts",
+        "line": 82,
         "reason": "unresolved-class",
         "count": 2,
         "detail": "Error"
+      },
+      {
+        "file": "src/compose.test.ts",
+        "line": 114,
+        "reason": "erased-generic",
+        "count": 2,
+        "detail": "E of callee compose: unbound at this caller"
       },
       {
         "file": "src/compose.test.ts",
@@ -20414,9 +20449,23 @@
       {
         "file": "src/compose.test.ts",
         "line": 140,
+        "reason": "erased-generic",
+        "count": 2,
+        "detail": "E of callee compose: unbound at this caller"
+      },
+      {
+        "file": "src/compose.test.ts",
+        "line": 140,
         "reason": "unresolved-class",
         "count": 2,
         "detail": "Error"
+      },
+      {
+        "file": "src/compose.test.ts",
+        "line": 165,
+        "reason": "erased-generic",
+        "count": 2,
+        "detail": "E of callee compose: unbound at this caller"
       },
       {
         "file": "src/compose.test.ts",
@@ -20428,9 +20477,23 @@
       {
         "file": "src/compose.test.ts",
         "line": 175,
+        "reason": "erased-generic",
+        "count": 2,
+        "detail": "E of callee compose: unbound at this caller"
+      },
+      {
+        "file": "src/compose.test.ts",
+        "line": 175,
         "reason": "unresolved-class",
         "count": 2,
         "detail": "Error"
+      },
+      {
+        "file": "src/compose.test.ts",
+        "line": 202,
+        "reason": "erased-generic",
+        "count": 2,
+        "detail": "E of callee compose: unbound at this caller"
       },
       {
         "file": "src/compose.test.ts",
@@ -20442,9 +20505,23 @@
       {
         "file": "src/compose.test.ts",
         "line": 229,
+        "reason": "erased-generic",
+        "count": 2,
+        "detail": "E of callee compose: unbound at this caller"
+      },
+      {
+        "file": "src/compose.test.ts",
+        "line": 229,
         "reason": "unresolved-class",
         "count": 2,
         "detail": "Error"
+      },
+      {
+        "file": "src/compose.test.ts",
+        "line": 275,
+        "reason": "erased-generic",
+        "count": 2,
+        "detail": "E of callee compose: unbound at this caller"
       },
       {
         "file": "src/compose.test.ts",
@@ -20456,9 +20533,23 @@
       {
         "file": "src/compose.test.ts",
         "line": 288,
+        "reason": "erased-generic",
+        "count": 2,
+        "detail": "E of callee compose: unbound at this caller"
+      },
+      {
+        "file": "src/compose.test.ts",
+        "line": 288,
         "reason": "unresolved-class",
         "count": 2,
         "detail": "Error"
+      },
+      {
+        "file": "src/compose.test.ts",
+        "line": 311,
+        "reason": "erased-generic",
+        "count": 2,
+        "detail": "E of callee compose: unbound at this caller"
       },
       {
         "file": "src/compose.test.ts",
@@ -20470,9 +20561,23 @@
       {
         "file": "src/compose.test.ts",
         "line": 338,
+        "reason": "erased-generic",
+        "count": 2,
+        "detail": "E of callee compose: unbound at this caller"
+      },
+      {
+        "file": "src/compose.test.ts",
+        "line": 338,
         "reason": "unresolved-class",
         "count": 2,
         "detail": "Error"
+      },
+      {
+        "file": "src/compose.test.ts",
+        "line": 354,
+        "reason": "erased-generic",
+        "count": 2,
+        "detail": "E of callee compose: unbound at this caller"
       },
       {
         "file": "src/compose.test.ts",
@@ -20484,9 +20589,23 @@
       {
         "file": "src/compose.test.ts",
         "line": 382,
+        "reason": "erased-generic",
+        "count": 2,
+        "detail": "E of callee compose: unbound at this caller"
+      },
+      {
+        "file": "src/compose.test.ts",
+        "line": 382,
         "reason": "unresolved-class",
         "count": 2,
         "detail": "Error"
+      },
+      {
+        "file": "src/compose.test.ts",
+        "line": 396,
+        "reason": "erased-generic",
+        "count": 2,
+        "detail": "E of callee compose: unbound at this caller"
       },
       {
         "file": "src/compose.test.ts",
@@ -20498,9 +20617,23 @@
       {
         "file": "src/compose.test.ts",
         "line": 414,
+        "reason": "erased-generic",
+        "count": 2,
+        "detail": "E of callee compose: unbound at this caller"
+      },
+      {
+        "file": "src/compose.test.ts",
+        "line": 414,
         "reason": "unresolved-class",
         "count": 2,
         "detail": "Error"
+      },
+      {
+        "file": "src/compose.test.ts",
+        "line": 437,
+        "reason": "erased-generic",
+        "count": 2,
+        "detail": "E of callee compose: unbound at this caller"
       },
       {
         "file": "src/compose.test.ts",
@@ -20512,9 +20645,23 @@
       {
         "file": "src/compose.test.ts",
         "line": 477,
+        "reason": "erased-generic",
+        "count": 2,
+        "detail": "E of callee compose: unbound at this caller"
+      },
+      {
+        "file": "src/compose.test.ts",
+        "line": 477,
         "reason": "unresolved-class",
         "count": 2,
         "detail": "Error"
+      },
+      {
+        "file": "src/compose.test.ts",
+        "line": 514,
+        "reason": "erased-generic",
+        "count": 2,
+        "detail": "E of callee compose: unbound at this caller"
       },
       {
         "file": "src/compose.test.ts",
@@ -20526,9 +20673,30 @@
       {
         "file": "src/compose.test.ts",
         "line": 560,
+        "reason": "erased-generic",
+        "count": 2,
+        "detail": "E of callee compose: unbound at this caller"
+      },
+      {
+        "file": "src/compose.test.ts",
+        "line": 560,
         "reason": "unresolved-class",
         "count": 2,
         "detail": "Error"
+      },
+      {
+        "file": "src/compose.test.ts",
+        "line": 579,
+        "reason": "erased-generic",
+        "count": 2,
+        "detail": "E of callee compose: unbound at this caller"
+      },
+      {
+        "file": "src/compose.test.ts",
+        "line": 583,
+        "reason": "erased-generic",
+        "count": 2,
+        "detail": "E of callee compose: unbound at this caller"
       },
       {
         "file": "src/compose.test.ts",
@@ -20540,9 +20708,23 @@
       {
         "file": "src/compose.test.ts",
         "line": 598,
+        "reason": "erased-generic",
+        "count": 2,
+        "detail": "E of callee compose: unbound at this caller"
+      },
+      {
+        "file": "src/compose.test.ts",
+        "line": 598,
         "reason": "unresolved-class",
         "count": 2,
         "detail": "Error"
+      },
+      {
+        "file": "src/compose.test.ts",
+        "line": 615,
+        "reason": "erased-generic",
+        "count": 2,
+        "detail": "E of callee compose: unbound at this caller"
       },
       {
         "file": "src/compose.test.ts",
@@ -20554,9 +20736,30 @@
       {
         "file": "src/compose.test.ts",
         "line": 644,
+        "reason": "erased-generic",
+        "count": 2,
+        "detail": "E of callee compose: unbound at this caller"
+      },
+      {
+        "file": "src/compose.test.ts",
+        "line": 644,
         "reason": "unresolved-class",
         "count": 2,
         "detail": "Error"
+      },
+      {
+        "file": "src/compose.test.ts",
+        "line": 673,
+        "reason": "erased-generic",
+        "count": 2,
+        "detail": "E of callee compose: unbound at this caller"
+      },
+      {
+        "file": "src/compose.test.ts",
+        "line": 682,
+        "reason": "erased-generic",
+        "count": 2,
+        "detail": "E of callee compose: unbound at this caller"
       },
       {
         "file": "src/compose.test.ts",
@@ -20568,9 +20771,23 @@
       {
         "file": "src/compose.test.ts",
         "line": 700,
+        "reason": "erased-generic",
+        "count": 2,
+        "detail": "E of callee compose: unbound at this caller"
+      },
+      {
+        "file": "src/compose.test.ts",
+        "line": 700,
         "reason": "unresolved-class",
         "count": 2,
         "detail": "Error"
+      },
+      {
+        "file": "src/compose.test.ts",
+        "line": 725,
+        "reason": "erased-generic",
+        "count": 2,
+        "detail": "E of callee compose: unbound at this caller"
       },
       {
         "file": "src/compose.test.ts",
@@ -20582,9 +20799,23 @@
       {
         "file": "src/compose.test.ts",
         "line": 739,
+        "reason": "erased-generic",
+        "count": 2,
+        "detail": "E of callee compose: unbound at this caller"
+      },
+      {
+        "file": "src/compose.test.ts",
+        "line": 739,
         "reason": "unresolved-class",
         "count": 2,
         "detail": "Error"
+      },
+      {
+        "file": "src/compose.test.ts",
+        "line": 763,
+        "reason": "erased-generic",
+        "count": 2,
+        "detail": "E of callee compose: unbound at this caller"
       },
       {
         "file": "src/compose.test.ts",
@@ -20603,16 +20834,16 @@
       {
         "file": "src/compose.test.ts",
         "line": 804,
-        "reason": "erased-generic",
-        "count": 2,
-        "detail": "E"
-      },
-      {
-        "file": "src/compose.test.ts",
-        "line": 804,
         "reason": "unresolved-class",
         "count": 2,
         "detail": "Error"
+      },
+      {
+        "file": "src/compose.test.ts",
+        "line": 826,
+        "reason": "erased-generic",
+        "count": 2,
+        "detail": "E of callee compose: unbound at this caller"
       },
       {
         "file": "src/compose.test.ts",
@@ -20626,7 +20857,7 @@
         "line": 37,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "E"
+        "detail": "E: in a closure of a function that does not lift it"
       },
       {
         "file": "src/compose.ts",
@@ -20649,6 +20880,13 @@
         "count": 2
       },
       {
+        "file": "src/helper/dev/index.ts",
+        "line": 48,
+        "reason": "erased-generic",
+        "count": 2,
+        "detail": "E of callee inspect_routes: unbound at this caller"
+      },
+      {
         "file": "src/hono-base.ts",
         "line": 190,
         "reason": "erased-union",
@@ -20667,7 +20905,7 @@
         "line": 322,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "E"
+        "detail": "E of callee compose: unbound at this caller"
       },
       {
         "file": "src/hono-base.ts",
@@ -20883,6 +21121,13 @@
         "reason": "dynamic-operator",
         "count": 2,
         "detail": "?: union arms"
+      },
+      {
+        "file": "src/preset/tiny.test.ts",
+        "line": 5,
+        "reason": "erased-generic",
+        "count": 2,
+        "detail": "E of callee get_router_name: unbound at this caller"
       },
       {
         "file": "src/request.ts",
@@ -21334,216 +21579,6 @@
       {
         "file": "src/types.ts",
         "line": 1247,
-        "reason": "explicit-any",
-        "count": 2
-      },
-      {
-        "file": "src/types.ts",
-        "line": 1248,
-        "reason": "explicit-any",
-        "count": 2
-      },
-      {
-        "file": "src/types.ts",
-        "line": 1249,
-        "reason": "explicit-any",
-        "count": 2
-      },
-      {
-        "file": "src/types.ts",
-        "line": 1250,
-        "reason": "explicit-any",
-        "count": 2
-      },
-      {
-        "file": "src/types.ts",
-        "line": 1251,
-        "reason": "explicit-any",
-        "count": 2
-      },
-      {
-        "file": "src/types.ts",
-        "line": 1268,
-        "reason": "explicit-any",
-        "count": 2
-      },
-      {
-        "file": "src/types.ts",
-        "line": 1269,
-        "reason": "explicit-any",
-        "count": 2
-      },
-      {
-        "file": "src/types.ts",
-        "line": 1270,
-        "reason": "explicit-any",
-        "count": 2
-      },
-      {
-        "file": "src/types.ts",
-        "line": 1271,
-        "reason": "explicit-any",
-        "count": 2
-      },
-      {
-        "file": "src/types.ts",
-        "line": 1272,
-        "reason": "explicit-any",
-        "count": 2
-      },
-      {
-        "file": "src/types.ts",
-        "line": 1273,
-        "reason": "explicit-any",
-        "count": 2
-      },
-      {
-        "file": "src/types.ts",
-        "line": 1274,
-        "reason": "explicit-any",
-        "count": 2
-      },
-      {
-        "file": "src/types.ts",
-        "line": 1290,
-        "reason": "explicit-any",
-        "count": 2
-      },
-      {
-        "file": "src/types.ts",
-        "line": 1291,
-        "reason": "explicit-any",
-        "count": 2
-      },
-      {
-        "file": "src/types.ts",
-        "line": 1292,
-        "reason": "explicit-any",
-        "count": 2
-      },
-      {
-        "file": "src/types.ts",
-        "line": 1293,
-        "reason": "explicit-any",
-        "count": 2
-      },
-      {
-        "file": "src/types.ts",
-        "line": 1294,
-        "reason": "explicit-any",
-        "count": 2
-      },
-      {
-        "file": "src/types.ts",
-        "line": 1295,
-        "reason": "explicit-any",
-        "count": 2
-      },
-      {
-        "file": "src/types.ts",
-        "line": 1296,
-        "reason": "explicit-any",
-        "count": 2
-      },
-      {
-        "file": "src/types.ts",
-        "line": 1297,
-        "reason": "explicit-any",
-        "count": 2
-      },
-      {
-        "file": "src/types.ts",
-        "line": 1315,
-        "reason": "explicit-any",
-        "count": 2
-      },
-      {
-        "file": "src/types.ts",
-        "line": 1316,
-        "reason": "explicit-any",
-        "count": 2
-      },
-      {
-        "file": "src/types.ts",
-        "line": 1317,
-        "reason": "explicit-any",
-        "count": 2
-      },
-      {
-        "file": "src/types.ts",
-        "line": 1318,
-        "reason": "explicit-any",
-        "count": 2
-      },
-      {
-        "file": "src/types.ts",
-        "line": 1319,
-        "reason": "explicit-any",
-        "count": 2
-      },
-      {
-        "file": "src/types.ts",
-        "line": 1320,
-        "reason": "explicit-any",
-        "count": 2
-      },
-      {
-        "file": "src/types.ts",
-        "line": 1321,
-        "reason": "explicit-any",
-        "count": 2
-      },
-      {
-        "file": "src/types.ts",
-        "line": 1322,
-        "reason": "explicit-any",
-        "count": 2
-      },
-      {
-        "file": "src/types.ts",
-        "line": 1339,
-        "reason": "explicit-any",
-        "count": 2
-      },
-      {
-        "file": "src/types.ts",
-        "line": 1340,
-        "reason": "explicit-any",
-        "count": 2
-      },
-      {
-        "file": "src/types.ts",
-        "line": 1341,
-        "reason": "explicit-any",
-        "count": 2
-      },
-      {
-        "file": "src/types.ts",
-        "line": 1342,
-        "reason": "explicit-any",
-        "count": 2
-      },
-      {
-        "file": "src/types.ts",
-        "line": 1343,
-        "reason": "explicit-any",
-        "count": 2
-      },
-      {
-        "file": "src/types.ts",
-        "line": 1344,
-        "reason": "explicit-any",
-        "count": 2
-      },
-      {
-        "file": "src/types.ts",
-        "line": 1345,
-        "reason": "explicit-any",
-        "count": 2
-      },
-      {
-        "file": "src/types.ts",
-        "line": 1346,
         "reason": "explicit-any",
         "count": 2
       }

@@ -155,24 +155,40 @@ fn backend_records_erased_generics() -> TestResult {
     // destroys positional alignment (`call_generics::static_call_monomorphization`,
     // rule 2), so the call passes erased values. The requirement is unchanged:
     // a backend erasure names its reason.
+    //
+    // The detail is the demotion-reason report. Old requirement: the detail
+    // was the bare parameter name (`T`), which could not say whose `T` was
+    // demoted or why. New requirement: it names the owner and the refusal:
+    // the callee's `T` left unbound at its caller, and the gate's reason for
+    // a function's own parameter (bounded, or no inference source).
     fs::write(
         project.path().join("main.ts"),
-        "function firstOf<T>(...xs: T[]): T {\n  return xs[0];\n}\nconsole.log(firstOf(1, 2));\n",
+        "function firstOf<T>(...xs: T[]): T {\n  return xs[0];\n}\nconsole.log(firstOf(1, 2));\nfunction sizeOf<T extends { size: number }>(x: T): number {\n  return x.size;\n}\nconsole.log(sizeOf({ size: 3 }));\nfunction make<R>(): R[] {\n  return [];\n}\nconsole.log(make<number>().length);\n",
     )?;
     let (ok, _, stderr) = run(project.path(), &["build"])?;
     ensure(ok, stderr)?;
     let sidecar = fs::read_to_string(project.path().join("out/smelt-erasure.json"))?;
     let json: serde_json::Value = serde_json::from_str(&sidecar)?;
-    let records = json["records"].as_array().ok_or("records")?;
-    ensure(
-        records.iter().any(|record| {
-            record["reason"] == "erased-generic"
-                && record["origin"] == "backend"
-                && record["detail"] == "T"
-                && record["file"] == "main.ts"
-        }),
-        sidecar,
-    )
+    let records = json
+        .get("records")
+        .and_then(serde_json::Value::as_array)
+        .ok_or("records")?;
+    for detail in [
+        "T of callee first_of: unbound at this caller",
+        "T of size_of: bounded parameter without a liftable bound trait",
+        "R of make: no inference source in the emitted signature",
+    ] {
+        ensure(
+            records.iter().any(|record| {
+                record.get("reason").and_then(serde_json::Value::as_str) == Some("erased-generic")
+                    && record.get("origin").and_then(serde_json::Value::as_str) == Some("backend")
+                    && record.get("detail").and_then(serde_json::Value::as_str) == Some(detail)
+                    && record.get("file").and_then(serde_json::Value::as_str) == Some("main.ts")
+            }),
+            format!("no erased-generic record `{detail}`: {sidecar}"),
+        )?;
+    }
+    Ok(())
 }
 
 /// An unknown reason name is rejected.
