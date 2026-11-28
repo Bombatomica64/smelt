@@ -12,6 +12,11 @@ impl RuntimeDemand {
     /// of a call terminator.
     pub(super) fn scan_rvalue(&mut self, rvalue: &Rvalue) {
         match rvalue {
+            // A name the emitter cannot decide statically is read from the
+            // typed-function name table (`emitter::function_name`).
+            Rvalue::FunctionName { .. } => {
+                self.add(Need::FunctionNames);
+            }
             Rvalue::ThisRead => {
                 self.add(Need::ThisRead);
             }
@@ -519,7 +524,6 @@ impl RuntimeDemand {
             | Rvalue::OptionalField { .. }
             | Rvalue::OptionalIndex { .. }
             | Rvalue::Len { .. }
-            | Rvalue::FunctionName { .. }
             | Rvalue::NumericAbs { .. }
             | Rvalue::NumericHypot { .. }
             | Rvalue::NumericPredicate { .. }

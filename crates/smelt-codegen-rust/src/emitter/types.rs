@@ -193,6 +193,7 @@ impl FunctionEmitter<'_> {
     /// the site when the demand scan did not predict the carrier.
     ///
     /// [`CarrierUse`]: crate::runtime_demand::CarrierUse
+    #[track_caller]
     pub(super) fn carrier_format(
         &self,
         _carrier: crate::runtime_demand::CarrierUse,
@@ -203,6 +204,7 @@ impl FunctionEmitter<'_> {
     }
 
     /// [`Self::carrier_format`] for a template with no parameters.
+    #[track_caller]
     pub(super) fn carrier_expr(
         &self,
         _carrier: crate::runtime_demand::CarrierUse,

@@ -1907,6 +1907,15 @@ impl SmeltJsStrictEq for bool { fn js_strict_eq(&self, other: &Self) -> bool { s
 impl SmeltJsStrictEq for i64 { fn js_strict_eq(&self, other: &Self) -> bool { self == other } }
 impl SmeltJsStrictEq for f64 { fn js_strict_eq(&self, other: &Self) -> bool { self == other } }
 
+/// `Object.is(left, right)` in JavaScript.
+#[allow(dead_code)]
+fn smelt_js_same_value(left: &SmeltUnknown, right: &SmeltUnknown) -> bool {
+    match (left, right) {
+        (SmeltUnknown::Number(left), SmeltUnknown::Number(right)) if *left == 0.0 && *right == 0.0 => left.is_sign_negative() == right.is_sign_negative(),
+        _ => left.same_js_key(right),
+    }
+}
+
 /// `left == right` in JavaScript.
 #[allow(dead_code)]
 fn smelt_js_loose_eq(left: &SmeltUnknown, right: &SmeltUnknown) -> bool {

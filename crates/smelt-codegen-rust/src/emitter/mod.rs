@@ -304,6 +304,10 @@ pub(crate) struct EmitContext {
     /// Whether the render under trial touched the erased carrier; see
     /// [`Self::note_carrier_use`].
     carrier_touched: std::cell::Cell<bool>,
+    /// The emitter site that first touched the carrier since the last
+    /// [`Self::take_carrier_touched`], for the `SMELT_GENERIC_TRIAL_TRACE`
+    /// demotion-reason report (`FunctionEmitter::renders_real_generics`).
+    carrier_first_touch: std::cell::Cell<Option<&'static std::panic::Location<'static>>>,
     /// Whether the render under trial emitted a demotion token, text that
     /// exists only to make the trial erase the caller
     /// (`FunctionEmitter::demoting_erased_argument_expr`); see
@@ -534,6 +538,7 @@ impl EmitContext {
             needs_bigint: demand.has(Need::BigInt),
             demand,
             carrier_touched: std::cell::Cell::new(false),
+            carrier_first_touch: std::cell::Cell::new(None),
             demotion_requested: std::cell::Cell::new(false),
             carrier_boundaries: std::cell::Cell::new(0),
             minted: render_state::MintedItems::default(),
@@ -574,10 +579,21 @@ impl EmitContext {
     ///
     /// The generic trial reads this: a body that erases or inspects a value
     /// cannot keep its type parameters opaque.
+    #[track_caller]
     pub(crate) fn note_carrier_use(&self) {
         if self.carrier_boundaries.get() == 0 {
             self.carrier_touched.set(true);
+            if self.carrier_first_touch.get().is_none() {
+                self.carrier_first_touch
+                    .set(Some(std::panic::Location::caller()));
+            }
         }
+    }
+
+    /// The emitter site that first touched the carrier since the last
+    /// [`Self::take_carrier_touched`] (see [`Self::note_carrier_use`]).
+    pub(crate) fn carrier_first_touch(&self) -> Option<&'static std::panic::Location<'static>> {
+        self.carrier_first_touch.get()
     }
 
     /// Opens a real dynamic boundary, whose carrier uses say nothing about the
@@ -591,6 +607,7 @@ impl EmitContext {
 
     /// Answers whether the carrier was touched since the last call, and clears it.
     pub(crate) fn take_carrier_touched(&self) -> bool {
+        self.carrier_first_touch.set(None);
         self.carrier_touched.replace(false)
     }
 

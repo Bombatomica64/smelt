@@ -1684,18 +1684,18 @@ impl FunctionEmitter<'_> {
     /// the type the source gave it instead of being erased and looked up by
     /// name at run time.
     ///
-    /// Returns `None` unless every arm declares the property at ONE type, or
-    /// at `T` on some arms and one `Option<T>` on the others
-    /// ([`Self::concrete_union_field_read_ty`]). Arms that disagree otherwise
-    /// would need the field's own union, which this rule does not mint; the
-    /// caller keeps its existing path for those.
+    /// Returns `None` unless every arm declares the property at ONE type, at
+    /// `T` on some arms and one `Option<T>` on the others, or at types that
+    /// are the members of a generated union the program declares
+    /// ([`Self::concrete_union_field_read_ty`]); the caller keeps its existing
+    /// path for any other arms.
     pub(super) fn concrete_union_field_read_expr(
         &self,
         base: LocalId,
         field: Symbol,
     ) -> Result<Option<RustExpr>, EmitError> {
         let base_ty = self.local_decl(base)?.ty;
-        let Some((_, wrapped)) = self.concrete_union_field_read_ty(base_ty, field) else {
+        let Some((read_ty, wrapped)) = self.concrete_union_field_read_ty(base_ty, field) else {
             return Ok(None);
         };
         let Some(members) = self.concrete_union_members(base_ty) else {
@@ -1713,10 +1713,17 @@ impl FunctionEmitter<'_> {
                 } else {
                     format!("smelt_union_arm.{field_name}")
                 };
-                Ok(if wrapped.get(index).copied().unwrap_or(false) {
-                    format!("{union_enum_name}::M{index}(smelt_union_arm) => Some({read}.clone())")
-                } else {
-                    format!("{union_enum_name}::M{index}(smelt_union_arm) => {read}.clone()")
+                Ok(match wrapped.get(index).copied().unwrap_or(ArmReadWrap::Plain) {
+                    ArmReadWrap::Plain => {
+                        format!("{union_enum_name}::M{index}(smelt_union_arm) => {read}.clone()")
+                    }
+                    ArmReadWrap::Some => format!(
+                        "{union_enum_name}::M{index}(smelt_union_arm) => Some({read}.clone())"
+                    ),
+                    ArmReadWrap::Variant(variant) => format!(
+                        "{union_enum_name}::M{index}(smelt_union_arm) => {read_union}::M{variant}({read}.clone())",
+                        read_union = union_name(read_ty)
+                    ),
                 })
             })
             .collect::<Result<Vec<_>, EmitError>>()?
@@ -2133,21 +2140,26 @@ impl FunctionEmitter<'_> {
         ))))
     }
 
-    /// The type a READ of `field` through a generated union has, and which
-    /// arms wrap their value in `Some` to reach it.
+    /// The type a READ of `field` through a generated union has, and how each
+    /// arm's value reaches it ([`ArmReadWrap`]).
     ///
     /// [`Self::concrete_union_field_ty`] when every arm stores one type
     /// (nothing wraps). Otherwise, when the arms store `T` and one
     /// `Option<T>` (`{ mode?: "one" } | { mode: "two" }`), the read is
     /// `Option<T>` and each `T` arm is `Some(..)`: a present value read
     /// through the optional view, as the source's `"one" | "two" |
-    /// undefined`. Writes keep the one-type rule (TypeScript writes such a
-    /// property at the intersection of the arms' types).
+    /// undefined`. Otherwise, when the arms store different types that are
+    /// together the members of a generated union the program declares (`{
+    /// value: number } | { value: string }` reads `number | string`, the type
+    /// the frontend gives the read), the read is that union and each arm wraps
+    /// its value in its member's variant. Writes keep the one-type rule
+    /// (TypeScript writes such a property at the intersection of the arms'
+    /// types).
     pub(super) fn concrete_union_field_read_ty(
         &self,
         union_ty: TypeId,
         field: Symbol,
-    ) -> Option<(TypeId, Vec<bool>)> {
+    ) -> Option<(TypeId, Vec<ArmReadWrap>)> {
         if let Some(ty) = self.concrete_union_field_ty(union_ty, field) {
             return Some((ty, Vec::new()));
         }
@@ -2165,20 +2177,58 @@ impl FunctionEmitter<'_> {
                 }
             }
         }
-        let (optional_ty, inner) = optional?;
+        let Some((optional_ty, inner)) = optional else {
+            return self.field_read_union(&field_tys);
+        };
         let wrapped = field_tys
             .iter()
             .map(|ty| {
                 if *ty == optional_ty {
-                    Some(false)
+                    Some(ArmReadWrap::Plain)
                 } else if *ty == inner {
-                    Some(true)
+                    Some(ArmReadWrap::Some)
                 } else {
                     None
                 }
             })
             .collect::<Option<Vec<_>>>()?;
         Some((optional_ty, wrapped))
+    }
+
+    /// The generated union whose members are exactly the distinct
+    /// `field_tys` (in any order), with the variant each field type takes in
+    /// it; `None` when the program declares no such concrete union.
+    fn field_read_union(&self, field_tys: &[TypeId]) -> Option<(TypeId, Vec<ArmReadWrap>)> {
+        let mut distinct: Vec<TypeId> = Vec::new();
+        for ty in field_tys {
+            if !distinct.contains(ty) {
+                distinct.push(*ty);
+            }
+        }
+        let read_ty = self
+            .mir
+            .types
+            .all()
+            .iter()
+            .enumerate()
+            .filter_map(|(index, ty)| {
+                let Type::Union(items) = ty else { return None };
+                (items.len() == distinct.len() && distinct.iter().all(|item| items.contains(item)))
+                    .then(|| u32::try_from(index).ok().map(TypeId))
+                    .flatten()
+            })
+            .find(|candidate| self.concrete_union_members(*candidate).is_some())?;
+        let members = self.concrete_union_members(read_ty)?;
+        let wraps = field_tys
+            .iter()
+            .map(|ty| {
+                members
+                    .iter()
+                    .position(|member| member == ty)
+                    .map(ArmReadWrap::Variant)
+            })
+            .collect::<Option<Vec<_>>>()?;
+        Some((read_ty, wraps))
     }
 
     /// Resolve the one type every arm of a concrete union gives a named field.
@@ -2686,4 +2736,17 @@ enum ArmFieldPresence {
     ByTag,
     /// The arm stores the property as an `Option`; the read decides.
     Optional(String),
+}
+
+/// How one generated-union arm's field value reaches the type of a read of
+/// that field through the union (`FunctionEmitter::concrete_union_field_read_ty`).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum ArmReadWrap {
+    /// The arm stores the read's own type.
+    Plain,
+    /// The arm stores `T` and the read is `Option<T>`.
+    Some,
+    /// The read is a generated union and the arm's value is its member at
+    /// this variant index.
+    Variant(usize),
 }

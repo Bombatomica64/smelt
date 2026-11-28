@@ -659,9 +659,10 @@ fn collect_identity_comparison_triggers(mir: &Mir, references: &mut HashSet<Symb
 /// The reference representation gives the slot a view of the one object
 /// (`emitter::live_view`).
 ///
-/// Only shapes: a class instance's erased view is the snapshot-plus-hook of
-/// `emitter::view_write_through`, with its own trigger
-/// ([`collect_bound_receiver_triggers`]). Not a callable object
+/// A class instance's erased view is the snapshot-plus-hook of
+/// `emitter::view_write_through`, so a class is lifted only when the program
+/// writes a property through an erased value at all (the one statement the
+/// hook serves). Not a callable object
 /// ([`is_callable_shape`]), which crosses as a function value, nor a shape
 /// with a getter-backed property ([`has_accessor_fields`]), nor a GENERIC
 /// shape: its erased view is still the snapshot (`emitter::live_view`), so
@@ -673,13 +674,24 @@ fn collect_identity_comparison_triggers(mir: &Mir, references: &mut HashSet<Symb
 /// reaches such a slot some other way keeps the representation its other uses
 /// give it, as before this trigger existed.
 fn collect_view_flow_triggers(mir: &Mir, references: &mut HashSet<Symbol>) {
+    // A class instance handed to an erased slot, in a program that writes a
+    // property through an erased value: the write must reach the instance
+    // (`function patch(o: any) { o.f = g }` on a `Box`), which only the
+    // reference representation's write-through hook does
+    // (`emitter::view_write_through`); a value struct erases to a snapshot
+    // and the write lands on nothing the caller reads. Non-generic classes
+    // only, as for shapes: a generic instance converts field by field.
+    let writes_erased = crate::emitter::view_write_through::program_writes_erased_fields(mir);
     let liftable = |name: Symbol| {
         mir.interfaces.iter().any(|interface| {
             interface.name == name
                 && interface.type_params.is_empty()
                 && !is_callable_shape(mir, interface)
                 && !has_accessor_fields(mir, interface)
-        })
+        }) || (writes_erased
+            && mir
+                .class_named(name)
+                .is_some_and(|class| class.type_params.is_empty()))
     };
     for_each_record_flow(mir, |name, slot| {
         let view_slot = matches!(

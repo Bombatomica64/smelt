@@ -86,6 +86,7 @@ impl<'mir> FunctionEmitter<'mir> {
             self.context.take_carrier_touched();
             self.emit_body(&mut body)?;
         }
+        let first_touch = self.context.carrier_first_touch();
         let touched_carrier = self.context.take_carrier_touched();
         self.reset_body_emission_state();
         // A partial lift is governed by `classes::type_param_only_moved`, which
@@ -98,7 +99,41 @@ impl<'mir> FunctionEmitter<'mir> {
         if liftable.len() < self.function.type_params.len() {
             return Ok(!liftable.is_empty());
         }
+        if touched_carrier {
+            self.trace_generic_trial_demotion(first_touch);
+        }
         Ok(!touched_carrier)
+    }
+
+    /// With `SMELT_GENERIC_TRIAL_TRACE` set, print the demotion-reason line
+    /// for a generic function whose trial render touched the erased carrier:
+    /// the function and the emitter site that first wrote a
+    /// carrier use (the kind of operation that erased a `T`-typed value). A
+    /// developer aid like `SMELT_STRUCT_VIEW_TRACE`: sorting the lines by site
+    /// ranks the demotion causes across a corpus.
+    fn trace_generic_trial_demotion(
+        &self,
+        first_touch: Option<&'static std::panic::Location<'static>>,
+    ) {
+        if std::env::var_os("SMELT_GENERIC_TRIAL_TRACE").is_none() {
+            return;
+        }
+        let name = self
+            .mir
+            .symbols
+            .get(self.function.name)
+            .unwrap_or("<anonymous>");
+        let site = first_touch.map_or_else(
+            || "<unknown site>".to_owned(),
+            |location| format!("{}:{}", location.file(), location.line()),
+        );
+        #[expect(
+            clippy::print_stderr,
+            reason = "SMELT_GENERIC_TRIAL_TRACE is an opt-in developer trace"
+        )]
+        {
+            eprintln!("generic-trial demoted {name}: carrier first touched at {site}");
+        }
     }
 
     /// Whether a call to the free function `id` renders against its generic

@@ -333,9 +333,6 @@ impl ModuleBuilder<'_> {
                 if let Some(expr) = self.assertion_view_guard(logical, body)? {
                     return Ok(expr);
                 }
-                if let Some(expr) = self.same_value_zero_logical(logical, body)? {
-                    return Ok(expr);
-                }
                 if let Some(expr) = self.logical_or_fallback_expression(logical, body)? {
                     return Ok(expr);
                 }

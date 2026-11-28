@@ -483,6 +483,13 @@ test("located", () => {
     );
 }
 
+/// `toBe` on erased arrays compares by identity through SameValue
+/// (`smelt_js_same_value`, vitest's `Object.is`).
+///
+/// Corrected expectation. Old requirement: `same_js_key` (SameValueZero),
+/// which answered `true` for `expect(-0).toBe(0)`. New requirement: SameValue,
+/// as vitest's `toBe` is `Object.is`, so `-0` and `0` differ; arrays still
+/// compare by identity (SameValue and SameValueZero agree on references).
 #[test]
 fn emits_identity_bearing_erased_arrays_for_strict_matchers() {
     let source = source_for(
@@ -507,11 +514,11 @@ let _smelt_tmp_7: bool;
 let original: SmeltUnknown = SmeltUnknown::Array(vec![SmeltUnknown::Number(1.0 as f64)].into());
 let alias: SmeltUnknown = original.clone();
 let copy: SmeltUnknown = SmeltUnknown::Array(vec![SmeltUnknown::Number(1.0 as f64)].into());
-let _smelt_tmp_5: bool = !(original.clone().same_js_key(&original));
+let _smelt_tmp_5: bool = !(smelt_js_same_value(&original.clone(), &original));
 if _smelt_tmp_5 {
 return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::String("expect(...).toBe(...) failed: expect(alias).toBe(original) (<memory>:8:3)".into())));
 } else {
-_smelt_tmp_6 = copy.clone().same_js_key(&original);
+_smelt_tmp_6 = smelt_js_same_value(&copy.clone(), &original);
 if _smelt_tmp_6 {
 return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::String("expect(...).toBe(...) failed: expect(copy).not.toBe(original) (<memory>:9:3)".into())));
 } else {
@@ -527,6 +534,16 @@ return Ok(());
     );
 }
 
+/// `data === other || Object.is(data, other)` on erased values is the two
+/// comparisons it spells: `js_strict_eq`, then SameValue.
+///
+/// Corrected expectation. Old requirement: the spelling was recognized and
+/// collapsed into one `same_js_key` (SameValueZero), while a lone erased
+/// `Object.is` lowered to the same SameValueZero call, so `Object.is(0, -0)`
+/// answered `true`. New requirement: `Object.is` is SameValue
+/// (`smelt_js_same_value`) everywhere, and the `||` keeps SameValueZero by its
+/// own semantics (`===` already holds for `0`/`-0`), with no rule tied to the
+/// spelling.
 #[test]
 fn emits_same_value_zero_identity_for_erased_object_is_or_strict_equality() {
     let source = source_for(
@@ -539,8 +556,10 @@ export function same(data: unknown, other: unknown): boolean {
     assert_eq!(
         rust_items(&source, &["fn same"]),
         r"fn same(data: SmeltUnknown, other: SmeltUnknown) -> bool {
-let _smelt_tmp_2: bool = data.clone().same_js_key(&other);
-return _smelt_tmp_2;
+let mut _smelt_tmp_3: bool;
+let _smelt_tmp_2: bool = data.clone().js_strict_eq(&other);
+let _smelt_tmp_3: bool = if _smelt_tmp_2 { true } else { smelt_js_same_value(&data.clone(), &other) };
+return _smelt_tmp_3;
 }"
     );
 }

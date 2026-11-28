@@ -71,6 +71,7 @@ pub const ORDER: &[Entry] = &[
     Entry::Item("SmeltRecord"),
     Entry::Item("SmeltAllocationGuard"),
     Entry::Item("SmeltFunctionIdentityState"),
+    Entry::Item("SMELT_TYPED_FUNCTION_NAMES"),
     Entry::Item("smelt_with_host_origin"),
     Entry::Item("impl_Clone_for_SmeltRecord_K_V"),
     Entry::Item("impl_serde_Serialize_for_SmeltRecord_K_V"),
