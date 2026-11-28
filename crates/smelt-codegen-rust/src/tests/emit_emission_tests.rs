@@ -576,6 +576,20 @@ test("nested NaN", () => {
 /// it sends the command. The yield therefore re-raises the box as it is,
 /// `smelt_panic_throw(smelt_error)`: the same payload crosses the same panic
 /// route, wrapped once at the sender instead of at the receiver.
+///
+/// Corrected expectation (iterator-protocol completion). Old requirement: a
+/// resume command carried a value always (`Next(Default::default())` for
+/// `next()`), and `yield*` was one loop forwarding commands, which continued
+/// after the `yield*` when the delegate completed a forwarded `return(v)`.
+/// New requirement: the command says whether a value was sent
+/// (`Next(None)` / `Next(Some(v))`, read by a `yield` as its type's default
+/// when absent), and `yield*` over a generator is ECMA-262's step loop whose
+/// suspension forwards the command to the delegate and returns through the
+/// outer `finally` when the delegate completes a `return(v)`
+/// (`docs/design/iterator-protocol.md`, "`yield*`"; behavior pinned by
+/// `node_parity::iterator_protocol_resume`). The types this test pins
+/// (`SmeltGenerator<f64, JsString, SmeltUnknown>`, the typed steps) are
+/// unchanged.
 #[test]
 fn emits_resumable_synchronous_generator() {
     let source = source_for(
@@ -632,9 +646,9 @@ let smelt_generator_input = ::std::rc::Rc::new(::std::cell::RefCell::new(None));
 let smelt_generator_producer_input = smelt_generator_input.clone();
 let smelt_generator = genawaiter::rc::Gen::new(move |smelt_co| { let smelt_generator_input = smelt_generator_producer_input; async move {
 let _smelt_tmp_0: f64 = 1.0;
-let _smelt_tmp_1: SmeltUnknown = { smelt_co.yield_(_smelt_tmp_0).await; let smelt_command = smelt_generator_input.borrow_mut().take().unwrap_or_else(|| SmeltGeneratorCommand::Next(Default::default())); match smelt_command { SmeltGeneratorCommand::Next(smelt_value) => smelt_value, SmeltGeneratorCommand::Return(smelt_value) => return smelt_value, SmeltGeneratorCommand::Throw(smelt_error) => smelt_panic_throw(smelt_error) } };
+let _smelt_tmp_1: SmeltUnknown = { smelt_co.yield_(_smelt_tmp_0).await; let smelt_command = smelt_generator_input.borrow_mut().take().unwrap_or(SmeltGeneratorCommand::Next(None)); match smelt_command { SmeltGeneratorCommand::Next(smelt_value) => smelt_value.unwrap_or_default(), SmeltGeneratorCommand::Return(smelt_value) => { let smelt_value = smelt_value.unwrap_or_default(); return smelt_value }, SmeltGeneratorCommand::Throw(smelt_error) => smelt_panic_throw(smelt_throw(smelt_error)) } };
 let _smelt_tmp_2: f64 = 2.0;
-let _smelt_tmp_3: SmeltUnknown = { smelt_co.yield_(_smelt_tmp_2).await; let smelt_command = smelt_generator_input.borrow_mut().take().unwrap_or_else(|| SmeltGeneratorCommand::Next(Default::default())); match smelt_command { SmeltGeneratorCommand::Next(smelt_value) => smelt_value, SmeltGeneratorCommand::Return(smelt_value) => return smelt_value, SmeltGeneratorCommand::Throw(smelt_error) => smelt_panic_throw(smelt_error) } };
+let _smelt_tmp_3: SmeltUnknown = { smelt_co.yield_(_smelt_tmp_2).await; let smelt_command = smelt_generator_input.borrow_mut().take().unwrap_or(SmeltGeneratorCommand::Next(None)); match smelt_command { SmeltGeneratorCommand::Next(smelt_value) => smelt_value.unwrap_or_default(), SmeltGeneratorCommand::Return(smelt_value) => { let smelt_value = smelt_value.unwrap_or_default(); return smelt_value }, SmeltGeneratorCommand::Throw(smelt_error) => smelt_panic_throw(smelt_throw(smelt_error)) } };
 return JsString::from("done");
 } });
 let mut smelt_generator = smelt_generator;
@@ -645,9 +659,25 @@ fn delegated() -> SmeltGenerator<f64, JsString, SmeltUnknown> {
 let smelt_generator_input = ::std::rc::Rc::new(::std::cell::RefCell::new(None));
 let smelt_generator_producer_input = smelt_generator_input.clone();
 let smelt_generator = genawaiter::rc::Gen::new(move |smelt_co| { let smelt_generator_input = smelt_generator_producer_input; async move {
-let _smelt_tmp_0: SmeltGenerator<f64, JsString, SmeltUnknown> = sequence();
-let _smelt_tmp_1: JsString = { let smelt_delegate = _smelt_tmp_0; let mut smelt_delegate_command = SmeltGeneratorCommand::Next(Default::default()); loop { match smelt_delegate.try_resume(smelt_delegate_command) { Ok(SmeltGeneratorResult::Yielded(smelt_value)) => { smelt_co.yield_(smelt_value).await; smelt_delegate_command = { let smelt_command = smelt_generator_input.borrow_mut().take().unwrap_or_else(|| SmeltGeneratorCommand::Next(Default::default())); match smelt_command { SmeltGeneratorCommand::Next(smelt_value) => SmeltGeneratorCommand::Next(smelt_value), SmeltGeneratorCommand::Return(smelt_value) => SmeltGeneratorCommand::Return(smelt_value), SmeltGeneratorCommand::Throw(smelt_error) => SmeltGeneratorCommand::Throw(smelt_error) } }; }, Ok(SmeltGeneratorResult::Complete(smelt_value)) => break Ok(smelt_value), Err(smelt_error) => break Err(smelt_error) } } }.map(JsString::from)?;
-return Ok::<JsString, Box<dyn std::error::Error>>(_smelt_tmp_1);
+let __smelt_delegate: SmeltGenerator<f64, JsString, SmeltUnknown>;
+let mut __smelt_delegate_step: SmeltGeneratorResult<f64, JsString>;
+let mut _smelt_tmp_4: bool;
+let mut _smelt_tmp_5: bool;
+let mut _smelt_tmp_6: f64;
+let mut _smelt_tmp_8: JsString;
+let _smelt_tmp_2: SmeltGenerator<f64, JsString, SmeltUnknown> = sequence();
+__smelt_delegate = _smelt_tmp_2;
+let _smelt_tmp_3: SmeltGeneratorResult<f64, JsString> = __smelt_delegate.clone().try_resume(SmeltGeneratorCommand::Next(None))?;
+__smelt_delegate_step = _smelt_tmp_3;
+loop {
+_smelt_tmp_4 = matches!(__smelt_delegate_step.clone(), SmeltGeneratorResult::Complete(_));
+_smelt_tmp_5 = !(_smelt_tmp_4);
+if !(_smelt_tmp_5) { break; }
+_smelt_tmp_6 = match __smelt_delegate_step { SmeltGeneratorResult::Yielded(smelt_value) => smelt_value, SmeltGeneratorResult::Complete(smelt_value) => smelt_js_string_to_number(&smelt_value) };
+__smelt_delegate_step = { smelt_co.yield_(_smelt_tmp_6).await; let smelt_command = smelt_generator_input.borrow_mut().take().unwrap_or(SmeltGeneratorCommand::Next(None)); let smelt_returning = matches!(smelt_command, SmeltGeneratorCommand::Return(_)); let smelt_command = match smelt_command { SmeltGeneratorCommand::Next(smelt_value) => SmeltGeneratorCommand::Next(smelt_value.map(|smelt_value: SmeltUnknown| smelt_value)), SmeltGeneratorCommand::Return(smelt_value) => SmeltGeneratorCommand::Return(smelt_value.map(|smelt_value: JsString| smelt_value)), SmeltGeneratorCommand::Throw(smelt_error) => SmeltGeneratorCommand::Throw(smelt_error) }; match __smelt_delegate.clone().try_resume(smelt_command) { Ok(SmeltGeneratorResult::Complete(smelt_value)) if smelt_returning => { let smelt_value = smelt_value; return Ok(smelt_value) }, Ok(smelt_step) => smelt_step, Err(smelt_error_box) => { let smelt_error = smelt_thrown_value(&*smelt_error_box); return Err(smelt_throw(smelt_error)) } } };
+}
+_smelt_tmp_8 = match __smelt_delegate_step { SmeltGeneratorResult::Yielded(smelt_value) => JsString::from(smelt_value.to_string()), SmeltGeneratorResult::Complete(smelt_value) => smelt_value };
+return Ok::<JsString, Box<dyn std::error::Error>>(_smelt_tmp_8);
 } });
 let mut smelt_generator = smelt_generator;
 SmeltGenerator::new(move |smelt_value| { *smelt_generator_input.borrow_mut() = Some(smelt_value); match smelt_generator.resume() { genawaiter::GeneratorState::Yielded(smelt_value) => Ok(SmeltGeneratorResult::Yielded(smelt_value)), genawaiter::GeneratorState::Complete(smelt_value) => smelt_value.map(SmeltGeneratorResult::Complete) } })
@@ -659,9 +689,25 @@ fn delegated_iterable(value: IterableValue) -> SmeltGenerator<f64, JsString, Sme
 let smelt_generator_input = ::std::rc::Rc::new(::std::cell::RefCell::new(None));
 let smelt_generator_producer_input = smelt_generator_input.clone();
 let smelt_generator = genawaiter::rc::Gen::new(move |smelt_co| { let smelt_generator_input = smelt_generator_producer_input; async move {
-let _smelt_tmp_1: SmeltGenerator<f64, JsString, SmeltUnknown> = value.__smelt_symbol_iterator();
-let _smelt_tmp_2: JsString = { let smelt_delegate = _smelt_tmp_1; let mut smelt_delegate_command = SmeltGeneratorCommand::Next(Default::default()); loop { match smelt_delegate.try_resume(smelt_delegate_command) { Ok(SmeltGeneratorResult::Yielded(smelt_value)) => { smelt_co.yield_(smelt_value).await; smelt_delegate_command = { let smelt_command = smelt_generator_input.borrow_mut().take().unwrap_or_else(|| SmeltGeneratorCommand::Next(Default::default())); match smelt_command { SmeltGeneratorCommand::Next(smelt_value) => SmeltGeneratorCommand::Next(smelt_value), SmeltGeneratorCommand::Return(smelt_value) => SmeltGeneratorCommand::Return(smelt_value), SmeltGeneratorCommand::Throw(smelt_error) => SmeltGeneratorCommand::Throw(smelt_error) } }; }, Ok(SmeltGeneratorResult::Complete(smelt_value)) => break Ok(smelt_value), Err(smelt_error) => break Err(smelt_error) } } }.map(JsString::from)?;
-return Ok::<JsString, Box<dyn std::error::Error>>(_smelt_tmp_2);
+let __smelt_delegate: SmeltGenerator<f64, JsString, SmeltUnknown>;
+let mut __smelt_delegate_step: SmeltGeneratorResult<f64, JsString>;
+let mut _smelt_tmp_5: bool;
+let mut _smelt_tmp_6: bool;
+let mut _smelt_tmp_7: f64;
+let mut _smelt_tmp_9: JsString;
+let _smelt_tmp_3: SmeltGenerator<f64, JsString, SmeltUnknown> = value.__smelt_symbol_iterator();
+__smelt_delegate = _smelt_tmp_3;
+let _smelt_tmp_4: SmeltGeneratorResult<f64, JsString> = __smelt_delegate.clone().try_resume(SmeltGeneratorCommand::Next(None))?;
+__smelt_delegate_step = _smelt_tmp_4;
+loop {
+_smelt_tmp_5 = matches!(__smelt_delegate_step.clone(), SmeltGeneratorResult::Complete(_));
+_smelt_tmp_6 = !(_smelt_tmp_5);
+if !(_smelt_tmp_6) { break; }
+_smelt_tmp_7 = match __smelt_delegate_step { SmeltGeneratorResult::Yielded(smelt_value) => smelt_value, SmeltGeneratorResult::Complete(smelt_value) => smelt_js_string_to_number(&smelt_value) };
+__smelt_delegate_step = { smelt_co.yield_(_smelt_tmp_7).await; let smelt_command = smelt_generator_input.borrow_mut().take().unwrap_or(SmeltGeneratorCommand::Next(None)); let smelt_returning = matches!(smelt_command, SmeltGeneratorCommand::Return(_)); let smelt_command = match smelt_command { SmeltGeneratorCommand::Next(smelt_value) => SmeltGeneratorCommand::Next(smelt_value.map(|smelt_value: SmeltUnknown| smelt_value)), SmeltGeneratorCommand::Return(smelt_value) => SmeltGeneratorCommand::Return(smelt_value.map(|smelt_value: JsString| smelt_value)), SmeltGeneratorCommand::Throw(smelt_error) => SmeltGeneratorCommand::Throw(smelt_error) }; match __smelt_delegate.clone().try_resume(smelt_command) { Ok(SmeltGeneratorResult::Complete(smelt_value)) if smelt_returning => { let smelt_value = smelt_value; return Ok(smelt_value) }, Ok(smelt_step) => smelt_step, Err(smelt_error_box) => { let smelt_error = smelt_thrown_value(&*smelt_error_box); return Err(smelt_throw(smelt_error)) } } };
+}
+_smelt_tmp_9 = match __smelt_delegate_step { SmeltGeneratorResult::Yielded(smelt_value) => JsString::from(smelt_value.to_string()), SmeltGeneratorResult::Complete(smelt_value) => smelt_value };
+return Ok::<JsString, Box<dyn std::error::Error>>(_smelt_tmp_9);
 } });
 let mut smelt_generator = smelt_generator;
 SmeltGenerator::new(move |smelt_value| { *smelt_generator_input.borrow_mut() = Some(smelt_value); match smelt_generator.resume() { genawaiter::GeneratorState::Yielded(smelt_value) => Ok(SmeltGeneratorResult::Yielded(smelt_value)), genawaiter::GeneratorState::Complete(smelt_value) => smelt_value.map(SmeltGeneratorResult::Complete) } })

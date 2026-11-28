@@ -100,6 +100,22 @@ impl FunctionEmitter<'_> {
             self.value_at_type(value, unknown_ty)?
         };
         if let Some(delegate) = delegate {
+            // Without a catch around the step, the delegate's throw ends this
+            // generator with it: returned as its `Err` (the step makes the
+            // generator fallible, `passes::throwing`), after the `finally`
+            // blocks, rather than unwinding through the producer, which would
+            // leave it unresumable.
+            let thrown = if unwind.is_some() || !(self.function.is_async || self.function.can_throw)
+            {
+                thrown
+            } else {
+                let error = crate::thrown::throw_expr(&RustExpr::path("smelt_error"));
+                if cleanup.is_some() {
+                    format!("{{ {cleanup_text} return Err({}) }}", error.delimited())
+                } else {
+                    format!("return Err({})", error.delimited())
+                }
+            };
             let resume = self.delegated_resume_text(delegate, &returned, &thrown)?;
             return Ok(RustExpr::atom(format!(
                 "{{ smelt_co.yield_({yield_text}).await; let smelt_command = smelt_generator_input.borrow_mut().take().unwrap_or(SmeltGeneratorCommand::Next(None)); {resume} }}",
@@ -161,7 +177,8 @@ impl FunctionEmitter<'_> {
             return_ty,
         )? {
             format!(
-                "SmeltGeneratorCommand::Return(smelt_value.map(|smelt_value| {}))",
+                "SmeltGeneratorCommand::Return(smelt_value.map(|smelt_value: {}| {}))",
+                self.rendered_type(outer_return_ty)?,
                 returned_command.delimited()
             )
         } else {
@@ -172,8 +189,9 @@ impl FunctionEmitter<'_> {
         };
         let caught = crate::thrown::thrown_value_expr(&RustExpr::path("smelt_error_box"));
         Ok(format!(
-            "let smelt_returning = matches!(smelt_command, SmeltGeneratorCommand::Return(_)); let smelt_command = match smelt_command {{ SmeltGeneratorCommand::Next(smelt_value) => SmeltGeneratorCommand::Next(smelt_value.map(|smelt_value| {sent})), SmeltGeneratorCommand::Return(smelt_value) => {forward_return}, SmeltGeneratorCommand::Throw(smelt_error) => SmeltGeneratorCommand::Throw(smelt_error) }}; match {receiver}.try_resume(smelt_command) {{ Ok(SmeltGeneratorResult::Complete(smelt_value)) if smelt_returning => {{ let smelt_value = {completed}; {returned} }}, Ok(smelt_step) => smelt_step, Err(smelt_error_box) => {{ let smelt_error = {caught}; {thrown} }} }}",
+            "let smelt_returning = matches!(smelt_command, SmeltGeneratorCommand::Return(_)); let smelt_command = match smelt_command {{ SmeltGeneratorCommand::Next(smelt_value) => SmeltGeneratorCommand::Next(smelt_value.map(|smelt_value: {outer_next}| {sent})), SmeltGeneratorCommand::Return(smelt_value) => {forward_return}, SmeltGeneratorCommand::Throw(smelt_error) => SmeltGeneratorCommand::Throw(smelt_error) }}; match {receiver}.try_resume(smelt_command) {{ Ok(SmeltGeneratorResult::Complete(smelt_value)) if smelt_returning => {{ let smelt_value = {completed}; {returned} }}, Ok(smelt_step) => smelt_step, Err(smelt_error_box) => {{ let smelt_error = {caught}; {thrown} }} }}",
             sent = sent.delimited(),
+            outer_next = self.rendered_type(outer_next_ty)?,
             receiver = delegate_text.parenthesized_if_needed(),
             completed = completed.delimited(),
             caught = caught.delimited(),
@@ -193,11 +211,17 @@ impl FunctionEmitter<'_> {
         // resume type (`TNext`), as any argument is to its parameter's type:
         // `next(5)` into a `number | undefined` channel is `Some(5.0)`, and
         // into an erased one the erased number.
+        // `return(v)` sends `v` at the return type (`TReturn`), likewise.
         let next_ty = match self.mir.types.get(self.operand_ty(generator)?) {
             Some(Type::Generator { next_ty, .. })
                 if kind == smelt_hir::GeneratorResumeKind::Next =>
             {
                 Some(*next_ty)
+            }
+            Some(Type::Generator { return_ty, .. })
+                if kind == smelt_hir::GeneratorResumeKind::Return =>
+            {
+                Some(*return_ty)
             }
             _ => None,
         };
@@ -471,16 +495,46 @@ impl FunctionEmitter<'_> {
                 may_throw: true,
             }))
         };
-        let method =
-            |operand: Option<&Operand>, param: Option<TypeId>| -> Result<String, EmitError> {
-                match operand {
-                    Some(operand) => Ok(format!(
-                        "Some({})",
-                        self.value_at_type(operand, method_ty(param)?)?.delimited()
-                    )),
-                    None => Ok("None".to_owned()),
-                }
+        // A closure of another step type (`IteratorResult<T, number>` where
+        // the carrier's `TReturn` is `undefined`) goes through the function
+        // adapter, which converts its step; the plain coercion adapts only
+        // arity and fallibility.
+        let at_method_type = |operand: &Operand, target: TypeId| -> Result<RustExpr, EmitError> {
+            if self.operand_ty(operand)? != target
+                && let Some(adapted) = self.function_shape_adapter(operand, target, false, None)?
+            {
+                return Ok(adapted);
+            }
+            self.value_at_type(operand, target)
+        };
+        // The runtime calls a method that takes the value with it owned; a
+        // callback type that passes its parameter by shared reference
+        // (`callback_param_is_shared_reference`) is called through a closure
+        // that lends it.
+        let step_rust = self.rendered_type(step_ty)?;
+        let method = |operand: Option<&Operand>,
+                      param: Option<TypeId>|
+         -> Result<String, EmitError> {
+            let Some(operand) = operand else {
+                return Ok("None".to_owned());
             };
+            let target = method_ty(param)?;
+            let adapted = at_method_type(operand, target)?;
+            let lends = match (param, self.mir.types.get(target)) {
+                (Some(param), Some(Type::Function(function))) => {
+                    self.callback_param_is_shared_reference(function, 0, param)
+                }
+                _ => false,
+            };
+            let Some(param) = param.filter(|_| lends) else {
+                return Ok(format!("Some({})", adapted.delimited()));
+            };
+            let param_rust = self.rendered_type(param)?;
+            Ok(format!(
+                "Some({{ let smelt_method = {adapted}; ::std::rc::Rc::new(move |smelt_sent: {param_rust}| smelt_method(&smelt_sent)) as ::std::rc::Rc<dyn Fn({param_rust}) -> Result<{step_rust}, Box<dyn ::std::error::Error>>> }})",
+                adapted = adapted.delimited()
+            ))
+        };
         let source = match source {
             Some(source) if self.is_reference_class_type(self.operand_ty(source)?) => format!(
                 "Some(::std::rc::Rc::clone(&({}).0) as ::std::rc::Rc<dyn ::std::any::Any>)",
@@ -488,7 +542,7 @@ impl FunctionEmitter<'_> {
             ),
             _ => "None".to_owned(),
         };
-        let next = self.value_at_type(next, method_ty(None)?)?;
+        let next = at_method_type(next, method_ty(None)?)?;
         Ok(RustExpr::atom(format!(
             "SmeltGenerator::from_protocol({source}, {next}, {next_with}, {close}, {close_with}, {throw_with})",
             next = next.delimited(),
@@ -509,6 +563,12 @@ impl FunctionEmitter<'_> {
         return_ty: TypeId,
         outer_return_ty: TypeId,
     ) -> Result<RustExpr, EmitError> {
+        // An outer return type of `undefined` keeps nothing of the value.
+        if return_ty != outer_return_ty
+            && matches!(self.mir.types.get(outer_return_ty), Some(Type::None))
+        {
+            return Ok(RustExpr::atom("{ let _ = smelt_value; }"));
+        }
         let returned = self.rendered_at_type(
             &RustExpr::path("smelt_value"),
             return_ty,

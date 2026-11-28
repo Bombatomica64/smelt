@@ -1,7 +1,7 @@
 // Hand-written iterators receive what the consumer sends: `next(value)`,
 // `return(value)` and `throw(error)` reach the iterator's own methods, `for...of`
 // calls `next()` and `return()` with no argument, and `yield*` forwards each.
-class Echo implements Iterator<string, number, number> {
+class Echo implements Iterator<string, number, number | undefined> {
   private count = 0;
   constructor(private label: string) {}
   next(sent?: number): IteratorResult<string, number> {
@@ -19,15 +19,15 @@ class Echo implements Iterator<string, number, number> {
     return { value: "recovered", done: false };
   }
 }
-class EchoBox implements Iterable<string, number, number> {
+class EchoBox implements Iterable<string, number, number | undefined> {
   constructor(private label: string) {}
-  [Symbol.iterator](): Iterator<string, number, number> {
+  [Symbol.iterator](): Iterator<string, number, number | undefined> {
     return new Echo(this.label);
   }
 }
 
 // A plain iterator without `throw`.
-class Quiet implements Iterator<number, string, number> {
+class Quiet implements Iterator<number, string, number | undefined> {
   private n = 0;
   next(sent?: number): IteratorResult<number, string> {
     console.log("quiet next got", sent);
@@ -38,21 +38,21 @@ class Quiet implements Iterator<number, string, number> {
     return { value: value ?? "closed", done: true };
   }
 }
-class QuietBox implements Iterable<number, string, number> {
-  [Symbol.iterator](): Iterator<number, string, number> {
+class QuietBox implements Iterable<number, string, number | undefined> {
+  [Symbol.iterator](): Iterator<number, string, number | undefined> {
     return new Quiet();
   }
 }
 
 function direct(): void {
-  const it: Iterator<string, number, number> = new Echo("d");
+  const it: Iterator<string, number, number | undefined> = new Echo("d");
   console.log(it.next(1));
   console.log(it.next());
   console.log(it.next(2));
   console.log(it.return!(7));
   console.log(it.next(3));
   console.log(it.next(4));
-  const t: Iterator<string, number, number> = new Echo("t");
+  const t: Iterator<string, number, number | undefined> = new Echo("t");
   console.log(t.throw!(new Error("bad")));
   console.log(t.return!());
 }
@@ -67,11 +67,11 @@ function loops(): void {
   console.log("destructured", x);
 }
 
-function* outer(): Generator<string, string, number> {
+function* outer(): Generator<string, number, number> {
   try {
     const r = yield* new EchoBox("y");
     console.log("inner returned", r);
-    return "outer done " + r;
+    return r + 1;
   } finally {
     console.log("outer finally");
   }
@@ -87,7 +87,7 @@ function delegation(): void {
   const h = outer();
   console.log(h.next());
   console.log(h.throw(new Error("thrown in")));
-  console.log(h.return("stop"));
+  console.log(h.return(99));
   console.log(h.next());
 }
 
@@ -105,7 +105,7 @@ function missingThrow(): void {
   } catch (e) {
     console.log(e instanceof TypeError, (e as Error).message);
   }
-  console.log(q.next());
+  console.log(q.next().done);
   const all = quietOuter();
   let step = all.next();
   while (!step.done) step = all.next(step.value * 2);

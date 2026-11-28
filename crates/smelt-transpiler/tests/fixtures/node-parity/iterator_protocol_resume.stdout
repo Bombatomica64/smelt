@@ -36,15 +36,15 @@ y next got 6
 y next got 7
 inner returned 40
 outer finally
-{ value: 'outer done 40', done: true }
+{ value: 41, done: true }
 { value: undefined, done: true }
 y next got undefined
 { value: 'y1', done: false }
 y throw got thrown in
 { value: 'recovered', done: false }
-y return got stop
+y return got 99
 outer finally
-{ value: 'stop', done: true }
+{ value: 99, done: true }
 { value: undefined, done: true }
 quiet next got undefined
 { value: 0, done: false }
@@ -52,7 +52,7 @@ quiet next got 9
 { value: 1, done: false }
 quiet return got undefined
 true The iterator does not provide a 'throw' method.
-{ value: undefined, done: true }
+true
 quiet next got undefined
 quiet next got 0
 quiet next got 2

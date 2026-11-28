@@ -211,7 +211,10 @@ impl ModuleBuilder<'_> {
         let member_fn = |this: &mut Self, call: ProtocolCall| {
             let member = this.intern_source_name(call.name());
             let member_ty = this.class_field_type(ty, member).ok()?;
-            this.protocol_method_type(member_ty, call)
+            // A member's function type does not record how many parameters
+            // are optional (`next(sent?: number)`); its declared signature does.
+            let required = this.declared_required_params(name, member);
+            this.protocol_method_type(member_ty, call, required)
         };
         let next = member_fn(self, ProtocolCall::Next);
         let close = member_fn(self, ProtocolCall::Return);
@@ -238,18 +241,52 @@ impl ModuleBuilder<'_> {
     /// `function_ty` when it can be called as the protocol method `call`: a
     /// function answering a step `IteratorResult<T, R>`, callable with no
     /// argument (`next`, `return`) or with at most the thrown value (`throw`).
-    fn protocol_method_type(&self, function_ty: TypeId, call: ProtocolCall) -> Option<TypeId> {
+    /// `required` overrides the function type's own count of required
+    /// parameters (a class or interface member's declared signature).
+    fn protocol_method_type(
+        &self,
+        function_ty: TypeId,
+        call: ProtocolCall,
+        required: Option<usize>,
+    ) -> Option<TypeId> {
         let Some(Type::Function(function)) = self.ctx.krate.types.get(function_ty) else {
             return None;
         };
         let most_required = usize::from(call == ProtocolCall::Throw);
-        let required = function.required_params.unwrap_or(function.params.len());
+        // A class method's function type records no count; the checker has
+        // already accepted the value where an iterator is expected (or in a
+        // `for...of`), which requires its `next()` callable with no argument,
+        // and a call with fewer arguments passes `undefined` for the rest.
+        let required = required.or(function.required_params).unwrap_or(0);
         (required <= most_required
             && matches!(
                 self.ctx.krate.types.get(function.return_ty),
                 Some(Type::GeneratorResult { .. })
             ))
         .then_some(function_ty)
+    }
+
+    /// How many leading parameters the method `member` of the class or
+    /// interface `owner` requires, from its declared signature; `None` when
+    /// neither declares it here (an inherited method).
+    fn declared_required_params(
+        &self,
+        owner: smelt_hir::Symbol,
+        member: smelt_hir::Symbol,
+    ) -> Option<usize> {
+        if let Some(interface) = self.find_interface(owner) {
+            return interface
+                .methods
+                .iter()
+                .find(|method| method.name == member)
+                .and_then(|method| method.required_params);
+        }
+        let text = crate::lowering::support::source_spelling(&self.ctx.krate, owner)?;
+        self.classes
+            .methods(text)?
+            .iter()
+            .find(|method| method.name == member)
+            .and_then(|method| method.required_params)
     }
 
     /// Whether `ty` is the erased record an object literal with
@@ -1340,12 +1377,14 @@ impl ModuleBuilder<'_> {
             }
             let value = self.expression_with_hint(member, body, Some(step_fn))?;
             let value_ty = Self::expr_ty(body, value);
-            let answers_step = self.protocol_method_type(value_ty, call).is_some_and(|_| {
-                matches!(
-                    self.ctx.krate.types.get(value_ty),
-                    Some(Type::Function(function)) if function.return_ty == step_ty
-                )
-            });
+            let answers_step = self
+                .protocol_method_type(value_ty, call, None)
+                .is_some_and(|_| {
+                    matches!(
+                        self.ctx.krate.types.get(value_ty),
+                        Some(Type::Function(function)) if function.return_ty == step_ty
+                    )
+                });
             if !answers_step {
                 return Err(SmeltError::unsupported(
                     Self::body_expr_span(body, value),

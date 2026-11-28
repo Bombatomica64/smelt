@@ -164,9 +164,14 @@ still refused.
   iterator's does) is a by-value struct with no identity, so two adapters of it compare as two objects
   (`a[Symbol.iterator]() === a[Symbol.iterator]()` with no `===` on `a` itself). A generator adapted to another
   carrier type has no object to keep either.
-* **Done values with an open `TReturn`**: `{ value: 0, done: true }` in an annotated `IteratorResult<number>` (whose
-  `TReturn` the lib leaves at `any`) drops the `0`. Keeping a value of type `any` needs an erased return channel
-  (`SmeltUnknown`). Declare `TReturn`, or leave the method unannotated (section 4 infers it).
+* **Done values through an open `TReturn` slot.** An annotated `next(): IteratorResult<T>` (the lib leaves `TReturn` at
+  `any`) takes its return type from the steps its body returns (section 4's rule over the checker's type of each
+  returned step literal), so `return { value: 0, done: true }` keeps the `0` (`open_step_return_type`). A value that
+  then flows through a slot whose `TReturn` the source leaves at `any` (`Iterator<T>`, `IterableIterator<T>`) is
+  dropped there: the source typed the completion `any`, keeping it would need the erased channel (`SmeltUnknown`),
+  and every read of it in TypeScript is already `any`-typed. Declare `TReturn` to keep it
+  (`Iterator<T, number>`). A completion read after a carrier finished answers the return type's default
+  (`""` for a `string`), where JavaScript answers `undefined`.
 * **`next(value)` into a generator body.** A `yield` evaluates to its resume type's default when resumed without a
   value (`gen.next()`, `for...of`), where JavaScript gives `undefined`; that is TypeScript's own unsoundness
   (`Generator<T, R, number>.next()` is accepted) and changes nothing for a `TNext` that includes `undefined`, which

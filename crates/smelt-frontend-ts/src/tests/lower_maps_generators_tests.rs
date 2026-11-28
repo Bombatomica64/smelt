@@ -500,6 +500,12 @@ async function* values(): AsyncGenerator<number, void> {
 
 /// Captures referenced only through a nested function-expression generator
 /// must propagate through every enclosing closure.
+///
+/// Corrected expectation: the typed `yield*` used to be one
+/// `GeneratorDelegate` op; it is now ECMA-262's step loop whose suspension is
+/// `GeneratorYieldDelegated` (forwarding `next(v)`, `throw(e)`, `return(v)`
+/// to the delegate, `docs/design/iterator-protocol.md`). The delegation stays
+/// typed (`Generator<number, number, unknown>`), which is what this asserts.
 #[test]
 fn captures_local_helpers_through_nested_generator_arguments() -> Result<(), String> {
     let mut ctx = HirCtx::new();
@@ -531,7 +537,7 @@ function testCase(): Generator<number, number, unknown> {
                 && body
                     .exprs
                     .iter()
-                    .any(|expr| matches!(expr.kind, ExprKind::GeneratorDelegate { .. }))
+                    .any(|expr| matches!(expr.kind, ExprKind::GeneratorYieldDelegated { .. }))
         }),
         "nested generator should retain typed delegation",
     );
@@ -1766,8 +1772,11 @@ fn rejects_computed_enum_member_by_cause() -> Result<(), String> {
 /// itself as one item. New requirement: JavaScript drives the iterator's
 /// `next()` until `done` (ECMA-262 `GetIterator`/`IteratorStep`), so the
 /// method answers the typed iterator `Iterator<number>` (a
-/// `Generator { Float, None, None }`) and every consumer drives the adapter, a
-/// synthesized generator closure. The guarantee #552 kept (never iterate the
+/// `Generator { Float, None, None }`) and every consumer drives the adapter, the
+/// carrier `SmeltGenerator::from_protocol` (op `GeneratorFromProtocol`; it was
+/// a synthesized generator closure calling only `next()` and `return()`, which
+/// dropped the values `next(v)`/`return(v)` send and every `throw(e)`, see
+/// `node_parity::iterator_protocol_resume`). The guarantee #552 kept (never iterate the
 /// instance itself) holds because the consumer only ever sees the generator;
 /// `iterator_protocol_object_literal` pins the behaviour against Node.
 #[test]
@@ -1798,8 +1807,11 @@ fn lowers_hand_written_iterator_object() -> Result<(), String> {
             "`Iterator<number>` should be the typed generator: {use_site}"
         );
         ensure!(
-            ctx.krate.bodies.iter().any(smelt_hir::Body::is_generator),
-            "the hand-written iterator should be driven by the adapter generator: {use_site}",
+            ctx.krate.bodies.iter().any(|body| body
+                .exprs
+                .iter()
+                .any(|expr| matches!(expr.kind, ExprKind::GeneratorFromProtocol { .. }))),
+            "the hand-written iterator should be driven by the protocol carrier: {use_site}",
         );
         ensure!(
             !ctx.krate.types.all().iter().any(|ty| matches!(ty, Type::Class { name, .. } if ctx.krate.names.get(*name).or_else(|| ctx.krate.symbols.get(*name)) == Some("Iterator"))),

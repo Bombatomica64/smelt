@@ -481,7 +481,13 @@ impl ModuleBuilder<'_> {
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        let Expression::StaticMemberExpression(member) = &call.callee else {
+        // `it.return!(v)` / `it.throw!(e)`: the iterator interfaces declare
+        // both optional, so a typed call asserts them present.
+        let callee = match &call.callee {
+            Expression::TSNonNullExpression(asserted) => &asserted.expression,
+            callee => callee,
+        };
+        let Expression::StaticMemberExpression(member) = callee else {
             return Ok(None);
         };
         let method = member.property.name.as_str();

@@ -807,7 +807,15 @@ impl FunctionEmitter<'_> {
         {
             let value = RustExpr::path("smelt_value");
             let yielded = self.rendered_at_type(&value, source_yield, target_yield, scope)?;
-            let completed = self.rendered_at_type(&value, source_return, target_return, scope)?;
+            // A completion read at an `undefined` return type (the lib's open
+            // `TReturn` of an `Iterator<T>` slot) carries nothing.
+            let completed = if source_return != target_return
+                && matches!(self.mir.types.get(target_return), Some(Type::None))
+            {
+                RustExpr::atom("{ let _ = smelt_value; }")
+            } else {
+                self.rendered_at_type(&value, source_return, target_return, scope)?
+            };
             return Ok(RustExpr::atom(format!(
                 "match {value_text} {{ SmeltGeneratorResult::Yielded(smelt_value) => SmeltGeneratorResult::Yielded({yielded}), SmeltGeneratorResult::Complete(smelt_value) => SmeltGeneratorResult::Complete({completed}) }}",
                 value_text = value_text.delimited(),
