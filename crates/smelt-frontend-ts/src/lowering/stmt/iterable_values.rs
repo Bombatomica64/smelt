@@ -156,6 +156,18 @@ impl ModuleBuilder<'_> {
                     string_ty,
                 ))
             }
+            // A typed array iterates its decoded elements.
+            Some(Type::Class { .. })
+                if let Some(elements) = self.typed_array_spread_list(value, span, body) =>
+            {
+                let float_ty = self.ctx.krate.types.intern(Type::Float);
+                Some(iterator(
+                    self,
+                    body,
+                    ExprKind::ListIterator { list: elements },
+                    float_ty,
+                ))
+            }
             _ => self.iteration_generator(value, span, body)?,
         })
     }
@@ -165,10 +177,12 @@ impl ModuleBuilder<'_> {
     /// thunk `() => <a fresh iterator over it>` ([`Self::fresh_iterator`],
     /// re-typed to the slot's iterator). The value is evaluated once, where
     /// the slot is; each call of the thunk starts a new iteration of it.
-    /// `None` when `value` is no iterable Smelt can drive this way.
+    /// `None` for an erased value, which the emitter converts where it is
+    /// read (the erased iteration protocol).
     ///
     /// # Errors
-    /// As [`Self::fresh_iterator`].
+    /// Unsupported, for a value with no iterator Smelt can drive, or whose
+    /// elements do not convert to the slot's `T`; as [`Self::fresh_iterator`].
     pub(in crate::lowering) fn iterable_at_slot(
         &mut self,
         value: ExprId,
@@ -206,15 +220,26 @@ impl ModuleBuilder<'_> {
             ty: value_ty,
             span,
         });
-        let Some(fresh) = self.fresh_iterator(source, span, &mut thunk)? else {
+        // An erased value is converted where it is read, by the erased
+        // iteration protocol (the emitter's extraction to the thunk type).
+        if matches!(self.ctx.krate.types.get(value_ty), Some(Type::Unknown)) {
             return Ok(None);
+        }
+        let Some(fresh) = self.fresh_iterator(source, span, &mut thunk)? else {
+            return Err(SmeltError::unsupported(
+                span,
+                "a value of this type where an `Iterable<T>` is expected is not lowered yet (it has no iterator Smelt can drive)",
+            ));
         };
         let fresh = if Self::expr_ty(&thunk, fresh) == iterator_ty {
             fresh
         } else {
             let retyped = self.iterator_value_at_slot(fresh, Some(iterator_ty), &mut thunk)?;
             if Self::expr_ty(&thunk, retyped) != iterator_ty {
-                return Ok(None);
+                return Err(SmeltError::unsupported(
+                    span,
+                    "an iterable whose elements are not the `Iterable<T>` slot's `T` is not lowered yet",
+                ));
             }
             retyped
         };

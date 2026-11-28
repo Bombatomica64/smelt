@@ -10062,7 +10062,10 @@ export function drive(data: Iterable<unknown>): unknown[] {
         local
             .name
             .is_some_and(|name| ctx.krate.symbols.get(name) == Some("step"))
-            && matches!(ctx.krate.types.get(local.ty), Some(Type::GeneratorResult { .. }))
+            && matches!(
+                ctx.krate.types.get(local.ty),
+                Some(Type::GeneratorResult { .. })
+            )
     });
     ensure!(
         has_typed_step,

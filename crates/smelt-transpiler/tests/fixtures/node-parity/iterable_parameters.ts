@@ -106,3 +106,4 @@ console.log(
     5,
   ).join(","),
 );
+console.log(sumOf(new Uint8Array([200, 55, 1])), sumOf(new Float64Array([0.5, 0.25])));
