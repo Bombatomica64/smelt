@@ -535,6 +535,18 @@ impl FunctionEmitter<'_> {
             ));
             inits.push(format!("{rust_field}: field_{index}"));
         }
+        // A reference record is a shared cell (`Name(Rc<RefCell<NameInner>>)`):
+        // the decoded fields fill a fresh inner record, as its literal does.
+        if let Some(Type::Class { name, .. }) = self.mir.types.get(ty)
+            && self.context.is_reference_class(*name)
+        {
+            let inner =
+                crate::class_polymorphism::inner_literal(self.mir, self.context, *name, &inits)?;
+            text.push_str(&format!(
+                "    Ok({struct_name}(::std::rc::Rc::new(::std::cell::RefCell::new({inner}))))"
+            ));
+            return Ok(text);
+        }
         text.push_str(&format!("    Ok({struct_name} {{ {} }})", inits.join(", ")));
         Ok(text)
     }

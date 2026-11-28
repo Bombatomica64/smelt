@@ -169,6 +169,142 @@ impl ModuleBuilder<'_> {
         null
     }
 
+    /// `Error.prototype.toString` of an instance of a source `Error` subclass
+    /// (see `ModuleBuilder::inherits_error_to_string`): its `name` and
+    /// `message`, as `"name: message"`, or just the one that is non-empty
+    /// (`"name"` when both are empty). The instance is evaluated once, into a
+    /// local the two field reads share.
+    pub(in crate::lowering) fn error_to_string(
+        &mut self,
+        operand: smelt_hir::ExprId,
+        operand_ty: smelt_hir::TypeId,
+        span: smelt_hir::Span,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        let block = body.push_block(span);
+        let local = body.push_local(smelt_hir::LocalDecl {
+            name: None,
+            ty: operand_ty,
+            mutable: false,
+            span,
+        });
+        let pat = body.push_pattern(smelt_hir::Pattern::Binding(local));
+        body.push_stmt_to_block(
+            block,
+            smelt_hir::Stmt::Let {
+                pat,
+                ty: operand_ty,
+                value: Some(operand),
+            },
+        );
+        let push = |kind: ExprKind, ty: smelt_hir::TypeId, arena: &mut Body| {
+            arena.push_expr(Expr { kind, ty, span })
+        };
+        let field = |builder: &mut Self, name: &str, arena: &mut Body| {
+            let receiver = arena.push_expr(Expr {
+                kind: ExprKind::Local(local),
+                ty: operand_ty,
+                span,
+            });
+            let symbol = builder.intern_source_name(name);
+            arena.push_expr(Expr {
+                kind: ExprKind::Field {
+                    receiver,
+                    field: symbol,
+                },
+                ty: string_ty,
+                span,
+            })
+        };
+        let empty = |arena: &mut Body| {
+            arena.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::String(String::new())),
+                ty: string_ty,
+                span,
+            })
+        };
+        let message = field(self, "message", body);
+        let empty_message = empty(body);
+        let message_is_empty = push(
+            ExprKind::BinOp {
+                op: BinOp::JsStrictEq,
+                lhs: message,
+                rhs: empty_message,
+            },
+            bool_ty,
+            body,
+        );
+        let name = field(self, "name", body);
+        let empty_name = empty(body);
+        let name_is_empty = push(
+            ExprKind::BinOp {
+                op: BinOp::JsStrictEq,
+                lhs: name,
+                rhs: empty_name,
+            },
+            bool_ty,
+            body,
+        );
+        let both_name = field(self, "name", body);
+        let separator = push(
+            ExprKind::Literal(Literal::String(": ".to_owned())),
+            string_ty,
+            body,
+        );
+        let prefix = push(
+            ExprKind::BinOp {
+                op: BinOp::Add,
+                lhs: both_name,
+                rhs: separator,
+            },
+            string_ty,
+            body,
+        );
+        let both_message = field(self, "message", body);
+        let both = push(
+            ExprKind::BinOp {
+                op: BinOp::Add,
+                lhs: prefix,
+                rhs: both_message,
+            },
+            string_ty,
+            body,
+        );
+        let only_message = field(self, "message", body);
+        let without_name = push(
+            ExprKind::Conditional {
+                cond: name_is_empty,
+                then_expr: only_message,
+                else_expr: both,
+            },
+            string_ty,
+            body,
+        );
+        let only_name = field(self, "name", body);
+        let text = push(
+            ExprKind::Conditional {
+                cond: message_is_empty,
+                then_expr: only_name,
+                else_expr: without_name,
+            },
+            string_ty,
+            body,
+        );
+        if let Some(slot) = usize::try_from(block.0)
+            .ok()
+            .and_then(|index| body.blocks.get_mut(index))
+        {
+            slot.tail = Some(text);
+        }
+        body.push_expr(Expr {
+            kind: ExprKind::Block(block),
+            ty: string_ty,
+            span,
+        })
+    }
+
     /// Lower the operand of a string conversion (a template literal part, a
     /// `+` operand beside a string, `String(x)`) through the steps of
     /// JavaScript `ToString` that need source-level facts; codegen spells the
@@ -274,6 +410,9 @@ impl ModuleBuilder<'_> {
                 ty: return_ty,
                 span: self.span(start, end),
             });
+        }
+        if self.inherits_error_to_string(operand_ty) {
+            return self.error_to_string(operand, operand_ty, self.span(start, end), body);
         }
         // An array's string is its elements' strings joined with `,`, so a
         // list of such class instances converts each through its `toString`.

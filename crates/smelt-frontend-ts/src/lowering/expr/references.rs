@@ -236,7 +236,12 @@ impl ModuleBuilder<'_> {
                     return Ok(expr);
                 }
             }
-            ValueBinding::Local(_) | ValueBinding::Enum(_) | ValueBinding::Module => {}
+            ValueBinding::Enum(enum_binding) => {
+                if let Some(expr) = self.enum_object_value(enum_binding.name(), start, end, body) {
+                    return Ok(expr);
+                }
+            }
+            ValueBinding::Local(_) | ValueBinding::Module => {}
         }
         let ValueBinding::Local(local) = binding else {
             // A module-level `let`/`var` binding lifted to a mutable global (and

@@ -683,6 +683,9 @@ impl ModuleBuilder<'_> {
         if let Some(expr) = self.materialized_static_member(member, body)? {
             return Ok(expr);
         }
+        if let Some(expr) = self.class_static_method_value(member, body)? {
+            return Ok(expr);
+        }
         // A `URL` component or `searchParams` read, gated on the receiver's
         // lowered type like the `Response` reads below.
         if let Some(expr) = self.url_property_read(member, body)? {

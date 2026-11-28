@@ -1,4 +1,4 @@
-async fn run (FuncId(0)) -> None throws
+async fn run (FuncId(0)) -> None
   locals
     %0 user tag: String
     %1 user key: CryptoKey
@@ -313,7 +313,7 @@ async fn main (FuncId(8)) -> None throws
     %4 = await move %3
     return none
 
-closure ClosureId(0) -> Future<None> throws
+closure ClosureId(0) -> Future<None>
   locals
     %0 temp: Future<None>
   bb0:

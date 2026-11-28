@@ -1443,6 +1443,50 @@ impl ModuleBuilder<'_> {
             return self.finish_list_concat_call(call, left, right_arguments, true, body);
         }
         let left = self.expression(&member.object, body)?;
+        if self.ctx.krate.types.get(Self::expr_ty(body, left)) == Some(&Type::String) {
+            return self.string_concat_call(call, left, body).map(Some);
+        }
         self.finish_list_concat_call(call, left, &call.arguments, false, body)
+    }
+
+    /// Lower `String.prototype.concat`: `s.concat(a, b)` is `s + String(a) +
+    /// String(b)`, folded left to right. Each argument is a JS `ToString`
+    /// conversion, the same one a template interpolation applies, so
+    /// `"n=".concat(1, null)` reads `"n=1null"`. With no arguments the result is
+    /// the receiver string itself (strings are immutable, so no copy is needed).
+    fn string_concat_call(
+        &mut self,
+        call: &CallExpression<'_>,
+        receiver: smelt_hir::ExprId,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let str_ty = self.ctx.krate.types.intern(Type::String);
+        let span = self.span(call.span.start, call.span.end);
+        let mut acc = receiver;
+        for argument in &call.arguments {
+            if matches!(argument, Argument::SpreadElement(_)) {
+                return Err(SmeltError::unsupported(
+                    span,
+                    "string concat with a spread argument is not lowered yet",
+                ));
+            }
+            let part = self.argument(argument, body)?;
+            let part = self.string_conversion_operand(
+                part,
+                argument.span().start,
+                argument.span().end,
+                body,
+            );
+            acc = body.push_expr(Expr {
+                kind: ExprKind::BinOp {
+                    op: smelt_hir::BinOp::Add,
+                    lhs: acc,
+                    rhs: part,
+                },
+                ty: str_ty,
+                span,
+            });
+        }
+        Ok(acc)
     }
 }

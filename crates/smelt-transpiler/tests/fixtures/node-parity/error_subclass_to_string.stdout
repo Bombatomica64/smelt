@@ -1,0 +1,3 @@
+NotFound: user not found AppError: boom e: TypeError only message
+NotFound: user not found TypeError custom!
+AppError: a | NotFound: b not found

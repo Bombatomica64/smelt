@@ -18,7 +18,7 @@ async fn work (FuncId(0)) -> String throws
     %5 = "ok:" + copy %0
     return move %5
 
-async fn run (FuncId(1)) -> String throws
+async fn run (FuncId(1)) -> String
   locals
     %0 user recovered: String
     %1 user untouched: String
