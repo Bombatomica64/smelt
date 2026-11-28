@@ -3206,7 +3206,7 @@ fn smelt_object_prototype_member(field: &str) -> Option<SmeltUnknown> {
 }
 
 /// Every modeled builtin member: `(class, kind, member, length, key)`.
-const SMELT_BUILTIN_MEMBERS: [(&str, &str, &str, f64, &'static str); 17] = [("Array", "prototype", "slice", 2.0, "Array.prototype.slice"), ("Array", "prototype", "concat", 1.0, "Array.prototype.concat"), ("Array", "prototype", "indexOf", 1.0, "Array.prototype.indexOf"), ("Array", "prototype", "lastIndexOf", 1.0, "Array.prototype.lastIndexOf"), ("Array", "prototype", "includes", 1.0, "Array.prototype.includes"), ("Array", "prototype", "join", 1.0, "Array.prototype.join"), ("Array", "static", "isArray", 1.0, "Array.isArray"), ("Math", "static", "random", 0.0, "Math.random"), ("Math", "static", "abs", 1.0, "Math.abs"), ("Math", "static", "floor", 1.0, "Math.floor"), ("Math", "static", "ceil", 1.0, "Math.ceil"), ("Math", "static", "round", 1.0, "Math.round"), ("Math", "static", "trunc", 1.0, "Math.trunc"), ("Math", "static", "sign", 1.0, "Math.sign"), ("Math", "static", "sqrt", 1.0, "Math.sqrt"), ("Math", "static", "max", 2.0, "Math.max"), ("Math", "static", "min", 2.0, "Math.min")];
+const SMELT_BUILTIN_MEMBERS: [(&str, &str, &str, f64, &'static str); 18] = [("Array", "prototype", "slice", 2.0, "Array.prototype.slice"), ("Array", "prototype", "concat", 1.0, "Array.prototype.concat"), ("Array", "prototype", "indexOf", 1.0, "Array.prototype.indexOf"), ("Array", "prototype", "lastIndexOf", 1.0, "Array.prototype.lastIndexOf"), ("Array", "prototype", "includes", 1.0, "Array.prototype.includes"), ("Array", "prototype", "join", 1.0, "Array.prototype.join"), ("Array", "prototype", "flatMap", 1.0, "Array.prototype.flatMap"), ("Array", "static", "isArray", 1.0, "Array.isArray"), ("Math", "static", "random", 0.0, "Math.random"), ("Math", "static", "abs", 1.0, "Math.abs"), ("Math", "static", "floor", 1.0, "Math.floor"), ("Math", "static", "ceil", 1.0, "Math.ceil"), ("Math", "static", "round", 1.0, "Math.round"), ("Math", "static", "trunc", 1.0, "Math.trunc"), ("Math", "static", "sign", 1.0, "Math.sign"), ("Math", "static", "sqrt", 1.0, "Math.sqrt"), ("Math", "static", "max", 2.0, "Math.max"), ("Math", "static", "min", 2.0, "Math.min")];
 /// Look one modeled builtin member up, returning its `length` and dispatch key.
 fn smelt_builtin_member_entry(class: &str, kind: &str, member: &str) -> Option<(f64, &'static str)> { SMELT_BUILTIN_MEMBERS.into_iter().find(|(entry_class, entry_kind, entry_member, _, _)| *entry_class == class && *entry_kind == kind && *entry_member == member).map(|(_, _, _, length, key)| (length, key)) }
 
@@ -3231,7 +3231,7 @@ thread_local! { static SMELT_BUILTIN_MEMBER_VALUES: ::std::cell::RefCell<::std::
 fn smelt_builtin_member_value(class: &str, kind: &str, member: &str) -> Option<SmeltUnknown> {
     let (length, key) = smelt_builtin_member_entry(class, kind, member)?;
     let receiver_method = kind == "prototype";
-    Some(SMELT_BUILTIN_MEMBER_VALUES.with(|values| values.borrow_mut().entry(key).or_insert_with(|| { let function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| Ok(smelt_builtin_member_apply(key, args))); smelt_link_function_identity_key(&function, smelt_method_identity(key).named(member)); smelt_register_function_length(&function, length); if receiver_method { smelt_register_receiver_method(&function); } SmeltUnknown::Function(function) }).clone()))
+    Some(SMELT_BUILTIN_MEMBER_VALUES.with(|values| values.borrow_mut().entry(key).or_insert_with(|| { let function: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |args: Vec<SmeltUnknown>| smelt_builtin_member_apply(key, args)); smelt_link_function_identity_key(&function, smelt_method_identity(key).named(member)); smelt_register_function_length(&function, length); if receiver_method { smelt_register_receiver_method(&function); } SmeltUnknown::Function(function) }).clone()))
 }
 
 /// The receiver of a `String.prototype` method as a Rust string.
@@ -3242,11 +3242,12 @@ fn smelt_builtin_receiver_elements(value: &SmeltUnknown) -> Option<Vec<SmeltUnkn
 fn smelt_builtin_relative_index(value: &SmeltUnknown, len: usize, default: usize) -> usize { match value { SmeltUnknown::Undefined => default, other => { let raw = match other { SmeltUnknown::Number(value) => *value, _ => 0.0 }; if raw.is_nan() { 0 } else if raw < 0.0 { let from_end = len as f64 + raw; if from_end < 0.0 { 0 } else { from_end as usize } } else { (raw as usize).min(len) } } } }
 
 /// Apply one modeled builtin member to its arguments.
-fn smelt_builtin_member_apply(key: &str, args: Vec<SmeltUnknown>) -> SmeltUnknown {
+fn smelt_builtin_member_apply(key: &str, args: Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn ::std::error::Error>> {
+    if key == "Array.prototype.flatMap" { return smelt_builtin_flat_map(&args); }
     let receiver = args.first().map_or(SmeltUnknown::Undefined, Clone::clone);
     let first = args.get(1).map_or(SmeltUnknown::Undefined, Clone::clone);
     let second = args.get(2).map_or(SmeltUnknown::Undefined, Clone::clone);
-    match key {
+    Ok(match key {
         "Array.prototype.slice" => match smelt_builtin_receiver_elements(&receiver) { Some(values) => { let len = values.len(); let start = smelt_builtin_relative_index(&first, len, 0); let end = smelt_builtin_relative_index(&second, len, len); SmeltUnknown::Array(values.into_iter().skip(start).take(end.saturating_sub(start)).collect::<Vec<_>>().into()) } None => SmeltUnknown::Undefined }
         "Array.prototype.concat" => match smelt_builtin_receiver_elements(&receiver) { Some(values) => { let mut result = values; for argument in args.into_iter().skip(1) { match argument { SmeltUnknown::Array(items) => result.extend(items.into_vec()), other => result.push(other) } } SmeltUnknown::Array(result.into()) } None => SmeltUnknown::Undefined }
         "Array.prototype.indexOf" | "Array.prototype.lastIndexOf" => match smelt_builtin_receiver_elements(&receiver) { Some(values) => { let mut found: f64 = -1.0; for (index, item) in values.iter().enumerate() { if item.same_js_key(&first) { found = index as f64; if key == "Array.prototype.indexOf" { break; } } } SmeltUnknown::Number(found) } None => SmeltUnknown::Undefined }
@@ -3263,7 +3264,26 @@ fn smelt_builtin_member_apply(key: &str, args: Vec<SmeltUnknown>) -> SmeltUnknow
         "Math.sqrt" => SmeltUnknown::Number(smelt_unknown_to_number(&receiver).sqrt()),
         "Math.max" | "Math.min" => { let is_max = key == "Math.max"; let mut result = if is_max { f64::NEG_INFINITY } else { f64::INFINITY }; for argument in &args { let value = smelt_unknown_to_number(argument); if value.is_nan() { result = f64::NAN; break; } if (is_max && value > result) || (!is_max && value < result) { result = value; } } SmeltUnknown::Number(result) }
         _ => SmeltUnknown::Undefined,
+    })
+}
+
+/// `Array.prototype.flatMap` applied to an erased receiver: `args` is the
+/// receiver, the mapper, and an ignored `thisArg`.
+fn smelt_builtin_flat_map(args: &[SmeltUnknown]) -> Result<SmeltUnknown, Box<dyn ::std::error::Error>> {
+    let receiver = args.first().map_or(SmeltUnknown::Undefined, Clone::clone);
+    let Some(values) = smelt_builtin_receiver_elements(&receiver) else { return Ok(SmeltUnknown::Undefined); };
+    let Some(SmeltUnknown::Function(mapper)) = args.get(1) else { return Err(smelt_prototype_type_error("flatMap mapper function is not callable".to_owned())); };
+    let mut result = Vec::with_capacity(values.len());
+    let mut index = 0.0_f64;
+    for item in values {
+        let produced = mapper(vec![item, SmeltUnknown::Number(index), receiver.clone()])?;
+        index += 1.0;
+        match produced {
+            SmeltUnknown::Array(items) => result.extend(items.into_vec()),
+            other => result.push(other),
+        }
     }
+    Ok(SmeltUnknown::Array(result.into()))
 }
 
 /// The callable an erased value holds: a function, or a callable object's `__smelt_call`.

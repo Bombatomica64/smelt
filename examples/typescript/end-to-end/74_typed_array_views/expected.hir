@@ -27,11 +27,11 @@ module examples/typescript/end-to-end/74_typed_array_views/input.ts (ModuleId(0)
     #8: Float = 8.0
     #9: ArrayBuffer = typed_array_new ArrayBuffer #8
     #10: ArrayBuffer = %2
-    #11: Float64Array = typed_array_new Float64Array #10
+    #11: Float64Array = typed_array_new Float64Array #10 (checked)
     #12: ArrayBuffer = %2
     #13: Float = 2.0
     #14: Float = 4.0
-    #15: Uint8Array = typed_array_new Uint8Array #12 #13 #14
+    #15: Uint8Array = typed_array_new Uint8Array #12 #13 #14 (checked)
     #16: Float = 1.0
     #17: Float = Neg #16
     #18: List<Float> = [#17]
