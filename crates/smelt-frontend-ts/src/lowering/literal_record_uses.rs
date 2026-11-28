@@ -499,9 +499,7 @@ fn literal_shape(expression: &Expression<'_>) -> Result<Shape, Disqualifier> {
         {
             match literal_shape(&unary.argument)? {
                 Shape::Primitive => Ok(Shape::Primitive),
-                Shape::Record(_) | Shape::Array(_) | Shape::Function => {
-                    Err(Disqualifier::Shape)
-                }
+                Shape::Record(_) | Shape::Array(_) | Shape::Function => Err(Disqualifier::Shape),
             }
         }
         _ => Err(Disqualifier::Shape),
@@ -1139,7 +1137,10 @@ mod tests {
         assert_map("const x = { [k]: 1, s: 'v' };", Disqualifier::Shape);
         assert_map("const x = { 1: 'a', s: 2 };", Disqualifier::Shape);
         assert_map("const x = { a: 1, o: other };", Disqualifier::Shape);
-        assert_map("const x = { a: 1, get g() { return 1; } };", Disqualifier::Shape);
+        assert_map(
+            "const x = { a: 1, get g() { return 1; } };",
+            Disqualifier::Shape,
+        );
         assert_map("const x = [{ a: 1 }, { b: 's' }];", Disqualifier::Shape);
     }
 
@@ -1150,15 +1151,29 @@ mod tests {
     #[test]
     fn functions_spelled_in_place_take_the_struct() {
         assert_struct("const x = { a: 1, m() { return 2; } }; x.m(); x.a;");
-        assert_struct("const x = { a: 1, f: () => 1, g: function () { return 3; } }; x.f(); x.g();");
+        assert_struct(
+            "const x = { a: 1, f: () => 1, g: function () { return 3; } }; x.f(); x.g();",
+        );
         assert_struct("const x = { a: 1, m() { return () => 1; } }; const f = x.m; f === x.m;");
         assert_struct("const x = { m() { return function () { return this; }; } }; x.m();");
         assert_struct("const x = { f: () => this }; x.f();");
         assert_struct("const xs = [{ n: 'a', run() { return 1; } }]; for (const x of xs) x.run();");
-        assert_map("const x = { a: 1, m() { return this.a; } };", Disqualifier::Shape);
-        assert_map("const x = { a: 1, m() { return () => this.a; } };", Disqualifier::Shape);
-        assert_map("const x = { a: 1, m() { return super.toString(); } };", Disqualifier::Shape);
-        assert_map("const x = { a: 1, m() { return 1; } }; x.m = g;", Disqualifier::PartWrite);
+        assert_map(
+            "const x = { a: 1, m() { return this.a; } };",
+            Disqualifier::Shape,
+        );
+        assert_map(
+            "const x = { a: 1, m() { return () => this.a; } };",
+            Disqualifier::Shape,
+        );
+        assert_map(
+            "const x = { a: 1, m() { return super.toString(); } };",
+            Disqualifier::Shape,
+        );
+        assert_map(
+            "const x = { a: 1, m() { return 1; } }; x.m = g;",
+            Disqualifier::PartWrite,
+        );
     }
 
     /// Comparing the value by identity is a typed use: a record struct is

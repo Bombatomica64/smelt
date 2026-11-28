@@ -1337,13 +1337,13 @@ impl ModuleBuilder<'_> {
         // Members evaluate in source order.
         let mut lowered = Vec::with_capacity(members.len());
         for (call, member) in members {
-            if let Expression::FunctionExpression(function) = member {
-                if crate::lowering::own_this::function_reads_own_this(function) {
-                    return Err(SmeltError::unsupported(
-                        self.span(function.span.start, function.span.end),
-                        "an iterator object literal whose `next`/`return`/`throw` reads `this` is not lowered yet (use an arrow over closure state, or a class)",
-                    ));
-                }
+            if let Expression::FunctionExpression(function) = member
+                && crate::lowering::own_this::function_reads_own_this(function)
+            {
+                return Err(SmeltError::unsupported(
+                    self.span(function.span.start, function.span.end),
+                    "an iterator object literal whose `next`/`return`/`throw` reads `this` is not lowered yet (use an arrow over closure state, or a class)",
+                ));
             }
             let value = self.expression_with_hint(member, body, Some(step_fn))?;
             let value_ty = Self::expr_ty(body, value);
