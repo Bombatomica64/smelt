@@ -122,6 +122,10 @@ impl FunctionEmitter<'_> {
             // innermost active call installed, so the read is a runtime channel
             // read rather than a local. See `Rvalue::BindThis` for the install.
             Rvalue::ThisRead => Ok(RustExpr::chain(self.this_read_text())),
+            Rvalue::RequireObjectReceiver { builtin } => Ok(RustExpr::chain(format!(
+                "smelt_require_object_receiver(&{this}, {builtin:?})",
+                this = self.this_read_text()
+            ))),
             Rvalue::BindThis { callee, receiver } => {
                 self.bind_this_expr(callee, Some(receiver), dest_ty)
             }
@@ -441,6 +445,22 @@ impl FunctionEmitter<'_> {
                 let symbol = self.operand_expr(operand)?;
                 Ok(symbol.postfix(".description()"))
             }
+            // A registry symbol is identified by the spelling a literal
+            // `Symbol.for(key)` folds to, built here from the run-time key.
+            Rvalue::SymbolFor { key } => {
+                let key_text = self.operand_expr(key)?;
+                Ok(RustExpr::chain(format!("SmeltSymbol::registered(&{key_text})", key_text = key_text.delimited())))
+            }
+            Rvalue::SymbolDescribed { description, site } => {
+                let description_text = self.operand_expr(description)?;
+                let site_text = self.operand_expr(site)?;
+                Ok(site_text.postfix(format!(".described(&{description_text})", description_text = description_text.delimited())))
+            }
+            // `Option<JsString>`, the optional string the op is typed as.
+            Rvalue::SymbolKeyFor { operand } => {
+                let symbol = self.operand_expr(operand)?;
+                Ok(symbol.postfix(".registry_key()"))
+            }
             Rvalue::StructuredClone { operand } => self.structured_clone_expr(operand),
             Rvalue::StringTrim { side, operand } => self.string_trim_expr(*side, operand),
             Rvalue::StringAffix {
@@ -743,8 +763,15 @@ impl FunctionEmitter<'_> {
             Rvalue::DateNow => self.date_now_expr(dest_ty),
             Rvalue::DateSetNow { timestamp } => self.date_set_now_expr(timestamp, dest_ty),
             Rvalue::DateResetNow => self.date_reset_now_expr(dest_ty),
-            Rvalue::DateTimezoneOffset => {
-                Ok(RustExpr::chain("SMELT_DATE_TIMEZONE_OFFSET.with(::std::cell::Cell::get)"))
+            // A test spy's configured value, else the process time zone's
+            // offset at the date's instant, in minutes from local time to UTC
+            // (`0.0 -` keeps UTC's `0` positive).
+            Rvalue::DateTimezoneOffset { timestamp_ms } => {
+                let timestamp_text = self.date_timestamp_expr(timestamp_ms)?;
+                Ok(RustExpr::chain(format!(
+                    "SMELT_DATE_TIMEZONE_OFFSET.with(::std::cell::Cell::get).unwrap_or_else(|| {{ let smelt_timestamp_ms = ({timestamp_text}) as f64; if smelt_timestamp_ms.is_finite() {{ smelt_date_local_offset(smelt_timestamp_ms as i64).map_or(f64::NAN, |smelt_offset| 0.0 - f64::from(smelt_offset) / 60.0) }} else {{ f64::NAN }} }})",
+                    timestamp_text = timestamp_text.delimited()
+                )))
             }
             Rvalue::DateSetTimezoneOffset { offset } => self.date_set_timezone_offset_expr(offset, dest_ty),
             Rvalue::DateResetTimezoneOffset => self.date_reset_timezone_offset_expr(dest_ty),
@@ -772,26 +799,29 @@ impl FunctionEmitter<'_> {
                 self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value),")
             )))),
             Rvalue::DateToIsoString { timestamp_ms } => self.date_to_iso_string_expr(timestamp_ms),
-            Rvalue::DateToString { timestamp_ms } => self.date_to_string_expr(timestamp_ms),
+            Rvalue::DateToString { style, timestamp_ms } => self.date_to_string_expr(*style, timestamp_ms),
             Rvalue::DateToUtcString { timestamp_ms } => self.date_to_utc_string_expr(timestamp_ms),
             Rvalue::JsonIndent { text, space } => self.json_indent_expr(text, space),
-            Rvalue::DateFromParts { parts } => {
-                let text = self.date_from_parts_expr(parts)?;
+            Rvalue::DateFromParts { zone, parts } => {
+                let text = self.date_from_parts_expr(*zone, parts)?;
                 self.date_timestamp_result_expr(&text, dest_ty)
             }
             Rvalue::DateFromValue { value: date_value } => {
                 let text = self.date_timestamp_expr(date_value)?;
                 self.date_timestamp_result_preserving_receiver_expr(&text, dest_ty, date_value)
             }
-            Rvalue::DateGetPart { part, timestamp_ms } => {
-                self.date_get_part_expr(*part, timestamp_ms)
-            }
+            Rvalue::DateGetPart {
+                part,
+                zone,
+                timestamp_ms,
+            } => self.date_get_part_expr(*part, *zone, timestamp_ms),
             Rvalue::DateSetPart {
                 part,
+                zone,
                 timestamp_ms,
                 values,
             } => {
-                let text = self.date_set_part_expr(*part, timestamp_ms, values)?;
+                let text = self.date_set_part_expr(*part, *zone, timestamp_ms, values)?;
                 self.date_setter_result_expr(&text, dest_ty, timestamp_ms)
             }
             Rvalue::UrlField { field, url } => self.url_field_expr(*field, url),

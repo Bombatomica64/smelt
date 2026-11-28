@@ -1,4 +1,5 @@
-//! `Symbol(..)` and `Symbol.for(..)` calls and their runtime spellings.
+//! `Symbol(..)`, `Symbol.for(..)` and `Symbol.keyFor(..)` calls and their runtime
+//! spellings.
 
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
@@ -47,9 +48,12 @@ impl ModuleBuilder<'_> {
         if let Expression::StaticMemberExpression(member) = &call.callee
             && let Expression::Identifier(object) = &member.object
             && self.names_host(object.name.as_str(), "Symbol")
-            && member.property.name == "for"
         {
-            return self.symbol_like_call(call, body, true);
+            match member.property.name.as_str() {
+                "for" => return self.symbol_like_call(call, body, true),
+                "keyFor" => return self.symbol_key_for_call(call, body).map(Some),
+                _ => return Ok(None),
+            }
         }
         let Expression::Identifier(callee) = &call.callee else {
             return Ok(None);
@@ -97,6 +101,35 @@ impl ModuleBuilder<'_> {
                 "a Symbol description holding a lone surrogate is not supported",
             ));
         }
+        let span = self.span(call.span.start, call.span.end);
+        // A description known only at run time: the registry symbol for that
+        // key, or the call site's symbol carrying that description.
+        if let Some(description) = checked_description
+            && !matches!(description_arg, Some(Argument::StringLiteral(_)))
+        {
+            if global {
+                return Ok(Some(body.push_expr(Expr {
+                    kind: ExprKind::SymbolFor { key: description },
+                    ty,
+                    span,
+                })));
+            }
+            let site = body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::Symbol(unique_symbol_spelling("", span))),
+                ty,
+                span,
+            });
+            let base = body.push_expr(Expr {
+                kind: ExprKind::SymbolDescribed { description, site },
+                ty,
+                span,
+            });
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::SymbolUnique { base },
+                ty,
+                span,
+            })));
+        }
         let description = description_arg
             .and_then(|argument| match argument {
                 Argument::StringLiteral(literal) => Some(js_str_text(literal.value).into_owned()),
@@ -108,7 +141,6 @@ impl ModuleBuilder<'_> {
         } else {
             unique_symbol_spelling(&description, self.span(call.span.start, call.span.end))
         };
-        let span = self.span(call.span.start, call.span.end);
         let literal = body.push_expr(Expr {
             kind: ExprKind::Literal(Literal::Symbol(value)),
             ty,
@@ -124,6 +156,53 @@ impl ModuleBuilder<'_> {
             ty,
             span,
         })))
+    }
+
+    /// Lower `Symbol.keyFor(symbol)`: the key of a registry symbol, or
+    /// `undefined`, so the result is an optional string.
+    fn symbol_key_for_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let span = self.span(call.span.start, call.span.end);
+        let [argument] = call.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                span,
+                "Symbol.keyFor(...) takes exactly one symbol argument",
+            ));
+        };
+        let operand = self.argument(argument, body)?;
+        if !matches!(
+            self.ctx.krate.types.get(Self::expr_ty(body, operand)),
+            Some(Type::Symbol)
+        ) {
+            return Err(SmeltError::unsupported(
+                span,
+                "Symbol.keyFor(...) argument must be a symbol",
+            ));
+        }
+        Ok(self.symbol_key_for_expr(operand, span, body))
+    }
+
+    /// The `Symbol.keyFor` read of `operand`, typed `string | undefined`.
+    pub(in crate::lowering) fn symbol_key_for_expr(
+        &mut self,
+        operand: smelt_hir::ExprId,
+        span: Span,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let string = self.ctx.krate.types.intern(Type::String);
+        let ty = self
+            .ctx
+            .krate
+            .types
+            .intern(Type::Optional(string, smelt_hir::Absence::Undefined));
+        body.push_expr(Expr {
+            kind: ExprKind::SymbolKeyFor { operand },
+            ty,
+            span,
+        })
     }
 
     /// `sym.description` on a `symbol`: the text it was created with, or

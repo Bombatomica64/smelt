@@ -228,7 +228,7 @@ impl FunctionEmitter<'_> {
                     return Ok(RustExpr::path("true"));
                 }
                 (smelt_hir::PrimitiveCastOp::ToString, Type::String | Type::PyStr) => {
-                    return self.date_to_string_expr(operand);
+                    return self.date_to_string_expr(smelt_hir::DateStringStyle::Full, operand);
                 }
                 _ => {}
             }

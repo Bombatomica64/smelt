@@ -338,7 +338,21 @@ impl FunctionEmitter<'_> {
             // is a `SmeltUnknown` whose `IntoSmeltUnknown` impl is the identity.
             // The operand twin (`erase`) has to gate the same conversion on
             // scope because it must not perturb the erased spelling's bytes.
-            Some(Type::TypeParam { .. }) => Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!("({value_text}).into_smelt_unknown()", value_text = value_text.delimited())))),
+            //
+            // A lifted `T` takes the twin's bound conversion
+            // (`EmitContext::bound_conversion`): the two entries must agree
+            // about every `Type`, and which one a whole `T` reaches depends
+            // only on whether its caller had it rendered already. The same
+            // arm erases a `T` element inside a container rebuild; the
+            // boundary records the conversion, and the generic decision then
+            // requires every erased seam to keep identity, which is what
+            // rejects such a rebuild.
+            Some(Type::TypeParam { name }) => {
+                let _bound_conversion = self
+                    .current_function_has_type_param(*name)
+                    .then(|| self.context.bound_conversion());
+                Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!("({value_text}).into_smelt_unknown()", value_text = value_text.delimited()))))
+            }
             // As in `rendered_at_type`: erase the `void` value, but run the
             // expression that produced it.
             Some(Type::None | Type::Never) | None if !value_text.is_unit() => {

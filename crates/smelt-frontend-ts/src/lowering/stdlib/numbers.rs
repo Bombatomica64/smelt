@@ -355,6 +355,7 @@ impl ModuleBuilder<'_> {
             let ty = self.ctx.krate.types.intern(Type::String);
             return Ok(Some(body.push_expr(Expr {
                 kind: ExprKind::DateToString {
+                    style: smelt_hir::DateStringStyle::Full,
                     timestamp_ms: operand,
                 },
                 ty,

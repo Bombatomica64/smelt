@@ -26,7 +26,7 @@ thread_local! {
 
 // @smelt:item SMELT_DATE_TIMEZONE_OFFSET when date_timezone_offset
 thread_local! {
-    static SMELT_DATE_TIMEZONE_OFFSET: ::std::cell::Cell<f64> = const { ::std::cell::Cell::new(0.0) };
+    static SMELT_DATE_TIMEZONE_OFFSET: ::std::cell::Cell<Option<f64>> = const { ::std::cell::Cell::new(None) };
 }
 
 // @smelt:item-end
@@ -108,7 +108,16 @@ mod clock_tests {
         );
     }
 
-    /// The `Date` override slots start unset, so `Date.now()` reads the clock.
+    /// The `Date` override slots start unset, so `Date.now()` reads the clock
+    /// and `getTimezoneOffset()` the process time zone.
+    ///
+    /// Corrected expectation. Old requirement: the offset slot starts at `0.0`,
+    /// because the generated date model kept local time at UTC. New
+    /// requirement: the slot starts unset (`None`), because local time is now
+    /// the process time zone (`TZ`, as Node reads it) and only a test spy
+    /// pins an offset; with no spy, `getTimezoneOffset()` answers the zone's
+    /// offset at the date (`date_local_tz` parity fixture). The guarantee the
+    /// test kept, that nothing is pinned until a test pins it, is unchanged.
     #[test]
     fn date_overrides_default_to_unset() {
         assert_eq!(
@@ -116,12 +125,10 @@ mod clock_tests {
             None,
             "no pinned system time until a test sets one"
         );
-        assert!(
-            SMELT_DATE_TIMEZONE_OFFSET
-                .with(::std::cell::Cell::get)
-                .abs()
-                < f64::EPSILON,
-            "the default timezone offset is UTC"
+        assert_eq!(
+            SMELT_DATE_TIMEZONE_OFFSET.with(::std::cell::Cell::get),
+            None,
+            "no pinned timezone offset until a test spy sets one"
         );
     }
 }

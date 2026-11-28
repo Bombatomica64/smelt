@@ -316,6 +316,9 @@ pub(crate) struct EmitContext {
     /// Nesting of real dynamic boundaries, inside which a carrier use does not
     /// count.
     carrier_boundaries: std::cell::Cell<usize>,
+    /// Whether the render under trial erased a whole own `T` through its
+    /// `IntoSmeltUnknown` bound; see [`Self::bound_conversion`].
+    bound_conversion_used: std::cell::Cell<bool>,
     /// The generated traits of class- and interface-bounded type parameters
     /// (see [`crate::bound_traits`]).
     bound_traits: crate::bound_traits::BoundTraitPlan,
@@ -541,6 +544,7 @@ impl EmitContext {
             carrier_first_touch: std::cell::Cell::new(None),
             demotion_requested: std::cell::Cell::new(false),
             carrier_boundaries: std::cell::Cell::new(0),
+            bound_conversion_used: std::cell::Cell::new(false),
             minted: render_state::MintedItems::default(),
             startup: Vec::new(),
         })
@@ -603,6 +607,35 @@ impl EmitContext {
         self.carrier_boundaries
             .set(self.carrier_boundaries.get().saturating_add(1));
         CarrierBoundary { context: self }
+    }
+
+    /// Opens the boundary of a whole own-`T` value erased through the
+    /// `IntoSmeltUnknown` bound its lifted signature declares.
+    ///
+    /// The conversion is the bound's own method, which every instantiation
+    /// supplies, so the generic trial does not count it as a carrier use. It
+    /// is recorded instead ([`Self::take_bound_conversion_used`]): a lifted `T`
+    /// that is a container at run time crosses the carrier whole, but a
+    /// container OF `T` reaching an erased slot is rebuilt element by element
+    /// and loses the JavaScript aliasing the erased signature keeps. The
+    /// element erasures inside such a rebuild reach this same boundary, so a
+    /// body that used it keeps its generics only when every erased seam keeps
+    /// identity (`FunctionEmitter::erased_seams_keep_identity`), the MIR-level
+    /// statement of "no container of `T` is rebuilt".
+    ///
+    /// Inside an already open real dynamic boundary (a mutable-list adapter,
+    /// a thrown payload) nothing counts, so nothing is recorded either.
+    pub(crate) fn bound_conversion(&self) -> CarrierBoundary<'_> {
+        if self.carrier_boundaries.get() == 0 {
+            self.bound_conversion_used.set(true);
+        }
+        self.carrier_boundary()
+    }
+
+    /// Answers whether a [`Self::bound_conversion`] was opened since the last
+    /// call, and clears it.
+    pub(crate) fn take_bound_conversion_used(&self) -> bool {
+        self.bound_conversion_used.replace(false)
     }
 
     /// Answers whether the carrier was touched since the last call, and clears it.
@@ -847,16 +880,46 @@ impl EmitContext {
                         // lifted parameter carries) keeps them generic
                         // (`generic_lifting::type_params_stay_opaque`).
                         self.take_demotion_requested();
-                        let strict = emitter.renders_real_generics()?;
+                        let render = emitter.renders_real_generics()?;
                         let demotion_requested = self.take_demotion_requested();
-                        let generic = (strict
-                            || (!demotion_requested
-                                && crate::generic_lifting::type_params_stay_opaque(mir, function)
-                                && emitter.signature_spells_own_type_params()?
-                                && emitter.erased_seams_keep_identity()?))
-                            && !emitter.stores_null_at_own_optional();
+                        // The first fallback condition that fails, in the
+                        // order the rescue asks them; `None` when the
+                        // function keeps its generics.
+                        let fallback = if emitter.stores_null_at_own_optional() {
+                            Some("stores null at an own `T | null`")
+                        } else if render.clean && !render.bound_conversions {
+                            None
+                        } else if render.clean {
+                            // Clean only through whole-`T` bound conversions:
+                            // those may inspect a `T` (`===`, a key), but no
+                            // container of `T` may be rebuilt at an erased seam.
+                            (!emitter.erased_seams_keep_identity()?)
+                                .then_some("an element of a container of `T` is erased (a rebuild)")
+                        } else if demotion_requested {
+                            Some("demotion requested by the render")
+                        } else if !crate::generic_lifting::type_params_stay_opaque(mir, function) {
+                            Some("a type parameter is inspected or constrained (MIR)")
+                        } else if !emitter.signature_spells_own_type_params()? {
+                            Some("the signature does not spell every type parameter")
+                        } else if !emitter.erased_seams_keep_identity()? {
+                            Some("an erased seam would copy a container")
+                        } else {
+                            None
+                        };
+                        let generic = fallback.is_none();
+                        let demotion = fallback.map(|reason| generic_trial::GenericDemotion {
+                            first_touch: render.first_touch,
+                            fallback: reason,
+                        });
                         let reads = self.generic_reads.take();
-                        trials.insert(function.id, TrialOutcome { generic, reads });
+                        trials.insert(
+                            function.id,
+                            TrialOutcome {
+                                generic,
+                                reads,
+                                demotion,
+                            },
+                        );
                         trials
                             .get(&function.id)
                             .ok_or_else(|| EmitError::new("trial outcome was not recorded"))?
@@ -876,6 +939,14 @@ impl EmitContext {
                 .copied()
                 .collect();
             if changed.is_empty() {
+                for function in signature_safe {
+                    if let Some(demotion) = trials
+                        .get(&function.id)
+                        .and_then(|outcome| outcome.demotion.as_ref())
+                    {
+                        FunctionEmitter::trace_generic_trial_demotion(mir, function, demotion);
+                    }
+                }
                 return Ok(next);
             }
             *self.generic_functions.borrow_mut() = next;
@@ -1756,6 +1827,8 @@ struct TrialOutcome {
     generic: bool,
     /// The functions whose generic status the trial read.
     reads: HashSet<FuncId>,
+    /// Why the function was left erased, for the demotion trace.
+    demotion: Option<generic_trial::GenericDemotion>,
 }
 
 /// An open [`EmitContext::carrier_boundary`].

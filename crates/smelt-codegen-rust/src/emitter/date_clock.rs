@@ -47,7 +47,7 @@ impl FunctionEmitter<'_> {
         dest_ty: TypeId,
     ) -> Result<RustExpr, EmitError> {
         Ok(RustExpr::atom(format!(
-            "{{ SMELT_DATE_TIMEZONE_OFFSET.with(|smelt_value| smelt_value.set({})); {} }}",
+            "{{ SMELT_DATE_TIMEZONE_OFFSET.with(|smelt_value| smelt_value.set(Some({}))); {} }}",
             self.value_at_type(offset, self.type_id(Type::Float)?)?
                 .delimited(),
             self.default_value(dest_ty)?.delimited()
@@ -60,7 +60,7 @@ impl FunctionEmitter<'_> {
         dest_ty: TypeId,
     ) -> Result<RustExpr, EmitError> {
         Ok(RustExpr::atom(format!(
-            "{{ SMELT_DATE_TIMEZONE_OFFSET.with(|smelt_value| smelt_value.set(0.0)); {} }}",
+            "{{ SMELT_DATE_TIMEZONE_OFFSET.with(|smelt_value| smelt_value.set(None)); {} }}",
             self.default_value(dest_ty)?.delimited()
         )))
     }

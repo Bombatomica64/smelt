@@ -1,0 +1,6 @@
+resolve true PromiseResolve called on non-object
+reject true PromiseReject called on non-object
+all true Promise.all called on non-object
+5
+6,7
+rejected

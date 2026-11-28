@@ -2349,7 +2349,7 @@ spy.mockRestore();
     ensure!(
         expressions
             .iter()
-            .any(|expr| matches!(expr, ExprKind::DateTimezoneOffset))
+            .any(|expr| matches!(expr, ExprKind::DateTimezoneOffset { .. }))
     );
     ensure!(
         expressions

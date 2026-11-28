@@ -12,8 +12,8 @@ mod common;
 use std::fs;
 
 use common::{
-    TempProject, TestResult, cargo_run_manifest, ensure, ensure_eq, ensure_node_agrees, smelt_in,
-    workspace_root,
+    TempProject, TestResult, cargo_run_manifest, cargo_run_manifest_with_env, ensure, ensure_eq,
+    ensure_node_agrees, ensure_node_agrees_in_zone, smelt_in, workspace_root,
 };
 
 /// Build fixture `name` and check its stdout against the golden and Node.
@@ -25,20 +25,59 @@ fn verify_node_parity(name: &str) -> TestResult {
 /// files of `fixtures/node-parity/<name>/`.
 fn verify_node_parity_with(name: &str, modules: &[&str]) -> TestResult {
     let fixtures = workspace_root()?.join("crates/smelt-transpiler/tests/fixtures/node-parity");
-    let source = fs::read_to_string(fixtures.join(format!("{name}.ts")))?;
     let expected = fs::read_to_string(fixtures.join(format!("{name}.stdout")))?;
-    let module_sources = modules
+    let (files, project) = build_fixture(name, modules)?;
+    let borrowed: Vec<(&str, &str)> = files
         .iter()
-        .map(|module| fs::read_to_string(fixtures.join(name).join(module)))
-        .collect::<Result<Vec<_>, _>>()?;
-    let mut files = vec![("main.ts", source.as_str())];
-    files.extend(
-        modules
-            .iter()
-            .copied()
-            .zip(module_sources.iter().map(String::as_str)),
-    );
-    ensure_node_agrees(&files, "main.ts", &expected, name)?;
+        .map(|(file, text)| (file.as_str(), text.as_str()))
+        .collect();
+    ensure_node_agrees(&borrowed, "main.ts", &expected, name)?;
+    run_in_zone(
+        &project,
+        name,
+        smelt_stdlib::NODE_PROFILE_TIMEZONE,
+        &expected,
+    )
+}
+
+/// Build fixture `name` in the time zones `zones`: one `smelt build`, then for
+/// each zone the golden `<name>.<zone>.stdout` (`/` spelled `_`) is checked
+/// against Node and against the generated program, both run with `TZ` set to
+/// the zone. For programs whose output is local time.
+fn verify_node_parity_in_zones(name: &str, zones: &[&str]) -> TestResult {
+    let fixtures = workspace_root()?.join("crates/smelt-transpiler/tests/fixtures/node-parity");
+    let (files, project) = build_fixture(name, &[])?;
+    let borrowed: Vec<(&str, &str)> = files
+        .iter()
+        .map(|(file, text)| (file.as_str(), text.as_str()))
+        .collect();
+    for zone in zones {
+        let golden = format!("{name}.{}.stdout", zone.replace('/', "_"));
+        let expected = fs::read_to_string(fixtures.join(&golden))?;
+        let label = format!("{name} (TZ={zone})");
+        ensure_node_agrees_in_zone(&borrowed, "main.ts", &expected, &label, zone)?;
+        run_in_zone(&project, &label, zone, &expected)?;
+    }
+    Ok(())
+}
+
+/// A fixture's source files, as `(file name, text)` pairs.
+type FixtureFiles = Vec<(String, String)>;
+
+/// The sources of fixture `name` (its `main.ts` and `modules`), built by
+/// `smelt build` into a temporary project's `dist`.
+fn build_fixture(name: &str, modules: &[&str]) -> TestResult<(FixtureFiles, TempProject)> {
+    let fixtures = workspace_root()?.join("crates/smelt-transpiler/tests/fixtures/node-parity");
+    let mut files = vec![(
+        "main.ts".to_owned(),
+        fs::read_to_string(fixtures.join(format!("{name}.ts")))?,
+    )];
+    for module in modules {
+        files.push((
+            (*module).to_owned(),
+            fs::read_to_string(fixtures.join(name).join(module))?,
+        ));
+    }
     let project = TempProject::new()?;
     let root = project.path();
     fs::create_dir_all(root.join("src"))?;
@@ -64,8 +103,22 @@ clone-strategy = "aggressive"
 "#,
     )?;
     smelt_in(root, &["build"])?;
-    let stdout = cargo_run_manifest(&root.join("dist/Cargo.toml"))?;
-    ensure_eq(&stdout, &expected, format!("{name}: generated Rust stdout"))
+    Ok((files, project))
+}
+
+/// Run the program built in `project` with `TZ` set to `zone`, the zone Node
+/// ran in, and compare its stdout with `expected`.
+fn run_in_zone(project: &TempProject, label: &str, zone: &str, expected: &str) -> TestResult {
+    let stdout = cargo_run_manifest_with_env(
+        &project.path().join("dist/Cargo.toml"),
+        &[("TZ", zone)],
+        &[],
+    )?;
+    ensure_eq(
+        &stdout.as_str(),
+        &expected,
+        format!("{label}: generated Rust stdout"),
+    )
 }
 
 /// Truthiness of every value kind, nullish fallbacks, non-null forwarding, by-reference
@@ -2576,4 +2629,40 @@ fn switch_chain_continue() -> TestResult {
 #[test]
 fn in_place_effects() -> TestResult {
     verify_node_parity("in_place_effects")
+}
+
+/// A generic body whose only carrier uses erase a type parameter through its
+/// `IntoSmeltUnknown` bound keeps its generics (the callback sees the caller's
+/// own array); one whose erased elements would copy a list both sides keep
+/// stays erased, so a push through the kept list reaches the result.
+#[test]
+fn generic_bound_erasure() -> TestResult {
+    verify_node_parity("generic_bound_erasure")
+}
+
+/// `Symbol.for` with a run-time key interns by key (the literal-key symbol and
+/// property included), `Symbol.keyFor` reads the key back, both work as
+/// values, and `Symbol(description)` keeps a run-time description.
+#[test]
+fn symbol_registry() -> TestResult {
+    verify_node_parity("symbol_registry")
+}
+
+/// `Promise.resolve`/`reject`/`all` called through a copy without a receiver
+/// throw Node's `TypeError: … called on non-object`; with `Promise` as `this`
+/// (`.call`, `.bind`) they work.
+#[test]
+fn promise_static_receiver() -> TestResult {
+    verify_node_parity("promise_static_receiver")
+}
+
+/// Local-time `Date` getters, setters, constructor parts, string and locale
+/// methods follow the process time zone like Node, across DST changes and in
+/// a southern-hemisphere zone; the UTC methods stay UTC.
+#[test]
+fn date_local_tz() -> TestResult {
+    verify_node_parity_in_zones(
+        "date_local_tz",
+        &["America/New_York", "Asia/Kolkata", "Australia/Sydney"],
+    )
 }

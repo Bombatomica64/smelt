@@ -88,6 +88,8 @@ holds_no_types!(
     crate::ByteArrayOp,
     crate::CryptoOp,
     crate::DatePart,
+    crate::DateStringStyle,
+    crate::DateZone,
     crate::DictProjectionOp,
     crate::EventEmitterOp,
     crate::FormDataOp,

@@ -176,14 +176,26 @@ impl FunctionEmitter<'_> {
         )))
     }
 
-    /// Converts a timestamp in milliseconds to JavaScript Date string output.
+    /// The text of a local-time `Date` string method (`toString`,
+    /// `toDateString`, `toTimeString`, `toLocale*String` in `en-US`), read
+    /// in the process time zone by the runtime's `smelt_date_local_string`;
+    /// `"Invalid Date"` for an invalid date, as JavaScript's.
     pub(super) fn date_to_string_expr(
         &self,
+        style: smelt_hir::DateStringStyle,
         timestamp_ms: &Operand,
     ) -> Result<RustExpr, EmitError> {
         let timestamp_text = self.date_timestamp_expr(timestamp_ms)?;
+        let style_key = match style {
+            smelt_hir::DateStringStyle::Full => "full",
+            smelt_hir::DateStringStyle::Date => "date",
+            smelt_hir::DateStringStyle::Time => "time",
+            smelt_hir::DateStringStyle::LocaleFull => "locale",
+            smelt_hir::DateStringStyle::LocaleDate => "locale_date",
+            smelt_hir::DateStringStyle::LocaleTime => "locale_time",
+        };
         Ok(RustExpr::atom(format!(
-            "{{ let smelt_timestamp_ms = ({timestamp_text}) as f64; if smelt_timestamp_ms.is_finite() {{ chrono::DateTime::<chrono::Utc>::from_timestamp_millis(smelt_timestamp_ms as i64).map(|smelt_date| smelt_date.to_rfc2822()).unwrap_or_else(|| \"Invalid Date\".to_owned()) }} else {{ \"Invalid Date\".to_owned() }} }}",
+            "{{ let smelt_timestamp_ms = ({timestamp_text}) as f64; if smelt_timestamp_ms.is_finite() {{ smelt_date_local_string(smelt_timestamp_ms as i64, {style_key:?}) }} else {{ \"Invalid Date\".to_owned() }} }}",
             timestamp_text = timestamp_text.delimited()
         )))
     }
@@ -322,7 +334,15 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts JavaScript Date constructor parts to a timestamp in milliseconds.
-    pub(super) fn date_from_parts_expr(&self, parts: &[Operand]) -> Result<RustExpr, EmitError> {
+    ///
+    /// Local-time parts (`new Date(y, m, ..)`) build the local time value with
+    /// the same arithmetic and store its `UTC` conversion
+    /// ([`utc_from_local_ms`]); `Date.UTC` parts store it as is.
+    pub(super) fn date_from_parts_expr(
+        &self,
+        zone: smelt_hir::DateZone,
+        parts: &[Operand],
+    ) -> Result<RustExpr, EmitError> {
         if parts.is_empty() || parts.len() > 7 {
             return Err(EmitError::new(
                 "Date constructor expects one to seven arguments",
@@ -359,7 +379,7 @@ impl FunctionEmitter<'_> {
         // year/month pair goes through the calendar; the rest is arithmetic on
         // milliseconds, as the spec states it. A non-finite part or a result
         // past TimeClip's range is `NaN` (`i64::MIN` here).
-        Ok(RustExpr::atom(format!(
+        let utc_parts = RustExpr::atom(format!(
             "{{ let smelt_parts: [f64; 7] = [({year}) as f64, ({month}) as f64, ({day}) as f64, ({hour}) as f64, ({minute}) as f64, ({second}) as f64, ({milli}) as f64]; if smelt_parts.iter().all(|smelt_part| smelt_part.is_finite()) {{ let [smelt_year, smelt_month, smelt_day, smelt_hour, smelt_minute, smelt_second, smelt_milli] = smelt_parts.map(f64::trunc); let smelt_year = if (0.0..=99.0).contains(&smelt_year) {{ 1900.0 + smelt_year }} else {{ smelt_year }}; let smelt_month_year = smelt_year + (smelt_month / 12.0).floor(); let smelt_month0 = smelt_month.rem_euclid(12.0); i32::try_from(smelt_month_year as i64).ok().and_then(|smelt_month_year| chrono::NaiveDate::from_ymd_opt(smelt_month_year, smelt_month0 as u32 + 1, 1)).and_then(|smelt_first| smelt_first.and_hms_opt(0, 0, 0)).map(|smelt_first| smelt_first.and_utc().timestamp_millis() as f64 + (smelt_day - 1.0) * 86_400_000.0 + smelt_hour * 3_600_000.0 + smelt_minute * 60_000.0 + smelt_second * 1_000.0 + smelt_milli).filter(|smelt_time| smelt_time.abs() <= 8.64e15).map_or(i64::MIN, |smelt_time| smelt_time as i64) }} else {{ i64::MIN }} }}",
             year = year.delimited(),
             month = month.delimited(),
@@ -368,16 +388,23 @@ impl FunctionEmitter<'_> {
             minute = minute.delimited(),
             second = second.delimited(),
             milli = milli.delimited(),
-        )))
+        ));
+        Ok(match zone {
+            smelt_hir::DateZone::Utc => utc_parts,
+            smelt_hir::DateZone::Local => utc_from_local_ms(&utc_parts),
+        })
     }
 
-    /// Converts a JavaScript local date getter to Rust text.
+    /// Converts a JavaScript date getter to Rust text: the component of the
+    /// time value's UTC fields, read from `LocalTime(t)` for a local-time
+    /// getter ([`local_time`]).
     pub(super) fn date_get_part_expr(
         &self,
         part: smelt_hir::DatePart,
+        zone: smelt_hir::DateZone,
         timestamp_ms: &Operand,
     ) -> Result<RustExpr, EmitError> {
-        let timestamp_text = self.date_timestamp_expr(timestamp_ms)?;
+        let timestamp_text = self.date_zone_input(zone, self.date_timestamp_expr(timestamp_ms)?);
         let (trait_use, accessor) = match part {
             smelt_hir::DatePart::FullYear => ("chrono::Datelike as _", "smelt_date.year() as f64"),
             smelt_hir::DatePart::Month => ("chrono::Datelike as _", "smelt_date.month0() as f64"),
@@ -400,17 +427,20 @@ impl FunctionEmitter<'_> {
         )))
     }
 
-    /// Converts a JavaScript local date setter to a replacement timestamp.
+    /// Converts a JavaScript date setter to a replacement timestamp: the UTC
+    /// field update, between `LocalTime(t)` and `UTC(..)` for a local-time
+    /// setter ([`local_time`], [`utc_from_local_ms`]).
     pub(super) fn date_set_part_expr(
         &self,
         part: smelt_hir::DatePart,
+        zone: smelt_hir::DateZone,
         timestamp_ms: &Operand,
         values: &[Operand],
     ) -> Result<RustExpr, EmitError> {
         if values.is_empty() {
             return Err(EmitError::new("Date setter requires at least one value"));
         }
-        let timestamp_text = self.date_timestamp_expr(timestamp_ms)?;
+        let timestamp_text = self.date_zone_input(zone, self.date_timestamp_expr(timestamp_ms)?);
         let value_texts = values
             .iter()
             .map(|value| self.date_timestamp_expr(value))
@@ -520,10 +550,23 @@ impl FunctionEmitter<'_> {
                 )
             }
         };
-        Ok(RustExpr::atom(format!(
+        let updated = RustExpr::atom(format!(
             "{{ use chrono::{{Datelike as _, Timelike as _}}; let smelt_timestamp_ms = ({timestamp_text}) as f64; if smelt_timestamp_ms.is_finite() && {values_are_finite} {{ chrono::DateTime::<chrono::Utc>::from_timestamp_millis(smelt_timestamp_ms as i64).and_then(|smelt_date| {update}).map(|smelt_date| smelt_date.timestamp_millis()).unwrap_or(i64::MIN) }} else {{ i64::MIN }} }}",
             timestamp_text = timestamp_text.delimited()
-        )))
+        ));
+        Ok(match zone {
+            smelt_hir::DateZone::Utc => updated,
+            smelt_hir::DateZone::Local => utc_from_local_ms(&updated),
+        })
+    }
+
+    /// The time value a date template reads its UTC fields from: the
+    /// timestamp itself in UTC, `LocalTime(t)` in local time.
+    fn date_zone_input(&self, zone: smelt_hir::DateZone, timestamp_text: RustExpr) -> RustExpr {
+        match zone {
+            smelt_hir::DateZone::Utc => timestamp_text,
+            smelt_hir::DateZone::Local => local_time(&timestamp_text),
+        }
     }
 
     /// Converts a parsed URL field access to Rust text using the `url` crate.
@@ -586,16 +629,38 @@ impl FunctionEmitter<'_> {
     }
 }
 
+/// `LocalTime(t)` of the time value `timestamp_text` (any numeric Rust type):
+/// `t` plus the process zone's offset at `t` (`smelt_date_local_offset`), an
+/// `f64` that is `NaN` for a non-finite or out-of-range `t`.
+pub(super) fn local_time(timestamp_text: &RustExpr) -> RustExpr {
+    RustExpr::atom(format!(
+        "{{ let smelt_local_t = ({timestamp_text}) as f64; if smelt_local_t.is_finite() {{ smelt_date_local_offset(smelt_local_t as i64).map_or(f64::NAN, |smelt_offset| smelt_local_t + f64::from(smelt_offset) * 1000.0) }} else {{ f64::NAN }} }}",
+        timestamp_text = timestamp_text.delimited()
+    ))
+}
+
+/// `UTC(t)` of the local time value `local_text`, an `i64` whose `i64::MIN`
+/// stands for `NaN` (the date templates' result form): `t` minus the offset
+/// the process zone gives that wall-clock time
+/// (`smelt_date_utc_offset_for_local`).
+fn utc_from_local_ms(local_text: &RustExpr) -> RustExpr {
+    RustExpr::atom(format!(
+        "{{ let smelt_local_ms: i64 = {local_text}; if smelt_local_ms == i64::MIN {{ i64::MIN }} else {{ smelt_date_utc_offset_for_local(smelt_local_ms).map_or(i64::MIN, |smelt_offset| smelt_local_ms - i64::from(smelt_offset) * 1000) }} }}",
+        local_text = local_text.delimited()
+    ))
+}
+
 /// The Rust text that reads the date string held in the `&str`-like local
 /// `text` as a time value in milliseconds: the one date-string rule both the
 /// typed (`string`) and the erased (`unknown`) `new Date(text)` arms emit.
 ///
-/// In order: RFC 3339 with an offset, `Date.prototype.toString`'s form, an
-/// ISO date-time WITHOUT an offset (local time, which the generated date model
-/// keeps at UTC, as `getHours` reads it), an ISO or slashed date (midnight),
-/// else a number's text, else `NaN`.
+/// In order: RFC 3339 with an offset; `Date.prototype.toString`'s form, its
+/// parenthesized zone name ignored as `Date.parse` ignores it; an ISO
+/// date-time WITHOUT an offset, or a slashed date, which ECMAScript (and V8)
+/// read as LOCAL time (`smelt_date_utc_offset_for_local`); an ISO date alone, which
+/// is UTC midnight; else a number's text, else `NaN`.
 fn date_string_parse_text(text: &str) -> String {
     format!(
-        "chrono::DateTime::parse_from_rfc3339(&{text}).or_else(|_| chrono::DateTime::parse_from_str(&{text}, \"%a %b %d %Y %H:%M:%S GMT%z\")).map(|smelt_date| smelt_date.timestamp_millis() as f64).or_else(|_| chrono::NaiveDateTime::parse_from_str(&{text}, \"%Y-%m-%dT%H:%M:%S%.f\").or_else(|_| chrono::NaiveDateTime::parse_from_str(&{text}, \"%Y-%m-%dT%H:%M\")).map(|smelt_date| smelt_date.and_utc().timestamp_millis() as f64)).or_else(|_| chrono::NaiveDate::parse_from_str(&{text}, \"%Y/%m/%d\").or_else(|_| chrono::NaiveDate::parse_from_str(&{text}, \"%Y-%m-%d\")).map(|smelt_date| smelt_date.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp_millis() as f64)).unwrap_or_else(|_| {text}.parse::<f64>().unwrap_or(f64::NAN))"
+        "chrono::DateTime::parse_from_rfc3339(&{text}).or_else(|_| chrono::DateTime::parse_from_str({text}.rsplit_once(\" (\").map_or(&{text}[..], |(smelt_head, _)| smelt_head), \"%a %b %d %Y %H:%M:%S GMT%z\")).map(|smelt_date| smelt_date.timestamp_millis() as f64).or_else(|_| chrono::NaiveDateTime::parse_from_str(&{text}, \"%Y-%m-%dT%H:%M:%S%.f\").or_else(|_| chrono::NaiveDateTime::parse_from_str(&{text}, \"%Y-%m-%dT%H:%M\")).or_else(|_| chrono::NaiveDate::parse_from_str(&{text}, \"%Y/%m/%d\").map(|smelt_date| smelt_date.and_hms_opt(0, 0, 0).unwrap_or_default())).map(|smelt_date| {{ let smelt_local_ms = smelt_date.and_utc().timestamp_millis(); smelt_date_utc_offset_for_local(smelt_local_ms).map_or(f64::NAN, |smelt_offset| (smelt_local_ms - i64::from(smelt_offset) * 1000) as f64) }})).or_else(|_| chrono::NaiveDate::parse_from_str(&{text}, \"%Y-%m-%d\").map(|smelt_date| smelt_date.and_hms_opt(0, 0, 0).unwrap_or_default().and_utc().timestamp_millis() as f64)).unwrap_or_else(|_| {text}.parse::<f64>().unwrap_or(f64::NAN))"
     )
 }

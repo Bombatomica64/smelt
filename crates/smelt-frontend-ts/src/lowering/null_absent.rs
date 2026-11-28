@@ -93,6 +93,23 @@ impl ModuleBuilder<'_> {
             })
     }
 
+    /// Whether the TS7 checker types the expression at `start..end` as the
+    /// global (lib) class or interface `name`, such as `Date`; a source class
+    /// of the same name is module-qualified and does not count. `false`
+    /// without facts.
+    pub(in crate::lowering) fn checker_types_as_global_class(
+        &self,
+        start: u32,
+        end: u32,
+        name: &str,
+    ) -> bool {
+        self.ts_facts
+            .and_then(|facts| facts.type_at(&self.path, start, end))
+            .is_some_and(|ty| {
+                matches!(&ty.kind, TsTypeKind::Named { symbol, .. } if symbol.qualified_name == name)
+            })
+    }
+
     /// Whether the TS7 checker types the expression at `start..end` as a string.
     /// `false` without facts.
     pub(in crate::lowering) fn checker_types_as_string(&self, start: u32, end: u32) -> bool {
@@ -220,6 +237,22 @@ impl ModuleBuilder<'_> {
                 kind: ExprKind::Block(block),
                 ty: string_ty,
                 span,
+            });
+        }
+        // A `Date` converts through its `toString`, the local-time text.
+        if matches!(
+            self.ctx.krate.types.get(operand_ty),
+            Some(Type::Class { .. })
+        ) && self.type_is_known_date_value(operand_ty)
+        {
+            let string_ty = self.ctx.krate.types.intern(Type::String);
+            return body.push_expr(Expr {
+                kind: ExprKind::DateToString {
+                    style: smelt_hir::DateStringStyle::Full,
+                    timestamp_ms: operand,
+                },
+                ty: string_ty,
+                span: self.span(start, end),
             });
         }
         if matches!(

@@ -551,7 +551,9 @@ impl FunctionEmitter<'_> {
         // trial does not count it against the body. Only a whole operand of type
         // `T` qualifies: a container of `T`s erases by rebuilding its storage,
         // which loses JavaScript aliasing the erased signature keeps, and still
-        // counts.
+        // counts. An operand is always a whole value, so unlike the rendered
+        // twin (`erase_value`, see `EmitContext::bound_conversion`) this needs
+        // no seam check afterwards.
         let _bound_conversion = matches!(
             self.mir.types.get(ty),
             Some(Type::TypeParam { name }) if self.current_function_has_type_param(*name)
