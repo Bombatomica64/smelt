@@ -89,6 +89,81 @@ impl ModuleBuilder<'_> {
         ))
     }
 
+    /// `print(*values, sep=..., end=..., file=..., flush=...)`: the values'
+    /// `str`s joined by `sep` (default `" "`) and followed by `end` (default
+    /// `"\n"`), written as one text with nothing added (`ExprKind::PyWrite`);
+    /// `None` for `sep` or `end` is the default. `file=` may name `sys.stdout`
+    /// or `sys.stderr`; `flush=` changes nothing a program's output shows,
+    /// and is accepted when it is a literal (its evaluation cannot be seen).
+    fn print_with_keywords(&mut self, call: &ruff_python_ast::ExprCall, span: Span, body: &mut Body) -> Result<smelt_hir::ExprId, SmeltError> {
+        let str_ty = self.intern_type(Type::PyStr);
+        let none_ty = self.intern_type(Type::None);
+        let values = call.arguments.args.iter().map(|arg| self.expression(arg, body)).collect::<Result<Vec<_>, _>>()?;
+        let mut sep = None;
+        let mut end = None;
+        let mut stderr = false;
+        for keyword in &call.arguments.keywords {
+            let keyword_span = self.span(keyword.range);
+            match keyword.arg.as_ref().map(ruff_python_ast::Identifier::as_str) {
+                Some(slot @ ("sep" | "end")) => {
+                    if matches!(keyword.value, Expr::NoneLiteral(_)) {
+                        continue;
+                    }
+                    let value = self.expression(&keyword.value, body)?;
+                    if Self::expr_ty(body, value) != str_ty {
+                        return Err(SmeltError::unsupported(keyword_span, format!("print()'s `{slot}=` must be a str")));
+                    }
+                    if slot == "sep" { sep = Some(value) } else { end = Some(value) }
+                }
+                Some("file") => {
+                    let stream = match &keyword.value {
+                        Expr::Attribute(attr) if matches!(attr.value.as_ref(), Expr::Name(module) if self.import_aliases.get(module.id.as_str()).is_some_and(|target| target == "sys")) => attr.attr.as_str(),
+                        _ => "",
+                    };
+                    match stream {
+                        "stdout" => stderr = false,
+                        "stderr" => stderr = true,
+                        _ => return Err(SmeltError::unsupported(keyword_span, "print()'s `file=` must be sys.stdout or sys.stderr")),
+                    }
+                }
+                Some("flush") if matches!(keyword.value, Expr::BooleanLiteral(_) | Expr::NoneLiteral(_)) => {}
+                _ => return Err(SmeltError::unsupported(keyword_span, "print() takes `sep=`, `end=`, `file=` and a literal `flush=`")),
+            }
+        }
+        let literal = |this: &mut Self, text: &str, body: &mut Body| {
+            let ty = this.intern_type(Type::PyStr);
+            body.push_expr(HirExpr { kind: ExprKind::Literal(Literal::String(text.to_owned())), ty, span })
+        };
+        let concat = |lhs: smelt_hir::ExprId, rhs: smelt_hir::ExprId, body: &mut Body| {
+            body.push_expr(HirExpr { kind: ExprKind::BinOp { op: BinOp::Add, lhs, rhs }, ty: str_ty, span })
+        };
+        let mut text: Option<smelt_hir::ExprId> = None;
+        for value in values {
+            let value_span = Self::expr_span(body, value);
+            let shown = self.python_text_expr(value, false, value_span, body)?;
+            text = Some(match text {
+                None => shown,
+                Some(previous) => {
+                    let separator = match sep {
+                        Some(sep) => sep,
+                        None => literal(self, " ", body),
+                    };
+                    let joined = concat(previous, separator, body);
+                    concat(joined, shown, body)
+                }
+            });
+        }
+        let ending = match end {
+            Some(end) => end,
+            None => literal(self, "\n", body),
+        };
+        let text = match text {
+            Some(text) => concat(text, ending, body),
+            None => ending,
+        };
+        Ok(body.push_expr(HirExpr { kind: ExprKind::PyWrite { text, stderr }, ty: none_ty, span }))
+    }
+
     /// The static type of `receiver`, read without lowering it, when its
     /// shape names it directly: a local (as narrowed here), a module
     /// variable, a call of a class constructor, or a field of one of those.
@@ -500,6 +575,9 @@ impl ModuleBuilder<'_> {
                 && let Some(expr) = self.range_call_expression(call, body)?
             {
                 return Ok(Some(expr));
+            }
+            if name.id.as_str() == "print" && !call.arguments.keywords.is_empty() {
+                return self.print_with_keywords(call, span, body).map(Some);
             }
             if name.id.as_str() == "print" {
                 let print_item = self.ensure_print_item(span);

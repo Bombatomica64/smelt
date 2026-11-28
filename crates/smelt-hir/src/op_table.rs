@@ -2770,6 +2770,16 @@ macro_rules! op_group_transcribed {
                 exception: one,
             }
                 => (format!("py_exception_args {exception}"));
+            /// Python's `print(...)` with `sep=`, `end=` or `file=`: write
+            /// `text`, already joined and ended, to standard output (or
+            /// standard error) as it is, adding no newline.
+            PyWrite {
+                /// The complete text to write.
+                text: one @READ,
+                /// Whether it goes to standard error (`file=sys.stderr`).
+                stderr: [bool],
+            }
+                => (format!("py_write {text}, stderr {stderr}"));
             /// `e.value` of a `StopIteration`: its first argument, or `None`,
             /// as the runtime's `SmeltPyExceptionArg`.
             PyExceptionValue {

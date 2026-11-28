@@ -1134,12 +1134,16 @@ impl FunctionEmitter<'_> {
                     ),
                 )
             }),
+            // CPython's `sum` of floats is Neumaier's compensated sum: it
+            // carries the rounding error of each addition and adds it back
+            // once at the end (unless it is not finite), so
+            // `sum([0.1, 0.2, 0.3])` is `0.6`, not the naive `0.6000000000000001`.
             Some(Type::Float) => Ok({
                 let receiver = list_read_expr(&self.operand_expr(list)?);
                 RustExpr::atom_on(
                     &receiver,
                     format!(
-                        "{receiver}.iter().copied().sum::<f64>()",
+                        "{{ let (smelt_total, smelt_error) = {receiver}.iter().copied().fold((0.0_f64, 0.0_f64), |(smelt_total, smelt_error), smelt_item| {{ let smelt_next = smelt_total + smelt_item; let smelt_lost = if smelt_total.abs() >= smelt_item.abs() {{ (smelt_total - smelt_next) + smelt_item }} else {{ (smelt_item - smelt_next) + smelt_total }}; (smelt_next, smelt_error + smelt_lost) }}); if smelt_error != 0.0 && smelt_error.is_finite() {{ smelt_total + smelt_error }} else {{ smelt_total }} }}",
                         receiver = receiver.tight()
                     ),
                 )

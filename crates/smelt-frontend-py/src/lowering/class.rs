@@ -1050,7 +1050,26 @@ impl ModuleBuilder<'_> {
                 }));
             }
 
-            for statement in &initializer.body {
+            // `self.a, self.b = a, b` declares each field as the matching
+            // single assignment would.
+            let statements = initializer.body.iter().flat_map(|statement| match statement {
+                Stmt::Assign(assign) => match (assign.targets.as_slice(), assign.value.as_ref()) {
+                    ([Expr::Tuple(targets)], Expr::Tuple(values)) if targets.elts.len() == values.elts.len() => targets
+                        .elts
+                        .iter()
+                        .zip(&values.elts)
+                        .map(|(target, value)| {
+                            let mut single = assign.clone();
+                            single.targets = vec![target.clone()];
+                            single.value = Box::new(value.clone());
+                            Stmt::Assign(single)
+                        })
+                        .collect::<Vec<_>>(),
+                    _ => vec![statement.clone()],
+                },
+                _ => vec![statement.clone()],
+            });
+            for statement in &statements.collect::<Vec<_>>() {
                 let Some((field_name, field_ty)) = self.constructor_field_declaration(
                     statement,
                     &receivers,

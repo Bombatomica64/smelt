@@ -519,6 +519,7 @@ impl RuntimeDemand {
             | Rvalue::GeneratorTake { .. }
             | Rvalue::GeneratorDone { .. }
             | Rvalue::GeneratorStarted { .. }
+            | Rvalue::PyWrite { .. }
             | Rvalue::GeneratorValue { .. }
             | Rvalue::GeneratorYielded { .. }
             | Rvalue::GeneratorCompleted { .. }

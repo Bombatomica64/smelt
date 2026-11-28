@@ -615,6 +615,14 @@ pub enum StringPredicateOp {
     IsAlpha,
     /// Test for alphanumeric characters.
     IsAlnum,
+    /// Test for whitespace characters (Python's `str.isspace`).
+    IsSpace,
+    /// Test that the string has a cased character and no lowercase one
+    /// (Python's `str.isupper`).
+    IsUpper,
+    /// Test that the string has a cased character and no uppercase one
+    /// (Python's `str.islower`).
+    IsLower,
 }
 
 /// The pattern-taking `String.prototype` method an erased receiver calls.

@@ -761,3 +761,14 @@ fn super_chains() -> TestResult {
 fn narrowing_and_dispatch() -> TestResult {
     verify_python_parity("narrowing_and_dispatch")
 }
+
+/// Semantics a probe sweep found diverging: `print`'s `sep=`/`end=`/`file=`
+/// (ignored before), tuple assignment to existing names, attributes and items
+/// (`a, b = b, a + b` in a loop declared fresh names, so `fib` answered 1),
+/// an exception raised by a property setter (dropped), `a.copy() is a`
+/// (the copy was elided), `sum`'s `start` and CPython's compensated float
+/// sum, and `isspace`/`isupper`/`islower`. Requirements: `CPython`'s output.
+#[test]
+fn sweep_semantics() -> TestResult {
+    verify_python_parity("sweep_semantics")
+}
