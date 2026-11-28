@@ -2629,6 +2629,8 @@ fn switch_chain_continue() -> TestResult {
 #[test]
 fn in_place_effects() -> TestResult {
     verify_node_parity("in_place_effects")
+}
+
 /// A generic body whose only carrier uses erase a type parameter through its
 /// `IntoSmeltUnknown` bound keeps its generics (the callback sees the caller's
 /// own array); one whose erased elements would copy a list both sides keep
