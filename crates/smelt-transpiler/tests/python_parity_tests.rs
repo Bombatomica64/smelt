@@ -793,3 +793,14 @@ fn match_class_patterns() -> TestResult {
 fn sweep_builtins() -> TestResult {
     verify_python_parity("sweep_builtins")
 }
+
+/// `enum.Enum` (refused before: `auto()`, and every member read): singleton
+/// members holding `name` and `value`, `auto()` numbering, `str`/`repr`,
+/// the class as the list of its members (iteration, `len`), lookup by value
+/// with `ValueError` for none, identity and `==`, list membership, a method
+/// in the class body, and `match` on members (`case Color.RED:`).
+/// Requirements: `CPython`'s output.
+#[test]
+fn enum_members() -> TestResult {
+    verify_python_parity("enum_members")
+}

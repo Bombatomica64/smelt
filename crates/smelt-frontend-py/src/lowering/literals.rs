@@ -119,7 +119,13 @@ impl ModuleBuilder<'_> {
             }
 
             // --- Name lookup ---
-            Expr::Name(name) => self.identifier_expression(name.id.as_str(), name.range, body),
+            Expr::Name(name) => {
+                // An `Enum` class used as a value is the list of its members.
+                if let Some(members) = self.enum_members_expression(name.id.as_str(), self.span(name.range), body) {
+                    return Ok(members);
+                }
+                self.identifier_expression(name.id.as_str(), name.range, body)
+            }
 
             // --- Binary / boolean / comparison operators ---
             Expr::BinOp(b) => self.binop_expression(b, body),

@@ -1,0 +1,11 @@
+GREEN 2 True False True
+['RED', 'GREEN', 'BLUE'] 3
+BLUE True
+Color.GREEN <Color.GREEN: 2> [<Color.GREEN: 2>, <Color.BLUE: 3>] Color.GREEN
+[1, 2, 10, 11] Mode.EXCLUSIVE
+cold <Planet.MERCURY: 'hot'> MERCURY
+True False green
+['stop', 'go', 'other']
+ValueError: 7 is not a valid Color
+ValueError: 'lukewarm' is not a valid Planet
+3 2

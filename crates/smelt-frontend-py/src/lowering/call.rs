@@ -25,6 +25,9 @@ impl ModuleBuilder<'_> {
         if let Expr::Lambda(lambda) = call.func.as_ref() {
             return self.immediate_lambda_call(lambda, call, body);
         }
+        if let Some(expr) = self.enum_call_expression(call, body)? {
+            return Ok(expr);
+        }
         if let Some(expr) = self.lambda_template_call(call, body)? {
             return Ok(expr);
         }

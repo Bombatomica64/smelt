@@ -65,6 +65,9 @@ impl ModuleBuilder<'_> {
                         | RuffPattern::MatchAs(PatternMatchAs { name: Some(_), .. })
                         | RuffPattern::MatchClass(_)
                 )
+                // A value pattern naming a constant (`case Color.RED:`) is
+                // compared with `==`, not switched on as a literal.
+                || matches!(&case.pattern, RuffPattern::MatchValue(value) if matches!(value.value.as_ref(), Expr::Attribute(_)))
         });
         if guarded {
             return self.guarded_match_statement(match_stmt, body, block);

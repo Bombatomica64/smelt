@@ -161,6 +161,8 @@ pub(crate) struct ModuleBuilder<'ctx> {
     /// The attribute names a class's `__match_args__` lists (class patterns'
     /// positional sub-patterns, `lowering/match.rs`).
     class_match_args: HashMap<Symbol, Vec<String>>,
+    /// The `Enum` classes of this module by name (`lowering/enums.rs`).
+    enum_classes: HashMap<String, EnumClass>,
     /// The names the module body binds exactly once (`single_binding_names`).
     module_single_binding: HashSet<String>,
     /// The base of each class of this module an `isinstance` compared before
@@ -481,6 +483,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             super_called_methods: HashMap::new(),
             module_class_bases: Vec::new(),
             class_match_args: HashMap::new(),
+            enum_classes: HashMap::new(),
             module_single_binding: HashSet::new(),
             unlowered_class_bases: HashMap::new(),
             type_aliases: HashMap::new(),
@@ -751,6 +754,8 @@ include!("lowering/class_variables.rs");
 include!("lowering/type_name.rs");
 // Class initializer synthesis helpers.
 include!("lowering/class_init.rs");
+// `enum.Enum` classes: singleton members, lookup, text.
+include!("lowering/enums.rs");
 // Function signature and pytest parametrization helpers.
 include!("lowering/function.rs");
 // Function and method bodies lowered after every module-level declaration.
