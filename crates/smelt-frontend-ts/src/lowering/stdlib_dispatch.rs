@@ -203,7 +203,8 @@ mod tests {
     #[test]
     fn similar_unsupported_calls_do_not_match() {
         for source in [
-            "Promise.any(values);",
+            // `Promise.any` is modelled now; `Promise.try` is not.
+            "Promise.try(values);",
             "Math.randomBytes();",
             "Number.parseDouble(text);",
             "Object.entries(value);",

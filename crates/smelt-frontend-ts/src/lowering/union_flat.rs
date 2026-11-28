@@ -97,15 +97,15 @@ impl ModuleBuilder<'_> {
         let members = match flat_depth(Some(depth)) {
             FlatDepth::Known(depth) => self.flat_members(element_ty, depth),
             FlatDepth::Dynamic => {
-                let mut members = Vec::new();
+                let mut every_depth = Vec::new();
                 for level in 0..=MAX_FLAT_DEPTH {
                     for member in self.flat_members(element_ty, level) {
-                        if !members.contains(&member) {
-                            members.push(member);
+                        if !every_depth.contains(&member) {
+                            every_depth.push(member);
                         }
                     }
                 }
-                members
+                every_depth
             }
         };
         Some(self.union_of_types_or_unknown(members))
@@ -122,15 +122,15 @@ impl ModuleBuilder<'_> {
                 Some(Type::List(item_ty)) => self.flat_members(item_ty, depth.saturating_sub(1)),
                 // A tuple is an array: each item flattens one level down.
                 Some(Type::Tuple(items)) if !items.is_empty() => {
-                    let mut members = Vec::new();
+                    let mut item_members = Vec::new();
                     for item in items {
                         for member in self.flat_members(item, depth.saturating_sub(1)) {
-                            if !members.contains(&member) {
-                                members.push(member);
+                            if !item_members.contains(&member) {
+                                item_members.push(member);
                             }
                         }
                     }
-                    members
+                    item_members
                 }
                 _ => vec![arm],
             };

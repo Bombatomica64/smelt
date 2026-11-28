@@ -1,5 +1,6 @@
 //! List emission helpers.
 
+use super::union::union_name;
 use super::*;
 use crate::rust::RustExpr;
 
@@ -1155,13 +1156,13 @@ impl FunctionEmitter<'_> {
         }
         // An explicit depth over nested arrays flattens by the static shape
         // (`typed_nested_flat_expr`).
-        if let Some(depth) = depth
+        if let Some(depth_operand) = depth
             && (matches!(
                 self.mir.types.get(*nested_ty),
                 Some(Type::List(_) | Type::Tuple(_))
             ) || self.concrete_union_members(*nested_ty).is_some())
         {
-            return self.typed_nested_flat_expr(list, *nested_ty, depth, dest_ty);
+            return self.typed_nested_flat_expr(list, *nested_ty, depth_operand, dest_ty);
         }
         if let Some(Type::Tuple(items)) = self.mir.types.get(*nested_ty) {
             if depth.is_some() {
@@ -1296,16 +1297,19 @@ impl FunctionEmitter<'_> {
         // A constant depth (a literal, `Infinity`) decides every level
         // statically, so a level the result type has no arm for is never
         // spelled; a runtime depth tests each level.
-        let fixed = match depth {
-            Operand::Const(smelt_mir::Constant::Float(value)) => Some(if value.is_nan() {
-                0
-            } else {
-                value.max(0.0).floor().min(64.0) as usize
-            }),
-            Operand::Const(smelt_mir::Constant::Int(value)) => {
-                Some(usize::try_from((*value).clamp(0, 64)).unwrap_or(0))
-            }
-            _ => None,
+        // The first level the depth does not reach: `0..=64` covers every
+        // level the walk unwraps, and a larger (or infinite) depth is 64.
+        let fixed = if let Operand::Const(Constant::Float(value)) = depth {
+            Some(
+                (0..=64_u8)
+                    .take_while(|level| f64::from(*level) <= *value)
+                    .count()
+                    .saturating_sub(1),
+            )
+        } else if let Operand::Const(Constant::Int(value)) = depth {
+            Some(usize::try_from((*value).clamp(0, 64)).unwrap_or(0))
+        } else {
+            None
         };
         let body = self.flat_into("smelt_flat_0", element_ty, 0, fixed, *dest_item_ty, &names)?;
         Ok(RustExpr::atom(format!(
@@ -1330,7 +1334,7 @@ impl FunctionEmitter<'_> {
         /// only bounds a pathological one.
         const MAX_LEVEL: usize = 64;
         let fresh = || {
-            names.set(names.get() + 1);
+            names.set(names.get().saturating_add(1));
             format!("smelt_flat_{}", names.get())
         };
         let leaf = |this: &Self| -> Result<String, EmitError> {
@@ -1346,10 +1350,10 @@ impl FunctionEmitter<'_> {
             return leaf(self);
         }
         if let Some(members) = self.concrete_union_members(ty) {
-            let members = members.to_vec();
-            let union = super::union::union_name(ty);
+            let arm_types = members.to_vec();
+            let union = union_name(ty);
             let mut arms = String::new();
-            for (index, member) in members.iter().enumerate() {
+            for (index, member) in arm_types.iter().enumerate() {
                 let name = fresh();
                 let inner = self.flat_into(&name, *member, level, fixed, dest_item_ty, names)?;
                 arms.push_str(&format!("{union}::M{index}({name}) => {{ {inner} }} "));
@@ -1359,8 +1363,14 @@ impl FunctionEmitter<'_> {
         let unwrapped = match self.mir.types.get(ty) {
             Some(Type::List(item_ty)) => {
                 let name = fresh();
-                let inner =
-                    self.flat_into(&name, *item_ty, level + 1, fixed, dest_item_ty, names)?;
+                let inner = self.flat_into(
+                    &name,
+                    *item_ty,
+                    level.saturating_add(1),
+                    fixed,
+                    dest_item_ty,
+                    names,
+                )?;
                 format!(
                     "for {name} in {value}.borrow().iter() {{ let {name} = {name}.clone(); {inner} }}"
                 )
@@ -1369,8 +1379,14 @@ impl FunctionEmitter<'_> {
                 let mut text = String::new();
                 for (index, item_ty) in items.clone().iter().enumerate() {
                     let name = fresh();
-                    let inner =
-                        self.flat_into(&name, *item_ty, level + 1, fixed, dest_item_ty, names)?;
+                    let inner = self.flat_into(
+                        &name,
+                        *item_ty,
+                        level.saturating_add(1),
+                        fixed,
+                        dest_item_ty,
+                        names,
+                    )?;
                     text.push_str(&format!(
                         "{{ let {name} = {value}.{index}.clone(); {inner} }} "
                     ));

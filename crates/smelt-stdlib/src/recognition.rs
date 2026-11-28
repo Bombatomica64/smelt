@@ -695,7 +695,9 @@ mod tests {
             (Some("json"), "parse"),
             (Some("Math"), "randomBytes"),
             (Some("Number"), "parseDouble"),
-            (Some("Promise"), "any"),
+            // `Promise.any` is modelled now (a `TsPromiseStatic` rule), so
+            // the unsupported spelling this case checks is `Promise.try`.
+            (Some("Promise"), "try"),
             (Some("Object"), "entries"),
             (Some("Array"), "of"),
             (Some("value"), "map"),

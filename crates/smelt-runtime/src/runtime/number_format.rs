@@ -533,8 +533,7 @@ fn smelt_number_to_locale_string(value: f64, locale: Option<&str>) -> String {
     let (whole, fraction) = text.split_once('.').unwrap_or((text.as_str(), ""));
     let fraction = fraction.trim_end_matches('0');
     let digits: Vec<char> = whole.chars().collect();
-    let mut grouped = String::new();
-    if digits.len() >= 3 + min_grouping {
+    let grouped = if digits.len() >= 3 + min_grouping {
         let mut positions = Vec::new();
         let mut index = digits.len();
         let mut first = true;
@@ -546,10 +545,10 @@ fn smelt_number_to_locale_string(value: f64, locale: Option<&str>) -> String {
             index = start;
         }
         positions.reverse();
-        grouped = positions.join(group);
+        positions.join(group)
     } else {
-        grouped.extend(digits);
-    }
+        digits.into_iter().collect()
+    };
     let mut out = String::new();
     if negative { out.push('-'); }
     out.push_str(&grouped);

@@ -24,17 +24,23 @@ export const html = s.anchor("x");
     assert_unsupported_ts(&errors, "`String.prototype.anchor` is not modelled")
 }
 
+/// An unmodelled `Number.prototype` form is a named blocker.
+///
+/// Old requirement: `n.toLocaleString("de-DE")` was that blocker. New: a
+/// locale argument is modelled (`number_to_locale_string` Node-parity
+/// fixture), and an options argument, whose digit, currency and unit styles
+/// are not, is the blocker that names it.
 #[test]
 fn an_unmodelled_number_method_is_a_named_blocker() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let errors = lowering_errors(
         ts!(r#"
 const n: number = 5;
-export const text = n.toLocaleString("de-DE");
+export const text = n.toLocaleString("de-DE", { style: "percent" });
 "#),
         &mut ctx,
     )?;
-    assert_unsupported_ts(&errors, "`Number.prototype.toLocaleString` is not modelled")
+    assert_unsupported_ts(&errors, "number.toLocaleString options are not modelled")
 }
 
 #[test]

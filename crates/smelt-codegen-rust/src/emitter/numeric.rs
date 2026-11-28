@@ -209,13 +209,14 @@ impl FunctionEmitter<'_> {
                 if optional_tail == 0 {
                     format!("{}", items.len())
                 } else {
-                    let fixed = items.len() - optional_tail;
-                    let checks: String = (fixed..items.len())
-                        .rev()
-                        .map(|index| {
-                            format!("if smelt_tuple.{index}.is_some() {{ {} }} else ", index + 1)
-                        })
-                        .collect();
+                    let fixed = items.len().saturating_sub(optional_tail);
+                    let mut checks = String::new();
+                    for index in (fixed..items.len()).rev() {
+                        checks.push_str(&format!(
+                            "if smelt_tuple.{index}.is_some() {{ {} }} else ",
+                            index.saturating_add(1)
+                        ));
+                    }
                     format!(
                         "{{ let smelt_tuple = &{receiver_text}; {checks}{{ {fixed} }} }}",
                         receiver_text = receiver_text.tight()
