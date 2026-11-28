@@ -331,6 +331,7 @@ fn need_of_flag(name: &str) -> Option<Need> {
         "byte_array" => Need::ByteArray,
         "data_view" => Need::DataView,
         "data_view_access" => Need::DataViewAccess,
+        "typed_array_view_checked" => Need::TypedArrayViewChecked,
         "deep_eq" => Need::DeepEq,
         "crypto_random_values" => Need::CryptoRandomValues,
         "crypto_digest" => Need::CryptoDigest,

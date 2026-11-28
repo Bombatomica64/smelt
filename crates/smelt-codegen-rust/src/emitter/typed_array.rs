@@ -154,6 +154,40 @@ impl FunctionEmitter<'_> {
         )))
     }
 
+    /// Emit a `checked` `new View(buffer, byteOffset?, length?)`: the view, or
+    /// the `RangeError` JavaScript throws for a misaligned or overlong window
+    /// (`smelt_typed_array_view_throwing`).
+    ///
+    /// The offset and length are passed as the source's numbers, unclamped,
+    /// so the runtime applies `ToIndex` and rejects a negative one.
+    pub(super) fn typed_array_view_call(
+        &self,
+        class_name: &str,
+        args: &[Operand],
+    ) -> Result<RenderedCall, EmitError> {
+        let kind = crate::typed_array_prelude::kind_expression(class_name)
+            .ok_or_else(|| EmitError::new("internal: a checked view needs an element kind"))?;
+        let buffer = args
+            .first()
+            .ok_or_else(|| EmitError::new("internal: a buffer view needs its storage"))?;
+        let buffer_text = self.array_buffer_operand_expr(buffer)?;
+        let number = |operand: &Operand| -> Result<String, EmitError> {
+            Ok(format!(
+                "(({}) as f64)",
+                self.numeric_operand_expr(operand)?.delimited()
+            ))
+        };
+        let offset_text = args.get(1).map_or_else(|| Ok("0.0".to_owned()), number)?;
+        let length_text = match args.get(2) {
+            Some(length) => format!("Some({})", number(length)?),
+            None => "None".to_owned(),
+        };
+        Ok(RenderedCall::propagating(RustExpr::atom(format!(
+            "smelt_typed_array_view_throwing({kind}, &{buffer_text}, {offset_text}, {length_text})",
+            buffer_text = buffer_text.tight()
+        ))))
+    }
+
     /// Emit `new DataView(buffer, byteOffset?, byteLength?)`.
     ///
     /// The window's bounds are byte counts the spec clamps, which the prelude's

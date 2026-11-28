@@ -182,6 +182,8 @@ pub const ORDER: &[Entry] = &[
     Entry::Blank("data_view_access"),
     Entry::Item("smelt_data_view_byte_index"),
     Entry::Item("smelt_data_view_get_bigint_throwing"),
+    Entry::Blank("typed_array_view_checked"),
+    Entry::Item("smelt_typed_array_view_throwing"),
     Entry::Blank("base64"),
     Entry::Item("SMELT_BASE64_FORGIVING"),
     Entry::Blank("global_object & unknown"),

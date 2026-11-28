@@ -67,14 +67,46 @@ impl ModuleBuilder<'_> {
             .map(|argument| self.argument(argument, body))
             .collect::<Result<Vec<_>, _>>()?;
         let ty = self.typed_array_class_type(class_name);
+        let checked = self.typed_array_view_is_checked(class_name, &args, body);
         Ok(body.push_expr(Expr {
             kind: ExprKind::TypedArrayNew {
                 class_name: class_name.to_owned(),
                 args,
+                checked,
             },
             ty,
             span,
         }))
+    }
+
+    /// Whether `new <class_name>(args)` re-views a buffer in a way JavaScript
+    /// validates, so the construction can throw `RangeError`
+    /// (`TypedArrayNew::checked`).
+    ///
+    /// Only an element view over storage is checked: an offset or a length
+    /// argument means the storage spelling, and a lone `ArrayBuffer` argument
+    /// is checked only at an element size above one byte, since its length
+    /// must then be a multiple of that size. `ArrayBuffer` itself, a length,
+    /// an element list and another view never throw this way; neither does an
+    /// erased argument, whose spelling is the runtime's to decide.
+    fn typed_array_view_is_checked(
+        &self,
+        class_name: &str,
+        args: &[smelt_hir::ExprId],
+        body: &Body,
+    ) -> bool {
+        let Some(element) = smelt_stdlib::typed_array_element(class_name) else {
+            return false;
+        };
+        let lone_buffer = || {
+            args.first().is_some_and(|arg| {
+                self.is_modeled_class(
+                    Self::expr_ty(body, *arg),
+                    smelt_stdlib::StdlibClass::ArrayBuffer,
+                )
+            })
+        };
+        args.len() > 1 || (element.byte_width() > 1 && lone_buffer())
     }
 
     /// Return the family class type for a source spelling.

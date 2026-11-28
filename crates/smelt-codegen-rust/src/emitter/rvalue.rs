@@ -311,7 +311,10 @@ impl FunctionEmitter<'_> {
             Rvalue::ByteArrayOp { op, bytes, args } => {
                 self.byte_array_op_expr(*op, bytes, args, dest_ty)
             }
-            Rvalue::TypedArrayNew { class_name, args } => {
+            // A `checked` view is fallible: `typed_array_view_call`.
+            Rvalue::TypedArrayNew {
+                class_name, args, ..
+            } => {
                 self.typed_array_new_expr(class_name, args)
             }
             // A real read: a server must see its environment (`PORT`). The

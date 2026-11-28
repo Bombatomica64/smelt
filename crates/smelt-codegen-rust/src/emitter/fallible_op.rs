@@ -462,6 +462,14 @@ impl FunctionEmitter<'_> {
                 self.rebound_instance_of_call(value, *class)?,
                 self.type_id(Type::Bool)?,
             ),
+            Rvalue::TypedArrayNew {
+                class_name,
+                args,
+                checked: true,
+            } => (
+                self.typed_array_view_call(class_name, args)?,
+                dest_ty.ok_or_else(|| EmitError::new("internal: a typed-array view needs its destination type"))?,
+            ),
             Rvalue::PythonDictRead { dict, key } => self.python_dict_read_call(dict, key)?,
             Rvalue::BindingCheck { binding, unbound } => {
                 self.binding_check_call(binding, *unbound)?

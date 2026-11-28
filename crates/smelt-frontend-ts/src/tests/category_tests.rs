@@ -670,7 +670,7 @@ fn new_byte_buffer_host_lowers_to_the_concrete_family() -> Result<(), String> {
         ensure!(
             body.exprs.iter().any(|expr| matches!(
                 &expr.kind,
-                ExprKind::TypedArrayNew { class_name: spelled, args }
+                ExprKind::TypedArrayNew { class_name: spelled, args, .. }
                     if spelled == class_name && args.len() == arg_count
             )),
             "expected `{source}` to lower to a `{class_name}` TypedArrayNew with {arg_count} argument(s)",
@@ -1065,7 +1065,7 @@ fn typed_array_from_literal_passes_its_elements_to_the_host_construct() -> Resul
         .exprs
         .iter()
         .find_map(|expr| match &expr.kind {
-            ExprKind::TypedArrayNew { class_name, args } if class_name == "Uint8Array" => {
+            ExprKind::TypedArrayNew { class_name, args, .. } if class_name == "Uint8Array" => {
                 Some(args.clone())
             }
             _ => None,

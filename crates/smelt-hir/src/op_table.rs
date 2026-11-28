@@ -1130,14 +1130,31 @@ macro_rules! op_group_transcribed {
             /// spelling: a number is a length, a list is elements, a buffer is a
             /// re-view over shared storage, another view is an element-by-element
             /// conversion, and an erased value is the one honest dynamic boundary.
+            ///
+            /// A view over an existing buffer is validated by JavaScript: an
+            /// offset that is not a multiple of the element size, a buffer
+            /// whose length is not one (with no length given), or a window
+            /// past the buffer's end throws `RangeError`. Such a construction
+            /// is `checked`, and fallible.
             TypedArrayNew {
                 /// The source constructor name — one of the eleven views, or
                 /// `ArrayBuffer`.
                 class_name: [String],
                 /// The constructor arguments, as written.
                 args: many,
+                /// Whether this re-views a buffer in a way JavaScript can
+                /// reject: a view with an offset or length argument, or with a
+                /// lone `ArrayBuffer` argument at an element size above one
+                /// byte (a one-byte view of a whole buffer always fits).
+                checked: [bool],
             }
-                => (format!("typed_array_new {class_name}{}", tail(" ", " ", &args)));
+                fallible(*checked)
+                call("@typed_array_view".to_owned())
+                => (format!(
+                    "typed_array_new {class_name}{}{}",
+                    tail(" ", " ", &args),
+                    if *checked { " (checked)" } else { "" }
+                ));
             /// Read a member of, or call a method on, the concrete typed-array family.
             ByteArrayOp {
                 /// Which member this reads or calls.
