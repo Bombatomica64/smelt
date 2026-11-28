@@ -38,7 +38,16 @@ impl ModuleBuilder<'_> {
             ));
         };
         let operand = self.expression(operand_expr, body)?;
+        self.numeric_abs(operand, span, body)
+    }
+
+    /// `abs(operand)` of a lowered `int` or `float`, or of a union of them
+    /// (on the member it holds, `union_member_dispatch`).
+    fn numeric_abs(&mut self, operand: smelt_hir::ExprId, span: Span, body: &mut Body) -> Result<smelt_hir::ExprId, SmeltError> {
         let operand_ty = Self::expr_ty(body, operand);
+        if matches!(self.ctx.krate.types.get(operand_ty), Some(Type::Union(_))) {
+            return self.union_member_dispatch(operand, span, body, |this, member, inner| this.numeric_abs(member, span, inner));
+        }
         if !matches!(
             self.ctx.krate.types.get(operand_ty),
             Some(Type::PyInt | Type::Float)
@@ -521,11 +530,7 @@ impl ModuleBuilder<'_> {
         let kind = |this: &Self, value: smelt_hir::ExprId, within: &Body| this.ctx.krate.types.get(Self::expr_ty(within, value)).cloned();
         let wrong = || SmeltError::unsupported(span, format!("{name}() is not supported for these argument types"));
         match (name, args.as_slice()) {
-            ("round", [Some(value)] | [Some(value), None]) => match kind(self, *value, body) {
-                Some(Type::PyInt) => Ok(Some(*value)),
-                Some(Type::Float) => Ok(Some(self.py_numeric_call(PyNumericOp::RoundToInt, vec![*value], span, body))),
-                _ => Err(wrong()),
-            },
+            ("round", [Some(value)] | [Some(value), None]) => self.round_to_int(*value, span, body).map(Some),
             ("round", [Some(value), Some(ndigits)]) => {
                 if kind(self, *ndigits, body) != Some(Type::PyInt) {
                     return Err(wrong());
@@ -561,6 +566,17 @@ impl ModuleBuilder<'_> {
                 Ok(Some(self.machine_int_as_py_int(ord, span, body)))
             }
             _ => Err(wrong()),
+        }
+    }
+
+    /// `round(value)` of a lowered `int` (itself), `float` (half to even, an
+    /// `int`) or a union of them (on the member it holds).
+    fn round_to_int(&mut self, value: smelt_hir::ExprId, span: Span, body: &mut Body) -> Result<smelt_hir::ExprId, SmeltError> {
+        match self.ctx.krate.types.get(Self::expr_ty(body, value)) {
+            Some(Type::PyInt) => Ok(value),
+            Some(Type::Float) => Ok(self.py_numeric_call(PyNumericOp::RoundToInt, vec![value], span, body)),
+            Some(Type::Union(_)) => self.union_member_dispatch(value, span, body, |this, member, inner| this.round_to_int(member, span, inner)),
+            _ => Err(SmeltError::unsupported(span, "round() is not supported for these argument types")),
         }
     }
 

@@ -154,6 +154,11 @@ pub(crate) struct ModuleBuilder<'ctx> {
     subclassed_names: HashSet<String>,
     /// Each class of this module with the names of its bases, in source order.
     module_class_bases: Vec<(String, Vec<String>)>,
+    /// The names the module body binds exactly once (`single_binding_names`).
+    module_single_binding: HashSet<String>,
+    /// The base of each class of this module an `isinstance` compared before
+    /// the class was lowered (`record_unlowered_ancestry`).
+    unlowered_class_bases: HashMap<Symbol, Symbol>,
     /// Module-level type aliases (`Result: TypeAlias = Ok | Err`) by source name.
     type_aliases: HashMap<String, TypeAliasDef>,
     /// Names declared by `TypeVar`/`ParamSpec`/`TypeVarTuple`, in source order.
@@ -247,9 +252,39 @@ struct FnScope {
     single_binding: HashSet<String>,
     /// The narrowed type of each local an enclosing `isinstance` test proved.
     narrowed: HashMap<smelt_hir::LocalId, TypeId>,
-    /// The yield type of the generator function being lowered, if it is one
+    /// The generator function being lowered, if it is one
     /// (`lowering/generators.rs`).
-    generator: Option<TypeId>,
+    generator: Option<GeneratorScope>,
+    /// Unannotated lambdas bound to a name of this scope, lowered at each
+    /// call (`lowering/closure.rs`, `lambda_template_call`).
+    lambda_templates: HashMap<String, LambdaTemplate>,
+    /// Whether this is the module body's scope.
+    is_module: bool,
+}
+
+/// An unannotated `name = lambda ...` whose parameter types only its calls
+/// supply: each call lowers the lambda with its arguments' types.
+#[derive(Debug, Clone)]
+struct LambdaTemplate {
+    /// The lambda expression.
+    lambda: ruff_python_ast::ExprLambda,
+    /// Each name the lambda body reads with the local it resolved to where
+    /// the lambda was written: a call where any resolves differently (a
+    /// comprehension variable shadowing it) would read another variable.
+    free_names: Vec<(String, Option<smelt_hir::LocalId>)>,
+}
+
+/// The types of the generator function being lowered: what it yields, what
+/// `send` passes back to a suspended `yield`, and what its `return` completes
+/// with (`Generator[Y, S, R]`).
+#[derive(Debug, Clone, Copy)]
+struct GeneratorScope {
+    /// `Y`: the type of each yielded value.
+    yielded: TypeId,
+    /// `S`: the type a `yield` expression evaluates to.
+    sent: TypeId,
+    /// `R`: the type of a `return value`, the `StopIteration.value`.
+    returned: TypeId,
 }
 
 /// How a call site packs its arguments for a callable local: what a `Callable`
@@ -424,6 +459,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
             class_attribute_stores: HashSet::new(),
             subclassed_names: HashSet::new(),
             module_class_bases: Vec::new(),
+            module_single_binding: HashSet::new(),
+            unlowered_class_bases: HashMap::new(),
             type_aliases: HashMap::new(),
             type_param_names: Vec::new(),
             module_namespaces,
@@ -499,6 +536,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
             return Err(vec![SmeltError::specialization_required(span, name)]);
         }
         self.replay_unattributed_output(&mut body);
+        self.scope.is_module = true;
+        self.module_single_binding = Self::single_binding_names(&[], &module.body);
         self.collect_exception_classes(module);
         self.collect_class_attribute_stores(module);
 
@@ -699,6 +738,8 @@ include!("lowering/exceptions.rs");
 include!("lowering/match.rs");
 // Generator functions: `yield` and the generator a call answers.
 include!("lowering/generators.rs");
+// `any`, `all`, `enumerate` and `zip` resuming a generator object lazily.
+include!("lowering/lazy_iteration.rs");
 // Literal and base expression lowering helpers.
 include!("lowering/literals.rs");
 include!("lowering/call.rs");

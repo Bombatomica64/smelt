@@ -1812,6 +1812,18 @@ mod py_int_family {
 mod py_text_family {
     use super::*;
 
+    /// `repr(str)` escapes exactly what `str.isprintable()` rejects, each in
+    /// `CPython`'s width (`\xhh`, `\uhhhh`, `\Uhhhhhhhh`); printable
+    /// non-ASCII text stays as itself.
+    #[test]
+    fn str_repr_escapes_what_cpython_escapes() {
+        assert_eq!(smelt_py_str_repr("tab\there\x01\x7f \u{e9} \u{200b}\u{a0}"), "'tab\\there\\x01\\x7f \u{e9} \\u200b\\xa0'");
+        assert_eq!(smelt_py_str_repr("\u{2028}\u{e000}\u{10ffff}\u{1f600}"), "'\\u2028\\ue000\\U0010ffff\u{1f600}'");
+        assert_eq!(smelt_py_str_repr("it's"), "\"it's\"");
+        assert_eq!(smelt_py_str_repr("'\""), "'\\'\"'");
+        assert!(smelt_py_is_printable(' ') && !smelt_py_is_printable('\u{3000}'));
+    }
+
     #[test]
     fn round_is_correctly_rounded_half_to_even() {
         assert_eq!(smelt_py_round_float(2.675, 2), 2.67, "the double below 2.675 rounds down");

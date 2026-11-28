@@ -175,6 +175,7 @@ impl ModuleBuilder<'_> {
         let value_ty = Self::expr_ty(body, value);
         let bool_ty = self.intern_type(Type::Bool);
         let members = self.flattened_members(value_ty);
+        self.record_unlowered_ancestry(&members, &targets);
         let mut passing = Vec::new();
         let mut subclass = None;
         for &member in &members {
@@ -228,7 +229,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// The types `isinstance`'s second argument names.
-    fn instance_targets(&self, target: &Expr, span: Span) -> Result<Vec<InstanceTarget>, SmeltError> {
+    fn instance_targets(&mut self, target: &Expr, span: Span) -> Result<Vec<InstanceTarget>, SmeltError> {
         if let Expr::Tuple(tuple) = target {
             let mut targets = Vec::new();
             for item in &tuple.elts {
@@ -260,6 +261,16 @@ impl ModuleBuilder<'_> {
             && let Item::Class(class) = self.item_ref(item)
         {
             return Ok(vec![InstanceTarget::Class(class.name)]);
+        }
+        // A class of this module not lowered yet: a function body reaches a
+        // class the module defines further down (pass 1 lowers declarations
+        // in source order). Python resolves the name when the call runs, by
+        // which time the class exists; its symbol is the one the class's own
+        // lowering interns.
+        if !self.program_binds_name(spelled)
+            && self.module_class_bases.iter().any(|(class, _)| class == spelled)
+        {
+            return Ok(vec![InstanceTarget::Class(self.intern_name(spelled))]);
         }
         Err(SmeltError::unsupported(span, format!("isinstance() of `{spelled}` is not supported")))
     }
@@ -323,12 +334,67 @@ impl ModuleBuilder<'_> {
             if steps > self.ctx.krate.items.len() {
                 return false;
             }
-            current = self.ctx.krate.items.iter().find_map(|item| match item {
-                Item::Class(candidate) if candidate.name == class => candidate.base,
-                _ => None,
-            });
+            current = self.class_base(class);
         }
         false
+    }
+
+    /// The base of class `class`: the lowered class's, else the one
+    /// `record_unlowered_ancestry` read from the definition of a class of
+    /// this module not lowered yet.
+    fn class_base(&self, class: Symbol) -> Option<Symbol> {
+        let mut lowered = false;
+        let base = self.ctx.krate.items.iter().find_map(|item| match item {
+            Item::Class(candidate) if candidate.name == class => {
+                lowered = true;
+                candidate.base
+            }
+            _ => None,
+        });
+        if lowered { base } else { self.unlowered_class_bases.get(&class).copied() }
+    }
+
+    /// Record the ancestry of every class `isinstance` compares (each member
+    /// of the tested value's type and each target) that this module defines
+    /// further down: pass 1 lowers declarations in source order, so a function
+    /// body may test against a class whose HIR item does not exist yet. Its
+    /// single base, when a class of this module, is read from the definition.
+    fn record_unlowered_ancestry(&mut self, members: &[TypeId], targets: &[InstanceTarget]) {
+        let mut pending: Vec<Symbol> = targets
+            .iter()
+            .filter_map(|target| match target {
+                InstanceTarget::Class(class) => Some(*class),
+                _ => None,
+            })
+            .collect();
+        pending.extend(members.iter().filter_map(|member| match self.ctx.krate.types.get(*member) {
+            Some(&Type::Class { name, .. }) => Some(name),
+            _ => None,
+        }));
+        let mut steps = 0_usize;
+        while let Some(class) = pending.pop() {
+            steps = steps.saturating_add(1);
+            if steps > self.module_class_bases.len().saturating_add(targets.len()).saturating_add(members.len()) {
+                return;
+            }
+            let lowered = self.ctx.krate.items.iter().any(|item| matches!(item, Item::Class(candidate) if candidate.name == class));
+            if lowered || self.unlowered_class_bases.contains_key(&class) {
+                continue;
+            }
+            let Some(name) = self.ctx.krate.symbols.get(class).map(str::to_owned) else {
+                continue;
+            };
+            let single_base = match self.module_class_bases.iter().find(|(candidate, _)| *candidate == name) {
+                Some((_, bases)) if bases.len() == 1 => bases.first().cloned(),
+                _ => None,
+            };
+            let Some(base) = single_base.filter(|candidate_base| self.module_class_bases.iter().any(|(candidate, _)| candidate == candidate_base)) else {
+                continue;
+            };
+            let base_symbol = self.intern_name(&base);
+            self.unlowered_class_bases.insert(class, base_symbol);
+            pending.push(base_symbol);
+        }
     }
 
     /// What `test`, an `if` condition, proves about single-binding locals.
@@ -404,6 +470,7 @@ impl ModuleBuilder<'_> {
         // An earlier test may already have ruled members out (`elif`).
         let known_ty = self.scope.narrowed.get(&local).copied().unwrap_or(base_ty);
         let members = self.flattened_members(known_ty);
+        self.record_unlowered_ancestry(&members, &targets);
         let (passing, failing): (Vec<TypeId>, Vec<TypeId>) =
             members.into_iter().partition(|&member| self.instance_answer(member, &targets) == InstanceAnswer::Always);
         let mut facts = NarrowingFacts::default();

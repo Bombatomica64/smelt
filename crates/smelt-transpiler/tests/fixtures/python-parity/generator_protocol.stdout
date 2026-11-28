@@ -1,0 +1,51 @@
+0.0
+10.0
+15.0
+stop done after 2 ('done after 2',)
+got inner2
+got inner1
+[0, 1, 10, 20, 0] ['a', 'b']
+got inner2
+0 1 10
+v 20
+v 0
+got inner1
+outer stop 7
+0 -1 -1
+1
+plain stop StopIteration() ()
+  produce 0
+enum 10 0
+  produce 1
+enum 11 1
+  produce 2
+enum 12 2
+  exhausted
+  produce 0
+zip gl 0 a
+  produce 1
+zip gl 1 b
+  produce 2
+  produce 0
+zip lg x 0
+  produce 1
+zip lg y 1
+  exhausted
+  produce 0
+  produce 0
+zip gg 0 0
+  produce 1
+  produce 1
+zip gg 1 1
+  exhausted
+  produce 0
+  produce 1
+True
+  produce 0
+False
+  produce 0
+(0, 0)
+  produce 0
+  produce 1
+  produce 2
+[(0, 'p'), (1, 'q')]

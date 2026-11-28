@@ -197,13 +197,10 @@ impl ModuleBuilder<'_> {
                 .map(Some);
         }
         let iterable = self.expression(&call.arguments.args[0], body)?;
-        // A generator object would have to be resumed lazily, stopping at the
-        // deciding element; draining it first would run the rest.
-        if matches!(self.ctx.krate.types.get(Self::expr_ty(body, iterable)), Some(Type::Generator { .. })) {
-            return Err(SmeltError::unsupported(
-                self.span(call.arguments.args[0].range()),
-                "all()/any() of a generator object is not supported; pass a generator expression or a list",
-            ));
+        // A generator object is resumed until a value decides; draining it
+        // first would run the rest (`lowering/lazy_iteration.rs`).
+        if matches!(self.ctx.krate.types.get(Self::expr_ty(body, iterable)), Some(Type::Generator { is_async: false, .. })) {
+            return self.lazy_bool_fold(op, iterable, self.span(call.range()), body).map(Some);
         }
         let list = self.order_free_iterable_as_list(iterable, self.span(call.arguments.args[0].range()), body);
         let list_ty = Self::expr_ty(body, list);
@@ -464,6 +461,22 @@ impl ModuleBuilder<'_> {
             }
         };
         let raw_iter = self.expression(&call.arguments.args[0], body)?;
+        if matches!(self.ctx.krate.types.get(Self::expr_ty(body, raw_iter)), Some(Type::Generator { is_async: false, .. })) {
+            // A lazy generator of the pairs (`lowering/lazy_iteration.rs`).
+            let span = self.span(call.range());
+            let int_ty = self.intern_type(Type::PyInt);
+            let start = match start_arg {
+                Some(start_expr) => {
+                    let lowered = self.expression(start_expr, body)?;
+                    if Self::expr_ty(body, lowered) != int_ty {
+                        return Err(SmeltError::unsupported(self.span(start_expr.range()), "enumerate() start must be an int"));
+                    }
+                    lowered
+                }
+                None => body.push_expr(HirExpr { kind: ExprKind::Literal(smelt_hir::Literal::Int(0)), ty: int_ty, span }),
+            };
+            return self.lazy_enumerate(raw_iter, start, span, body).map(Some);
+        }
         let list = self.iterable_as_list(raw_iter, body);
         let list_ty = Self::expr_ty(body, list);
         let item_ty = if let Some(Type::List(item_ty)) = self.ctx.krate.types.get(list_ty) {
@@ -503,9 +516,17 @@ impl ModuleBuilder<'_> {
             ));
         }
         let raw_left = self.expression(&call.arguments.args[0], body)?;
-        let left = self.iterable_as_list(raw_left, body);
         let raw_right = self.expression(&call.arguments.args[1], body)?;
-        let right = self.iterable_as_list(raw_right, body);
+        let is_generator = |this: &Self, value: smelt_hir::ExprId| {
+            matches!(this.ctx.krate.types.get(Self::expr_ty(body, value)), Some(Type::Generator { is_async: false, .. }))
+        };
+        let (left_lazy, right_lazy) = (is_generator(self, raw_left), is_generator(self, raw_right));
+        let left = if left_lazy { raw_left } else { self.iterable_as_list(raw_left, body) };
+        let right = if right_lazy { raw_right } else { self.iterable_as_list(raw_right, body) };
+        if left_lazy || right_lazy {
+            // A lazy generator of the pairs (`lowering/lazy_iteration.rs`).
+            return self.lazy_zip(left, right, self.span(call.range()), body).map(Some);
+        }
         let left_ty = Self::expr_ty(body, left);
         let right_ty = Self::expr_ty(body, right);
         let left_item_ty = if let Some(Type::List(item_ty)) = self.ctx.krate.types.get(left_ty) {

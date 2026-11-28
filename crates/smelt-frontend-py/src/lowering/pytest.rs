@@ -191,11 +191,11 @@ impl ModuleBuilder<'_> {
         // The body is lowered in a fresh function scope, restored on every
         // exit -- including a failed parameter annotation -- so nothing of this
         // function leaks into the items and module statements lowered after it.
-        let generator_yield = generator.map(|(_, yield_ty)| yield_ty);
+        let generator_scope = generator.map(|(_, scope)| scope);
         let (fn_body, params, variadics) = self.with_fn_scope(FnKind::of(func.is_async), |this| {
             let mut fn_body = Body::new(None, func_span);
-            this.scope.generator = generator_yield;
-            if generator_yield.is_some() {
+            this.scope.generator = generator_scope;
+            if generator_scope.is_some() {
                 fn_body.set_generator(true);
             }
             let mut params: Vec<Param> = Vec::new();

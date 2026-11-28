@@ -24,28 +24,13 @@ impl SmeltPyRepr for bool { fn py_repr(&self) -> String { if *self { "True".to_o
 impl SmeltPyRepr for () { fn py_repr(&self) -> String { "None".to_owned() } }
 impl<T: SmeltPyRepr> SmeltPyRepr for Option<T> { fn py_repr(&self) -> String { self.as_ref().map_or_else(|| "None".to_owned(), SmeltPyRepr::py_repr) } }
 impl<T: SmeltPyRepr + ?Sized> SmeltPyRepr for ::std::rc::Rc<T> { fn py_repr(&self) -> String { (**self).py_repr() } }
+//~ A borrowed value has its referent's text: a closure parameter taken by
+//~ reference is formatted as `SmeltPyRepr::py_str(&param)`.
+impl<T: SmeltPyRepr + ?Sized> SmeltPyRepr for &T { fn py_repr(&self) -> String { (**self).py_repr() } fn py_str(&self) -> String { (**self).py_str() } }
 
 impl SmeltPyRepr for String {
     fn py_str(&self) -> String { self.clone() }
-    fn py_repr(&self) -> String {
-        //~ Single quotes, unless the text holds a `'` and no `"`.
-        let quote = if self.contains('\'') && !self.contains('"') { '"' } else { '\'' };
-        let mut out = Self::with_capacity(self.len() + 2);
-        out.push(quote);
-        for ch in self.chars() {
-            match ch {
-                '\\' => out.push_str("\\\\"),
-                '\n' => out.push_str("\\n"),
-                '\r' => out.push_str("\\r"),
-                '\t' => out.push_str("\\t"),
-                ch if ch == quote => { out.push('\\'); out.push(ch); }
-                ch if (ch as u32) < 0x20 || ch as u32 == 0x7f => { let code = u32::from(ch); out.push_str("\\x"); out.extend([code >> 4, code & 0xf].map(|digit| char::from_digit(digit, 16).unwrap_or('0'))); }
-                ch => out.push(ch),
-            }
-        }
-        out.push(quote);
-        out
-    }
+    fn py_repr(&self) -> String { smelt_py_str_repr(self) }
 }
 
 /// `[a, b]` from the `repr` of each item.

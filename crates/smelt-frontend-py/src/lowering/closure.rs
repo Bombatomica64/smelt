@@ -109,6 +109,97 @@ impl ModuleBuilder<'_> {
         Ok(LoweredClosure { expr: body.push_expr(HirExpr { kind: ExprKind::Block(block), ty, span }), return_ty: closure.return_ty })
     }
 
+    /// Record `name = lambda ...` as a lambda template when nothing else
+    /// types its parameters: an unannotated binding of a lambda with plain
+    /// positional parameters (no defaults, `*args` or `**kwargs`), to a name
+    /// this scope binds exactly once and that is not a module global. Each
+    /// call of the name lowers the lambda with the call's argument types
+    /// (`lambda_template_call`), as `(lambda ...)(args)` does; the binding
+    /// itself emits nothing, since creating a lambda has no effect. Answers
+    /// whether the statement was recorded.
+    fn record_lambda_template(&mut self, assign: &StmtAssign) -> bool {
+        let ([Expr::Name(target)], Expr::Lambda(lambda)) = (assign.targets.as_slice(), assign.value.as_ref()) else {
+            return false;
+        };
+        let name = target.id.as_str();
+        let plain_params = lambda.parameters.as_ref().is_none_or(|params| {
+            params.vararg.is_none()
+                && params.kwarg.is_none()
+                && params.kwonlyargs.is_empty()
+                && params.posonlyargs.iter().chain(&params.args).all(|param| param.default.is_none())
+        });
+        let single = if self.scope.is_module {
+            self.module_single_binding.contains(name) && !self.items.contains_key(name)
+        } else {
+            self.scope.single_binding.contains(name)
+        };
+        if !plain_params || !single || self.scope.locals.contains_key(name) || self.scope.globals.contains(name) {
+            return false;
+        }
+        let params: HashSet<&str> = lambda
+            .parameters
+            .as_ref()
+            .map(|params| params.posonlyargs.iter().chain(&params.args).map(|param| param.parameter.name.as_str()).collect())
+            .unwrap_or_default();
+        let mut reads = Vec::new();
+        Self::collect_name_reads(&lambda.body, &mut reads);
+        let mut free_names: Vec<(String, Option<smelt_hir::LocalId>)> = Vec::new();
+        for read in reads {
+            if !params.contains(read.as_str()) && !free_names.iter().any(|(known, _)| *known == read) {
+                let local = self.scope.locals.get(&read).copied();
+                free_names.push((read, local));
+            }
+        }
+        self.scope.lambda_templates.insert(name.to_owned(), LambdaTemplate { lambda: lambda.clone(), free_names });
+        true
+    }
+
+    /// The names `expr` reads.
+    fn collect_name_reads(expr: &Expr, reads: &mut Vec<String>) {
+        /// Collects loaded names.
+        struct Reads<'a>(&'a mut Vec<String>);
+        impl<'b> ruff_python_ast::visitor::Visitor<'b> for Reads<'_> {
+            fn visit_expr(&mut self, expr: &'b Expr) {
+                if let Expr::Name(name) = expr {
+                    self.0.push(name.id.as_str().to_owned());
+                }
+                ruff_python_ast::visitor::walk_expr(self, expr);
+            }
+        }
+        ruff_python_ast::visitor::Visitor::visit_expr(&mut Reads(reads), expr);
+    }
+
+    /// `name(args)` where `name` is a lambda template of this scope: the
+    /// lambda lowered with the arguments' types and called, as
+    /// `(lambda ...)(args)` is (`immediate_lambda_call`). Its body reads
+    /// enclosing variables at the call, which is when Python's closure reads
+    /// them; a call where one of those names resolves to another variable
+    /// than where the lambda was written is refused. `None` when the callee
+    /// is not a template.
+    fn lambda_template_call(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expr::Name(callee) = call.func.as_ref() else {
+            return Ok(None);
+        };
+        if self.scope.locals.contains_key(callee.id.as_str()) {
+            return Ok(None);
+        }
+        let Some(template) = self.scope.lambda_templates.get(callee.id.as_str()).cloned() else {
+            return Ok(None);
+        };
+        let span = self.span(call.range());
+        if template.free_names.iter().any(|(name, local)| self.scope.locals.get(name).copied() != *local) {
+            return Err(SmeltError::unsupported(
+                span,
+                format!("`{}` is called where a name its body reads means another variable; annotate the lambda with `Callable[...]`", callee.id),
+            ));
+        }
+        self.immediate_lambda_call(&template.lambda, call, body).map(Some)
+    }
+
     /// Lower default expressions for a Python lambda parameter list.
     fn lambda_defaults(
         &mut self,

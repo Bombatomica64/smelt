@@ -2,21 +2,39 @@
 // Included into lowering.rs via include!, so this file uses plain comments.
 //
 // A generator function answers the shared generator carrier
-// (`Type::Generator`, the runtime's `SmeltGenerator<T, R, N>`, which the
+// (`Type::Generator`, the runtime's `SmeltGenerator<Y, R, S>`, which the
 // TypeScript frontend's generators use too): its body is a generator body
-// (`Body::set_generator`), each `yield v` statement suspends it
-// (`ExprKind::GeneratorYield`). A `for` loop resumes it once per iteration;
+// (`Body::set_generator`), each `yield v` suspends it
+// (`ExprKind::GeneratorYield`) and evaluates to what the consumer sends
+// back, and `return value` completes it with the value `StopIteration`
+// carries. Its return annotation names the three types:
+// `Generator[Y, S, R]` (`Generator[Y]` defaults S and R to `None`) or
+// `Iterator[Y]` (nothing sent, nothing returned).
+//
+// Consumers resume it one value at a time, as CPython does:
+// - a `for` loop, once per iteration;
+// - `next(g)`, `next(g, default)` and `g.send(v)`, once per call, raising
+//   `StopIteration` (its `args` the return value when there is one) or
+//   answering the default once it is exhausted;
+// - `yield from g` inside another generator, forwarding each value and each
+//   `send` (`ExprKind::GeneratorDelegate`, JavaScript's `yield*`), and
+//   evaluating to `g`'s return value; `yield from` of a list yields each item;
+// - `zip`, `enumerate`, `any` and `all` over a generator object, through the
+//   same per-iteration loop (`lowering/lazy_iteration.rs`), so a value is
+//   produced only when the consumer asks for it.
 // `list`, `sum`, `min`, `max` and `sorted`, which consume every element,
-// drain it (`ExprKind::GeneratorCollect`). A consumer that may stop early
-// (`zip`, `enumerate`, `any`, `all` of a generator object) is refused, since
-// draining would compute elements CPython never asks for. Its return annotation names the yield type:
-// `Iterator[T]`, or `Generator[T, None, None]` (nothing sent, nothing
-// returned). `send()`, `yield` used as a value, `yield from` and a
-// `return value` are refused.
+// drain it (`ExprKind::GeneratorCollect`).
+//
+// Not modelled: `send` of a value other than `None` to a generator that has
+// not started (CPython raises `TypeError`; the shared runtime discards the
+// value, as JavaScript's `next(v)` does), `throw()`, `close()`, and reading
+// `StopIteration.value` from an `except` binding (the builtin exception
+// keeps only the Python text of its `args`).
 
 impl ModuleBuilder<'_> {
-    /// `Iterator[T]` / `Generator[T, None, None]` (also `Generator[T]`, whose
-    /// other arguments default to `None`): the generator carrier yielding `T`.
+    /// `Iterator[Y]` / `Generator[Y, S, R]` (`Generator[Y]` and
+    /// `Generator[Y, S]` default the rest to `None`): the generator carrier
+    /// yielding `Y`, sent `S`, returning `R`.
     fn generator_annotation(
         &mut self,
         sub: &ruff_python_ast::ExprSubscript,
@@ -33,21 +51,26 @@ impl ModuleBuilder<'_> {
         if type_name == "Iterator" && !rest.is_empty() {
             return Err(SmeltError::unsupported(span, "'Iterator' takes one type argument"));
         }
-        if rest.iter().any(|arg| !matches!(arg, Expr::NoneLiteral(_))) {
-            return Err(SmeltError::unsupported(
-                span,
-                "a generator that is sent values or returns one (`Generator[T, S, R]` with S or R not None) is not supported",
-            ));
+        if rest.len() > 2 {
+            return Err(SmeltError::unsupported(span, "'Generator' takes at most three type arguments"));
         }
         let yield_ty = self.annotation_to_hir(yielded)?;
         let none_ty = self.intern_type(Type::None);
-        Ok(self.intern_type(Type::Generator { is_async: false, yield_ty, return_ty: none_ty, next_ty: none_ty }))
+        let next_ty = match rest.first() {
+            Some(sent) => self.annotation_to_hir(sent)?,
+            None => none_ty,
+        };
+        let return_ty = match rest.get(1) {
+            Some(returned) => self.annotation_to_hir(returned)?,
+            None => none_ty,
+        };
+        Ok(self.intern_type(Type::Generator { is_async: false, yield_ty, return_ty, next_ty }))
     }
 
-    /// The generator type and yield type of `func` when it is a generator
+    /// The generator type and its parts of `func` when it is a generator
     /// function (its body, outside nested functions, contains `yield`), read
     /// from its return annotation; `None` for an ordinary function.
-    fn generator_signature(&mut self, func: &StmtFunctionDef) -> Result<Option<(TypeId, TypeId)>, SmeltError> {
+    fn generator_signature(&mut self, func: &StmtFunctionDef) -> Result<Option<(TypeId, GeneratorScope)>, SmeltError> {
         /// Finds a `yield` outside nested functions and lambdas.
         struct Finder(bool);
         impl<'a> ruff_python_ast::visitor::Visitor<'a> for Finder {
@@ -74,16 +97,18 @@ impl ModuleBuilder<'_> {
         if func.is_async {
             return Err(SmeltError::unsupported(self.span(func.range), "async generators are not supported"));
         }
-        let return_ty = match func.returns.as_deref() {
+        let annotated = match func.returns.as_deref() {
             Some(annotation) => Some(self.annotation_to_hir(annotation)?),
             None => None,
         };
-        match return_ty.and_then(|ty| self.ctx.krate.types.get(ty).cloned().map(|found| (ty, found))) {
-            Some((ty, Type::Generator { is_async: false, yield_ty, .. })) => Ok(Some((ty, yield_ty))),
+        match annotated.and_then(|ty| self.ctx.krate.types.get(ty).cloned().map(|found| (ty, found))) {
+            Some((ty, Type::Generator { is_async: false, yield_ty, return_ty, next_ty })) => {
+                Ok(Some((ty, GeneratorScope { yielded: yield_ty, sent: next_ty, returned: return_ty })))
+            }
             _ => Err(SmeltError::unsupported(
                 self.span(func.range),
                 format!(
-                    "generator function '{}' needs an `Iterator[T]` or `Generator[T, None, None]` return annotation",
+                    "generator function '{}' needs an `Iterator[T]` or `Generator[Y, S, R]` return annotation",
                     func.name
                 ),
             )),
@@ -91,30 +116,167 @@ impl ModuleBuilder<'_> {
     }
 
     /// A `yield value` (or bare `yield`) statement in a generator function:
-    /// suspend, exposing the value. What the caller sends back is `None`.
+    /// the expression, its sent value discarded.
     fn yield_statement(
         &mut self,
         yield_expr: &ruff_python_ast::ExprYield,
         body: &mut Body,
         block: smelt_hir::BlockId,
     ) -> Result<(), SmeltError> {
+        let suspend = self.yield_expression(yield_expr, body)?;
+        body.push_stmt_to_block(block, HirStmt::Expr(suspend));
+        Ok(())
+    }
+
+    /// `yield value` (or bare `yield`, which yields `None`): suspend,
+    /// exposing the value, and evaluate to what the consumer sends back (`S`;
+    /// `None` for `next()` and a `for` loop).
+    fn yield_expression(
+        &mut self,
+        yield_expr: &ruff_python_ast::ExprYield,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
         let span = self.span(yield_expr.range);
-        let Some(yield_ty) = self.scope.generator else {
+        let Some(generator) = self.scope.generator else {
             return Err(SmeltError::unsupported(span, "`yield` outside a generator function is not supported"));
         };
         let value = if let Some(yielded) = yield_expr.value.as_deref() {
-            self.expression_with_hint(yielded, body, Some(yield_ty))?
+            self.expression_with_hint(yielded, body, Some(generator.yielded))?
         } else {
             let none_ty = self.intern_type(Type::None);
             body.push_expr(HirExpr { kind: ExprKind::Literal(Literal::None), ty: none_ty, span })
         };
-        if Self::expr_ty(body, value) != yield_ty {
+        if Self::expr_ty(body, value) != generator.yielded {
             return Err(SmeltError::unsupported(span, "the yielded value must have the generator's yield type"));
         }
+        Ok(body.push_expr(HirExpr { kind: ExprKind::GeneratorYield { value }, ty: generator.sent, span }))
+    }
+
+    /// `yield from source` in a generator function.
+    ///
+    /// A generator source is delegated to (`ExprKind::GeneratorDelegate`):
+    /// each value it yields is yielded on, each value sent in is forwarded to
+    /// it, and the expression evaluates to its return value. Its yield type
+    /// must be this generator's, and what this generator is sent must be what
+    /// it accepts. A list source yields each item in turn (a `str` each
+    /// character) and evaluates to `None`.
+    fn yield_from_expression(
+        &mut self,
+        yield_from: &ruff_python_ast::ExprYieldFrom,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let span = self.span(yield_from.range);
+        let Some(generator) = self.scope.generator else {
+            return Err(SmeltError::unsupported(span, "`yield from` outside a generator function is not supported"));
+        };
+        let source = self.expression(&yield_from.value, body)?;
+        let source_ty = Self::expr_ty(body, source);
+        match self.ctx.krate.types.get(source_ty).cloned() {
+            Some(Type::Generator { is_async: false, yield_ty, return_ty, next_ty }) => {
+                if yield_ty != generator.yielded || next_ty != generator.sent {
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "`yield from` needs a generator with this generator's yield and send types",
+                    ));
+                }
+                Ok(body.push_expr(HirExpr { kind: ExprKind::GeneratorDelegate { generator: source }, ty: return_ty, span }))
+            }
+            // Each item (each character of a `str`), its sent values
+            // discarded; the expression is `None`.
+            Some(Type::List(item)) if item == generator.yielded => {
+                let none_ty = self.intern_type(Type::None);
+                Ok(body.push_expr(HirExpr { kind: ExprKind::GeneratorDelegate { generator: source }, ty: none_ty, span }))
+            }
+            Some(Type::PyStr) if source_ty == generator.yielded => {
+                let none_ty = self.intern_type(Type::None);
+                Ok(body.push_expr(HirExpr { kind: ExprKind::GeneratorDelegate { generator: source }, ty: none_ty, span }))
+            }
+            _ => Err(SmeltError::unsupported(
+                span,
+                "`yield from` needs a generator, or a list (or `str`) of the generator's yield type",
+            )),
+        }
+    }
+
+    /// Resume `generator` once, as `next(g)` (`sent` absent) or `g.send(v)`
+    /// do, and evaluate to the value it yields. Once it is exhausted the
+    /// expression raises `StopIteration`, whose `args` hold the generator's
+    /// return value unless that is `None`, or evaluates to `default` when one
+    /// is given (`next(g, default)`).
+    ///
+    /// ```text
+    /// step = resume(generator, sent)
+    /// if step is done: raise StopIteration(step's value)   # or: result = default
+    /// else: result = step's value
+    /// result
+    /// ```
+    #[expect(clippy::too_many_arguments, reason = "one resumption, what it sends, its default and its lowering position")]
+    fn generator_resume_expression(
+        &mut self,
+        generator: smelt_hir::ExprId,
+        sent: Option<smelt_hir::ExprId>,
+        default: Option<smelt_hir::ExprId>,
+        span: Span,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let generator_ty = Self::expr_ty(body, generator);
+        let Some(Type::Generator { is_async: false, yield_ty, return_ty, .. }) = self.ctx.krate.types.get(generator_ty).cloned() else {
+            return Err(SmeltError::unsupported(span, "internal error: expected a generator"));
+        };
+        if let Some(fallback) = default
+            && Self::expr_ty(body, fallback) != yield_ty
+        {
+            return Err(SmeltError::unsupported(span, "next()'s default must have the generator's yield type"));
+        }
+        let bool_ty = self.intern_type(Type::Bool);
         let none_ty = self.intern_type(Type::None);
-        let suspend = body.push_expr(HirExpr { kind: ExprKind::GeneratorYield { value }, ty: none_ty, span });
-        body.push_stmt_to_block(block, HirStmt::Expr(suspend));
-        Ok(())
+        let step_ty = self.intern_type(Type::GeneratorResult { yield_ty, return_ty });
+        let block = body.push_block(span);
+        let next = body.push_expr(HirExpr {
+            kind: ExprKind::GeneratorNext { generator, value: sent, kind: smelt_hir::GeneratorResumeKind::Next },
+            ty: step_ty,
+            span,
+        });
+        let step = body.push_local(self.synthetic_local("__smelt_step", step_ty, false, span));
+        let step_pat = body.push_pattern(HirPattern::Binding(step));
+        body.push_stmt_to_block(block, HirStmt::Let { pat: step_pat, ty: step_ty, value: Some(next) });
+        let result = body.push_local(self.synthetic_local("__smelt_next", yield_ty, true, span));
+        let result_pat = body.push_pattern(HirPattern::Binding(result));
+        body.push_stmt_to_block(block, HirStmt::Let { pat: result_pat, ty: yield_ty, value: None });
+        let step_read = body.push_expr(HirExpr { kind: ExprKind::Local(step), ty: step_ty, span });
+        let done = body.push_expr(HirExpr { kind: ExprKind::GeneratorDone { result: step_read }, ty: bool_ty, span });
+        let exhausted = body.push_block(span);
+        if let Some(fallback) = default {
+            let target = body.push_expr(HirExpr { kind: ExprKind::Local(result), ty: yield_ty, span });
+            body.push_stmt_to_block(exhausted, HirStmt::Assign { target, value: fallback });
+        } else {
+            let mut args = Vec::new();
+            if return_ty != none_ty {
+                if !self.has_python_text(return_ty) {
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "the `StopIteration` an exhausted generator raises keeps its return value in `args`, so that value must have Python text",
+                    ));
+                }
+                let step_value = body.push_expr(HirExpr { kind: ExprKind::Local(step), ty: step_ty, span });
+                args.push(body.push_expr(HirExpr { kind: ExprKind::GeneratorValue { result: step_value }, ty: return_ty, span }));
+            }
+            let chain = builtin_exception_chain("StopIteration").unwrap_or_default();
+            let classes = chain.iter().map(|class| self.intern_name(class)).collect();
+            let exception_ty = self.py_exception_type();
+            let exception = body.push_expr(HirExpr { kind: ExprKind::PyExceptionNew { classes, args }, ty: exception_ty, span });
+            body.push_stmt_to_block(exhausted, HirStmt::Throw(exception));
+        }
+        let produced = body.push_block(span);
+        let step_value = body.push_expr(HirExpr { kind: ExprKind::Local(step), ty: step_ty, span });
+        let value = body.push_expr(HirExpr { kind: ExprKind::GeneratorValue { result: step_value }, ty: yield_ty, span });
+        let target = body.push_expr(HirExpr { kind: ExprKind::Local(result), ty: yield_ty, span });
+        body.push_stmt_to_block(produced, HirStmt::Assign { target, value });
+        body.push_stmt_to_block(block, HirStmt::If { cond: done, then_block: exhausted, else_block: Some(produced) });
+        let read = body.push_expr(HirExpr { kind: ExprKind::Local(result), ty: yield_ty, span });
+        let block_index = usize::try_from(block.0).map_err(|error| SmeltError::unsupported(span, error.to_string()))?;
+        body.blocks[block_index].tail = Some(read);
+        Ok(body.push_expr(HirExpr { kind: ExprKind::Block(block), ty: yield_ty, span }))
     }
 
     /// The list a generator drains to, when `value` is a generator: only for

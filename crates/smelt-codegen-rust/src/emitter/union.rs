@@ -811,12 +811,31 @@ impl FunctionEmitter<'_> {
         if matching.is_empty() {
             return Ok(None);
         }
+        // Python's numeric tower at a `float` slot: an `int | float` value
+        // stored where a `float` is declared holds a `float`, its `int`
+        // member widened (`docs/design/python-numeric-tower.md`). `int` is
+        // `SmeltPyInt`, which only Python crates have.
+        let widened = if matches!(self.mir.types.get(target), Some(Type::Float)) {
+            source_members
+                .iter()
+                .enumerate()
+                .filter(|(_, member)| matches!(self.mir.types.get(**member), Some(Type::PyInt)))
+                .map(|(index, _)| index)
+                .collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
         let arms = matching
             .iter()
             .map(|index| format!("{source_name}::M{index}(value) => value"))
+            .chain(
+                widened
+                    .iter()
+                    .map(|index| format!("{source_name}::M{index}(value) => value.to_f64_lossy()")),
+            )
             .collect::<Vec<_>>()
             .join(", ");
-        let fallback = if matching.len() == source_members.len() {
+        let fallback = if matching.len().saturating_add(widened.len()) == source_members.len() {
             String::new()
         } else {
             ", _ => unreachable!(\"union guard selected an excluded member\")".to_owned()

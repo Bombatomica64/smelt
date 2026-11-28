@@ -672,3 +672,46 @@ fn match_guards() -> TestResult {
 fn generators() -> TestResult {
     verify_python_parity("generators")
 }
+
+/// A container whose element type is a union of classes (`[A(1), B()]`,
+/// nested lists of them, dict values) prints each element's `__repr__`, as
+/// `CPython` does (Rust `Debug` of the erased carrier before); `repr(str)`
+/// escapes exactly what `str.isprintable()` rejects (`\xa0`, `​`,
+/// `\U0010ffff`), printable non-ASCII text stays itself. Requirements:
+/// `CPython`'s output; the union keeps its concrete enum.
+#[test]
+fn union_repr_and_escapes() -> TestResult {
+    verify_python_parity("union_repr_and_escapes")
+}
+
+/// `isinstance` against a class the module defines further down, over its
+/// subclass chain; a subclass instance passed to a parameter of its base; a
+/// lambda called where it is written (`(lambda x: x + 1)(2)`), and an
+/// unannotated `name = lambda ...` typed by each of its calls, reading
+/// enclosing variables when called (late binding). Requirements: `CPython`'s
+/// output.
+#[test]
+fn forward_classes_and_lambdas() -> TestResult {
+    verify_python_parity("forward_classes_and_lambdas")
+}
+
+/// The generator protocol: `send()`, `return value` (`StopIteration`'s
+/// `args`, `yield from`'s result), `yield from` of a generator, a list and a
+/// `str`, `next(g[, default])`, and `zip`/`enumerate`/`any`/`all` resuming a
+/// generator object one value at a time (refused before). Requirements:
+/// `CPython`'s output, the interleaving of producer and consumer prints
+/// included.
+#[test]
+fn generator_protocol() -> TestResult {
+    verify_python_parity("generator_protocol")
+}
+
+/// Operations on a union value dispatch on the member it holds: arithmetic,
+/// comparisons, `abs`, `round` and unary `-` on `int | float` (refused
+/// before), `isinstance`/`is None` on `int | str | None` (an erased union
+/// before, now `Option<union>`). Requirements: `CPython`'s output, with
+/// `int` results staying exact.
+#[test]
+fn numeric_unions() -> TestResult {
+    verify_python_parity("numeric_unions")
+}

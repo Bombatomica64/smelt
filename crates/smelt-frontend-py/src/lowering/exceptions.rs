@@ -534,6 +534,21 @@ impl ModuleBuilder<'_> {
         self.intern_type(Type::Class { name, args: vec![] })
     }
 
+    /// Whether the code generator knows `ty` only occurs in a Python crate
+    /// (its `is_python_only_type`): `int`, `str`, a class with `__repr__`, an
+    /// exception, or a container of one. A union holding such a member gets
+    /// the generated `SmeltPyRepr` impl.
+    fn is_python_only_type(&self, ty: TypeId) -> bool {
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::PyInt | Type::PyStr) => true,
+            Some(Type::Class { .. }) => self.class_text_method(ty, true).is_some() || self.user_exception_class_of(ty).is_some(),
+            Some(Type::List(item) | Type::Set(item) | Type::Optional(item, _)) => self.is_python_only_type(*item),
+            Some(Type::Dict(key, value)) => self.is_python_only_type(*key) || self.is_python_only_type(*value),
+            Some(Type::Tuple(items)) => items.iter().any(|item| self.is_python_only_type(*item)),
+            _ => false,
+        }
+    }
+
     /// Whether the runtime writes Python's `str` and `repr` of a value of type
     /// `ty` (its `SmeltPyRepr`): a number, a string, a boolean, `None`, an
     /// exception or its `args`, and a list, tuple, set or dict of those. Such a
@@ -547,7 +562,7 @@ impl ModuleBuilder<'_> {
             // emitter's `union_has_py_repr` holds the same condition).
             Some(Type::Union(union_members)) => {
                 let members = union_members.clone();
-                members.iter().any(|member| matches!(self.ctx.krate.types.get(*member), Some(Type::PyInt | Type::PyStr)))
+                members.iter().any(|member| self.is_python_only_type(*member))
                     && members.iter().all(|member| {
                         !matches!(self.ctx.krate.types.get(*member), Some(Type::Union(_))) && self.has_python_text(*member)
                     })
