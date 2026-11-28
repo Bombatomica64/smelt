@@ -537,6 +537,20 @@ impl FunctionEmitter<'_> {
                 operand, can_throw, ..
             } => self.typed_structured_clone_expr(operand, *can_throw),
             Rvalue::StringTrim { side, operand } => self.string_trim_expr(*side, operand),
+            Rvalue::NumberToLocaleString { operand, locale } => {
+                let number_text = self.operand_expr(operand)?;
+                let locale_text = match locale {
+                    Some(tag) => format!(
+                        "Some(&({}).to_string())",
+                        self.operand_expr(tag)?.delimited()
+                    ),
+                    None => "None".to_owned(),
+                };
+                Ok(RustExpr::chain(format!(
+                    "JsString::from(smelt_number_to_locale_string(({}) as f64, {locale_text}).as_str())",
+                    number_text.delimited()
+                )))
+            }
             Rvalue::StringAffix {
                 op,
                 haystack,

@@ -61,6 +61,9 @@ impl RuntimeDemand {
             Rvalue::StringNormalize { .. } => {
                 self.add(Need::DepUnicodeNormalization);
             }
+            Rvalue::NumberToLocaleString { .. } => {
+                self.add(Need::NumberLocale);
+            }
             Rvalue::StructuredClone {
                 typed, can_throw, ..
             } => {
@@ -398,6 +401,9 @@ impl RuntimeDemand {
                 self.add(Need::DepTokio);
                 if matches!(op, smelt_hir::AsyncOp::AllSettled) {
                     self.add(Need::AllSettled);
+                }
+                if matches!(op, smelt_hir::AsyncOp::Any) {
+                    self.add(Need::PromiseAny);
                 }
                 if matches!(op, smelt_hir::AsyncOp::HttpFetch) {
                     self.add(Need::Response);

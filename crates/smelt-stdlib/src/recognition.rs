@@ -162,6 +162,7 @@ pub const TYPESCRIPT_CALLS: &[CallRecognition] = &[
     static_call("Promise", "reject", RuleId::TsPromiseStatic),
     static_call("Promise", "all", RuleId::TsPromiseStatic),
     static_call("Promise", "race", RuleId::TsPromiseStatic),
+    static_call("Promise", "any", RuleId::TsPromiseStatic),
     static_call("Promise", "allSettled", RuleId::TsPromiseStatic),
     static_call("Symbol", "for", RuleId::TsSymbol),
     static_call("Symbol", "keyFor", RuleId::TsSymbol),
@@ -694,7 +695,9 @@ mod tests {
             (Some("json"), "parse"),
             (Some("Math"), "randomBytes"),
             (Some("Number"), "parseDouble"),
-            (Some("Promise"), "any"),
+            // `Promise.any` is modelled now (a `TsPromiseStatic` rule), so
+            // the unsupported spelling this case checks is `Promise.try`.
+            (Some("Promise"), "try"),
             (Some("Object"), "entries"),
             (Some("Array"), "of"),
             (Some("value"), "map"),

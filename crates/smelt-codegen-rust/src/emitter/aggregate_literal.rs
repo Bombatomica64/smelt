@@ -377,9 +377,17 @@ impl FunctionEmitter<'_> {
                         let item_index = index
                             .checked_add(offset)
                             .ok_or_else(|| EmitError::new("tuple item index overflowed"))?;
-                        let item = items.get(item_index).ok_or_else(|| {
-                            EmitError::new("tuple destination has more items than literal")
-                        })?;
+                        // An optional element (`[r: number, a?: number]`) the
+                        // literal leaves off is absent.
+                        let Some(item) = items.get(item_index) else {
+                            if matches!(self.mir.types.get(*target_item), Some(Type::Optional(..)))
+                            {
+                                return self.default_value(*target_item);
+                            }
+                            return Err(EmitError::new(
+                                "tuple destination has more items than literal",
+                            ));
+                        };
                         self.value_at_type(item, *target_item)
                     })
                     .collect::<Result<Vec<_>, _>>()?

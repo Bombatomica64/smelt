@@ -670,12 +670,19 @@ impl ModuleBuilder<'_> {
                     .first()
                     .map(|argument| self.argument(argument, body))
                     .transpose()?;
+                let nested_item_ty = call
+                    .arguments
+                    .first()
+                    .and_then(|argument| self.nested_flat_item_type(element_ty, argument));
                 let flat_item_ty = match self
                     .ctx
                     .krate
                     .types
                     .get(self.type_param_constraint_or_self(element_ty))
                 {
+                    // An explicit depth over nested arrays: `FlatArray<T, D>`
+                    // (`lowering::union_flat`).
+                    _ if nested_item_ty.is_some() => nested_item_ty.unwrap_or(element_ty),
                     Some(Type::List(flat_item_ty)) => *flat_item_ty,
                     Some(Type::Tuple(items)) => self.flattened_tuple_item_type(items.clone()),
                     // not a new erasure: the element is already erased

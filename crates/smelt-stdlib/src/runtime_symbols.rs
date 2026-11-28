@@ -72,6 +72,8 @@ pub mod timers {
     /// `then` on each: the first racer to settle has its reaction run first in
     /// the job queue and settles the race. Losing racers keep running.
     pub const PROMISE_RACE: &str = "smelt_promise_race";
+    /// `Promise.any` (`smelt_promise_any`).
+    pub const PROMISE_ANY: &str = "smelt_promise_any";
 }
 
 /// JSON / dynamic-`unknown` boundary helpers.

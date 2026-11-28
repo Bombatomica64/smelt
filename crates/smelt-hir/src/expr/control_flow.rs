@@ -9,6 +9,9 @@ pub enum AsyncOp {
     All,
     /// Resolve when the first future completes.
     Race,
+    /// `Promise.any`: fulfil with the first future that fulfils; reject with
+    /// an `AggregateError` of every reason when all of them reject.
+    Any,
     /// Wait for all futures and keep settled outputs.
     AllSettled,
     /// Sleep for a duration in milliseconds.

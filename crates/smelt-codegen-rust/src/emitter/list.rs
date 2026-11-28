@@ -1,5 +1,6 @@
 //! List emission helpers.
 
+use super::union::union_name;
 use super::*;
 use crate::rust::RustExpr;
 
@@ -1153,6 +1154,16 @@ impl FunctionEmitter<'_> {
                 depth_text = depth_text.delimited()
             )));
         }
+        // An explicit depth over nested arrays flattens by the static shape
+        // (`typed_nested_flat_expr`).
+        if let Some(depth_operand) = depth
+            && (matches!(
+                self.mir.types.get(*nested_ty),
+                Some(Type::List(_) | Type::Tuple(_))
+            ) || self.concrete_union_members(*nested_ty).is_some())
+        {
+            return self.typed_nested_flat_expr(list, *nested_ty, depth_operand, dest_ty);
+        }
         if let Some(Type::Tuple(items)) = self.mir.types.get(*nested_ty) {
             if depth.is_some() {
                 return Err(EmitError::new(
@@ -1255,6 +1266,142 @@ impl FunctionEmitter<'_> {
             erased_item = erased_item.delimited(),
             typed_value = typed_value.delimited(),
         )))
+    }
+
+    /// `list.flat(depth)` over a list of nested arrays, flattened by the
+    /// elements' static shape: a loop per list level, a projection per tuple
+    /// item and a `match` per union, each array level unwrapped only while
+    /// the runtime depth exceeds it, and every value that stays an item
+    /// injected into the result's item type (`FlatArray<T, D>`, computed by
+    /// the frontend's `union_flat`). What a hand port writes; no value is
+    /// erased to flatten it.
+    ///
+    /// Requirements. Behaviour: the items, in order, are those
+    /// `Array.prototype.flat` yields for any depth, `Infinity` included
+    /// (the static shape bounds the recursion). Type preservation: the
+    /// result is the frontend's item type, and each item reaches it from its
+    /// own static type.
+    fn typed_nested_flat_expr(
+        &self,
+        list: &Operand,
+        element_ty: TypeId,
+        depth: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<RustExpr, EmitError> {
+        let Some(Type::List(dest_item_ty)) = self.mir.types.get(dest_ty) else {
+            return Err(EmitError::new("array flat destination must be a list"));
+        };
+        let depth_text = self.flat_depth_expr(Some(depth))?;
+        let item_rust = self.lexical_rust_type(*dest_item_ty, false)?;
+        let names = std::cell::Cell::new(0_usize);
+        // A constant depth (a literal, `Infinity`) decides every level
+        // statically, so a level the result type has no arm for is never
+        // spelled; a runtime depth tests each level.
+        // The first level the depth does not reach: `0..=64` covers every
+        // level the walk unwraps, and a larger (or infinite) depth is 64.
+        let fixed = if let Operand::Const(Constant::Float(value)) = depth {
+            Some(
+                (0..=64_u8)
+                    .take_while(|level| f64::from(*level) <= *value)
+                    .count()
+                    .saturating_sub(1),
+            )
+        } else if let Operand::Const(Constant::Int(value)) = depth {
+            Some(usize::try_from((*value).clamp(0, 64)).unwrap_or(0))
+        } else {
+            None
+        };
+        let body = self.flat_into("smelt_flat_0", element_ty, 0, fixed, *dest_item_ty, &names)?;
+        Ok(RustExpr::atom(format!(
+            "{{ let smelt_flat_depth = (({depth_text}) as f64).max(0.0).floor() as i64; let mut smelt_flat_out: Vec<{item_rust}> = Vec::new(); for smelt_flat_0 in {list_text}.iter() {{ let smelt_flat_0 = smelt_flat_0.clone(); {body} }} smelt_flat_out }}",
+            depth_text = depth_text.delimited(),
+            list_text = list_read_expr(&self.operand_expr(list)?).tight(),
+        )))
+    }
+
+    /// The statements that push the flattened items of `value` (a binding of
+    /// type `ty`, an array level `level` deep) onto `smelt_flat_out`.
+    fn flat_into(
+        &self,
+        value: &str,
+        ty: TypeId,
+        level: usize,
+        fixed: Option<usize>,
+        dest_item_ty: TypeId,
+        names: &std::cell::Cell<usize>,
+    ) -> Result<String, EmitError> {
+        /// Deepest array level unwrapped; the static shape is finite, this
+        /// only bounds a pathological one.
+        const MAX_LEVEL: usize = 64;
+        let fresh = || {
+            names.set(names.get().saturating_add(1));
+            format!("smelt_flat_{}", names.get())
+        };
+        let leaf = |this: &Self| -> Result<String, EmitError> {
+            let item = this.rendered_at_type(
+                &RustExpr::path(value).cloned_value(),
+                ty,
+                dest_item_ty,
+                &this.render_scope(),
+            )?;
+            Ok(format!("smelt_flat_out.push({});", item.delimited()))
+        };
+        if level >= MAX_LEVEL || fixed.is_some_and(|depth| level >= depth) {
+            return leaf(self);
+        }
+        if let Some(members) = self.concrete_union_members(ty) {
+            let arm_types = members.to_vec();
+            let union = union_name(ty);
+            let mut arms = String::new();
+            for (index, member) in arm_types.iter().enumerate() {
+                let name = fresh();
+                let inner = self.flat_into(&name, *member, level, fixed, dest_item_ty, names)?;
+                arms.push_str(&format!("{union}::M{index}({name}) => {{ {inner} }} "));
+            }
+            return Ok(format!("match {value}.clone() {{ {arms}}}"));
+        }
+        let unwrapped = match self.mir.types.get(ty) {
+            Some(Type::List(item_ty)) => {
+                let name = fresh();
+                let inner = self.flat_into(
+                    &name,
+                    *item_ty,
+                    level.saturating_add(1),
+                    fixed,
+                    dest_item_ty,
+                    names,
+                )?;
+                format!(
+                    "for {name} in {value}.borrow().iter() {{ let {name} = {name}.clone(); {inner} }}"
+                )
+            }
+            Some(Type::Tuple(items)) => {
+                let mut text = String::new();
+                for (index, item_ty) in items.clone().iter().enumerate() {
+                    let name = fresh();
+                    let inner = self.flat_into(
+                        &name,
+                        *item_ty,
+                        level.saturating_add(1),
+                        fixed,
+                        dest_item_ty,
+                        names,
+                    )?;
+                    text.push_str(&format!(
+                        "{{ let {name} = {value}.{index}.clone(); {inner} }} "
+                    ));
+                }
+                text
+            }
+            _ => return leaf(self),
+        };
+        if fixed.is_some() {
+            return Ok(unwrapped);
+        }
+        Ok(format!(
+            "if smelt_flat_depth > {level} {{ {unwrapped}}} else {{ {} }}",
+            leaf(self)?
+        ))
     }
 
     /// Emits the JavaScript `Array.flat` depth expression as a runtime number.

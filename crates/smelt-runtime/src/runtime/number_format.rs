@@ -500,3 +500,59 @@ fn smelt_number_format_checked(method: &str, value: f64, argument: Option<f64>) 
 fn smelt_number_range_error(message: String) -> Box<dyn ::std::error::Error> { smelt_throw(SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_error".to_owned(), SmeltUnknown::String("RangeError".into())), ("message".to_owned(), SmeltUnknown::String(message.into())), ("stack".to_owned(), SmeltUnknown::Undefined), ("cause".to_owned(), SmeltUnknown::Undefined)])))) }
 
 // @smelt:item-end
+
+// @smelt:item smelt_number_to_locale_string when number_locale
+//~ `Number.prototype.toLocaleString(locale)` with the default options:
+//~ `maximumFractionDigits: 3` rounded half away from zero, no minimum, and
+//~ the locale's grouping and decimal separators (CLDR, as Node 24 prints
+//~ them). An absent locale is the runtime default `en-US`; a locale this
+//~ table does not list falls back to its language, then to `en-US`, as an
+//~ unsupported locale falls back to the default in ICU.
+/// The digits of `value` as `toLocaleString(locale)` prints them.
+fn smelt_number_to_locale_string(value: f64, locale: Option<&str>) -> String {
+    if value.is_nan() { return "NaN".to_owned(); }
+    if value.is_infinite() { return if value > 0.0 { "∞".to_owned() } else { "-∞".to_owned() }; }
+    let tag = locale.unwrap_or("en-US");
+    let language = tag.split(['-', '_']).next().unwrap_or("en").to_ascii_lowercase();
+    // (grouping separator, decimal separator, minimum grouping digits, Indian grouping)
+    let (group, decimal, min_grouping, indian): (&str, &str, usize, bool) = match (language.as_str(), tag) {
+        (_, "de-CH" | "de-LI") => ("’", ".", 1, false),
+        ("en" | "hi", "en-IN") | ("hi", _) => (",", ".", 1, true),
+        ("de" | "it" | "nl" | "id" | "tr" | "da" | "pt" | "el" | "ro" | "hr" | "sl", _) => (".", ",", 1, false),
+        ("es", _) => (".", ",", 2, false),
+        ("fr", _) => ("\u{202f}", ",", 1, false),
+        ("pl", _) => ("\u{a0}", ",", 2, false),
+        ("ru" | "uk" | "cs" | "sk" | "sv" | "nb" | "no" | "fi" | "hu" | "bg", _) => ("\u{a0}", ",", 1, false),
+        _ => (",", ".", 1, false),
+    };
+    // Half away from zero at three fraction digits; `{:.3}` would round the
+    // binary value half to even.
+    let scaled = (value.abs() * 1000.0).round();
+    let negative = value.is_sign_negative();
+    let text = format!("{:.3}", scaled / 1000.0);
+    let (whole, fraction) = text.split_once('.').unwrap_or((text.as_str(), ""));
+    let fraction = fraction.trim_end_matches('0');
+    let digits: Vec<char> = whole.chars().collect();
+    let grouped = if digits.len() >= 3 + min_grouping {
+        let mut positions = Vec::new();
+        let mut index = digits.len();
+        let mut first = true;
+        while index > 0 {
+            let size = if first || !indian { 3 } else { 2 };
+            first = false;
+            let start = index.saturating_sub(size);
+            positions.push(digits[start..index].iter().collect::<String>());
+            index = start;
+        }
+        positions.reverse();
+        positions.join(group)
+    } else {
+        digits.into_iter().collect()
+    };
+    let mut out = String::new();
+    if negative { out.push('-'); }
+    out.push_str(&grouped);
+    if !fraction.is_empty() { out.push_str(decimal); out.push_str(fraction); }
+    out
+}
+// @smelt:item-end

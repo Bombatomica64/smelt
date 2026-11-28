@@ -1416,15 +1416,14 @@ impl FunctionEmitter<'_> {
                         ))
                     }
                 } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty)
-                    && matches!(
-                        self.mir.types.get(*key_ty),
-                        Some(Type::Float | Type::Int | Type::Bool | Type::FixedInt(_))
-                    )
+                    && !self.renders_erased(*key_ty)?
                 {
-                    // A scalar key (`Record<K, V>` with `K := number`) cannot hold
-                    // the representation markers or a symbol, which only a key
-                    // rendered as `SmeltUnknown` (erased, or a type parameter) can
-                    // spell, so the entries are read directly.
+                    // A key that is not the erased carrier (a scalar, as in
+                    // `Record<K, V>` with `K := number`, or a generic `K` in
+                    // scope, as in a `Map<K, V>` field of a generic class) cannot
+                    // hold the representation markers or a symbol, which only a
+                    // key rendered as `SmeltUnknown` can spell, so the entries
+                    // are read directly.
                     Ok(dict_text.postfix(".keys().collect::<Vec<_>>()"))
                 } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
                     // Own string keys only: the prelude helper strips the
@@ -1537,15 +1536,14 @@ impl FunctionEmitter<'_> {
                         ),
                     ))
                 } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty)
-                    && matches!(
-                        self.mir.types.get(*key_ty),
-                        Some(Type::Float | Type::Int | Type::Bool | Type::FixedInt(_))
-                    )
+                    && !self.renders_erased(*key_ty)?
                 {
-                    // A scalar key (`Record<K, V>` with `K := number`) cannot hold
-                    // the representation markers or a symbol, which only a key
-                    // rendered as `SmeltUnknown` (erased, or a type parameter) can
-                    // spell, so the entries are read directly.
+                    // A key that is not the erased carrier (a scalar, as in
+                    // `Record<K, V>` with `K := number`, or a generic `K` in
+                    // scope, as in a `Map<K, V>` field of a generic class) cannot
+                    // hold the representation markers or a symbol, which only a
+                    // key rendered as `SmeltUnknown` can spell, so the entries
+                    // are read directly.
                     Ok(RustExpr::atom("Vec::new()".to_owned()))
                 } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
                     // The mirror image of the `Keys` arm: the same own-entry
@@ -1619,15 +1617,14 @@ impl FunctionEmitter<'_> {
                         ))
                     }
                 } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty)
-                    && matches!(
-                        self.mir.types.get(*key_ty),
-                        Some(Type::Float | Type::Int | Type::Bool | Type::FixedInt(_))
-                    )
+                    && !self.renders_erased(*key_ty)?
                 {
-                    // A scalar key (`Record<K, V>` with `K := number`) cannot hold
-                    // the representation markers or a symbol, which only a key
-                    // rendered as `SmeltUnknown` (erased, or a type parameter) can
-                    // spell, so the entries are read directly.
+                    // A key that is not the erased carrier (a scalar, as in
+                    // `Record<K, V>` with `K := number`, or a generic `K` in
+                    // scope, as in a `Map<K, V>` field of a generic class) cannot
+                    // hold the representation markers or a symbol, which only a
+                    // key rendered as `SmeltUnknown` can spell, so the entries
+                    // are read directly.
                     Ok(dict_text.postfix(".values().collect::<Vec<_>>()"))
                 } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
                     // Own, non-symbol entries only -- same rule as the `Keys` arm.
@@ -1702,15 +1699,14 @@ impl FunctionEmitter<'_> {
                         ))
                     }
                 } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty)
-                    && matches!(
-                        self.mir.types.get(*key_ty),
-                        Some(Type::Float | Type::Int | Type::Bool | Type::FixedInt(_))
-                    )
+                    && !self.renders_erased(*key_ty)?
                 {
-                    // A scalar key (`Record<K, V>` with `K := number`) cannot hold
-                    // the representation markers or a symbol, which only a key
-                    // rendered as `SmeltUnknown` (erased, or a type parameter) can
-                    // spell, so the entries are read directly.
+                    // A key that is not the erased carrier (a scalar, as in
+                    // `Record<K, V>` with `K := number`, or a generic `K` in
+                    // scope, as in a `Map<K, V>` field of a generic class) cannot
+                    // hold the representation markers or a symbol, which only a
+                    // key rendered as `SmeltUnknown` can spell, so the entries
+                    // are read directly.
                     Ok(dict_text.postfix(".iter().collect::<Vec<_>>()"))
                 } else if self.map_op_uses_js_key_map(self.operand_ty(dict)?, *key_ty) {
                     // Own, non-symbol entries only -- same rule as the `Keys` arm.

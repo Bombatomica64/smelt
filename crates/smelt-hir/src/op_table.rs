@@ -668,6 +668,16 @@ macro_rules! op_group_transcribed {
                 fallible(*can_throw)
                 call(format!("@structured_clone"))
                 => (format!("structured_clone {operand} typed={typed:?} throws={can_throw:?}"));
+            /// `x.toLocaleString(locale?)` on a number: grouped digits with at most
+            /// three fraction digits, in the separators of `locale` (the runtime's
+            /// default `en-US` when absent; see `smelt_number_to_locale_string`).
+            NumberToLocaleString {
+                /// The numeric receiver.
+                operand: one,
+                /// The locale tag, when written.
+                locale: opt,
+            }
+                => (format!("number_to_locale_string {operand} {locale:?}"));
             /// Trim whitespace from a string value.
             StringTrim {
                 /// Which side of the string to trim.

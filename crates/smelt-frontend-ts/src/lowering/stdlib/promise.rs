@@ -104,6 +104,7 @@ impl ModuleBuilder<'_> {
         let op = match member.property.name.as_str() {
             "all" => AsyncOp::All,
             "race" => AsyncOp::Race,
+            "any" => AsyncOp::Any,
             "allSettled" => AsyncOp::AllSettled,
             other => {
                 return Err(SmeltError::unsupported(
@@ -211,7 +212,7 @@ impl ModuleBuilder<'_> {
                     .collect::<Result<Vec<_>, _>>()?;
                 Ok(self.ctx.krate.types.intern(Type::Tuple(outputs)))
             }
-            AsyncOp::Race => {
+            AsyncOp::Race | AsyncOp::Any => {
                 let Some(first) = args.first() else {
                     return Err(SmeltError::unsupported(
                         self.span(span.start, span.end),

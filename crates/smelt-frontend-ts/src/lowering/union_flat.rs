@@ -74,6 +74,43 @@ impl ModuleBuilder<'_> {
         Some(self.union_of_types_or_unknown(members))
     }
 
+    /// The element type of `list.flat(depth)` with a depth ARGUMENT, for a
+    /// list whose element is itself an array (a list or tuple) or a union
+    /// with an array arm: `FlatArray<element, depth>` by the module's rule,
+    /// over every depth when the argument is not a literal. `None` for any
+    /// other element (the caller's other rules apply).
+    pub(in crate::lowering) fn nested_flat_item_type(
+        &mut self,
+        element_ty: TypeId,
+        depth: &Argument<'_>,
+    ) -> Option<TypeId> {
+        let is_array = |ty: Option<&Type>| matches!(ty, Some(Type::List(_) | Type::Tuple(_)));
+        let nested = match self.ctx.krate.types.get(element_ty) {
+            Some(Type::Union(arms)) => arms
+                .iter()
+                .any(|arm| is_array(self.ctx.krate.types.get(*arm))),
+            other => is_array(other),
+        };
+        if !nested {
+            return None;
+        }
+        let members = match flat_depth(Some(depth)) {
+            FlatDepth::Known(depth) => self.flat_members(element_ty, depth),
+            FlatDepth::Dynamic => {
+                let mut every_depth = Vec::new();
+                for level in 0..=MAX_FLAT_DEPTH {
+                    for member in self.flat_members(element_ty, level) {
+                        if !every_depth.contains(&member) {
+                            every_depth.push(member);
+                        }
+                    }
+                }
+                every_depth
+            }
+        };
+        Some(self.union_of_types_or_unknown(members))
+    }
+
     /// The flat union members `FlatArray<ty, depth>` resolves to.
     fn flat_members(&mut self, ty: TypeId, depth: u32) -> Vec<TypeId> {
         if depth == 0 {
@@ -81,8 +118,20 @@ impl ModuleBuilder<'_> {
         }
         let mut members = Vec::new();
         for arm in self.flatten_union_member_types(ty) {
-            let flattened = match self.ctx.krate.types.get(arm) {
-                Some(&Type::List(item_ty)) => self.flat_members(item_ty, depth.saturating_sub(1)),
+            let flattened = match self.ctx.krate.types.get(arm).cloned() {
+                Some(Type::List(item_ty)) => self.flat_members(item_ty, depth.saturating_sub(1)),
+                // A tuple is an array: each item flattens one level down.
+                Some(Type::Tuple(items)) if !items.is_empty() => {
+                    let mut item_members = Vec::new();
+                    for item in items {
+                        for member in self.flat_members(item, depth.saturating_sub(1)) {
+                            if !item_members.contains(&member) {
+                                item_members.push(member);
+                            }
+                        }
+                    }
+                    item_members
+                }
                 _ => vec![arm],
             };
             for member in flattened {

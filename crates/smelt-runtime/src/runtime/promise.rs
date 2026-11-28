@@ -587,6 +587,32 @@ fn smelt_promise_race<T: Clone + 'static>(racers: Vec<SmeltFuture<T>>) -> SmeltF
 
 // @smelt:item-end
 
+// @smelt:item smelt_promise_any when promise_any
+//~ `Promise.any`: a promise that fulfils like the first of `entries` to
+//~ fulfil, and when every entry rejects, rejects with an `AggregateError`
+//~ whose `errors` holds each reason in entry order (an empty input rejects at
+//~ once). Each entry gets a reaction, as JavaScript's `any` calls `then` on
+//~ each; entries keep running after the result settles.
+#[allow(dead_code)]
+fn smelt_promise_any<T: Clone + 'static>(entries: Vec<SmeltFuture<T>>) -> SmeltFuture<T> {
+    let (any, settle) = SmeltFuture::with_resolvers();
+    let total = entries.len();
+    if total == 0 { settle.smelt_settle(Err(smelt_aggregate_error(Vec::new()))); return any; }
+    let reasons = ::std::rc::Rc::new(::std::cell::RefCell::new(vec![SmeltUnknown::Undefined; total]));
+    let rejected = ::std::rc::Rc::new(::std::cell::Cell::new(0_usize));
+    for (index, entry) in entries.into_iter().enumerate() {
+        let (settle, reasons, rejected) = (settle.clone(), ::std::rc::Rc::clone(&reasons), ::std::rc::Rc::clone(&rejected));
+        let source = entry.smelt_detached();
+        entry.handled.set(true);
+        entry.smelt_when_settled_run(Box::pin(async move { match source.smelt_settled() { Some(Ok(value)) => settle.smelt_settle(Ok(value)), Some(Err(error)) => { reasons.borrow_mut()[index] = error; rejected.set(rejected.get() + 1); if rejected.get() == total { let all = reasons.borrow().clone(); settle.smelt_settle(Err(smelt_aggregate_error(all))); } } None => {} } }));
+    }
+    any
+}
+/// The `AggregateError` `Promise.any` rejects with when every entry rejected.
+fn smelt_aggregate_error(reasons: Vec<SmeltUnknown>) -> SmeltUnknown { SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_error".to_owned(), SmeltUnknown::String("AggregateError".into())), ("message".to_owned(), SmeltUnknown::String("All promises were rejected".into())), ("errors".to_owned(), SmeltUnknown::Array(reasons.into())), ("stack".to_owned(), SmeltUnknown::Undefined), ("cause".to_owned(), SmeltUnknown::Undefined)]))) }
+
+// @smelt:item-end
+
 // @smelt:item smelt_settled_result when all_settled
 //~ One entry of `Promise.allSettled`: the record JavaScript builds for a
 //~ settled input, `{ status: "fulfilled", value }` or `{ status: "rejected",
