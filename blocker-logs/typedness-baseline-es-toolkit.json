@@ -2,9 +2,9 @@
   "version": 1,
   "total": {
     "values": {
-      "concrete": 14370,
+      "concrete": 14408,
       "generic": 370,
-      "erased": 6926
+      "erased": 6889
     },
     "reads": {
       "concrete": 366,
@@ -632,9 +632,9 @@
     },
     "src/array/filterAsync.spec.ts": {
       "values": {
-        "concrete": 98,
+        "concrete": 101,
         "generic": 0,
-        "erased": 17
+        "erased": 14
       },
       "reads": {
         "concrete": 0,
@@ -700,9 +700,9 @@
     },
     "src/array/flatMapAsync.spec.ts": {
       "values": {
-        "concrete": 100,
+        "concrete": 108,
         "generic": 0,
-        "erased": 35
+        "erased": 27
       },
       "reads": {
         "concrete": 0,
@@ -836,9 +836,9 @@
     },
     "src/array/forEachAsync.spec.ts": {
       "values": {
-        "concrete": 65,
+        "concrete": 68,
         "generic": 0,
-        "erased": 17
+        "erased": 14
       },
       "reads": {
         "concrete": 0,
@@ -1261,9 +1261,9 @@
     },
     "src/array/limitAsync.spec.ts": {
       "values": {
-        "concrete": 28,
+        "concrete": 31,
         "generic": 0,
-        "erased": 61
+        "erased": 58
       },
       "reads": {
         "concrete": 0,
@@ -1295,9 +1295,9 @@
     },
     "src/array/mapAsync.spec.ts": {
       "values": {
-        "concrete": 67,
+        "concrete": 70,
         "generic": 0,
-        "erased": 26
+        "erased": 23
       },
       "reads": {
         "concrete": 0,
@@ -1533,9 +1533,9 @@
     },
     "src/array/reduceAsync.spec.ts": {
       "values": {
-        "concrete": 190,
+        "concrete": 195,
         "generic": 0,
-        "erased": 59
+        "erased": 54
       },
       "reads": {
         "concrete": 3,
@@ -8843,9 +8843,9 @@
     },
     "src/function/debounce.ts": {
       "values": {
-        "concrete": 62,
+        "concrete": 63,
         "generic": 1,
-        "erased": 25
+        "erased": 24
       },
       "reads": {
         "concrete": 1,
@@ -9285,9 +9285,9 @@
     },
     "src/function/throttle.spec.ts": {
       "values": {
-        "concrete": 196,
+        "concrete": 197,
         "generic": 0,
-        "erased": 70
+        "erased": 69
       },
       "reads": {
         "concrete": 0,
@@ -10798,7 +10798,7 @@
     },
     "src/predicate/isEqualWith.ts": {
       "values": {
-        "concrete": 133,
+        "concrete": 134,
         "generic": 0,
         "erased": 132
       },
@@ -10815,9 +10815,9 @@
     },
     "src/predicate/isError.spec.ts": {
       "values": {
-        "concrete": 38,
+        "concrete": 39,
         "generic": 0,
-        "erased": 9
+        "erased": 8
       },
       "reads": {
         "concrete": 0,
@@ -10917,9 +10917,9 @@
     },
     "src/predicate/isJSON.spec.ts": {
       "values": {
-        "concrete": 42,
+        "concrete": 43,
         "generic": 0,
-        "erased": 3
+        "erased": 2
       },
       "reads": {
         "concrete": 0,
@@ -10951,9 +10951,9 @@
     },
     "src/predicate/isJSONValue.spec.ts": {
       "values": {
-        "concrete": 106,
+        "concrete": 110,
         "generic": 0,
-        "erased": 18
+        "erased": 14
       },
       "reads": {
         "concrete": 0,
@@ -11631,9 +11631,9 @@
     },
     "src/promise/delay.spec.ts": {
       "values": {
-        "concrete": 43,
+        "concrete": 44,
         "generic": 0,
-        "erased": 58
+        "erased": 57
       },
       "reads": {
         "concrete": 0,
@@ -11648,9 +11648,9 @@
     },
     "src/promise/delay.ts": {
       "values": {
-        "concrete": 21,
+        "concrete": 22,
         "generic": 0,
-        "erased": 17
+        "erased": 16
       },
       "reads": {
         "concrete": 0,
@@ -11767,9 +11767,9 @@
     },
     "src/promise/timeout.ts": {
       "values": {
-        "concrete": 14,
+        "concrete": 15,
         "generic": 0,
-        "erased": 17
+        "erased": 16
       },
       "reads": {
         "concrete": 0,
@@ -11784,9 +11784,9 @@
     },
     "src/promise/withTimeout.spec.ts": {
       "values": {
-        "concrete": 26,
+        "concrete": 27,
         "generic": 0,
-        "erased": 24
+        "erased": 23
       },
       "reads": {
         "concrete": 0,

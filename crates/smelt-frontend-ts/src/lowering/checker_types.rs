@@ -276,6 +276,36 @@ impl ModuleBuilder<'_> {
         lowered
     }
 
+    /// Whether the checker types the function expression at `start..end` as
+    /// a single call signature returning `any`.
+    ///
+    /// [`Self::checker_function_return_type`] declines `any`, so such a
+    /// closure keeps an erased return. The return is not *missing*, though:
+    /// TypeScript inferred `any` because the body returns a value the author
+    /// typed `any` (`function (...args: any[]) { return func.apply(this,
+    /// args); }`). The erasure sites use this to name the real reason,
+    /// `explicit-any`, instead of `missing-annotation`. Both reasons are
+    /// avoidable, so the reclassification moves a record between pools and
+    /// never hides one.
+    pub(in crate::lowering) fn checker_function_returns_any(&self, start: u32, end: u32) -> bool {
+        let Some(facts) = self.ts_facts else {
+            return false;
+        };
+        let Some(id) = facts.type_id_at(&self.path, start, end) else {
+            return false;
+        };
+        let Some(TsTypeKind::Object(object)) = facts.types.get(id).map(|ty| &ty.kind) else {
+            return false;
+        };
+        let [signature] = object.call_signatures.as_slice() else {
+            return false;
+        };
+        matches!(
+            facts.types.get(signature.return_type).map(|ty| &ty.kind),
+            Some(TsTypeKind::Any)
+        )
+    }
+
     /// The return the checker inferred for an unannotated function
     /// DECLARATION or METHOD, the counterpart of
     /// [`Self::checker_function_return_type`] for function expressions.
@@ -323,7 +353,11 @@ impl ModuleBuilder<'_> {
     /// class expression substituted it differently from the emitted method
     /// (hono's `RegExpRouterWithMatcherExport<T>`: E0308). Such a return
     /// keeps the previous lowering; only concrete returns are taken.
-    fn without_type_params(&mut self, ty: Option<TypeId>, records_before: usize) -> Option<TypeId> {
+    pub(in crate::lowering) fn without_type_params(
+        &mut self,
+        ty: Option<TypeId>,
+        records_before: usize,
+    ) -> Option<TypeId> {
         match ty {
             Some(ty) if self.type_mentions_type_param(ty) => {
                 self.ctx.krate.erasures.truncate(records_before);
