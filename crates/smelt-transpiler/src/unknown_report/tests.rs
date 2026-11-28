@@ -650,6 +650,22 @@ fn pending_thrown_value_is_a_boundary() {
     );
 }
 
+/// The value a `yield` evaluates to is what the consumer sent; it is erased only
+/// when the source declares the generator's `TNext` `unknown`, which any value
+/// satisfies. A plain erased temporary stays avoidable.
+#[test]
+fn generator_resume_is_a_boundary() {
+    let resume = "    let _smelt_tmp_1: SmeltUnknown = { smelt_co.yield_(_smelt_tmp_0).await; let smelt_command = smelt_generator_input.borrow_mut().take().unwrap_or_else(|| SmeltGeneratorCommand::Next(Default::default())); match smelt_command { SmeltGeneratorCommand::Next(smelt_value) => smelt_value, SmeltGeneratorCommand::Return(smelt_value) => return smelt_value, SmeltGeneratorCommand::Throw(smelt_error) => smelt_panic_throw(smelt_error) } };";
+    assert_eq!(classify_line(resume, false), Category::LegitimateBoundary);
+    assert_eq!(
+        classify_line(
+            "    let _smelt_tmp_1: SmeltUnknown = _smelt_tmp_0.clone();",
+            false
+        ),
+        Category::AvoidableErasure
+    );
+}
+
 #[test]
 fn symbol_value_is_a_boundary() {
     let symbol_value =

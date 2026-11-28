@@ -798,6 +798,9 @@ pub mod boundary {
     pub const UNKNOWN_IS_PREFIX: &str = "smelt_unknown_is_";
     /// A throw.
     pub const THROW_CALL: &str = "smelt_throw(";
+    /// A suspended generator's resumption: the command a consumer's `next`,
+    /// `return` or `throw` sent, read where the `yield` resumes.
+    pub const GENERATOR_RESUME: &str = "smelt_generator_input.borrow_mut().take()";
     /// A caught value.
     pub const THROWN_VALUE_CALL: &str = "smelt_thrown_value(";
     /// A thrown string.

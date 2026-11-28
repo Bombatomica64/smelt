@@ -247,7 +247,7 @@ pub(super) fn classify_program_line(line: &str) -> Category {
 }
 
 /// Spellings that put a line at a genuine dynamic boundary; each entry says why.
-const BOUNDARY_MARKERS: [&str; 52] = [
+const BOUNDARY_MARKERS: [&str; 53] = [
     boundary::FUNCTION_TAG,
     // The erased callable built as its dedicated carrier struct
     // (`SmeltErasedFunction { callback: .. }`), which the report counts
@@ -401,6 +401,19 @@ const BOUNDARY_MARKERS: [&str; 52] = [
     // type, generated union arm, or scoped generic can express that.
     boundary::THROW_CALL,
     boundary::THROWN_VALUE_CALL,
+    // A `yield` resuming on the command its consumer sent: the expression's
+    // value is whatever the consumer passed to `next(v)`, typed by the
+    // generator's declared `TNext`. It is `SmeltUnknown` exactly when the
+    // source declares that `unknown` (`Generator<number, string, unknown>`,
+    // es-toolkit's specs): `next(v)` then accepts any value from any caller,
+    // the source-`unknown` boundary, and no concrete type, union arm or
+    // scoped generic can carry it (a generator with a typed `TNext` resumes at
+    // that type and has no `SmeltUnknown` here). The same line also forwards
+    // a `throw()`'s error box. Before the `Throw` command carried the error
+    // channel's `Box<dyn Error>` (#578) this line matched `smelt_throw(`
+    // above by accident; the marker names the boundary it really is.
+    // Proven in `generator_resume_is_a_boundary` (`tests.rs`).
+    boundary::GENERATOR_RESUME,
     // The value a `finally` holds while its clause runs on an exceptional
     // exit (`smelt_mir::PENDING_THROWN_LOCAL`, see `lower_try_catch`): the
     // same exception payload as the two adapters above, parked between
