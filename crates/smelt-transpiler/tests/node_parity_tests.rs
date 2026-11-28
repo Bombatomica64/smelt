@@ -2843,3 +2843,12 @@ fn number_to_locale_string() -> TestResult {
 fn generic_map_keys() -> TestResult {
     verify_node_parity("generic_map_keys")
 }
+
+/// `flat(depth)` over nested typed arrays (lists, tuples, unions with array
+/// arms) flattens by the static shape to `FlatArray<T, D>`, for a literal,
+/// `Infinity` or runtime depth. An explicit depth was refused unless the
+/// list was erased.
+#[test]
+fn flat_depth_typed() -> TestResult {
+    verify_node_parity("flat_depth_typed")
+}
