@@ -2324,6 +2324,17 @@ fn sequential_branch_rejoins() -> TestResult {
     verify_node_parity("sequential_branch_rejoins")
 }
 
+/// Branches whose arms share a `return`/`throw` before they meet, in sequence:
+/// a `switch` inside a `try` whose two calling `case`s throw into one `catch`
+/// that returns or rethrows, in a function, a loop body and a closure. Such a
+/// branch kept the per-arm emission (`3^n` copies of the rest); the code
+/// after it is now emitted once (`shared_exit_join_candidates`), and every
+/// path, thrown or not, must still run the same code in the same order.
+#[test]
+fn shared_exit_rejoins() -> TestResult {
+    verify_node_parity("shared_exit_rejoins")
+}
+
 /// Unannotated protocol methods take the iterator type the TypeScript checker
 /// infers from their result's structure (`checker_types::iterator_shape`): a
 /// `[Symbol.iterator]()` answering an object literal `{ next, return }` (whose

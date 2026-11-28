@@ -1,0 +1,52 @@
+returningCatches(0) 56
+rethrowingCatches(0) 103
+viaClosure(0) 44
+returningCatches(1) 56
+rethrowingCatches(1) 109
+viaClosure(1) 77
+returningCatches(2) 56
+rethrowingCatches(2) 104
+viaClosure(2) 44
+returningCatches(3) 77
+rethrowingCatches(3) 110
+viaClosure(3) 143
+returningCatches(4) 77
+rethrowingCatches(4) 109
+viaClosure(4) 110
+returningCatches(5) 77
+rethrowingCatches(5) 115
+viaClosure(5) 143
+returningCatches(7) 98
+rethrowingCatches(7) threw second risky 13
+viaClosure(7) 143
+returningCatches(9) 119
+rethrowingCatches(9) threw second risky 15
+viaClosure(9) 341
+returningCatches(15) -3
+rethrowingCatches(15) threw second risky 21
+viaClosure(15) -20
+returningCatches(16) -3
+rethrowingCatches(16) 121
+viaClosure(16) 242
+returningCatches(17) -3
+rethrowingCatches(17) threw first risky 22
+viaClosure(17) -20
+returningCatches(31) -1
+rethrowingCatches(31) threw first risky 36
+viaClosure(31) 407
+returningCatches(33) -1
+rethrowingCatches(33) threw first risky 38
+viaClosure(33) -20
+returningCatches(34) -1
+rethrowingCatches(34) threw first risky 34
+viaClosure(34) -10
+returningCatches(41) -2
+rethrowingCatches(41) threw first risky 46
+viaClosure(41) -20
+returningCatches(44) -2
+rethrowingCatches(44) threw first risky 44
+viaClosure(44) -20
+inLoop(6, 100) 0:3,1:5,2:9,3:11,4:15,5:17
+inLoop(8, 12) 0:3,1:5,2:9,3:11|second 4
+inLoop(8, 8) 0:3,1:5,2:9|caught 3
+inLoop(8, 9) 0:3,1:5,2:9|second 3
