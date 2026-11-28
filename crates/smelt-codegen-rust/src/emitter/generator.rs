@@ -99,21 +99,22 @@ impl FunctionEmitter<'_> {
             let unknown_ty = self.type_id(Type::Unknown)?;
             self.value_at_type(value, unknown_ty)?
         };
-        if let Some(delegate) = delegate {
+        if let Some(delegate_operand) = delegate {
             // Without a catch around the step, the delegate's throw ends this
             // generator with it: returned as its `Err` (the step makes the
             // generator fallible, `passes::throwing`), after the `finally`
             // blocks, rather than unwinding through the producer, which would
             // leave it unresumable.
-            let thrown = if unwind.is_some() || !(self.function.is_async || self.function.can_throw)
-            {
-                thrown
-            } else if cleanup.is_some() {
-                format!("{{ {cleanup_text} return Err(smelt_error) }}")
-            } else {
-                "return Err(smelt_error)".to_owned()
-            };
-            let resume = self.delegated_resume_text(delegate, &returned, &thrown)?;
+            let delegate_thrown =
+                if unwind.is_some() || !(self.function.is_async || self.function.can_throw) {
+                    thrown
+                } else if cleanup.is_some() {
+                    format!("{{ {cleanup_text} return Err(smelt_error) }}")
+                } else {
+                    "return Err(smelt_error)".to_owned()
+                };
+            let resume =
+                self.delegated_resume_text(delegate_operand, &returned, &delegate_thrown)?;
             return Ok(RustExpr::atom(format!(
                 "{{ smelt_co.yield_({yield_text}).await; let smelt_command = smelt_generator_input.borrow_mut().take().unwrap_or(SmeltGeneratorCommand::Next(None)); {resume} }}",
                 yield_text = yield_text.delimited()
@@ -508,18 +509,18 @@ impl FunctionEmitter<'_> {
         // that lends it. `throw` receives the command's error box, whose
         // thrown value the closure passes on (`smelt_thrown_value`).
         let step_rust = self.rendered_type(step_ty)?;
-        let method = |operand: Option<&Operand>,
+        let method = |method_closure: Option<&Operand>,
                       param: Option<TypeId>,
                       thrown: bool|
          -> Result<String, EmitError> {
-            let Some(operand) = operand else {
+            let Some(closure) = method_closure else {
                 return Ok("None".to_owned());
             };
             let target = method_ty(param)?;
-            let adapted = at_method_type(operand, target)?;
+            let adapted = at_method_type(closure, target)?;
             let lends = match (param, self.mir.types.get(target)) {
-                (Some(param), Some(Type::Function(function))) => {
-                    self.callback_param_is_shared_reference(function, 0, param)
+                (Some(sent_ty), Some(Type::Function(function))) => {
+                    self.callback_param_is_shared_reference(function, 0, sent_ty)
                 }
                 _ => false,
             };
@@ -532,26 +533,26 @@ impl FunctionEmitter<'_> {
                     value = value.delimited()
                 ));
             }
-            let Some(param) = param.filter(|_| lends) else {
+            let Some(lent_ty) = param.filter(|_| lends) else {
                 return Ok(format!("Some({})", adapted.delimited()));
             };
-            let param_rust = self.rendered_type(param)?;
+            let param_rust = self.rendered_type(lent_ty)?;
             Ok(format!(
                 "Some({{ let smelt_method = {adapted}; ::std::rc::Rc::new(move |smelt_sent: {param_rust}| smelt_method(&smelt_sent)) as ::std::rc::Rc<dyn Fn({param_rust}) -> Result<{step_rust}, Box<dyn ::std::error::Error>>> }})",
                 adapted = adapted.delimited()
             ))
         };
-        let source = match source {
-            Some(source) if self.is_reference_class_type(self.operand_ty(source)?) => format!(
+        let identity = match source {
+            Some(object) if self.is_reference_class_type(self.operand_ty(object)?) => format!(
                 "Some(::std::rc::Rc::clone(&({}).0) as ::std::rc::Rc<dyn ::std::any::Any>)",
-                self.operand_expr(source)?.delimited()
+                self.operand_expr(object)?.delimited()
             ),
             _ => "None".to_owned(),
         };
-        let next = at_method_type(next, method_ty(None)?)?;
+        let next_call = at_method_type(next, method_ty(None)?)?;
         Ok(RustExpr::atom(format!(
-            "SmeltGenerator::from_protocol({source}, {next}, {next_with}, {close}, {close_with}, {throw_with})",
-            next = next.delimited(),
+            "SmeltGenerator::from_protocol({identity}, {next_call}, {next_with}, {close}, {close_with}, {throw_with})",
+            next_call = next_call.delimited(),
             next_with = method(next_with, Some(next_ty), false)?,
             close = method(close, None, false)?,
             close_with = method(close_with, Some(return_ty), false)?,

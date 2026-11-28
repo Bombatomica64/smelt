@@ -492,7 +492,7 @@ impl ModuleBuilder<'_> {
     ) -> Option<ExprId> {
         let mut closure = Body::new(None, span);
         let mut captures = Vec::new();
-        let mut captured = Vec::new();
+        let mut capture_locals = Vec::new();
         for &(source_local, ty, symbol) in iterator {
             let body_local = closure.push_local(LocalDecl {
                 name: Some(symbol),
@@ -507,7 +507,7 @@ impl ModuleBuilder<'_> {
                 ty,
                 mode: CaptureMode::ByValue,
             });
-            captured.push(body_local);
+            capture_locals.push(body_local);
         }
         let mut params = Vec::new();
         let mut args = Vec::new();
@@ -534,7 +534,8 @@ impl ModuleBuilder<'_> {
                 }));
             }
         }
-        let call_expr = self.protocol_call(access, call, args, &captured, span, &mut closure)?;
+        let call_expr =
+            self.protocol_call(access, call, args, &capture_locals, span, &mut closure)?;
         let return_ty = Self::expr_ty(&closure, call_expr);
         closure.blocks.first_mut()?.tail = Some(call_expr);
         let body_id = self.ctx.krate.push_body(closure);
@@ -647,7 +648,7 @@ impl ModuleBuilder<'_> {
             });
         }
 
-        let (closes, throws) = match access {
+        let (has_return, has_throw) = match access {
             ProtocolAccess::Generator { .. } => (true, true),
             ProtocolAccess::Method { methods, .. }
             | ProtocolAccess::Member { methods, .. }
@@ -656,14 +657,14 @@ impl ModuleBuilder<'_> {
             }
         };
         // A resume or return channel of `undefined` sends nothing to forward.
-        let carries =
+        let channel_carries =
             |this: &Self, ty: TypeId| !matches!(this.ctx.krate.types.get(ty), Some(Type::None));
-        let closure = |this: &mut Self, call, arg, adapter: &mut Body| {
+        let closure = |this: &mut Self, call, arg, into: &mut Body| {
             let pass = this.protocol_method_takes_value(access, call);
-            this.protocol_closure(access, call, arg, pass, &iterator, span, adapter)
+            this.protocol_closure(access, call, arg, pass, &iterator, span, into)
         };
         let next = closure(self, ProtocolCall::Next, ProtocolArg::Absent, &mut adapter)?;
-        let next_with = if carries(self, next_ty)
+        let next_with = if channel_carries(self, next_ty)
             && self.protocol_method_takes_value(access, ProtocolCall::Next)
         {
             Some(closure(
@@ -675,7 +676,7 @@ impl ModuleBuilder<'_> {
         } else {
             None
         };
-        let close = if closes {
+        let close = if has_return {
             Some(closure(
                 self,
                 ProtocolCall::Return,
@@ -685,8 +686,8 @@ impl ModuleBuilder<'_> {
         } else {
             None
         };
-        let close_with = if closes
-            && carries(self, return_ty)
+        let close_with = if has_return
+            && channel_carries(self, return_ty)
             && self.protocol_method_takes_value(access, ProtocolCall::Return)
         {
             Some(closure(
@@ -698,9 +699,9 @@ impl ModuleBuilder<'_> {
         } else {
             None
         };
-        let throw_with = if throws {
+        let throw_with = if has_throw {
             // The thrown value is the carrier's throw channel, the tagged
-            // value `SmeltGeneratorCommand::Throw` already carries (a
+            // value `SmeltGeneratorCommand::Throw` already channel_carries (a
             // JavaScript throw may be any value); the method call converts it
             // to the parameter type the iterator's `throw` declares.
             let thrown = self.unknown_type(NotNewErasure::RuntimeHelperSignature);
@@ -725,7 +726,7 @@ impl ModuleBuilder<'_> {
             }
             ProtocolAccess::Generator { .. } | ProtocolAccess::Closures { .. } => None,
         };
-        let carrier = adapter.push_expr(Expr {
+        let carrier_expr = adapter.push_expr(Expr {
             kind: ExprKind::GeneratorFromProtocol {
                 source,
                 next,
@@ -737,7 +738,7 @@ impl ModuleBuilder<'_> {
             ty: generator_ty,
             span,
         });
-        adapter.blocks.first_mut()?.tail = Some(carrier);
+        adapter.blocks.first_mut()?.tail = Some(carrier_expr);
 
         let param_tys = params.iter().map(|param| param.ty).collect::<Vec<_>>();
         let body_id = self.ctx.krate.push_body(adapter);

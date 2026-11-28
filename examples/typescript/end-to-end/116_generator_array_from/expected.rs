@@ -2726,24 +2726,34 @@ fn smelt_promise_race<T: Clone + 'static>(racers: Vec<SmeltFuture<T>>) -> SmeltF
 #[derive(Clone, Debug)]
 pub enum SmeltGeneratorResult<Y, R> { Yielded(Y), Complete(R) }
 #[derive(Debug)]
-pub enum SmeltGeneratorCommand<N, R> { Next(N), Return(R), Throw(Box<dyn ::std::error::Error>) }
+pub enum SmeltGeneratorCommand<N, R> { Next(Option<N>), Return(Option<R>), Throw(Box<dyn ::std::error::Error>) }
+type SmeltProtocolCall<Y, R> = ::std::rc::Rc<dyn Fn() -> Result<SmeltGeneratorResult<Y, R>, Box<dyn ::std::error::Error>>>;
+type SmeltProtocolSend<A, Y, R> = ::std::rc::Rc<dyn Fn(A) -> Result<SmeltGeneratorResult<Y, R>, Box<dyn ::std::error::Error>>>;
 pub struct SmeltGenerator<Y, R, N> {
     resume: ::std::rc::Rc<::std::cell::RefCell<Box<dyn FnMut(SmeltGeneratorCommand<N, R>) -> Result<SmeltGeneratorResult<Y, R>, Box<dyn ::std::error::Error>>>>>,
     completed: ::std::rc::Rc<::std::cell::RefCell<Option<R>>>,
     started: ::std::rc::Rc<::std::cell::Cell<bool>>,
+    latches: bool,
+    source: Option<::std::rc::Rc<dyn ::std::any::Any>>,
 }
-impl<Y, R, N> Clone for SmeltGenerator<Y, R, N> { fn clone(&self) -> Self { Self { resume: self.resume.clone(), completed: self.completed.clone(), started: self.started.clone() } } }
-impl<Y, R, N> PartialEq for SmeltGenerator<Y, R, N> { fn eq(&self, other: &Self) -> bool { ::std::rc::Rc::ptr_eq(&self.resume, &other.resume) } }
+impl<Y, R, N> Clone for SmeltGenerator<Y, R, N> { fn clone(&self) -> Self { Self { resume: self.resume.clone(), completed: self.completed.clone(), started: self.started.clone(), latches: self.latches, source: self.source.clone() } } }
+impl<Y, R, N> PartialEq for SmeltGenerator<Y, R, N> { fn eq(&self, other: &Self) -> bool { self.identity() == other.identity() } }
+impl<Y, R, N> SmeltGenerator<Y, R, N> {
+    #[allow(dead_code)]
+    fn identity(&self) -> usize { match &self.source { Some(source) => ::std::rc::Rc::as_ptr(source) as *const () as usize, None => ::std::rc::Rc::as_ptr(&self.resume) as *const () as usize } }
+}
 impl<Y, R, N> ::std::fmt::Debug for SmeltGenerator<Y, R, N> { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.write_str("SmeltGenerator") } }
 impl<Y, R: Clone + Default, N> SmeltGenerator<Y, R, N> {
-    fn new(resume: impl FnMut(SmeltGeneratorCommand<N, R>) -> Result<SmeltGeneratorResult<Y, R>, Box<dyn ::std::error::Error>> + 'static) -> Self { Self { resume: ::std::rc::Rc::new(::std::cell::RefCell::new(Box::new(resume))), completed: ::std::rc::Rc::new(::std::cell::RefCell::new(None)), started: ::std::rc::Rc::new(::std::cell::Cell::new(false)) } }
+    fn new(resume: impl FnMut(SmeltGeneratorCommand<N, R>) -> Result<SmeltGeneratorResult<Y, R>, Box<dyn ::std::error::Error>> + 'static) -> Self { Self { resume: ::std::rc::Rc::new(::std::cell::RefCell::new(Box::new(resume))), completed: ::std::rc::Rc::new(::std::cell::RefCell::new(None)), started: ::std::rc::Rc::new(::std::cell::Cell::new(false)), latches: true, source: None } }
     fn try_resume(&self, command: SmeltGeneratorCommand<N, R>) -> Result<SmeltGeneratorResult<Y, R>, Box<dyn ::std::error::Error>> {
-        if self.completed.borrow().is_some() { return Ok(SmeltGeneratorResult::Complete(R::default())); }
-        if !self.started.replace(true) {
-            match command {
-                SmeltGeneratorCommand::Next(_) => {}
-                SmeltGeneratorCommand::Return(value) => { *self.completed.borrow_mut() = Some(value.clone()); return Ok(SmeltGeneratorResult::Complete(value)); }
-                SmeltGeneratorCommand::Throw(error) => { *self.completed.borrow_mut() = Some(R::default()); return Err(error); }
+        if self.latches {
+            if self.completed.borrow().is_some() { return Ok(SmeltGeneratorResult::Complete(R::default())); }
+            if !self.started.replace(true) {
+                match command {
+                    SmeltGeneratorCommand::Next(_) => {}
+                    SmeltGeneratorCommand::Return(value) => { let value = value.unwrap_or_default(); *self.completed.borrow_mut() = Some(value.clone()); return Ok(SmeltGeneratorResult::Complete(value)); }
+                    SmeltGeneratorCommand::Throw(error) => { *self.completed.borrow_mut() = Some(R::default()); return Err(error); }
+                }
             }
         }
         let result = (self.resume.borrow_mut())(command);
@@ -2758,17 +2768,36 @@ impl<Y, R: Clone + Default, N> SmeltGenerator<Y, R, N> {
     #[allow(dead_code)]
     fn is_started(&self) -> bool { self.started.get() }
 }
+impl<Y: 'static, R: Clone + Default + 'static, N: 'static> SmeltGenerator<Y, R, N> {
+    #[allow(dead_code, clippy::too_many_arguments)]
+    fn from_protocol(source: Option<::std::rc::Rc<dyn ::std::any::Any>>, next: SmeltProtocolCall<Y, R>, next_with: Option<SmeltProtocolSend<N, Y, R>>, close: Option<SmeltProtocolCall<Y, R>>, close_with: Option<SmeltProtocolSend<R, Y, R>>, throw_with: Option<SmeltProtocolSend<Box<dyn ::std::error::Error>, Y, R>>) -> Self {
+        let resume = move |command: SmeltGeneratorCommand<N, R>| match command {
+            SmeltGeneratorCommand::Next(Some(sent)) => match &next_with { Some(next_with) => next_with(sent), None => next() },
+            SmeltGeneratorCommand::Next(None) => next(),
+            SmeltGeneratorCommand::Return(Some(value)) => match (&close_with, &close) { (Some(close_with), _) => close_with(value), (None, Some(close)) => close(), (None, None) => Ok(SmeltGeneratorResult::Complete(value)) },
+            SmeltGeneratorCommand::Return(None) => match &close { Some(close) => close(), None => Ok(SmeltGeneratorResult::Complete(R::default())) },
+            SmeltGeneratorCommand::Throw(error) => match &throw_with {
+                Some(throw_with) => throw_with(error),
+                None => {
+                    if let Some(close) = &close { close()?; }
+                    Err(smelt_throw(SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_error".to_owned(), SmeltUnknown::String("TypeError".into())), ("message".to_owned(), SmeltUnknown::String("The iterator does not provide a 'throw' method.".into())), ("stack".to_owned(), SmeltUnknown::Undefined), ("cause".to_owned(), SmeltUnknown::Undefined)])))))
+                }
+            },
+        };
+        Self { resume: ::std::rc::Rc::new(::std::cell::RefCell::new(Box::new(resume))), completed: ::std::rc::Rc::new(::std::cell::RefCell::new(None)), started: ::std::rc::Rc::new(::std::cell::Cell::new(true)), latches: false, source }
+    }
+}
 fn smelt_live_iterator<Y: 'static>(mut at: impl FnMut(usize) -> Option<Y> + 'static) -> SmeltGenerator<Y, (), ()> {
     let mut index = 0_usize;
     SmeltGenerator::new(move |_command| Ok(at(index).map_or(SmeltGeneratorResult::Complete(()), |value| { index = index.saturating_add(1); SmeltGeneratorResult::Yielded(value) })))
 }
 impl<Y, R: Clone + Default, N: Default> SmeltGenerator<Y, R, N> {
     #[allow(dead_code)]
-    fn collect_yields(&self) -> Vec<Y> { let mut items = Vec::new(); while let SmeltGeneratorResult::Yielded(value) = self.resume(SmeltGeneratorCommand::Next(N::default())) { items.push(value); } items }
+    fn collect_yields(&self) -> Vec<Y> { let mut items = Vec::new(); while let SmeltGeneratorResult::Yielded(value) = self.resume(SmeltGeneratorCommand::Next(None)) { items.push(value); } items }
     #[allow(dead_code)]
-    fn try_take_yields(&self, count: usize) -> Result<Vec<Y>, Box<dyn ::std::error::Error>> { let mut items = Vec::new(); while items.len() < count { match self.try_resume(SmeltGeneratorCommand::Next(N::default()))? { SmeltGeneratorResult::Yielded(value) => items.push(value), SmeltGeneratorResult::Complete(_) => return Ok(items) } } self.try_resume(SmeltGeneratorCommand::Return(R::default()))?; Ok(items) }
+    fn try_take_yields(&self, count: usize) -> Result<Vec<Y>, Box<dyn ::std::error::Error>> { let mut items = Vec::new(); while items.len() < count { match self.try_resume(SmeltGeneratorCommand::Next(None))? { SmeltGeneratorResult::Yielded(value) => items.push(value), SmeltGeneratorResult::Complete(_) => return Ok(items) } } self.try_resume(SmeltGeneratorCommand::Return(None))?; Ok(items) }
     #[allow(dead_code)]
-    fn try_collect_yields(&self) -> Result<Vec<Y>, Box<dyn ::std::error::Error>> { let mut items = Vec::new(); while let SmeltGeneratorResult::Yielded(value) = self.try_resume(SmeltGeneratorCommand::Next(N::default()))? { items.push(value); } Ok(items) }
+    fn try_collect_yields(&self) -> Result<Vec<Y>, Box<dyn ::std::error::Error>> { let mut items = Vec::new(); while let SmeltGeneratorResult::Yielded(value) = self.try_resume(SmeltGeneratorCommand::Next(None))? { items.push(value); } Ok(items) }
 }
 pub struct SmeltAsyncGenerator<Y, R, N> {
     resume: ::std::rc::Rc<dyn Fn(SmeltGeneratorCommand<N, R>) -> SmeltFuture<SmeltGeneratorResult<Y, R>>>,
@@ -2784,14 +2813,14 @@ impl<Y: IntoSmeltUnknown + 'static, R: IntoSmeltUnknown + Clone + Default + 'sta
     fn into_smelt_unknown(self) -> SmeltUnknown {
         let generator = self;
         let object = SmeltObject::new(Vec::from([("__smelt_method:__smelt_generator".to_owned(), SmeltUnknown::Bool(true))]));
-        object.insert("__smelt_method:next", SmeltUnknown::Function(::std::rc::Rc::new(move |_args: Vec<SmeltUnknown>| { let mut step: Vec<(String, SmeltUnknown)> = Vec::new(); match generator.try_resume(SmeltGeneratorCommand::Next(Default::default()))? { SmeltGeneratorResult::Yielded(value) => { step.push(("value".to_owned(), value.into_smelt_unknown())); step.push(("done".to_owned(), SmeltUnknown::Bool(false))); } SmeltGeneratorResult::Complete(value) => { step.push(("value".to_owned(), value.into_smelt_unknown())); step.push(("done".to_owned(), SmeltUnknown::Bool(true))); } } Ok(SmeltUnknown::Object(SmeltObject::new(step))) })));
+        object.insert("__smelt_method:next", SmeltUnknown::Function(::std::rc::Rc::new(move |_args: Vec<SmeltUnknown>| { let mut step: Vec<(String, SmeltUnknown)> = Vec::new(); match generator.try_resume(SmeltGeneratorCommand::Next(None))? { SmeltGeneratorResult::Yielded(value) => { step.push(("value".to_owned(), value.into_smelt_unknown())); step.push(("done".to_owned(), SmeltUnknown::Bool(false))); } SmeltGeneratorResult::Complete(value) => { step.push(("value".to_owned(), value.into_smelt_unknown())); step.push(("done".to_owned(), SmeltUnknown::Bool(true))); } } Ok(SmeltUnknown::Object(SmeltObject::new(step))) })));
         let itself = object.downgrade();
         object.insert("__smelt_symbol_iterator", SmeltUnknown::Function(::std::rc::Rc::new(move |_args: Vec<SmeltUnknown>| Ok(itself.upgrade().map_or(SmeltUnknown::Undefined, SmeltUnknown::Object)))));
         SmeltUnknown::Object(object)
     }
 }
 impl<Y: IntoSmeltUnknown + Clone + 'static, R: IntoSmeltUnknown + Clone + 'static, N: Default + 'static> IntoSmeltUnknown for SmeltAsyncGenerator<Y, R, N> {
-    fn into_smelt_unknown(self) -> SmeltUnknown { let generator = self; let mut object: Vec<(String, SmeltUnknown)> = Vec::new(); object.push(("__smelt_generator".to_owned(), SmeltUnknown::Bool(true))); let next: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |_args: Vec<SmeltUnknown>| { let future = generator.resume(SmeltGeneratorCommand::Next(Default::default())); Ok(SmeltUnknown::Promise(SmeltPromise::from_future(Box::pin(async move { let mut step: Vec<(String, SmeltUnknown)> = Vec::new(); match future.await? { SmeltGeneratorResult::Yielded(value) => { step.push(("value".to_owned(), value.into_smelt_unknown())); step.push(("done".to_owned(), SmeltUnknown::Bool(false))); } SmeltGeneratorResult::Complete(value) => { step.push(("value".to_owned(), value.into_smelt_unknown())); step.push(("done".to_owned(), SmeltUnknown::Bool(true))); } } Ok(SmeltUnknown::Object(SmeltObject::new(step))) })))) }); object.push(("next".to_owned(), SmeltUnknown::Function(next.clone()))); let object = SmeltObject::new(object); let itself = object.downgrade(); object.insert("__smelt_symbol_async_iterator", SmeltUnknown::Function(::std::rc::Rc::new(move |_args: Vec<SmeltUnknown>| Ok(itself.upgrade().map_or(SmeltUnknown::Undefined, SmeltUnknown::Object))))); SmeltUnknown::Object(object) }
+    fn into_smelt_unknown(self) -> SmeltUnknown { let generator = self; let mut object: Vec<(String, SmeltUnknown)> = Vec::new(); object.push(("__smelt_generator".to_owned(), SmeltUnknown::Bool(true))); let next: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = ::std::rc::Rc::new(move |_args: Vec<SmeltUnknown>| { let future = generator.resume(SmeltGeneratorCommand::Next(None)); Ok(SmeltUnknown::Promise(SmeltPromise::from_future(Box::pin(async move { let mut step: Vec<(String, SmeltUnknown)> = Vec::new(); match future.await? { SmeltGeneratorResult::Yielded(value) => { step.push(("value".to_owned(), value.into_smelt_unknown())); step.push(("done".to_owned(), SmeltUnknown::Bool(false))); } SmeltGeneratorResult::Complete(value) => { step.push(("value".to_owned(), value.into_smelt_unknown())); step.push(("done".to_owned(), SmeltUnknown::Bool(true))); } } Ok(SmeltUnknown::Object(SmeltObject::new(step))) })))) }); object.push(("next".to_owned(), SmeltUnknown::Function(next.clone()))); let object = SmeltObject::new(object); let itself = object.downgrade(); object.insert("__smelt_symbol_async_iterator", SmeltUnknown::Function(::std::rc::Rc::new(move |_args: Vec<SmeltUnknown>| Ok(itself.upgrade().map_or(SmeltUnknown::Undefined, SmeltUnknown::Object))))); SmeltUnknown::Object(object) }
 }
 
 /// Collect an erased `[Symbol.iterator]()` result into its item values.
@@ -4593,7 +4622,7 @@ pub(crate) fn range(start: f64, end: f64, step: Option<f64>) -> SmeltGenerator<f
     loop {
     _smelt_tmp_6 = i <= end;
     if !(_smelt_tmp_6) { break; }
-    _smelt_tmp_8 = { smelt_co.yield_(i).await; let smelt_command = smelt_generator_input.borrow_mut().take().unwrap_or_else(|| SmeltGeneratorCommand::Next(Default::default())); match smelt_command { SmeltGeneratorCommand::Next(smelt_value) => smelt_value, SmeltGeneratorCommand::Return(smelt_value) => return smelt_value, SmeltGeneratorCommand::Throw(smelt_error) => smelt_panic_throw(smelt_error) } };
+    _smelt_tmp_8 = { smelt_co.yield_(i).await; let smelt_command = smelt_generator_input.borrow_mut().take().unwrap_or(SmeltGeneratorCommand::Next(None)); match smelt_command { SmeltGeneratorCommand::Next(smelt_value) => smelt_value.unwrap_or_default(), SmeltGeneratorCommand::Return(smelt_value) => { let smelt_value = smelt_value.unwrap_or_default(); return smelt_value }, SmeltGeneratorCommand::Throw(smelt_error) => smelt_panic_throw(smelt_error) } };
     i = i + step_1;
     }
     return;
@@ -4614,7 +4643,7 @@ pub(crate) fn labels(count: f64) -> SmeltGenerator<JsString, (), ()> {
     _smelt_tmp_2 = i < count;
     if !(_smelt_tmp_2) { break; }
     _smelt_tmp_4 = JsString::from("item-") + &JsString::from(smelt_number_to_string(i));
-    _smelt_tmp_5 = { smelt_co.yield_(_smelt_tmp_4).await; let smelt_command = smelt_generator_input.borrow_mut().take().unwrap_or_else(|| SmeltGeneratorCommand::Next(Default::default())); match smelt_command { SmeltGeneratorCommand::Next(smelt_value) => smelt_value, SmeltGeneratorCommand::Return(smelt_value) => return smelt_value, SmeltGeneratorCommand::Throw(smelt_error) => smelt_panic_throw(smelt_error) } };
+    _smelt_tmp_5 = { smelt_co.yield_(_smelt_tmp_4).await; let smelt_command = smelt_generator_input.borrow_mut().take().unwrap_or(SmeltGeneratorCommand::Next(None)); match smelt_command { SmeltGeneratorCommand::Next(smelt_value) => smelt_value.unwrap_or_default(), SmeltGeneratorCommand::Return(smelt_value) => { let smelt_value = smelt_value.unwrap_or_default(); return smelt_value }, SmeltGeneratorCommand::Throw(smelt_error) => smelt_panic_throw(smelt_error) } };
     i = i + 1.0;
     }
     return;

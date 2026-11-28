@@ -580,7 +580,7 @@ impl ModuleBuilder<'_> {
         });
         let open_pat = body.push_pattern(Pattern::Binding(open_local));
         let open_init = body.push_expr(Expr {
-            kind: ExprKind::Literal(smelt_hir::Literal::Bool(true)),
+            kind: ExprKind::Literal(Literal::Bool(true)),
             ty: bool_ty,
             span: iter_span,
         });
@@ -592,18 +592,24 @@ impl ModuleBuilder<'_> {
                 value: Some(open_init),
             },
         );
-        let set_open = |body: &mut Body, into: smelt_hir::BlockId, value: bool| {
-            let target = body.push_expr(Expr {
+        let set_open = |arena: &mut Body, into: smelt_hir::BlockId, open: bool| {
+            let target = arena.push_expr(Expr {
                 kind: ExprKind::Local(open_local),
                 ty: bool_ty,
                 span: iter_span,
             });
-            let value = body.push_expr(Expr {
-                kind: ExprKind::Literal(smelt_hir::Literal::Bool(value)),
+            let flag = arena.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::Bool(open)),
                 ty: bool_ty,
                 span: iter_span,
             });
-            body.push_stmt_to_block(into, Stmt::Assign { target, value });
+            arena.push_stmt_to_block(
+                into,
+                Stmt::Assign {
+                    target,
+                    value: flag,
+                },
+            );
         };
         let resume_block = body.push_block(iter_span);
         set_open(body, resume_block, false);

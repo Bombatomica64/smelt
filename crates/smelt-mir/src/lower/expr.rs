@@ -369,7 +369,7 @@ impl LoweringCtx<'_> {
                 )?
             }
             ExprKind::GeneratorYieldDelegated { delegate, value } => {
-                let delegate = self.lower_expr(*delegate)?;
+                let delegate_operand = self.lower_expr(*delegate)?;
                 let operand = self.lower_expr(*value)?;
                 self.assign_temp(
                     expr.ty,
@@ -378,7 +378,7 @@ impl LoweringCtx<'_> {
                         value: operand,
                         unwind: self.current_exception_handler(),
                         cleanup: self.current_generator_cleanup(),
-                        delegate: Some(delegate),
+                        delegate: Some(delegate_operand),
                     },
                 )?
             }
