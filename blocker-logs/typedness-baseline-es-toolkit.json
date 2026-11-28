@@ -3,8 +3,8 @@
   "total": {
     "values": {
       "concrete": 14408,
-      "generic": 390,
-      "erased": 6869
+      "generic": 398,
+      "erased": 6861
     },
     "reads": {
       "concrete": 366,
@@ -13,8 +13,8 @@
     },
     "calls": {
       "concrete": 2208,
-      "generic": 63,
-      "erased": 1165
+      "generic": 64,
+      "erased": 1164
     }
   },
   "programs": {
@@ -752,8 +752,8 @@
     "src/array/flatMapDeep.ts": {
       "values": {
         "concrete": 1,
-        "generic": 0,
-        "erased": 9
+        "generic": 8,
+        "erased": 1
       },
       "reads": {
         "concrete": 0,
@@ -762,8 +762,8 @@
       },
       "calls": {
         "concrete": 0,
-        "generic": 0,
-        "erased": 2
+        "generic": 1,
+        "erased": 1
       }
     },
     "src/array/flatten.spec.ts": {
