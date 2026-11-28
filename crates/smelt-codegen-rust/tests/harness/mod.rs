@@ -437,14 +437,6 @@ const NODE_DIVERGENCES: &[(&str, &str)] = &[
 /// that passes there must leave this list.
 const NODE_OPEN_DEFECTS: &[(&str, &str)] = &[
     (
-        "arrays with equal elements and different named properties are equal",
-        "vitest's toEqual compares an array's named properties; Smelt's erased structural equality ignores them",
-    ),
-    (
-        "a match equals the plain array of its groups",
-        "a match array's index/input/groups are named properties toEqual compares; Smelt ignores them",
-    ),
-    (
         "JSON matching a declared type decodes",
         "a key the declared type does not name (legal under structural typing) is dropped by the typed \
          decode, so re-serializing loses it; Node keeps it",
