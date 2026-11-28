@@ -185,7 +185,26 @@ impl ModuleBuilder<'_> {
                 "all() and any() currently support exactly one bool list argument",
             ));
         }
+        // Over a generator expression, the fold stops at the first deciding
+        // element, as Python's lazy generator does: later elements (and their
+        // side effects) are never computed.
+        if let Expr::Generator(generator) = &call.arguments.args[0]
+            && let [clause] = generator.generators.as_slice()
+            && !clause.is_async
+        {
+            return self
+                .with_block_scope(|this| this.short_circuit_fold(op, generator, clause, body))
+                .map(Some);
+        }
         let iterable = self.expression(&call.arguments.args[0], body)?;
+        // A generator object would have to be resumed lazily, stopping at the
+        // deciding element; draining it first would run the rest.
+        if matches!(self.ctx.krate.types.get(Self::expr_ty(body, iterable)), Some(Type::Generator { .. })) {
+            return Err(SmeltError::unsupported(
+                self.span(call.arguments.args[0].range()),
+                "all()/any() of a generator object is not supported; pass a generator expression or a list",
+            ));
+        }
         let list = self.order_free_iterable_as_list(iterable, self.span(call.arguments.args[0].range()), body);
         let list_ty = Self::expr_ty(body, list);
         let Some(Type::List(item_ty)) = self.ctx.krate.types.get(list_ty) else {
@@ -206,6 +225,69 @@ impl ModuleBuilder<'_> {
             ty,
             span: self.span(call.range()),
         })))
+    }
+
+    /// `any(elt for t in it if c)` / `all(...)` over one `for` clause, as the
+    /// loop that consumes the generator lazily:
+    ///
+    /// ```text
+    /// result = False            # True for all()
+    /// for t in it:
+    ///     if c:                  # each `if` clause, nested
+    ///         if elt:            # `not elt` for all(); Python's truth test
+    ///             result = True  # False for all()
+    ///             break
+    /// result
+    /// ```
+    fn short_circuit_fold(
+        &mut self,
+        op: BoolFoldOp,
+        generator: &ruff_python_ast::ExprGenerator,
+        clause: &ruff_python_ast::Comprehension,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let span = self.span(generator.range);
+        let bool_ty = self.intern_type(Type::Bool);
+        let raw_iter = self.expression(&clause.iter, body)?;
+        let iter = self.iterable_as_list(raw_iter, body);
+        let Some(item_ty) = self.iter_item_type(Self::expr_ty(body, iter)) else {
+            return Err(SmeltError::unsupported(
+                self.span(clause.iter.range()),
+                "a generator expression can only iterate over a list, set, dict, or string",
+            ));
+        };
+        let pat = self.binding_pattern_from_target(&clause.target, body, Some(item_ty))?;
+        let outer = body.push_block(span);
+        let seed = op == BoolFoldOp::All;
+        let result = body.push_local(self.synthetic_local("__smelt_fold", bool_ty, true, span));
+        let result_pat = body.push_pattern(smelt_hir::Pattern::Binding(result));
+        let seed_expr = body.push_expr(HirExpr { kind: ExprKind::Literal(smelt_hir::Literal::Bool(seed)), ty: bool_ty, span });
+        body.push_stmt_to_block(outer, smelt_hir::Stmt::Let { pat: result_pat, ty: bool_ty, value: Some(seed_expr) });
+        let loop_block = body.push_block(span);
+        let mut current = loop_block;
+        for condition in &clause.ifs {
+            let test = self.python_condition(condition, body)?;
+            let passed = body.push_block(span);
+            body.push_stmt_to_block(current, smelt_hir::Stmt::If { cond: test, then_block: passed, else_block: None });
+            current = passed;
+        }
+        let element = self.python_condition(&generator.elt, body)?;
+        let decides = if seed {
+            body.push_expr(HirExpr { kind: ExprKind::UnaryOp { op: smelt_hir::UnaryOp::Not, operand: element }, ty: bool_ty, span })
+        } else {
+            element
+        };
+        let deciding_block = body.push_block(span);
+        let target = body.push_expr(HirExpr { kind: ExprKind::Local(result), ty: bool_ty, span });
+        let answer = body.push_expr(HirExpr { kind: ExprKind::Literal(smelt_hir::Literal::Bool(!seed)), ty: bool_ty, span });
+        body.push_stmt_to_block(deciding_block, smelt_hir::Stmt::Assign { target, value: answer });
+        body.push_stmt_to_block(deciding_block, smelt_hir::Stmt::Break);
+        body.push_stmt_to_block(current, smelt_hir::Stmt::If { cond: decides, then_block: deciding_block, else_block: None });
+        body.push_stmt_to_block(outer, smelt_hir::Stmt::For { pat, iter, body: loop_block });
+        let tail = body.push_expr(HirExpr { kind: ExprKind::Local(result), ty: bool_ty, span });
+        let outer_index = usize::try_from(outer.0).map_err(|error| SmeltError::unsupported(span, error.to_string()))?;
+        body.blocks[outer_index].tail = Some(tail);
+        Ok(body.push_expr(HirExpr { kind: ExprKind::Block(outer), ty: bool_ty, span }))
     }
 
     /// Lower Python `sorted(values, key=..., reverse=...)` for sortable lists.
@@ -382,14 +464,14 @@ impl ModuleBuilder<'_> {
             }
         };
         let raw_iter = self.expression(&call.arguments.args[0], body)?;
-        let list = self.for_iterable(raw_iter, body);
+        let list = self.iterable_as_list(raw_iter, body);
         let list_ty = Self::expr_ty(body, list);
         let item_ty = if let Some(Type::List(item_ty)) = self.ctx.krate.types.get(list_ty) {
             *item_ty
         } else {
             return Err(SmeltError::unsupported(
                 self.span(call.arguments.args[0].range()),
-                "enumerate() argument must be a list, set, or dict",
+                "enumerate() argument must be a list, set, dict or str",
             ));
         };
         let int_ty = self.intern_type(Type::PyInt);
@@ -421,9 +503,9 @@ impl ModuleBuilder<'_> {
             ));
         }
         let raw_left = self.expression(&call.arguments.args[0], body)?;
-        let left = self.for_iterable(raw_left, body);
+        let left = self.iterable_as_list(raw_left, body);
         let raw_right = self.expression(&call.arguments.args[1], body)?;
-        let right = self.for_iterable(raw_right, body);
+        let right = self.iterable_as_list(raw_right, body);
         let left_ty = Self::expr_ty(body, left);
         let right_ty = Self::expr_ty(body, right);
         let left_item_ty = if let Some(Type::List(item_ty)) = self.ctx.krate.types.get(left_ty) {
@@ -431,7 +513,7 @@ impl ModuleBuilder<'_> {
         } else {
             return Err(SmeltError::unsupported(
                 self.span(call.arguments.args[0].range()),
-                "zip() left argument must be a list, set, or dict",
+                "zip() left argument must be a list, set, dict or str",
             ));
         };
         let right_item_ty = if let Some(Type::List(item_ty)) = self.ctx.krate.types.get(right_ty) {
@@ -439,7 +521,7 @@ impl ModuleBuilder<'_> {
         } else {
             return Err(SmeltError::unsupported(
                 self.span(call.arguments.args[1].range()),
-                "zip() right argument must be a list, set, or dict",
+                "zip() right argument must be a list, set, dict or str",
             ));
         };
         let tuple_ty = self.intern_type(Type::Tuple(vec![left_item_ty, right_item_ty]));

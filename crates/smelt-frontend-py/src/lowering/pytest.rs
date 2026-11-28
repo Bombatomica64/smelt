@@ -163,7 +163,10 @@ impl ModuleBuilder<'_> {
         // reconciles any declared annotation with `ty`'s inferred *actual*
         // returned type, preferring the accurate type. Only a
         // genuinely unresolved, unannotated case falls through to the error.
-        let annotated_return_ty = if self.is_pytest_test_function(func) && func.returns.is_none() {
+        let generator = self.generator_signature(func)?;
+        let annotated_return_ty = if let Some((generator_ty, _)) = generator {
+            generator_ty
+        } else if self.is_pytest_test_function(func) && func.returns.is_none() {
             self.intern_type(Type::None)
         } else {
             match self.resolve_return_ty(func, func.returns.as_deref(), ReturnOwner::Function) {
@@ -188,8 +191,13 @@ impl ModuleBuilder<'_> {
         // The body is lowered in a fresh function scope, restored on every
         // exit -- including a failed parameter annotation -- so nothing of this
         // function leaks into the items and module statements lowered after it.
+        let generator_yield = generator.map(|(_, yield_ty)| yield_ty);
         let (fn_body, params, variadics) = self.with_fn_scope(FnKind::of(func.is_async), |this| {
             let mut fn_body = Body::new(None, func_span);
+            this.scope.generator = generator_yield;
+            if generator_yield.is_some() {
+                fn_body.set_generator(true);
+            }
             let mut params: Vec<Param> = Vec::new();
             let is_pytest_test = this.is_pytest_test_function(func);
 

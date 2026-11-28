@@ -340,6 +340,16 @@ pub enum PyStrOp {
     /// `ascii(x)`'s escaping of `repr(x)`: `[text]`, every non-ASCII code
     /// point as `\xhh`, `\uhhhh` or `\Uhhhhhhhh`.
     AsciiEscape,
+    /// `s.partition(sep)`: `[s, sep]`, a `(head, sep, tail)` tuple split at
+    /// the first `sep`; an empty `sep` is a `ValueError`.
+    Partition,
+    /// `s.rpartition(sep)`: `[s, sep]`, split at the last `sep`.
+    RPartition,
+    /// `s.splitlines(keepends)`: `[s, keepends]`, split at every line
+    /// boundary `CPython` recognizes.
+    SplitLines,
+    /// `s.expandtabs(tabsize)`: `[s, tabsize]`.
+    ExpandTabs,
 }
 
 impl PyStrOp {
@@ -368,6 +378,10 @@ impl PyStrOp {
             Self::LStripChars => "lstrip",
             Self::RStripChars => "rstrip",
             Self::AsciiEscape => "ascii_escape",
+            Self::Partition => "partition",
+            Self::RPartition => "rpartition",
+            Self::SplitLines => "splitlines",
+            Self::ExpandTabs => "expandtabs",
         }
     }
 
@@ -383,6 +397,8 @@ impl PyStrOp {
                 | Self::RIndex
                 | Self::Split
                 | Self::RSplit
+                | Self::Partition
+                | Self::RPartition
         )
     }
 }

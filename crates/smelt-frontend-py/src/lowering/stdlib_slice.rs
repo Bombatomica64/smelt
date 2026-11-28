@@ -99,7 +99,8 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         };
         let element_ty = *list_element_ty;
-        let item = self.expression(&call.arguments.args[0], body)?;
+        // The element type is the item's expected type (a lambda needs it).
+        let item = self.expression_with_hint(&call.arguments.args[0], body, Some(element_ty))?;
         if Self::expr_ty(body, item) != element_ty {
             return Err(SmeltError::unsupported(
                 self.span(call.range()),

@@ -108,6 +108,12 @@ impl ModuleBuilder<'_> {
 
             // `return [value]`
             Stmt::Return(ret) => {
+                if self.scope.generator.is_some() && ret.value.is_some() {
+                    return Err(SmeltError::unsupported(
+                        self.span(ret.range),
+                        "a generator's `return value` (StopIteration.value) is not supported; use a bare `return`",
+                    ));
+                }
                 let value = ret
                     .value
                     .as_deref()
@@ -172,6 +178,9 @@ impl ModuleBuilder<'_> {
                     && self.super_init_statement(call, body, block)?
                 {
                     return Ok(());
+                }
+                if let Expr::Yield(yield_expr) = s.value.as_ref() {
+                    return self.yield_statement(yield_expr, body, block);
                 }
                 let expr_id = self.expression(&s.value, body)?;
                 body.push_stmt_to_block(block, HirStmt::Expr(expr_id));

@@ -252,6 +252,80 @@ fn smelt_py_str_split(text: &str, sep: &str, maxsplit: i64, reverse: bool) -> Re
     })
 }
 
+/// `str.partition(sep)` (`rpartition` when `reverse`): the text before the
+/// first (last) `sep`, `sep`, and the text after; without one, the whole text
+/// and two empty strings (`rpartition`: two empty strings first). An empty
+/// `sep` is `CPython`'s `ValueError`.
+#[allow(dead_code)]
+fn smelt_py_str_partition(text: &str, sep: &str, reverse: bool) -> Result<(String, String, String), Box<dyn ::std::error::Error>> {
+    if sep.is_empty() {
+        return Err(smelt_py_value_error("empty separator"));
+    }
+    let found = if reverse { text.rfind(sep) } else { text.find(sep) };
+    Ok(match found {
+        Some(at) => (text[..at].to_owned(), sep.to_owned(), text[at + sep.len()..].to_owned()),
+        None if reverse => (String::new(), String::new(), text.to_owned()),
+        None => (text.to_owned(), String::new(), String::new()),
+    })
+}
+
+/// `str.splitlines(keepends)`: the lines of `text`, split at each of
+/// `CPython`'s line boundaries (`\n`, `\r`, `\r\n`, `\v`, `\f`, `\x1c`-`\x1e`,
+/// `\x85`, `\u2028`, `\u2029`), each keeping its boundary when `keepends`.
+/// A final boundary starts no empty line.
+#[allow(dead_code)]
+fn smelt_py_str_splitlines(text: &str, keepends: bool) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut start = 0;
+    let mut chars = text.char_indices().peekable();
+    while let Some((at, ch)) = chars.next() {
+        if !matches!(ch, '\n' | '\r' | '\u{b}' | '\u{c}' | '\u{1c}' | '\u{1d}' | '\u{1e}' | '\u{85}' | '\u{2028}' | '\u{2029}') {
+            continue;
+        }
+        let mut end = at + ch.len_utf8();
+        if ch == '\r' && chars.peek().is_some_and(|(_, next)| *next == '\n') {
+            chars.next();
+            end += 1;
+        }
+        lines.push(text[start..if keepends { end } else { at }].to_owned());
+        start = end;
+    }
+    if start < text.len() {
+        lines.push(text[start..].to_owned());
+    }
+    lines
+}
+
+/// `str.expandtabs(tabsize)`: each tab replaced by spaces up to the next
+/// multiple of `tabsize` columns, the column restarting after `\n` and `\r`;
+/// a `tabsize` of zero or less removes tabs.
+#[allow(dead_code)]
+fn smelt_py_str_expandtabs(text: &str, tabsize: i64) -> String {
+    let size = usize::try_from(tabsize).unwrap_or(0);
+    let mut out = String::with_capacity(text.len());
+    let mut column = 0_usize;
+    for ch in text.chars() {
+        match ch {
+            '\t' => {
+                if size > 0 {
+                    let pad = size - column % size;
+                    out.extend(::std::iter::repeat_n(' ', pad));
+                    column += pad;
+                }
+            }
+            '\n' | '\r' => {
+                out.push(ch);
+                column = 0;
+            }
+            _ => {
+                out.push(ch);
+                column += 1;
+            }
+        }
+    }
+    out
+}
+
 /// `str.replace(old, new, count)`: at most `count` replacements (negative
 /// is every one); an empty `old` inserts `new` before each code point and
 /// at the end.

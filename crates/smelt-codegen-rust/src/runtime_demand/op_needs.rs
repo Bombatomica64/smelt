@@ -491,7 +491,7 @@ impl RuntimeDemand {
             Rvalue::PyStrCall { .. } => {
                 self.add(Need::PyStrMethods);
             }
-            Rvalue::PyFormat { .. } => {
+            Rvalue::PyFormat { .. } | Rvalue::PyFormatDynamic { .. } => {
                 self.add(Need::PyFormat);
             }
             Rvalue::PyListPopAt { .. } | Rvalue::PyListDeleteAt { .. } => {

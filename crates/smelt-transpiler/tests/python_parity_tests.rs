@@ -632,3 +632,43 @@ fn override_fallibility() -> TestResult {
 fn short_class_names() -> TestResult {
     verify_python_parity("short_class_names")
 }
+
+/// `str.partition`/`rpartition` (an empty separator raises `ValueError`),
+/// `splitlines` at every `CPython` line boundary, `expandtabs`, `zip` and
+/// `enumerate` over a `str`, and f-string specs with nested replacement
+/// fields (`{x:{w}.{p}f}`, evaluated after the value). Requirements:
+/// `CPython`'s output.
+#[test]
+fn str_sweep() -> TestResult {
+    verify_python_parity("str_sweep")
+}
+
+/// Closures late-bind: a lambda or nested `def` made in a loop reads the loop
+/// variable's last value (silent-wrong before: each kept its iteration's
+/// value), while a defaulted parameter (`lambda x, i=i:`) freezes the value
+/// the default had when the lambda was made. Requirements: `CPython`'s output.
+#[test]
+fn closure_binding() -> TestResult {
+    verify_python_parity("closure_binding")
+}
+
+/// `match` guards, captures, `|` and `as` patterns: cases tried in order,
+/// each guard evaluated only when its pattern matched, a capture bound before
+/// its guard (and kept when the guard fails). Requirements: `CPython`'s
+/// output.
+#[test]
+fn match_guards() -> TestResult {
+    verify_python_parity("match_guards")
+}
+
+/// Generator functions (`Iterator[T]`, `Generator[T, None, None]`): a `for`
+/// loop resumes the generator once per iteration, so their effects
+/// interleave; `break` leaves the rest unproduced; `list`/`sum`/`sorted`/
+/// `max` drain one; a raise inside reaches the consumer's `try`.
+/// `any`/`all` over a generator expression stop at the first deciding
+/// element (silent-wrong before: every element was computed). Requirements:
+/// `CPython`'s output.
+#[test]
+fn generators() -> TestResult {
+    verify_python_parity("generators")
+}

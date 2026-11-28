@@ -169,6 +169,7 @@ impl ModuleBuilder<'_> {
             Some(Type::Dict(key, _)) => Some(*key),
             Some(Type::Tuple(items)) => items.first().copied(),
             Some(Type::PyStr) => Some(iter_ty),
+            Some(Type::Generator { yield_ty, .. }) => Some(*yield_ty),
             _ => None,
         }
     }

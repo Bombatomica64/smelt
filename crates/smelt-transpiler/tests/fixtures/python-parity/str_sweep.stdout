@@ -1,0 +1,18 @@
+('key', '=', 'value=x') ('key=value', '=', 'x') ('key=value=x', '', '') ('', '', 'key=value=x')
+a.b . c ('é', '→', 'ü')
+partition: empty separator
+['a', 'b', 'c', 'd', 'e', 'f'] ['a\n', 'b\r\n', 'c\r', 'd\x0b', 'e<LS>', 'f\n'] [] ['x'] ['', '']
+['one\n', 'two']
+'a       b       c' 'a   bc  d' 'x\n   y'
+'  ' 'ab' 'é   x'
+a x
+b y
+c z
+0 h
+1 é
+2 !
+[('a', 1), ('b', 2)] [(1, 'x'), (2, 'y')] [(1.5, 'q')]
+[    3.14] [      ab] [00000042] [3.1]
+[42      ] [  'ab'  ] [       1]
+|*x*|  3|
+|**x***|     6|

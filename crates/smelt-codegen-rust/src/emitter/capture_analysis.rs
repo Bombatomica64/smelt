@@ -514,7 +514,9 @@ impl FunctionEmitter<'_> {
         if capture.mode == smelt_hir::CaptureMode::ByMut {
             return true;
         }
-        if self.local_is_assigned_after_capture(capture.source_local) {
+        if self.local_is_assigned_after_capture(capture.source_local)
+            || self.python_local_reassigned_around_capture(capture.source_local)
+        {
             return true;
         }
         if closure.escapes
@@ -580,6 +582,84 @@ impl FunctionEmitter<'_> {
                     | Statement::StorageLive(_) => {}
                 }
             }
+        }
+        false
+    }
+
+    /// Whether, in a Python function, `local` is assigned in a block reachable
+    /// from a block that creates a closure capturing it (in particular a loop
+    /// body assigning the variable before the closure is created, reached
+    /// again through the back edge).
+    ///
+    /// A Python variable is one binding per function, and a closure reads it
+    /// when called (late binding): a closure created in a loop sees the value
+    /// of the last iteration, not of its own. [`Self::local_is_assigned_after_capture`]
+    /// scans blocks in order and misses the write that comes back around
+    /// through the loop's back edge. TypeScript's `let` is a fresh binding per
+    /// iteration, which by-value capture already models, so the rule is
+    /// Python's alone.
+    fn python_local_reassigned_around_capture(&self, local: LocalId) -> bool {
+        // Only a Python variable (a named binding or a parameter) is one
+        // binding per function; a temporary is bound once per evaluation.
+        if self.function.language != smelt_hir::Language::Python
+            || self
+                .local_decl(local)
+                .is_ok_and(|decl| matches!(decl.kind, LocalKind::Temp))
+        {
+            return false;
+        }
+        let assigns = |block: &BasicBlock| {
+            block.statements.iter().any(|statement| match statement {
+                Statement::Assign { dest, .. } => *dest == local,
+                Statement::AssignPlace {
+                    place: Place::Local(candidate),
+                    ..
+                } => *candidate == local,
+                Statement::AssignPlace { .. }
+                | Statement::DictEntryUpdate { .. }
+                | Statement::StorageLive(_) => false,
+            })
+        };
+        let capturing: Vec<smelt_mir::BlockId> = self
+            .function
+            .blocks
+            .iter()
+            .filter(|block| {
+                block.statements.iter().any(|statement| {
+                    matches!(statement, Statement::Assign { value: Rvalue::Closure { id, .. }, .. }
+                        if self.mir.closures.get(usize::try_from(id.0).unwrap_or(usize::MAX)).is_some_and(|closure| {
+                            closure.captures.iter().any(|capture| capture.source_local == local)
+                        }))
+                })
+            })
+            .map(|block| block.id)
+            .collect();
+        let block_of =
+            |id: smelt_mir::BlockId| self.function.blocks.iter().find(|block| block.id == id);
+        let mut seen = HashSet::new();
+        let mut pending: Vec<smelt_mir::BlockId> = capturing
+            .iter()
+            .filter_map(|id| block_of(*id))
+            .filter_map(|block| block.terminator.as_ref())
+            .flat_map(Terminator::successors)
+            .collect();
+        while let Some(next) = pending.pop() {
+            if !seen.insert(next) {
+                continue;
+            }
+            let Some(block) = block_of(next) else {
+                continue;
+            };
+            if assigns(block) {
+                return true;
+            }
+            pending.extend(
+                block
+                    .terminator
+                    .as_ref()
+                    .map(Terminator::successors)
+                    .unwrap_or_default(),
+            );
         }
         false
     }

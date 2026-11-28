@@ -331,8 +331,9 @@ impl ModuleBuilder<'_> {
     /// Lower the `str` methods whose rules the runtime's `py_str.rs` carries:
     /// `title`, `capitalize`, `swapcase`, `zfill`, `center`/`ljust`/`rjust`,
     /// `count`, `index`/`rindex`, `find`/`rfind` with bounds, `split`/`rsplit`
-    /// with no separator or with `maxsplit`, `replace` with a count, and
-    /// `strip`/`lstrip`/`rstrip` with a character set. `None` for any other
+    /// with no separator or with `maxsplit`, `replace` with a count,
+    /// `strip`/`lstrip`/`rstrip` with a character set, `partition`/
+    /// `rpartition`, `splitlines` and `expandtabs`. `None` for any other
     /// call, which the narrower string handlers try next.
     fn py_str_method_call_expression(
         &mut self,
@@ -349,6 +350,8 @@ impl ModuleBuilder<'_> {
         let known_keywords: &[&str] = match method {
             "split" | "rsplit" => &["sep", "maxsplit"],
             "replace" => &["count"],
+            "splitlines" => &["keepends"],
+            "expandtabs" => &["tabsize"],
             _ => &[],
         };
         if call
@@ -370,6 +373,8 @@ impl ModuleBuilder<'_> {
             "split" | "rsplit" => positional <= 2,
             "replace" => positional == 3 || keyword("count").is_some(),
             "strip" | "lstrip" | "rstrip" => positional == 1,
+            "partition" | "rpartition" => positional == 1,
+            "splitlines" | "expandtabs" => positional <= 1,
             _ => false,
         };
         if !owned {
@@ -475,6 +480,29 @@ impl ModuleBuilder<'_> {
                 args.extend([old, new, count]);
                 PyStrOp::Replace
             }
+            "partition" | "rpartition" => {
+                let sep = lowered.first().copied().flatten().ok_or_else(|| SmeltError::unsupported(span, "the separator must be a str"))?;
+                args.push(sep);
+                if method == "partition" { PyStrOp::Partition } else { PyStrOp::RPartition }
+            }
+            "splitlines" => {
+                let given = keyword_value(self, "keepends", body)?.unwrap_or_else(|| lowered.first().copied().flatten());
+                let bool_ty = self.intern_type(Type::Bool);
+                let keepends = match given {
+                    Some(value) => self.python_truth(value, span, body)?,
+                    None => body.push_expr(HirExpr { kind: ExprKind::Literal(Literal::Bool(false)), ty: bool_ty, span }),
+                };
+                args.push(keepends);
+                PyStrOp::SplitLines
+            }
+            "expandtabs" => {
+                let tabsize = keyword_value(self, "tabsize", body)?.unwrap_or_else(|| lowered.first().copied().flatten());
+                args.push(match tabsize {
+                    Some(size) => self.py_int_as_clamped_bound(size, body),
+                    None => machine(8, body),
+                });
+                PyStrOp::ExpandTabs
+            }
             "strip" | "lstrip" | "rstrip" => {
                 // `strip(None)` is `strip()`, which the narrower handler owns.
                 let Some(chars) = lowered.first().copied().flatten() else {
@@ -493,9 +521,17 @@ impl ModuleBuilder<'_> {
         // checker's error, which never reaches here.
         let answer = match op {
             PyStrOp::Count | PyStrOp::Find | PyStrOp::RFind | PyStrOp::Index | PyStrOp::RIndex => None,
-            PyStrOp::Split | PyStrOp::RSplit | PyStrOp::SplitWhitespace | PyStrOp::RSplitWhitespace => {
+            PyStrOp::Split
+            | PyStrOp::RSplit
+            | PyStrOp::SplitWhitespace
+            | PyStrOp::RSplitWhitespace
+            | PyStrOp::SplitLines => {
                 let text = self.intern_type(Type::PyStr);
                 Some(self.intern_type(Type::List(text)))
+            }
+            PyStrOp::Partition | PyStrOp::RPartition => {
+                let text = self.intern_type(Type::PyStr);
+                Some(self.intern_type(Type::Tuple(vec![text, text, text])))
             }
             _ => Some(self.intern_type(Type::PyStr)),
         };
