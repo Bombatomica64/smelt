@@ -620,6 +620,7 @@ fn lower_class_table_entry(
         type_params: class.type_params.clone(),
         is_abstract: matches!(class.kind, smelt_hir::ClassKind::Abstract),
         base: class.base,
+        extra_bases: class.extra_bases.clone(),
         base_args: class.base_args.clone(),
         fields: class
             .fields

@@ -410,6 +410,9 @@ pub(crate) fn emit_reference_record_storage(
             )
         });
         for cell_impl in &class_layout.cell_impls {
+            if let Some(fields_impl) = &cell_impl.fields_impl {
+                writer.line(fields_impl.clone());
+            }
             writer.line(crate::class_polymorphism::cell_impl_text(
                 cell_impl,
                 impl_generics,
@@ -705,6 +708,7 @@ pub(crate) fn emit_reference_record_storage(
             view_target
                 .then(|| crate::structural_views::accessor_names(mir, context, fields))
                 .as_ref(),
+            *declared_name,
         );
     } else if needs_unknown {
         emit_reference_class_into_smelt_unknown_impl(
@@ -755,6 +759,7 @@ pub(crate) fn emit_reference_record_storage(
             &subclass_origins,
             false,
             None,
+            *declared_name,
         );
     }
     writer.blank_line();
@@ -922,7 +927,6 @@ fn emit_reference_class_into_smelt_unknown_impl(
                     // The erased key is the SOURCE spelling (`mir.names`), the
                     // Rust field is the sanitized one: `onRead` must read back
                     // as `"onRead"` from an erased view, not as `"on_read"`.
-                    let field_name = context.names().field(mir, field.name).into_string();
                     let key = mir
                         .names
                         .get(field.name)
@@ -937,9 +941,17 @@ fn emit_reference_class_into_smelt_unknown_impl(
                         field.name,
                     )
                     .unwrap_or(field.ty);
+                    let place = crate::class_polymorphism::guard_field_place(
+                        mir,
+                        context,
+                        class,
+                        "__smelt_inner",
+                        field.name,
+                        false,
+                    );
                     let value = record_field_unknown_expr(
                         mir,
-                        &RustExpr::path(format!("__smelt_inner.{field_name}")).cloned_value(),
+                        &RustExpr::path(place).cloned_value(),
                         stored_ty,
                     )
                     .unwrap_or_else(|_| RustExpr::atom("SmeltUnknown::Null"));

@@ -118,6 +118,12 @@ struct Lookups {
     /// Positions of the functions that statically call each function, in
     /// function order.
     static_callers: HashMap<FuncId, Vec<usize>>,
+    /// Whether any class has more than one program base (else every MRO is
+    /// a base chain, walked without the C3 merge).
+    any_multiple_bases: bool,
+    /// The classes of multiple-inheritance hierarchies
+    /// ([`Mir::in_multiple_inheritance_hierarchy`]).
+    multiple_inheritance_hierarchy: std::collections::HashSet<Symbol>,
 }
 
 /// Lazily built [`Lookups`], which never serialize and never survive a clone.
@@ -160,6 +166,11 @@ impl Mir {
                     }
                 }),
                 static_callers: HashMap::new(),
+                any_multiple_bases: self
+                    .classes
+                    .iter()
+                    .any(|class| !class.extra_bases.is_empty()),
+                multiple_inheritance_hierarchy: multiple_inheritance_hierarchy(self),
             };
             for (position, function) in self.functions.iter().enumerate() {
                 for block in &function.blocks {
@@ -190,6 +201,54 @@ impl Mir {
         self.classes.get(*self.lookups().names.classes.get(&name)?)
     }
 
+    /// The method resolution order of class `name`: itself, then its program
+    /// ancestors in C3 order (`smelt_hir::mro`), which is its base chain under
+    /// single inheritance. A class absent from the program answers itself.
+    #[must_use]
+    pub fn class_mro(&self, name: Symbol) -> Vec<Symbol> {
+        if !self.lookups().any_multiple_bases {
+            let mut chain = vec![name];
+            let mut current = self.class_named(name).and_then(|class| class.base);
+            while let Some(base) = current
+                && !chain.contains(&base)
+            {
+                chain.push(base);
+                current = self.class_named(base).and_then(|class| class.base);
+            }
+            return chain;
+        }
+        let bases_of = |class: Symbol| {
+            self.class_named(class)
+                .map(MirClass::program_bases)
+                .unwrap_or_default()
+        };
+        smelt_hir::mro::linearize(name, &bases_of).unwrap_or_else(|_| vec![name])
+    }
+
+    /// Whether class `sub` is `sup` or derives from it through any base.
+    #[must_use]
+    pub fn class_derives_from(&self, sub: Symbol, sup: Symbol) -> bool {
+        sub == sup || self.class_mro(sub).contains(&sup)
+    }
+
+    /// Whether class `name` belongs to a multiple-inheritance hierarchy: the
+    /// classes connected by base edges (either direction) to a class with
+    /// more than one program base. Their storage is flat and their base views
+    /// are field accessors (`docs/design/python-multiple-inheritance.md`).
+    #[must_use]
+    pub fn in_multiple_inheritance_hierarchy(&self, name: Symbol) -> bool {
+        self.lookups()
+            .multiple_inheritance_hierarchy
+            .contains(&name)
+    }
+
+    /// Whether class `name` has more than one program base.
+    #[must_use]
+    pub fn has_multiple_bases(&self, name: Symbol) -> bool {
+        self.class_named(name)
+            .is_some_and(|class| !class.extra_bases.is_empty())
+    }
+
     /// The interface named `name`.
     #[must_use]
     pub fn interface_named(&self, name: Symbol) -> Option<&MirInterface> {
@@ -218,6 +277,32 @@ impl Mir {
             .flatten()
             .filter_map(|position| self.functions.get(*position))
     }
+}
+
+/// The classes connected by base edges to a class with several program bases
+/// (see [`Mir::in_multiple_inheritance_hierarchy`]).
+fn multiple_inheritance_hierarchy(mir: &Mir) -> std::collections::HashSet<Symbol> {
+    let mut neighbours: HashMap<Symbol, Vec<Symbol>> = HashMap::new();
+    let mut pending = Vec::new();
+    for class in &mir.classes {
+        if !class.extra_bases.is_empty() {
+            pending.push(class.name);
+        }
+        for base in class.program_bases() {
+            neighbours.entry(class.name).or_default().push(base);
+            neighbours.entry(base).or_default().push(class.name);
+        }
+    }
+    let mut members = std::collections::HashSet::new();
+    if pending.is_empty() {
+        return members;
+    }
+    while let Some(class) = pending.pop() {
+        if members.insert(class) {
+            pending.extend(neighbours.get(&class).into_iter().flatten().copied());
+        }
+    }
+    members
 }
 
 #[cfg(test)]
@@ -255,6 +340,7 @@ mod tests {
             abstract_methods: Vec::new(),
             implements: Vec::new(),
             protocols: Vec::new(),
+            extra_bases: Vec::new(),
             statics_of: None,
         }
     }

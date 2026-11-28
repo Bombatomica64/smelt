@@ -20,6 +20,8 @@ struct ClassBodyLowering {
     abstract_methods: Vec<MethodSig>,
     /// Read-only descriptors declared by source `@property` getters.
     property_descriptors: Vec<smelt_hir::Descriptor>,
+    /// The program bases after the first (multiple inheritance).
+    extra_bases: Vec<Symbol>,
 }
 
 /// What a class statement's bases and `metaclass=` keyword contribute.
@@ -30,8 +32,10 @@ struct ClassBases {
     is_int_enum: bool,
     /// Type parameters declared by a `typing.Generic[...]` marker base.
     type_params: Vec<TypeParamDef>,
-    /// The single non-marker base class, if any.
+    /// The first non-marker base class, if any.
     base: Option<Symbol>,
+    /// The non-marker base classes after the first (multiple inheritance).
+    extra_bases: Vec<Symbol>,
     /// Whether a `typing.Protocol` base makes the class a structural
     /// interface; see [`ModuleBuilder::protocol_def`].
     is_protocol: bool,
@@ -129,6 +133,7 @@ impl ModuleBuilder<'_> {
             is_int_enum,
             type_params,
             base: declared_base,
+            extra_bases,
             is_protocol,
             protocol_parents,
         } = self.resolve_class_bases(class, materialized.as_ref(), span, class_name_str)?;
@@ -163,6 +168,7 @@ impl ModuleBuilder<'_> {
             materialized.as_ref(),
             &target,
             base,
+            extra_bases,
             &type_params,
             is_int_enum,
             &mut kind,
@@ -266,6 +272,7 @@ impl ModuleBuilder<'_> {
             is_int_enum: false,
             type_params: Vec::new(),
             base: None,
+            extra_bases: Vec::new(),
             is_protocol: false,
             protocol_parents: Vec::new(),
         };
@@ -369,7 +376,30 @@ impl ModuleBuilder<'_> {
                     }
                 }
             }
-            _ => return Err(SmeltError::no_multiple_inheritance(span, class_name_str)),
+            several => {
+                // Multiple inheritance: every base is a program class
+                // (`docs/design/python-multiple-inheritance.md`).
+                let mut symbols = Vec::with_capacity(several.len());
+                for (base_expr, denoted) in several {
+                    let resolved = denoted
+                        .is_none()
+                        .then(|| self.base_class_name(base_expr, scope, class_name_str))
+                        .flatten()
+                        .filter(|_| matches!(base_expr, Expr::Name(_) | Expr::Attribute(_)));
+                    let Some(name) = resolved else {
+                        return Err(SmeltError::no_multiple_inheritance(
+                            span,
+                            class_name_str,
+                            "needs every base to be a plain class name",
+                        ));
+                    };
+                    symbols.push(self.intern_name(&name));
+                }
+                let own = self.intern_name(class_name_str);
+                self.validate_multiple_bases(class_name_str, own, &symbols, span)?;
+                bases.extra_bases = symbols.split_off(1);
+                symbols.pop()
+            }
         };
         Ok(bases)
     }
@@ -489,6 +519,7 @@ impl ModuleBuilder<'_> {
         materialized: Option<&smelt_specialize::ClassDefinition>,
         target: &MaterializedClassTarget<'_>,
         base: Option<Symbol>,
+        extra_bases: Vec<Symbol>,
         type_params: &[TypeParamDef],
         is_int_enum: bool,
         kind: &mut ClassKind,
@@ -518,21 +549,31 @@ impl ModuleBuilder<'_> {
             abstract_methods: Vec::new(),
             implements: vec![],
             protocols: Vec::new(),
+            extra_bases: extra_bases.clone(),
             statics_of: None,
         }));
         self.items.insert(class_name_str.to_owned(), class_item_id);
+        let method_init = self.in_multiple_inheritance_hierarchy(class_name_str);
+        if method_init && matches!(kind, ClassKind::DataclassLike { .. }) {
+            return Err(SmeltError::unsupported(
+                span,
+                format!(
+                    "class '{class_name_str}': a dataclass in a multiple-inheritance hierarchy is not supported"
+                ),
+            ));
+        }
         // Pre-register every method's `ItemId` so a body can call siblings
         // declared later in the class (`self.helper()`, `cls.helper()`).
         let method_slots =
             self.reserve_class_method_slots(class, class_name_str, class_sym, materialized.is_some())?;
-        if let Some(base_sym) = base {
-            let aliases = self.reserve_super_method_aliases(base_sym, class_name_str, class_sym)?;
+        if base.is_some() {
+            let aliases = self.reserve_super_method_aliases(class_name_str, class_sym)?;
             hir_module.items.extend(aliases.iter().copied());
             method_ids.extend(aliases);
-            let definer_aliases = self.reserve_super_call_aliases(base_sym, class_name_str, class_sym);
-            hir_module.items.extend(definer_aliases.iter().copied());
-            method_ids.extend(definer_aliases);
         }
+        let definer_aliases = self.reserve_super_call_aliases(class_name_str, class_sym, class_ty, span);
+        hir_module.items.extend(definer_aliases.iter().copied());
+        method_ids.extend(definer_aliases);
         let mut enum_members = HashMap::new();
         let mut abstract_methods = Vec::new();
         let mut property_descriptors = Vec::new();
@@ -648,7 +689,10 @@ impl ModuleBuilder<'_> {
                         hir_module.items.push(mid);
                         continue;
                     }
-                    if method_name == "__init__" {
+                    // Inside a multiple-inheritance hierarchy `__init__` is an
+                    // ordinary method the constructor calls, so `super()`
+                    // chains reach it along the instance's MRO.
+                    if method_name == "__init__" && !method_init {
                         if matches!(kind, ClassKind::DataclassLike { .. }) {
                             return Err(SmeltError::unsupported(
                                 self.span(func.range),
@@ -771,6 +815,7 @@ impl ModuleBuilder<'_> {
                 enum_members,
                 abstract_methods,
                 property_descriptors,
+                extra_bases,
             },
             class_item_id,
         ))
@@ -868,6 +913,28 @@ impl ModuleBuilder<'_> {
                     .or_default()
                     .insert("__repr__".to_owned(), repr_id);
             }
+        } else if self.in_multiple_inheritance_hierarchy(class_name_str) {
+            // `__init__` is a method here: the constructor runs the one the
+            // class's MRO resolves (`object.__init__` when none does).
+            let init = method_ids
+                .iter()
+                .copied()
+                .find(|id| {
+                    matches!(self.item_ref(*id), Item::Function(function)
+                        if self.ctx.krate.symbols.source(function.name) == Some("__init__"))
+                })
+                .or_else(|| {
+                    self.class_mro(class_sym)
+                        .into_iter()
+                        .skip(1)
+                        .find_map(|ancestor| self.own_method_named(ancestor, "__init__"))
+                });
+            let init_id = match init {
+                Some(resolved_init) => self.synthesize_method_init_constructor(class_sym, class_ty, resolved_init, span)?,
+                None => self.synthesize_default_init(class_sym, class_ty, span),
+            };
+            constructor_id = Some(init_id);
+            hir_module.items.push(init_id);
         } else if constructor_id.is_none() {
             // Python inherits `__init__` when a subclass does not declare one.
             // Preserve that signature and initialization under Smelt's flattened
@@ -913,6 +980,7 @@ impl ModuleBuilder<'_> {
             abstract_methods: std::mem::take(&mut lowered.abstract_methods),
             implements: vec![],
             protocols,
+            extra_bases: std::mem::take(&mut lowered.extra_bases),
             statics_of: None,
         });
         let class_index = usize::try_from(class_item_id.0).map_err(|err| {
@@ -1926,7 +1994,7 @@ impl ModuleBuilder<'_> {
         Ok(slots)
     }
 
-    /// Clone the immediate base's effective methods under reserved super aliases.
+    /// Clone the inherited effective methods under reserved super aliases.
     ///
     /// Rust has no inherent-method inheritance and Smelt stores base fields
     /// directly on the derived struct. Re-emitting the base body as a derived
@@ -1935,11 +2003,13 @@ impl ModuleBuilder<'_> {
     /// object or dynamic method table.
     fn reserve_super_method_aliases(
         &mut self,
-        base_sym: Symbol,
         class_name: &str,
         class_sym: Symbol,
     ) -> Result<Vec<ItemId>, SmeltError> {
-        let methods = self.effective_hir_class_methods(base_sym);
+        // What the class inherits: the effective methods of its MRO after
+        // itself (under single inheritance, its base's effective methods).
+        let mro = self.class_mro(class_sym);
+        let methods = self.effective_methods_over(&mro[1..]);
         let mut aliases = Vec::with_capacity(methods.len());
         for method_id in methods {
             let Item::Function(base_method) = self.item_ref(method_id) else {
@@ -1986,9 +2056,11 @@ impl ModuleBuilder<'_> {
         struct SuperCalls(HashSet<String>);
         impl<'a> ruff_python_ast::visitor::Visitor<'a> for SuperCalls {
             fn visit_expr(&mut self, expr: &'a Expr) {
+                // `super().__init__` is collected too: inside a
+                // multiple-inheritance hierarchy it is an ordinary method call
+                // (`reserve_super_call_aliases`).
                 if let Expr::Call(call) = expr
                     && let Some(method) = ModuleBuilder::super_receiver_method(call)
-                    && method != "__init__"
                 {
                     self.0.insert(method.to_owned());
                 }
@@ -2019,8 +2091,8 @@ impl ModuleBuilder<'_> {
         format!("__smelt$super${}${method}", definer.replace('.', "$"))
     }
 
-    /// Give class `class_name` (base `base_sym`) the definer aliases the
-    /// `super()` calls of every body it runs need.
+    /// Give class `class_name` the definer aliases the `super()` calls of
+    /// every body it runs need.
     ///
     /// `super().f()` in a method of class `D` calls the `f` the class after
     /// `D` in the instance's MRO defines. Smelt emits an inherited method's
@@ -2030,38 +2102,48 @@ impl ModuleBuilder<'_> {
     /// instance, `self.<alias>` is resolved on `C`. Each body of `D` therefore
     /// calls `D`'s own alias, `__smelt$super$D$f`, and every class `C` whose
     /// MRO contains `D` (`D` itself included) defines that alias as the
-    /// definition of `f` that follows `D` in `C`'s MRO: under single
-    /// inheritance, the nearest definition in `D`'s base chain. (A single
+    /// definition of `f` that follows `D` in `C`'s MRO (C3 order; under single
+    /// inheritance, the nearest definition in `D`'s base chain). (A single
     /// alias per class, `__smelt$super$f`, resolved to `B.f` itself on `C`
     /// and recursed forever.)
-    fn reserve_super_call_aliases(&mut self, base_sym: Symbol, class_name: &str, class_sym: Symbol) -> Vec<ItemId> {
-        // The class's MRO under single inheritance: itself, then its bases.
-        let mut chain = vec![(class_name.to_owned(), Some(base_sym))];
-        let mut next = Some(base_sym);
-        while let Some(ancestor) = next {
-            let Some(ancestor_name) = self.ctx.krate.symbols.source(ancestor).map(ToOwned::to_owned) else {
-                break;
-            };
-            next = self.class_base_symbol(ancestor);
-            chain.push((ancestor_name, next));
-        }
+    ///
+    /// `super().__init__()` gets an alias only inside a multiple-inheritance
+    /// hierarchy, where `__init__` is a method; when no class after `D`
+    /// defines it, the alias is `object.__init__()`, which does nothing.
+    fn reserve_super_call_aliases(
+        &mut self,
+        class_name: &str,
+        class_sym: Symbol,
+        class_ty: TypeId,
+        span: Span,
+    ) -> Vec<ItemId> {
+        let method_init = self.in_multiple_inheritance_hierarchy(class_name);
         let mut aliases = Vec::new();
-        for (definer, definer_base_sym) in chain {
-            let Some(definer_base) = definer_base_sym.and_then(|base| self.ctx.krate.symbols.source(base).map(ToOwned::to_owned)) else {
+        for definer_sym in self.class_mro(class_sym) {
+            let Some(definer) = self.ctx.krate.symbols.source(definer_sym).map(ToOwned::to_owned) else {
                 continue;
             };
             let mut methods = self.super_called_methods.get(&definer).cloned().unwrap_or_default().into_iter().collect::<Vec<_>>();
             methods.sort();
             for method in methods {
-                let Some(target) = self.class_method_item_by_name(&definer_base, &method) else {
+                let is_init = method == "__init__";
+                if is_init && !method_init {
+                    continue;
+                }
+                let alias_name = Self::super_call_alias_name(&definer, &method);
+                let alias_sym = self.intern_synthesized_name(&alias_name);
+                let Some(target) = self.method_after_in_mro(class_sym, definer_sym, &method) else {
+                    if is_init {
+                        let alias_id = self.synthesize_object_init_alias(class_sym, class_ty, alias_sym, span);
+                        self.class_methods.entry(class_name.to_owned()).or_default().insert(alias_name, alias_id);
+                        aliases.push(alias_id);
+                    }
                     continue;
                 };
                 let Item::Function(function) = self.item_ref(target) else {
                     continue;
                 };
                 let mut alias = function.clone();
-                let alias_name = Self::super_call_alias_name(&definer, &method);
-                let alias_sym = self.intern_synthesized_name(&alias_name);
                 alias.name = alias_sym;
                 alias.owner = match alias.owner {
                     FunctionOwner::ClassStaticMethod { .. } => FunctionOwner::ClassStaticMethod { class: class_sym, method: alias_sym },
@@ -2139,29 +2221,34 @@ impl ModuleBuilder<'_> {
         Ok(protocols)
     }
 
-    /// Return a class's effective instance methods under single inheritance.
+    /// Return a class's effective instance methods: for each name, the
+    /// definition the class's MRO resolves.
     fn effective_hir_class_methods(&self, class_sym: Symbol) -> Vec<ItemId> {
-        let Some(class) = self.ctx.krate.items.iter().find_map(|item| match item {
-            Item::Class(class) if class.name == class_sym => Some(class),
-            _ => None,
-        }) else {
-            return Vec::new();
-        };
-        let mut methods = class
-            .base
-            .map(|base| self.effective_hir_class_methods(base))
-            .unwrap_or_default();
-        for &method in &class.methods {
-            let method_name = match self.item_ref(method) {
-                Item::Function(function) => function.name,
-                _ => continue,
+        self.effective_methods_over(&self.class_mro(class_sym))
+    }
+
+    /// The effective instance methods of the classes `mro` (an MRO or a tail
+    /// of one, nearest first): collected from its last class towards its
+    /// first, a nearer definition replacing a further one in place, so the
+    /// order is base-first exactly as under single inheritance.
+    fn effective_methods_over(&self, mro: &[Symbol]) -> Vec<ItemId> {
+        let mut methods: Vec<ItemId> = Vec::new();
+        for class_sym in mro.iter().rev() {
+            let Some(class) = self.class_item_named(*class_sym) else {
+                continue;
             };
-            if let Some(existing) = methods.iter_mut().find(|candidate| {
-                matches!(self.item_ref(**candidate), Item::Function(function) if function.name == method_name)
-            }) {
-                *existing = method;
-            } else {
-                methods.push(method);
+            for &method in &class.methods {
+                let method_name = match self.item_ref(method) {
+                    Item::Function(function) => function.name,
+                    _ => continue,
+                };
+                if let Some(existing) = methods.iter_mut().find(|candidate| {
+                    matches!(self.item_ref(**candidate), Item::Function(function) if function.name == method_name)
+                }) {
+                    *existing = method;
+                } else {
+                    methods.push(method);
+                }
             }
         }
         methods
@@ -2203,7 +2290,11 @@ impl ModuleBuilder<'_> {
         let span = self.span(func.range);
         let method_name_str = func.name.as_str();
         let method_sym = self.intern_name(method_name_str);
-        let is_init = !is_static && method_name_str == "__init__";
+        // Inside a multiple-inheritance hierarchy `__init__` is an ordinary
+        // method (`docs/design/python-multiple-inheritance.md` §4).
+        let is_init = !is_static
+            && method_name_str == "__init__"
+            && !self.in_multiple_inheritance_hierarchy(class_name_str);
         let is_new = !is_static && method_name_str == "__new__";
         let is_classmethod = !is_static && self.is_classmethod(func)?;
 

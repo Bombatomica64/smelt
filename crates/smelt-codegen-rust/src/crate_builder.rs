@@ -515,13 +515,11 @@ impl<'a> CrateBuilder<'a, FreeFunctionsWritten> {
             // inherent method its cell's `into_smelt_unknown_as_concrete` calls
             // (`crate::class_polymorphism`).
             if needs_unknown
-                && (context.is_polymorphic_class(class.name)
-                    || crate::class_polymorphism::nested_base(
-                        mir,
-                        context.polymorphic_classes(),
-                        class.name,
-                    )
-                    .is_some())
+                && crate::class_polymorphism::in_polymorphic_hierarchy(
+                    mir,
+                    context.polymorphic_classes(),
+                    class.name,
+                )
             {
                 out.push_str(&crate::class_polymorphism::own_erasure_method(
                     mir, context, class,

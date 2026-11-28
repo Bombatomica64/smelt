@@ -341,7 +341,19 @@ pub(crate) fn effective_class_fields(mir: &Mir, class: &MirClass) -> Vec<MirFiel
         }
         chain.push(base);
     }
-    let level_substitutions = chain_type_substitutions(mir, &chain);
+    // Several bases: the fields of every class of the MRO, by name (a
+    // multiple-inheritance class and its bases are never generic, so no
+    // level substitutes a type).
+    let level_substitutions = if mir.in_multiple_inheritance_hierarchy(class.name) {
+        chain = mir
+            .class_mro(class.name)
+            .into_iter()
+            .filter_map(|name| find_class(mir, name))
+            .collect();
+        vec![HashMap::new(); chain.len()]
+    } else {
+        chain_type_substitutions(mir, &chain)
+    };
     let mut fields: Vec<MirField> = Vec::new();
     let mut slots: HashMap<Symbol, usize> = HashMap::new();
     // A subclass statics frame reaches each static it inherits through its
@@ -683,6 +695,26 @@ pub(crate) fn class_name_renders_erased(mir: &Mir, name: Symbol) -> bool {
 /// base body touches exists on the subclass, and any sibling method it calls is
 /// itself inherited by the same rule.
 pub(crate) fn effective_class_methods(mir: &Mir, class: &MirClass) -> Vec<FuncId> {
+    // Several bases: the methods the MRO resolves, collected from its root
+    // towards the class so the order stays base-first.
+    if mir.in_multiple_inheritance_hierarchy(class.name) {
+        let mut methods: Vec<FuncId> = Vec::new();
+        for owner_name in mir.class_mro(class.name).into_iter().rev() {
+            let Some(owner) = find_class(mir, owner_name) else {
+                continue;
+            };
+            for method in &owner.methods {
+                match methods
+                    .iter_mut()
+                    .find(|candidate| method_names_match(mir, **candidate, *method))
+                {
+                    Some(existing) => *existing = *method,
+                    None => methods.push(*method),
+                }
+            }
+        }
+        return methods;
+    }
     let mut methods = base_class(mir, class)
         .map(|base| effective_class_methods(mir, base))
         .unwrap_or_default();

@@ -391,9 +391,16 @@ impl FunctionEmitter<'_> {
         // class, which names itself (`crate::class_polymorphism`); a value
         // hierarchy carries the tag field instead (`crate::class_identity`).
         let polymorphic = self.context.is_polymorphic_class(static_class);
+        // The target may be a subclass of the static class, or (with several
+        // bases) unrelated to it yet share a descendant with it.
+        let may_hold_target = self.class_extends_or_equals(class, static_class)
+            || self.mir.classes.iter().any(|candidate| {
+                self.class_extends_or_equals(candidate.name, class)
+                    && self.class_extends_or_equals(candidate.name, static_class)
+            });
         if !(polymorphic || self.context.carries_class_identity(static_class))
             || self.class_extends_or_equals(static_class, class)
-            || !self.class_extends_or_equals(class, static_class)
+            || !may_hold_target
         {
             return Ok(None);
         }
@@ -652,6 +659,10 @@ impl FunctionEmitter<'_> {
     /// Walks the declared base chain, which is how a statically typed
     /// `instanceof` between two generated classes is answered.
     pub(super) fn class_extends_or_equals(&self, source: Symbol, target: Symbol) -> bool {
+        // Several bases: a class extends every class of its MRO.
+        if self.mir.in_multiple_inheritance_hierarchy(source) {
+            return self.mir.class_derives_from(source, target);
+        }
         let mut current = source;
         loop {
             if current == target {

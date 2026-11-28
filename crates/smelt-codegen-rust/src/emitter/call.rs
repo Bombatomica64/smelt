@@ -1389,12 +1389,7 @@ impl FunctionEmitter<'_> {
         let HirOrigin::ClassMethod { method, .. } = callee.origin else {
             return false;
         };
-        let mut current = Some(owner);
-        let mut seen = HashSet::new();
-        while let Some(class_name) = current {
-            if !seen.insert(class_name) {
-                return false;
-            }
+        for class_name in self.mir.class_mro(owner) {
             let Some(class) = crate::classes::find_class(self.mir, class_name) else {
                 return false;
             };
@@ -1406,7 +1401,6 @@ impl FunctionEmitter<'_> {
             if let Some(found) = own {
                 return !self.call_is_throwing(found);
             }
-            current = class.base;
         }
         false
     }

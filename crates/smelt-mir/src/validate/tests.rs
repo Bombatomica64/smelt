@@ -649,6 +649,7 @@ fn a_repeated_class_name_is_rejected() {
         abstract_methods: Vec::new(),
         implements: Vec::new(),
         protocols: Vec::new(),
+        extra_bases: Vec::new(),
         statics_of: None,
     };
     let mut mir = program();
@@ -693,6 +694,7 @@ fn globals_and_member_ids_are_range_checked() {
         abstract_methods: Vec::new(),
         implements: Vec::new(),
         protocols: Vec::new(),
+        extra_bases: Vec::new(),
         statics_of: None,
     });
     assert!(reports(

@@ -655,6 +655,7 @@ impl ModuleBuilder<'_> {
             implements: Vec::new(),
             protocols: Vec::new(),
             static_fields: Vec::new(),
+            extra_bases: Vec::new(),
             statics_of: None,
             descriptors: Vec::new(),
         }));

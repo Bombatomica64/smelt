@@ -285,16 +285,18 @@ impl SmeltError {
         }
     }
 
-    /// Error for multiple inheritance, which is not supported.
-    pub(crate) fn no_multiple_inheritance(span: Span, class_name: &str) -> Self {
+    /// Error for a multiple-inheritance class outside what
+    /// `docs/design/python-multiple-inheritance.md` supports; `reason` says
+    /// which rule it breaks.
+    pub(crate) fn no_multiple_inheritance(span: Span, class_name: &str, reason: &str) -> Self {
         Self {
             code: "smelt::no-multiple-inheritance",
             category: DiagnosticCategory::UnsupportedLowering,
             span,
-            message: format!("class '{class_name}': multiple inheritance is not supported"),
+            message: format!("class '{class_name}': multiple inheritance {reason}"),
             note: Some(
-                "smelt only supports single-base class inheritance. \
-                 Use composition or interfaces instead."
+                "smelt supports several bases when every base is a non-generic, \
+                 non-exception class of the same module."
                     .to_owned(),
             ),
         }

@@ -24,7 +24,7 @@ impl ModuleBuilder<'_> {
         }
     }
 
-    /// Find a field on a class, walking its single base-class chain.
+    /// Find a field on a class, walking its bases (first base first).
     fn field_type_on_class(&self, class_name: Symbol, field: Symbol) -> Option<TypeId> {
         if let Some(class_name_text) = self.ctx.krate.symbols.get(class_name)
             && let Some(field_ty) = self
@@ -60,7 +60,12 @@ impl ModuleBuilder<'_> {
                         .find(|class_field| class_field.name == field)
                         .map(|class_field| class_field.ty)
                 })
-                .or_else(|| class.base.and_then(|base| self.field_type_on_class(base, field)))
+                .or_else(|| {
+                    class
+                        .program_bases()
+                        .into_iter()
+                        .find_map(|base| self.field_type_on_class(base, field))
+                })
         })
     }
 
