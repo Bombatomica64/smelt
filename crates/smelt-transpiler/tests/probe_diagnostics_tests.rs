@@ -243,9 +243,14 @@ build = false
 /// `file:line:column: error[code]: message`, at the expression it is about:
 /// a type helper's diagnostic takes the position of the expression that
 /// asked, never line 1, column 1, and the text is not a `Debug` dump.
+///
+/// The probe only needs some `str` method Smelt still rejects. It used
+/// `expandtabs`, which #567 made supported (the build then succeeded and the
+/// test failed); `casefold` is still rejected, so the requirement under test
+/// (position and form of the diagnostic) is unchanged.
 #[test]
 fn python_diagnostics_point_at_the_rejected_expression() -> TestResult {
-    let stderr = rejected_python_build("s: str = \"x\"\n\n\nprint(s.expandtabs(4))\n")?;
+    let stderr = rejected_python_build("s: str = \"x\"\n\n\nprint(s.casefold())\n")?;
     ensure(
         stderr.contains("src/main.py:4:7: error[smelt::unsupported-py]: "),
         format!("diagnostic at line 4, column 7 in compiler form:\n{stderr}"),
