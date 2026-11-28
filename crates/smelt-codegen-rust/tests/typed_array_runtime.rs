@@ -120,7 +120,12 @@ test("same element count, different identity", () => {
   );
 });
 test("every view is a view and never the storage", () => {
-  const buffer = new ArrayBuffer(4);
+  // Corrected input, same requirement. The buffer was 4 bytes, so
+  // `new Float64Array(buffer)` is a RangeError in JavaScript (a byte length
+  // that is not a multiple of 8; the runtime tiers' Node oracle flagged it)
+  // and the test never reached its `isView` checks there. 8 bytes is valid
+  // for every view below. Smelt not throwing that RangeError is a known gap.
+  const buffer = new ArrayBuffer(8);
   expect(ArrayBuffer.isView(new Uint32Array(buffer))).toBe(true);
   expect(ArrayBuffer.isView(new Float64Array(buffer))).toBe(true);
   expect(ArrayBuffer.isView(buffer)).toBe(false);

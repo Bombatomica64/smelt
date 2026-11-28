@@ -31,7 +31,7 @@
 //!
 //! A shape that is superlinear for a reason that is not a local fix is
 //! `#[ignore]`d with the measured growth and where the time goes, rather than
-//! passing under a loosened bound.
+//! passing under a loosened bound. Each names its tracking issue (#571).
 
 #![expect(
     clippy::format_push_string,
@@ -398,7 +398,7 @@ fn function_call_ladder(n: usize) -> String {
 /// are memoized / map-indexed now. Un-ignore if the representation stops
 /// flattening.
 #[test]
-#[ignore = "quadratic emitted output (flattened extends chain); see the comment"]
+#[ignore = "quadratic emitted output (flattened extends chain); tracked in #571, see the comment"]
 fn interface_extends_chain_scales_linearly() {
     assert_linear("interface extends chain", 16, interface_extends_chain);
 }
@@ -417,7 +417,7 @@ fn interface_extends_chain_scales_linearly() {
 /// `effective_class_fields`' quadratic override lookup is fixed (map-indexed);
 /// the remaining fix is a per-class layout cache in `EmitContext`.
 #[test]
-#[ignore = "superlinear codegen (flattened inheritance + per-access layout scans); see the comment"]
+#[ignore = "superlinear codegen (flattened inheritance + per-access layout scans); tracked in #571, see the comment"]
 fn class_extends_chain_scales_linearly() {
     assert_linear("class extends chain", 8, class_extends_chain);
 }
@@ -437,7 +437,7 @@ fn string_literal_union_scales_linearly() {
 /// `items` is a public `Vec` several passes rewrite in place, so that index is
 /// not a local change.
 #[test]
-#[ignore = "superlinear frontend: per-member item lookups; see the comment"]
+#[ignore = "superlinear frontend: per-member item lookups; tracked in #571, see the comment"]
 fn discriminated_object_union_scales_linearly() {
     assert_linear("discriminated object union", 8, discriminated_object_union);
 }
@@ -450,7 +450,7 @@ fn discriminated_object_union_scales_linearly() {
 /// symbol interner's linear scan (the dominant cost before, growth 12.4 at
 /// n=256) is fixed: `SymbolInterner` is hash-indexed now.
 #[test]
-#[ignore = "quadratic frontend item lookups; see the comment"]
+#[ignore = "quadratic frontend item lookups; tracked in #571, see the comment"]
 fn long_intersection_scales_linearly() {
     assert_linear("long intersection", 16, long_intersection);
 }
@@ -476,7 +476,7 @@ fn array_push_statements_scale_linearly() {
 /// n=128, MIR 7 ms -> 648 ms) was `TypeInterner::intern`, a linear scan over
 /// every interned type on every intern; it is hash-indexed now.
 #[test]
-#[ignore = "quadratic emitted output (nested type annotations); see the comment"]
+#[ignore = "quadratic emitted output (nested type annotations); tracked in #571, see the comment"]
 fn nested_generic_type_scales_linearly() {
     assert_linear_up_to("nested generic type", 4, MAX_NESTING, nested_generic_type);
 }

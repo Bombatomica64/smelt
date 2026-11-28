@@ -424,7 +424,22 @@ jobs:
         with:
           lane: tiers
 
+      # The tiers check each fixture's expected values against real Node
+      # (tests/harness: `node_oracle`) before running the generated crate; the
+      # oracle is pinned like the golden one, and SMELT_REQUIRE_SANDBOX turns a
+      # missing `node` into a failure instead of a skip.
+      - name: Read the Node pin
+        id: node-pin
+        run: echo "node=$(python3 scripts/ci_pin.py tool node)" >> "$GITHUB_OUTPUT"
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ steps.node-pin.outputs.node }}
+
       - name: Run runtime tiers
+        env:
+          SMELT_REQUIRE_SANDBOX: "1"
         run: |
           cargo nextest run $NEXTEST_META --run-ignored only \
             -E 'binary(/_runtime$/)' \

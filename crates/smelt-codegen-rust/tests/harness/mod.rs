@@ -69,10 +69,39 @@ pub(crate) fn generated_target_count() -> usize {
 /// directory, so the dependency builds are reused across runs and removed by
 /// `cargo clean`. The runtime value wins over the compile-time one, for a test
 /// archive unpacked at another path.
+///
+/// One directory per rustc: a nested build uses the `rustc` its environment
+/// resolves (`RUSTUP_TOOLCHAIN` under `cargo test`, the default toolchain when
+/// a test binary runs on its own), and artifacts of two compilers in one
+/// directory fail with E0514 ("compiled by an incompatible version of rustc").
 pub(crate) fn generated_targets_root() -> PathBuf {
     std::env::var_os("CARGO_TARGET_TMPDIR")
         .map_or_else(|| PathBuf::from(env!("CARGO_TARGET_TMPDIR")), PathBuf::from)
         .join("generated-crates")
+        .join(rustc_identity())
+}
+
+/// A short stable name for the `rustc` nested builds use: a hash of its
+/// `rustc -vV` (release and commit), computed once per process.
+fn rustc_identity() -> String {
+    static IDENTITY: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    IDENTITY
+        .get_or_init(|| {
+            let rustc = std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into());
+            let version = Command::new(rustc)
+                .arg("-vV")
+                .output()
+                .map(|output| output.stdout)
+                .unwrap_or_default();
+            // FNV-1a: stable across processes, unlike `DefaultHasher`.
+            let hash = version
+                .iter()
+                .fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| {
+                    (hash ^ u64::from(*byte)).wrapping_mul(0x0100_0000_01b3)
+                });
+            format!("rustc-{hash:016x}")
+        })
+        .clone()
 }
 
 /// One of the [`generated_target_count`] shared target directories, held
@@ -346,6 +375,192 @@ pub(crate) fn declared_test_count(source: &str) -> usize {
         .count()
 }
 
+/// The `vitest` stand-in the Node oracle runs fixtures against.
+const VITEST_SHIM: &str = include_str!("vitest_shim.mjs");
+
+/// Tests whose fixture source violates its own types, so Node (which does not
+/// check them) disagrees with Smelt (which lowers the declared types) by
+/// design, each with its reason. The oracle requires every one of them to
+/// fail under Node: one that starts passing must leave this list.
+const NODE_DIVERGENCES: &[(&str, &str)] = &[
+    (
+        "a string iterates into a list whose element type is concrete",
+        "calls a `Token[]` function through `unknown` with a string",
+    ),
+    (
+        "a non-array source still builds a fresh list",
+        "calls a `number[]` function through `unknown` with a non-array",
+    ),
+    (
+        "pushing under an absent key creates that group",
+        "reads an absent `Record<string, number[]>` key, typed present",
+    ),
+    (
+        "a json() body read decodes into its declared type",
+        "decodes JSON against a declared type the body does not have",
+    ),
+    (
+        "JSON decodes an int32 slot as a whole number in range",
+        "decodes JSON against a declared type the body does not have",
+    ),
+];
+
+/// Tests whose expected value is NOT what Node computes, because Smelt is
+/// wrong there and the fix is not made yet: each is an open defect, with what
+/// Node does. Like [`NODE_DIVERGENCES`] they must keep failing under Node; one
+/// that passes there must leave this list.
+const NODE_OPEN_DEFECTS: &[(&str, &str)] = &[
+    (
+        "arrays with equal elements and different named properties are equal",
+        "vitest's toEqual compares an array's named properties; Smelt's erased structural equality ignores them",
+    ),
+    (
+        "a match equals the plain array of its groups",
+        "a match array's index/input/groups are named properties toEqual compares; Smelt ignores them",
+    ),
+    (
+        "a deleted global has no instances",
+        "`x instanceof undefined` is a TypeError in JavaScript; Smelt answers false",
+    ),
+    (
+        "writes accumulate rather than replacing the container",
+        "vitest runs a file's tests in one module instance, so the previous test's key is still there; \
+         Smelt's generated tests each start from fresh module state",
+    ),
+    (
+        "an unmodeled member stays undefined",
+        "`Array.prototype.flatMap` is a function in JavaScript; Smelt's host model has no such member yet",
+    ),
+];
+
+/// What the Node oracle reported for one fixture.
+#[derive(Debug)]
+pub(crate) struct NodeVerdict {
+    /// Names of the tests that passed.
+    pub(crate) passed: Vec<String>,
+    /// Names and first message lines of the tests that failed.
+    pub(crate) failed: Vec<(String, String)>,
+}
+
+/// Whether a `node` that runs TypeScript (`--experimental-transform-types`,
+/// Node 22.7 or later) is on `PATH`.
+fn node_runs_typescript() -> bool {
+    static PROBE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *PROBE.get_or_init(|| {
+        let Ok(output) = Command::new("node").arg("--version").output() else {
+            return false;
+        };
+        let version = String::from_utf8_lossy(&output.stdout);
+        let mut parts = version
+            .trim()
+            .trim_start_matches('v')
+            .split('.')
+            .map(|part| part.parse::<u32>().unwrap_or(0));
+        output.status.success() && (parts.next().unwrap_or(0), parts.next().unwrap_or(0)) >= (22, 7)
+    })
+}
+
+/// Runs the fixture `source` under Node against [`VITEST_SHIM`], in
+/// `<scratch>/node-oracle` beside the crate: the fixture's expected values are
+/// the author's belief until real JavaScript agrees with them.
+///
+/// `None` when no suitable `node` is available, unless `SMELT_REQUIRE_SANDBOX`
+/// is set (CI), where a missing oracle fails the caller.
+pub(crate) fn node_oracle(source: &str, crate_dir: &Path) -> Option<NodeVerdict> {
+    if !node_runs_typescript() {
+        assert!(
+            std::env::var_os("SMELT_REQUIRE_SANDBOX").is_none(),
+            "SMELT_REQUIRE_SANDBOX is set but no `node` >= 22.7 is on PATH for the runtime-tier oracle"
+        );
+        eprintln!("note: no `node` >= 22.7 on PATH; skipping the runtime-tier Node oracle");
+        return None;
+    }
+    let root = crate_dir.parent().unwrap_or(crate_dir).join("node-oracle");
+    let shim = root.join("node_modules").join("vitest");
+    std::fs::create_dir_all(&shim).expect("create the Node oracle directory");
+    std::fs::write(root.join("package.json"), "{\"type\":\"module\"}\n")
+        .expect("write package.json");
+    std::fs::write(
+        shim.join("package.json"),
+        "{\"name\":\"vitest\",\"type\":\"module\",\"exports\":\"./index.mjs\"}\n",
+    )
+    .expect("write the shim manifest");
+    std::fs::write(shim.join("index.mjs"), VITEST_SHIM).expect("write the shim");
+    std::fs::write(root.join("main.ts"), source).expect("write the fixture");
+    let mut command = Command::new("node");
+    command
+        .current_dir(&root)
+        .env_clear()
+        .env("TZ", "UTC")
+        .args(["--experimental-transform-types", "--no-warnings", "main.ts"]);
+    if let Some(path) = std::env::var_os("PATH") {
+        command.env("PATH", path);
+    }
+    let output = output_within(&mut command, generated_run_limit());
+    assert!(output.is_some(), "the fixture did not finish under Node");
+    let output = output?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut verdict = NodeVerdict {
+        passed: Vec::new(),
+        failed: Vec::new(),
+    };
+    for line in stdout.lines() {
+        let Some(rest) = line.strip_prefix("##smelt-oracle## ") else {
+            continue;
+        };
+        if let Some(name) = rest.strip_prefix("ok ") {
+            verdict.passed.push(name.to_owned());
+        } else if let Some(failure) = rest.strip_prefix("fail ") {
+            let (name, message) = failure.split_once(": ").unwrap_or((failure, ""));
+            verdict.failed.push((name.to_owned(), message.to_owned()));
+        }
+    }
+    assert!(
+        stdout.contains("##smelt-oracle## summary"),
+        "the fixture did not run to its end under Node:\nstdout:\n{stdout}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    Some(verdict)
+}
+
+/// Holds the fixture `source` to Node: every test it declares passes there,
+/// except the [`NODE_DIVERGENCES`], which must fail.
+fn ensure_node_agrees(source: &str, crate_dir: &Path) {
+    let Some(verdict) = node_oracle(source, crate_dir) else {
+        return;
+    };
+    let diverges = |name: &str| {
+        NODE_DIVERGENCES
+            .iter()
+            .chain(NODE_OPEN_DEFECTS)
+            .any(|(test, _)| *test == name)
+    };
+    let wrong: Vec<_> = verdict
+        .failed
+        .iter()
+        .filter(|(name, _)| !diverges(name))
+        .collect();
+    assert!(
+        wrong.is_empty(),
+        "the fixture's expected values are not what Node computes for the same source \
+         (fix Smelt, or the fixture input if it is invalid JavaScript):\n{wrong:#?}"
+    );
+    let healed: Vec<_> = verdict
+        .passed
+        .iter()
+        .filter(|name| diverges(name))
+        .collect();
+    assert!(
+        healed.is_empty(),
+        "these tests are listed in NODE_DIVERGENCES/NODE_OPEN_DEFECTS but pass under Node; remove them: {healed:?}"
+    );
+    assert_eq!(
+        verdict.passed.len().saturating_add(verdict.failed.len()),
+        declared_test_count(source),
+        "Node ran a different number of tests than the fixture declares: {verdict:?}"
+    );
+}
+
 /// Compiles the crate's tests, then runs them under [`generated_run_limit`].
 ///
 /// A compile failure or a hang fails the caller here; the run's own outcome is
@@ -417,6 +632,7 @@ pub(crate) fn run_generated_tests_plus(source: &str, extra: usize, crate_dir: &P
         declared > 0,
         "the fixture declares no `test(...)`/`it(...)`: a runtime tier with nothing to run proves nothing"
     );
+    ensure_node_agrees(source, crate_dir);
     let run = run_generated_suite(crate_dir);
     let report = &run.report;
     assert!(run.success, "generated test failed:\n{report}");
@@ -444,6 +660,13 @@ pub(crate) fn run_generated_tests_plus(source: &str, extra: usize, crate_dir: &P
 /// declared test must run, and at least one must report failed.
 pub(crate) fn run_generated_tests_expecting_failure(source: &str, crate_dir: &Path) {
     let declared = declared_test_count(source);
+    // The control's false assertion is false in JavaScript too.
+    if let Some(verdict) = node_oracle(source, crate_dir) {
+        assert!(
+            !verdict.failed.is_empty(),
+            "the should-fail control passes under Node, so its assertion is not false: {verdict:?}"
+        );
+    }
     let run = run_generated_suite(crate_dir);
     let report = &run.report;
     assert!(

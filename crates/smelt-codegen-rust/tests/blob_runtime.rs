@@ -151,8 +151,16 @@ test("a file carries the two extra data properties", () => {
   expect(file.type).toBe("text/csv");
   expect(file.size).toBe(6);
 });
-test("lastModified defaults to 0 rather than the wall clock", () => {
-  expect(new File(["a"], "a.txt").lastModified).toBe(0);
+test("lastModified defaults to the wall clock", () => {
+  // Corrected expectation. Old requirement: a `File` built without
+  // `lastModified` reads 0 (chosen for determinism). New requirement: it reads
+  // the clock at construction, between two `Date.now()` readings around it;
+  // that is what the File API specifies and what Node computes (the runtime
+  // tiers' Node oracle flagged the 0).
+  const before = Date.now();
+  const lastModified = new File(["a"], "a.txt").lastModified;
+  const after = Date.now();
+  expect(lastModified >= before && lastModified <= after).toBe(true);
 });
 test("a file does not equal a same-bytes blob", () => {
   expect(new File(["a"], "a.txt")).not.toEqual(new Blob(["a"]));
