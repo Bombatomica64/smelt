@@ -2313,6 +2313,17 @@ fn sequential_loop_exits() -> TestResult {
     verify_node_parity("sequential_loop_exits")
 }
 
+/// Branches whose arms meet again only transitively, in sequence: a `switch`
+/// whose cases call (`n` such statements rendered the rest `3^n` times),
+/// throw or return; a `try` in a loop body; an `if`/`else` holding a call
+/// inside a `try`; an `if` whose arm may throw; in functions, a loop body and
+/// a closure. Their shared continuation is emitted once at the branch's
+/// post-dominator; every path must still run the same code in the same order.
+#[test]
+fn sequential_branch_rejoins() -> TestResult {
+    verify_node_parity("sequential_branch_rejoins")
+}
+
 /// Unannotated protocol methods take the iterator type the TypeScript checker
 /// infers from their result's structure (`checker_types::iterator_shape`): a
 /// `[Symbol.iterator]()` answering an object literal `{ next, return }` (whose

@@ -4841,9 +4841,8 @@ pub(crate) fn assert_raw(r: SmeltUnion3) -> Result<(), Box<dyn std::error::Error
     let _smelt_tmp_1: bool = match &r { SmeltUnion3::M0(smelt_union_arm) => smelt_union_arm.kind.clone(), SmeltUnion3::M1(smelt_union_arm) => smelt_union_arm.kind.clone() } != "raw";
     if _smelt_tmp_1 {
     return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::Object(SmeltObject::from_unknown_record((SmeltRecord::from([(JsString::from("__smelt_error"), SmeltUnknown::String("Error".into())), (JsString::from("message"), SmeltUnknown::String("not raw".into())), (JsString::from("stack"), SmeltUnknown::Undefined), (JsString::from("cause"), SmeltUnknown::Undefined)])).clone()))));
-    } else {
-    return Ok(());
     }
+    return Ok(());
 }
 
 pub(crate) fn asserted(request: SmeltUnion3) -> Result<f64, Box<dyn std::error::Error>> {

@@ -145,30 +145,97 @@ impl FunctionEmitter<'_> {
         continuation: &Continuation<'_>,
         out: &mut String,
     ) -> Result<(), EmitError> {
+        if let Some(loop_join) = self.throwing_loop_join(target, handler.catch_block, continuation)
+        {
+            let mut buffered = String::new();
+            let attempt = self.loop_join_attempt(
+                loop_join,
+                continuation,
+                |buffer| {
+                    self.emit_throwing_call_terminator_at(
+                        callee,
+                        args,
+                        dest,
+                        target,
+                        handler,
+                        continuation,
+                        Some(loop_join),
+                        buffer,
+                    )
+                },
+                &mut buffered,
+            )?;
+            if attempt {
+                out.push_str(&buffered);
+                return Ok(());
+            }
+        }
+        self.emit_throwing_call_terminator_at(
+            callee,
+            args,
+            dest,
+            target,
+            handler,
+            continuation,
+            None,
+            out,
+        )
+    }
+
+    /// [`Self::emit_throwing_call_terminator`] with the arms' join inside an
+    /// enclosing loop body (`loop_join`, registered as a pending join by the
+    /// caller), or `None` for the region's own join rule.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the terminator's operands, its continuation, and the loop-body join"
+    )]
+    fn emit_throwing_call_terminator_at(
+        &self,
+        callee: &Callee,
+        args: &[Operand],
+        dest: LocalId,
+        target: smelt_mir::BlockId,
+        handler: smelt_mir::ExceptionHandler,
+        continuation: &Continuation<'_>,
+        loop_join: Option<smelt_mir::BlockId>,
+        out: &mut String,
+    ) -> Result<(), EmitError> {
         let local = self.local_decl(dest)?;
         // Rejoin the arms at their common tail when the region allows it (see
         // `throwing_join`): each arm stops there and the tail is emitted once.
         let declared_before_arms = self.declared_scope();
-        let join = self.throwing_continuation_join(target, handler.catch_block, continuation);
+        let join = match continuation {
+            Continuation::InLoop { .. } => loop_join,
+            Continuation::Block | Continuation::Region { .. } | Continuation::Closure { .. } => {
+                self.throwing_continuation_join(target, handler.catch_block, continuation)
+            }
+        };
         let fresh_visited = BlockIdSet::default();
-        let joined_continuation = join.and_then(|join| match continuation {
-            Continuation::Block => Some(Continuation::Region {
-                stop: join,
+        let joined_continuation = join.map(|stop| match continuation {
+            Continuation::Block => Continuation::Region {
+                stop,
                 visited: &fresh_visited,
-            }),
-            Continuation::Region { visited, .. } => Some(Continuation::Region {
-                stop: join,
-                visited,
-            }),
-            Continuation::Closure { active, .. } => Some(Continuation::Closure {
+            },
+            Continuation::Region { visited, .. } => Continuation::Region { stop, visited },
+            Continuation::Closure { active, .. } => Continuation::Closure {
                 active,
-                stop: Some(join),
+                stop: Some(stop),
                 in_loop: true,
-            }),
-            Continuation::InLoop { .. } => None,
+            },
+            // The arms end at the join through the pending loop-body join
+            // the caller registered (`loop_join_stop_hit`).
+            Continuation::InLoop {
+                continue_target,
+                break_target,
+                visited,
+            } => Continuation::InLoop {
+                continue_target: *continue_target,
+                break_target: *break_target,
+                visited,
+            },
         });
         let arm_continuation = joined_continuation.as_ref().unwrap_or(continuation);
-        let joined_tail = join.filter(|_| joined_continuation.is_some());
+        let joined_tail = join;
         let hoist_dest = joined_tail.is_some_and(|tail| {
             !self.is_local_declared(dest) && self.join_tail_reads_local(tail, dest)
         });
@@ -277,12 +344,12 @@ impl FunctionEmitter<'_> {
             __smelt_arm_declared.close();
             out.push_str("        }\n");
             out.push_str("    }\n");
-            if let Some(join) = join.filter(|_| joined_continuation.is_some()) {
+            if let Some(rejoin) = join {
                 declared_before_arms.close();
                 if hoist_dest {
                     self.mark_local_declared(dest);
                 }
-                self.emit_throwing_continuation_tail(join, continuation, out)?;
+                self.emit_throwing_continuation_tail(rejoin, continuation, out)?;
             } else {
                 // No join: the continuation was emitted inside the arms, and the
                 // declarations stay as the arms left them.
@@ -415,12 +482,12 @@ impl FunctionEmitter<'_> {
         __smelt_arm_declared.close();
         out.push_str("        }\n");
         out.push_str("    }\n");
-        if let Some(join) = join.filter(|_| joined_continuation.is_some()) {
+        if let Some(rejoin) = join {
             declared_before_arms.close();
             if hoist_dest {
                 self.mark_local_declared(dest);
             }
-            self.emit_throwing_continuation_tail(join, continuation, out)?;
+            self.emit_throwing_continuation_tail(rejoin, continuation, out)?;
         } else {
             // No join: the continuation was emitted inside the arms, and the
             // declarations stay as the arms left them.
@@ -439,30 +506,94 @@ impl FunctionEmitter<'_> {
         continuation: &Continuation<'_>,
         out: &mut String,
     ) -> Result<(), EmitError> {
+        if let Some(loop_join) = self.throwing_loop_join(target, handler.catch_block, continuation)
+        {
+            let mut buffered = String::new();
+            let attempt = self.loop_join_attempt(
+                loop_join,
+                continuation,
+                |buffer| {
+                    self.emit_throwing_await_terminator_at(
+                        future,
+                        dest,
+                        target,
+                        handler,
+                        continuation,
+                        Some(loop_join),
+                        buffer,
+                    )
+                },
+                &mut buffered,
+            )?;
+            if attempt {
+                out.push_str(&buffered);
+                return Ok(());
+            }
+        }
+        self.emit_throwing_await_terminator_at(
+            future,
+            dest,
+            target,
+            handler,
+            continuation,
+            None,
+            out,
+        )
+    }
+
+    /// [`Self::emit_throwing_await_terminator`] with the arms' join inside an
+    /// enclosing loop body (`loop_join`, registered as a pending join by the
+    /// caller), or `None` for the region's own join rule.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the terminator's operands, its continuation, and the loop-body join"
+    )]
+    fn emit_throwing_await_terminator_at(
+        &self,
+        future: &Operand,
+        dest: LocalId,
+        target: smelt_mir::BlockId,
+        handler: smelt_mir::ExceptionHandler,
+        continuation: &Continuation<'_>,
+        loop_join: Option<smelt_mir::BlockId>,
+        out: &mut String,
+    ) -> Result<(), EmitError> {
         let local = self.local_decl(dest)?;
         // Rejoin the arms at their common tail when the region allows it (see
         // `throwing_join`): each arm stops there and the tail is emitted once.
         let declared_before_arms = self.declared_scope();
-        let join = self.throwing_continuation_join(target, handler.catch_block, continuation);
+        let join = match continuation {
+            Continuation::InLoop { .. } => loop_join,
+            Continuation::Block | Continuation::Region { .. } | Continuation::Closure { .. } => {
+                self.throwing_continuation_join(target, handler.catch_block, continuation)
+            }
+        };
         let fresh_visited = BlockIdSet::default();
-        let joined_continuation = join.and_then(|join| match continuation {
-            Continuation::Block => Some(Continuation::Region {
-                stop: join,
+        let joined_continuation = join.map(|stop| match continuation {
+            Continuation::Block => Continuation::Region {
+                stop,
                 visited: &fresh_visited,
-            }),
-            Continuation::Region { visited, .. } => Some(Continuation::Region {
-                stop: join,
-                visited,
-            }),
-            Continuation::Closure { active, .. } => Some(Continuation::Closure {
+            },
+            Continuation::Region { visited, .. } => Continuation::Region { stop, visited },
+            Continuation::Closure { active, .. } => Continuation::Closure {
                 active,
-                stop: Some(join),
+                stop: Some(stop),
                 in_loop: true,
-            }),
-            Continuation::InLoop { .. } => None,
+            },
+            // The arms end at the join through the pending loop-body join
+            // the caller registered (`loop_join_stop_hit`).
+            Continuation::InLoop {
+                continue_target,
+                break_target,
+                visited,
+            } => Continuation::InLoop {
+                continue_target: *continue_target,
+                break_target: *break_target,
+                visited,
+            },
         });
         let arm_continuation = joined_continuation.as_ref().unwrap_or(continuation);
-        let joined_tail = join.filter(|_| joined_continuation.is_some());
+        let joined_tail = join;
         let hoist_dest = joined_tail.is_some_and(|tail| {
             !self.is_local_declared(dest) && self.join_tail_reads_local(tail, dest)
         });
@@ -549,12 +680,12 @@ impl FunctionEmitter<'_> {
         __smelt_arm_declared.close();
         out.push_str("        }\n");
         out.push_str("    }\n");
-        if let Some(join) = join.filter(|_| joined_continuation.is_some()) {
+        if let Some(rejoin) = join {
             declared_before_arms.close();
             if hoist_dest {
                 self.mark_local_declared(dest);
             }
-            self.emit_throwing_continuation_tail(join, continuation, out)?;
+            self.emit_throwing_continuation_tail(rejoin, continuation, out)?;
         } else {
             // No join: the continuation was emitted inside the arms, and the
             // declarations stay as the arms left them.

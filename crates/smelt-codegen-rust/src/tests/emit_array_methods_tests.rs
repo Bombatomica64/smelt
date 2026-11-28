@@ -2,6 +2,9 @@
 
 use super::*;
 
+/// Expectation corrected (branch rejoin at the post-dominator): the old text nested the rest of the
+/// body in the `else` of a branch whose arm throws/returns; the same statements now follow the `if`
+/// once. Behaviour is unchanged.
 #[test]
 fn emits_python_pytest_raises_as_result_control_flow() {
     let source = source_for_py_path(
@@ -25,13 +28,15 @@ __smelt_pytest_raised = true;
 _smelt_tmp_2 = !(__smelt_pytest_raised);
 if _smelt_tmp_2 {
 return Err::<_, Box<dyn std::error::Error>>(std::io::Error::new(std::io::ErrorKind::Other, format!("{}", "pytest.raises(...) did not raise".to_owned())).into());
-} else {
-return Ok(());
 }
+return Ok(());
 }"#
     );
 }
 
+/// Expectation corrected (branch rejoin at the post-dominator): the old text nested the rest of the
+/// body in the `else` of a branch whose arm throws/returns; the same statements now follow the `if`
+/// once. Behaviour is unchanged.
 #[test]
 fn emits_python_pytest_raises_match_as_regex_check() {
     let source = source_for_py_path(
@@ -60,18 +65,19 @@ _smelt_tmp_3 = fancy_regex::Regex::new(&"bo+m".to_owned()).expect("regex compile
 _smelt_tmp_4 = !(_smelt_tmp_3);
 if _smelt_tmp_4 {
 return Err::<_, Box<dyn std::error::Error>>(std::io::Error::new(std::io::ErrorKind::Other, format!("{}", "pytest.raises(...) match failed".to_owned())).into());
-} else {
+}
 _smelt_tmp_5 = !(__smelt_pytest_raised);
 if _smelt_tmp_5 {
 return Err::<_, Box<dyn std::error::Error>>(std::io::Error::new(std::io::ErrorKind::Other, format!("{}", "pytest.raises(...) did not raise".to_owned())).into());
-} else {
+}
 return Ok(());
-}
-}
 }"#
     );
 }
 
+/// Expectation corrected (branch rejoin at the post-dominator): the old text nested the rest of the
+/// body in the `else` of a branch whose arm throws/returns; the same statements now follow the `if`
+/// once. Behaviour is unchanged.
 #[test]
 fn emits_typescript_vitest_test_case_as_rust_test() {
     let source = source_for(
@@ -90,13 +96,15 @@ let _smelt_tmp_0: f64 = 1.0 + 1.0;
 let _smelt_tmp_1: bool = !({ let smelt_lhs: f64 = _smelt_tmp_0; let smelt_rhs: f64 = 2.0; (smelt_lhs.is_nan() && smelt_rhs.is_nan()) || (smelt_lhs == smelt_rhs && (smelt_lhs != 0.0 || smelt_lhs.is_sign_negative() == smelt_rhs.is_sign_negative())) });
 if _smelt_tmp_1 {
 return Err::<_, Box<dyn std::error::Error>>(std::io::Error::new(std::io::ErrorKind::Other, format!("{}", JsString::from("expect(...).toBe(...) failed: expect(1 + 1).toBe(2) (<memory>:5:3)"))).into());
-} else {
-return Ok(());
 }
+return Ok(());
 }"#
     );
 }
 
+/// Expectation corrected (branch rejoin at the post-dominator): the old text nested the rest of the
+/// body in the `else` of a branch whose arm throws/returns; the same statements now follow the `if`
+/// once. Behaviour is unchanged.
 #[test]
 fn emits_nullish_vitest_matchers_as_success_for_null_literals() {
     let source = source_for(
@@ -116,18 +124,19 @@ let _smelt_tmp_1: bool;
 let _smelt_tmp_0: bool = !(true);
 if _smelt_tmp_0 {
 return Err::<_, Box<dyn std::error::Error>>(std::io::Error::new(std::io::ErrorKind::Other, format!("{}", JsString::from("expect(...).toBeUndefined() failed: expect(undefined).toBeUndefined() (<memory>:5:3)"))).into());
-} else {
+}
 _smelt_tmp_1 = !(true);
 if _smelt_tmp_1 {
 return Err::<_, Box<dyn std::error::Error>>(std::io::Error::new(std::io::ErrorKind::Other, format!("{}", JsString::from("expect(...).toBeNull() failed: expect(null).toBeNull() (<memory>:6:3)"))).into());
-} else {
+}
 return Ok(());
-}
-}
 }"#
     );
 }
 
+/// Expectation corrected (branch rejoin at the post-dominator): the old text nested the rest of the
+/// body in the `else` of a branch whose arm throws/returns; the same statements now follow the `if`
+/// once. Behaviour is unchanged.
 #[test]
 fn emits_optional_unknown_to_be_undefined_without_unwrap() {
     let source = source_for(
@@ -154,9 +163,8 @@ let _smelt_tmp_0: Option<SmeltUnknown> = maybe_value(true);
 _smelt_tmp_1 = !(_smelt_tmp_0.as_ref().map_or(true, |smelt_value| matches!(smelt_value, SmeltUnknown::Undefined)));
 if _smelt_tmp_1 {
 return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::String("expect(...).toBeUndefined() failed: expect(maybeValue(true)).toBeUndefined() (<memory>:12:3)".into())));
-} else {
-return Ok(());
 }
+return Ok(());
 }"#
     );
 }
@@ -212,6 +220,9 @@ return SmeltUnknown::Null;
     );
 }
 
+/// Expectation corrected (branch rejoin at the post-dominator): the old text nested the rest of the
+/// body in the `else` of a branch whose arm throws/returns; the same statements now follow the `if`
+/// once. Behaviour is unchanged.
 #[test]
 fn emits_typescript_describe_it_as_flattened_rust_test() {
     let source = source_for(
@@ -232,9 +243,8 @@ let _smelt_tmp_0: f64 = 1.0 + 1.0;
 let _smelt_tmp_1: bool = !({ let smelt_lhs: f64 = _smelt_tmp_0; let smelt_rhs: f64 = 2.0; (smelt_lhs.is_nan() && smelt_rhs.is_nan()) || (smelt_lhs == smelt_rhs && (smelt_lhs != 0.0 || smelt_lhs.is_sign_negative() == smelt_rhs.is_sign_negative())) });
 if _smelt_tmp_1 {
 return Err::<_, Box<dyn std::error::Error>>(std::io::Error::new(std::io::ErrorKind::Other, format!("{}", JsString::from("expect(...).toBe(...) failed: expect(1 + 1).toBe(2) (<memory>:6:5)"))).into());
-} else {
-return Ok(());
 }
+return Ok(());
 }"#
     );
 }
@@ -288,6 +298,9 @@ describe("outer", () => {
     assert!(source.contains(".friends ="), "{source}");
 }
 
+/// Expectation corrected (branch rejoin at the post-dominator): the old text nested the rest of the
+/// body in the `else` of a branch whose arm throws/returns; the same statements now follow the `if`
+/// once. Behaviour is unchanged.
 #[test]
 fn emits_typescript_vitest_common_positive_matchers() {
     let source = source_for(
@@ -334,57 +347,49 @@ let _smelt_tmp_1: f64 = 1.0 + 1.0;
 let _smelt_tmp_2: bool = !({ let smelt_lhs: f64 = _smelt_tmp_1; let smelt_rhs: f64 = 2.0; (smelt_lhs.is_nan() && smelt_rhs.is_nan()) || (smelt_lhs == smelt_rhs && (smelt_lhs != 0.0 || smelt_lhs.is_sign_negative() == smelt_rhs.is_sign_negative())) });
 if _smelt_tmp_2 {
 return Err::<_, Box<dyn std::error::Error>>(std::io::Error::new(std::io::ErrorKind::Other, format!("{}", JsString::from("expect(...).toEqual(...) failed: expect(1 + 1).toEqual(2) (<memory>:5:3)"))).into());
-} else {
+}
 _smelt_tmp_3 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0, 3.0]; smelt_list_items }));
 _smelt_tmp_4 = { let smelt_needle = 2.0; _smelt_tmp_3.borrow().iter().any(|smelt_item| *smelt_item == smelt_needle || (smelt_item.is_nan() && smelt_needle.is_nan())) };
 _smelt_tmp_5 = !(_smelt_tmp_4);
 if _smelt_tmp_5 {
 return Err::<_, Box<dyn std::error::Error>>(std::io::Error::new(std::io::ErrorKind::Other, format!("{}", JsString::from("expect(...).toContain(...) failed: expect([1, 2, 3]).toContain(2) (<memory>:6:3)"))).into());
-} else {
+}
 _smelt_tmp_6 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0, 3.0]; smelt_list_items }));
 _smelt_tmp_7 = _smelt_tmp_6.len() as i64;
 _smelt_tmp_8 = (_smelt_tmp_7 as f64) != 3.0;
 if _smelt_tmp_8 {
 return Err::<_, Box<dyn std::error::Error>>(std::io::Error::new(std::io::ErrorKind::Other, format!("{}", JsString::from("expect(...).toHaveLength(...) failed: expect([1, 2, 3]).toHaveLength(3) (<memory>:7:3)"))).into());
-} else {
+}
 _smelt_tmp_9 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("a")]; smelt_list_items }));
 _smelt_tmp_10 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<JsString> = vec![JsString::from("a")]; smelt_list_items }));
 _smelt_tmp_11 = _smelt_tmp_9 != _smelt_tmp_10;
 if _smelt_tmp_11 {
 return Err::<_, Box<dyn std::error::Error>>(std::io::Error::new(std::io::ErrorKind::Other, format!("{}", JsString::from("expect(...).toStrictEqual(...) failed: expect([\"a\"]).toStrictEqual([\"a\"]) (<memory>:8:3)"))).into());
-} else {
+}
 _smelt_tmp_12 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0, 3.0]; smelt_list_items }));
 _smelt_tmp_13 = { let smelt_needle = 4.0; _smelt_tmp_12.borrow().iter().any(|smelt_item| *smelt_item == smelt_needle || (smelt_item.is_nan() && smelt_needle.is_nan())) };
 _smelt_tmp_14 = !(_smelt_tmp_13);
 _smelt_tmp_15 = !(_smelt_tmp_14);
 if _smelt_tmp_15 {
 return Err::<_, Box<dyn std::error::Error>>(std::io::Error::new(std::io::ErrorKind::Other, format!("{}", JsString::from("expect(...).toContain(...) failed: expect([1, 2, 3]).not.toContain(4) (<memory>:9:3)"))).into());
-} else {
+}
 _smelt_tmp_16 = !(true);
 if _smelt_tmp_16 {
 return Err::<_, Box<dyn std::error::Error>>(std::io::Error::new(std::io::ErrorKind::Other, format!("{}", JsString::from("expect(...).toBeInstanceOf(...) failed: expect(new Date()).toBeInstanceOf(Date) (<memory>:10:3)"))).into());
-} else {
+}
 user = SmeltRecord::from([(JsString::from("name"), JsString::from("Ada"))]);
 _smelt_tmp_18 = user.contains_key(&JsString::from("name"));
 _smelt_tmp_19 = !(_smelt_tmp_18);
 if _smelt_tmp_19 {
 return Err::<_, Box<dyn std::error::Error>>(std::io::Error::new(std::io::ErrorKind::Other, format!("{}", JsString::from("expect(...).toHaveProperty(...) failed: expect(user).toHaveProperty(\"name\") (<memory>:12:3)"))).into());
-} else {
+}
 _smelt_tmp_20 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0]; smelt_list_items }));
 _smelt_tmp_21 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0, 2.0]; smelt_list_items }));
 _smelt_tmp_22 = !(_smelt_tmp_20.len() == _smelt_tmp_21.len() && _smelt_tmp_20.borrow().iter().zip(_smelt_tmp_21.borrow().iter()).all(|(smelt_left_item, smelt_right_item)| (smelt_left_item == smelt_right_item || (smelt_left_item.is_nan() && smelt_right_item.is_nan()))));
 if _smelt_tmp_22 {
 return Err::<_, Box<dyn std::error::Error>>(std::io::Error::new(std::io::ErrorKind::Other, format!("{}", JsString::from("deepStrictEqual(...) failed: U.deepStrictEqual([1, 2], [1, 2]) (<memory>:13:3)"))).into());
-} else {
+}
 return Ok(());
-}
-}
-}
-}
-}
-}
-}
-}
 }"#
     );
 }
@@ -397,6 +402,10 @@ return Ok(());
 /// `expect(mean([])).toEqual(NaN)` therefore failed on the value they wanted.
 /// Objects and arrays keep structural comparison under the deep matchers --
 /// only `toBe` compares those by reference.
+///
+/// Expectation corrected (branch rejoin at the post-dominator): the old text nested the rest of the
+/// body in the `else` of a branch whose arm throws/returns; the same statements now follow the `if`
+/// once. Behaviour is unchanged.
 #[test]
 fn deep_matchers_compare_numbers_with_object_is() {
     let source = source_for(
@@ -428,23 +437,20 @@ let _smelt_tmp_1: f64 = mean(_smelt_tmp_0);
 _smelt_tmp_2 = !({ let smelt_lhs: f64 = _smelt_tmp_1; let smelt_rhs: f64 = f64::NAN; (smelt_lhs.is_nan() && smelt_rhs.is_nan()) || (smelt_lhs == smelt_rhs && (smelt_lhs != 0.0 || smelt_lhs.is_sign_negative() == smelt_rhs.is_sign_negative())) });
 if _smelt_tmp_2 {
 return Err::<_, Box<dyn std::error::Error>>(std::io::Error::new(std::io::ErrorKind::Other, format!("{}", JsString::from("expect(...).toEqual(...) failed: expect(mean([])).toEqual(NaN) (<memory>:9:3)"))).into());
-} else {
+}
 _smelt_tmp_3 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![]; smelt_list_items }));
 let _smelt_tmp_4: f64 = mean(_smelt_tmp_3);
 _smelt_tmp_5 = !({ let smelt_lhs: f64 = _smelt_tmp_4; let smelt_rhs: f64 = f64::NAN; (smelt_lhs.is_nan() && smelt_rhs.is_nan()) || (smelt_lhs == smelt_rhs && (smelt_lhs != 0.0 || smelt_lhs.is_sign_negative() == smelt_rhs.is_sign_negative())) });
 if _smelt_tmp_5 {
 return Err::<_, Box<dyn std::error::Error>>(std::io::Error::new(std::io::ErrorKind::Other, format!("{}", JsString::from("expect(...).toStrictEqual(...) failed: expect(mean([])).toStrictEqual(NaN) (<memory>:10:3)"))).into());
-} else {
+}
 _smelt_tmp_6 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0]; smelt_list_items }));
 _smelt_tmp_7 = Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<f64> = vec![1.0]; smelt_list_items }));
 _smelt_tmp_8 = !(_smelt_tmp_6.len() == _smelt_tmp_7.len() && _smelt_tmp_6.borrow().iter().zip(_smelt_tmp_7.borrow().iter()).all(|(smelt_left_item, smelt_right_item)| (smelt_left_item == smelt_right_item || (smelt_left_item.is_nan() && smelt_right_item.is_nan()))));
 if _smelt_tmp_8 {
 return Err::<_, Box<dyn std::error::Error>>(std::io::Error::new(std::io::ErrorKind::Other, format!("{}", JsString::from("expect(...).toEqual(...) failed: expect([1]).toEqual([1]) (<memory>:11:3)"))).into());
-} else {
+}
 return Ok(());
-}
-}
-}
 }"#
     );
 }
@@ -490,6 +496,10 @@ test("located", () => {
 /// which answered `true` for `expect(-0).toBe(0)`. New requirement: SameValue,
 /// as vitest's `toBe` is `Object.is`, so `-0` and `0` differ; arrays still
 /// compare by identity (SameValue and SameValueZero agree on references).
+///
+/// Expectation corrected (branch rejoin at the post-dominator): the old text nested the rest of the
+/// body in the `else` of a branch whose arm throws/returns; the same statements now follow the `if`
+/// once. Behaviour is unchanged.
 #[test]
 fn emits_identity_bearing_erased_arrays_for_strict_matchers() {
     let source = source_for(
@@ -517,19 +527,16 @@ let copy: SmeltUnknown = SmeltUnknown::Array(vec![SmeltUnknown::Number(1.0 as f6
 let _smelt_tmp_5: bool = !(smelt_js_same_value(&original.clone(), &original));
 if _smelt_tmp_5 {
 return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::String("expect(...).toBe(...) failed: expect(alias).toBe(original) (<memory>:8:3)".into())));
-} else {
+}
 _smelt_tmp_6 = smelt_js_same_value(&copy.clone(), &original);
 if _smelt_tmp_6 {
 return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::String("expect(...).toBe(...) failed: expect(copy).not.toBe(original) (<memory>:9:3)".into())));
-} else {
+}
 _smelt_tmp_7 = !(copy == original);
 if _smelt_tmp_7 {
 return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::String("expect(...).toStrictEqual(...) failed: expect(copy).toStrictEqual(original) (<memory>:10:3)".into())));
-} else {
+}
 return Ok(());
-}
-}
-}
 }"#
     );
 }
@@ -564,6 +571,9 @@ return _smelt_tmp_3;
     );
 }
 
+/// Expectation corrected (branch rejoin at the post-dominator): the old text nested the rest of the
+/// body in the `else` of a branch whose arm throws/returns; the same statements now follow the `if`
+/// once. Behaviour is unchanged.
 #[test]
 fn emits_strict_identity_for_optional_records() {
     // The record must be identity-bearing for `toBe` to read an `id`: a
@@ -588,14 +598,12 @@ let _smelt_tmp_3: bool;
 let _smelt_tmp_2: bool = !(match (left.clone().as_ref(), right.clone().as_ref()) { (Some(left), Some(right)) => left.id == right.id, (None, None) => true, _ => false });
 if _smelt_tmp_2 {
 return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::String("expect(...).toBe(...) failed: expect(left).toBe(right) (<memory>:5:3)".into())));
-} else {
+}
 _smelt_tmp_3 = match (left.clone().as_ref(), right.clone().as_ref()) { (Some(left), Some(right)) => left.id == right.id, (None, None) => true, _ => false };
 if _smelt_tmp_3 {
 return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::String("expect(...).toBe(...) failed: expect(left).not.toBe(right) (<memory>:6:3)".into())));
-} else {
+}
 return Ok(());
-}
-}
 }"#
     );
 }
@@ -647,6 +655,9 @@ return _smelt_tmp_2;
     );
 }
 
+/// Expectation corrected (branch rejoin at the post-dominator): the old text nested the rest of the
+/// body in the `else` of a branch whose arm throws/returns; the same statements now follow the `if`
+/// once. Behaviour is unchanged.
 #[test]
 fn emits_reference_identity_for_typed_map_strict_equality() {
     // `toBe` on a source `Map` is JavaScript reference identity: a clone with
@@ -672,13 +683,15 @@ let alias: SmeltJsMap<f64, JsString> = map.clone();
 let _smelt_tmp_3: bool = !(map.clone().id == map.clone().id);
 if _smelt_tmp_3 {
 return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::String("expect(...).toBe(...) failed: expect(alias).toBe(map) (<memory>:7:3)".into())));
-} else {
-return Ok(());
 }
+return Ok(());
 }"#
     );
 }
 
+/// Expectation corrected (branch rejoin at the post-dominator): the old text nested the rest of the
+/// body in the `else` of a branch whose arm throws/returns; the same statements now follow the `if`
+/// once. Behaviour is unchanged.
 #[test]
 fn emits_reference_identity_for_typed_set_strict_equality() {
     // A `Set` whose element cannot key a Rust `HashSet` uses `SmeltJsSet`,
@@ -702,13 +715,15 @@ let alias: SmeltJsSet<f64> = values.clone();
 let _smelt_tmp_3: bool = !(values.clone().id == values.clone().id);
 if _smelt_tmp_3 {
 return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::String("expect(...).toBe(...) failed: expect(alias).toBe(values) (<memory>:7:3)".into())));
-} else {
-return Ok(());
 }
+return Ok(());
 }"#
     );
 }
 
+/// Expectation corrected (branch rejoin at the post-dominator): the old text nested the rest of the
+/// body in the `else` of a branch whose arm throws/returns; the same statements now follow the `if`
+/// once. Behaviour is unchanged.
 #[test]
 fn keeps_structural_equality_for_deep_matchers_on_reference_values() {
     // The identity rule fires for `toBe` only. `toEqual`/`toStrictEqual` (and
@@ -736,18 +751,19 @@ let copy: SmeltJsMap<f64, JsString> = SmeltJsMap::from([(1.0, JsString::from("a"
 let _smelt_tmp_4: bool = copy.clone() != map.clone();
 if _smelt_tmp_4 {
 return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::String("expect(...).toEqual(...) failed: expect(copy).toEqual(map) (<memory>:7:3)".into())));
-} else {
+}
 _smelt_tmp_5 = copy != map;
 if _smelt_tmp_5 {
 return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::String("expect(...).toStrictEqual(...) failed: expect(copy).toStrictEqual(map) (<memory>:8:3)".into())));
-} else {
+}
 return Ok(());
-}
-}
 }"#
     );
 }
 
+/// Expectation corrected (branch rejoin at the post-dominator): the old text nested the rest of the
+/// body in the `else` of a branch whose arm throws/returns; the same statements now follow the `if`
+/// once. Behaviour is unchanged.
 #[test]
 fn emits_reference_identity_for_optional_maps() {
     // `Optional` of a reference type keeps identity on the present values while
@@ -767,13 +783,15 @@ function compare(left?: Map<number, string>, right?: Map<number, string>): void 
 let _smelt_tmp_2: bool = !(match (left.clone().as_ref(), right.clone().as_ref()) { (Some(left), Some(right)) => left.id == right.id, (None, None) => true, _ => false });
 if _smelt_tmp_2 {
 return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::String("expect(...).toBe(...) failed: expect(left).toBe(right) (<memory>:5:3)".into())));
-} else {
-return Ok(());
 }
+return Ok(());
 }"#
     );
 }
 
+/// Expectation corrected (branch rejoin at the post-dominator): the old text nested the rest of the
+/// body in the `else` of a branch whose arm throws/returns; the same statements now follow the `if`
+/// once. Behaviour is unchanged.
 #[test]
 fn emits_false_for_identityless_reference_strict_equality() {
     // A tuple lowers to a Rust tuple, which stores no object id. Rather than
@@ -798,9 +816,8 @@ let other: (f64, f64) = (1.0, 2.0);
 let _smelt_tmp_4: bool = false;
 if _smelt_tmp_4 {
 return Err::<_, Box<dyn std::error::Error>>(std::io::Error::new(std::io::ErrorKind::Other, format!("{}", JsString::from("expect(...).toBe(...) failed: expect(other).not.toBe(pair) (<memory>:7:3)"))).into());
-} else {
-return Ok(());
 }
+return Ok(());
 }"#
     );
 }

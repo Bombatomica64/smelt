@@ -822,8 +822,6 @@ pub(crate) fn escape_html(str: JsString) -> JsString {
     _smelt_tmp_10 = _smelt_tmp_9 + &replacement;
     out = out + &_smelt_tmp_10;
     last_index = i + 1;
-    i = i + 1;
-    continue;
         }
         38.0 => {
     replacement = JsString::from("&amp;");
@@ -833,8 +831,6 @@ pub(crate) fn escape_html(str: JsString) -> JsString {
     _smelt_tmp_10 = _smelt_tmp_9 + &replacement;
     out = out + &_smelt_tmp_10;
     last_index = i + 1;
-    i = i + 1;
-    continue;
         }
         60.0 => {
     replacement = JsString::from("&lt;");
@@ -844,8 +840,6 @@ pub(crate) fn escape_html(str: JsString) -> JsString {
     _smelt_tmp_10 = _smelt_tmp_9 + &replacement;
     out = out + &_smelt_tmp_10;
     last_index = i + 1;
-    i = i + 1;
-    continue;
         }
         62.0 => {
     replacement = JsString::from("&gt;");
@@ -855,14 +849,12 @@ pub(crate) fn escape_html(str: JsString) -> JsString {
     _smelt_tmp_10 = _smelt_tmp_9 + &replacement;
     out = out + &_smelt_tmp_10;
     last_index = i + 1;
-    i = i + 1;
-    continue;
         }
         _ => {
-    i = i + 1;
-    continue;
         }
     }
+    i = i + 1;
+    continue;
     }
     _smelt_tmp_14 = str.len() as f64;
     _smelt_tmp_18 = last_index as f64;
@@ -886,15 +878,13 @@ pub(crate) fn sum_odd(values: SmeltList<f64>) -> f64 {
     _smelt_tmp_6 = value % 2.0;
     match _smelt_tmp_6 {
         0.0 => {
-    _smelt_tmp_3 = _smelt_tmp_3 + 1;
-    continue;
         }
         _ => {
     total = total + value;
-    _smelt_tmp_3 = _smelt_tmp_3 + 1;
-    continue;
         }
     }
+    _smelt_tmp_3 = _smelt_tmp_3 + 1;
+    continue;
     }
     return total;
 }
@@ -914,20 +904,16 @@ pub(crate) fn classify(values: SmeltList<f64>) -> JsString {
         1.0 => {
     seen = seen + &JsString::from("one");
     seen = seen + &JsString::from(".");
-    _smelt_tmp_3 = _smelt_tmp_3 + 1;
-    continue;
         }
         2.0 => {
-    _smelt_tmp_3 = _smelt_tmp_3 + 1;
-    continue;
         }
         _ => {
     seen = seen + &JsString::from("?");
     seen = seen + &JsString::from(".");
-    _smelt_tmp_3 = _smelt_tmp_3 + 1;
-    continue;
         }
     }
+    _smelt_tmp_3 = _smelt_tmp_3 + 1;
+    continue;
     }
     return seen;
 }

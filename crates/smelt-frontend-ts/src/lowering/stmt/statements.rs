@@ -4,11 +4,10 @@
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
 use crate::lowering::peel::{Wrappers, peel};
-use crate::lowering::support::statement_terminates;
 use oxc::ast::ast::{AssignmentTarget, Expression, Statement};
 use oxc::span::GetSpan;
 use oxc::syntax::operator::{AssignmentOperator, BinaryOperator, UnaryOperator};
-use smelt_hir::{AsyncOp, BinOp, Body, Expr, ExprKind, Literal, MatchArm, Stmt, Type, UnaryOp};
+use smelt_hir::{AsyncOp, BinOp, Body, Expr, ExprKind, Literal, Stmt, Type, UnaryOp};
 
 impl ModuleBuilder<'_> {
     /// Type hint for the value of a `return` statement in the current function.
@@ -173,9 +172,28 @@ impl ModuleBuilder<'_> {
         block: smelt_hir::BlockId,
     ) -> Result<(), SmeltError> {
         let anchor = self.statement_span(statement);
-        self.with_erasure_anchor(anchor, |this| {
+        // An unlabelled `break` inside a loop is that loop's, whatever
+        // `switch` encloses the loop.
+        let loops = matches!(
+            statement,
+            Statement::WhileStatement(_)
+                | Statement::DoWhileStatement(_)
+                | Statement::ForStatement(_)
+                | Statement::ForInStatement(_)
+                | Statement::ForOfStatement(_)
+        );
+        let enclosing_switch = if loops {
+            self.switch_break_label.take()
+        } else {
+            None
+        };
+        let lowered = self.with_erasure_anchor(anchor, |this| {
             this.with_stmt_block(block, |this| this.statement_in_sink(statement, body, block))
-        })
+        });
+        if loops {
+            self.switch_break_label = enclosing_switch;
+        }
+        lowered
     }
 
     /// [`Self::statement_in_block`] with the statement sink already pointing at
@@ -491,211 +509,36 @@ impl ModuleBuilder<'_> {
                 if Self::switch_has_fallthrough(switch_stmt)
                     || !self.switch_matches_by_label(switch_stmt, Self::expr_ty(body, scrutinee))
                 {
-                    return self.switch_fallthrough_statement(switch_stmt, scrutinee, body, block);
+                    // Its `break` is the synthetic loop's.
+                    let enclosing_switch = self.switch_break_label.take();
+                    let lowered =
+                        self.switch_fallthrough_statement(switch_stmt, scrutinee, body, block);
+                    self.switch_break_label = enclosing_switch;
+                    return lowered;
                 }
-                // A switch on a discriminant property (`switch (x.kind)`) proves,
-                // inside each labeled arm, that `x.kind` equals one of that arm's
-                // labels, so `x` narrows to the union arms whose recorded literals
-                // admit one (`switch_discriminant_narrowing`). The `default` arm
-                // proves that it equals none of the switch's labels, unless empty
-                // cases fall into it, whose labels it then also handles.
-                // Nullish/dynamic boundaries are left untouched: the fact only
-                // projects concrete union arms.
-                let all_labels = switch_stmt
-                    .cases
-                    .iter()
-                    .filter_map(|case| case.test.as_ref())
-                    .map(|test| self.literal_case_label(test).ok())
-                    .collect::<Option<Vec<_>>>();
-                // A `switch (typeof x)` discriminates a union the way a chain of
-                // `if (typeof x === 'k')` guards would: each labeled arm proves
-                // `x` is the member(s) whose runtime `typeof` matches that arm's
-                // label. Unlike the field-discriminant fact above, this narrowing
-                // is per-arm, so the arm's own label(s) drive it. `pending_kinds`
-                // accumulates the string labels of grouped empty cases
-                // (`case 'a': case 'b':`) sharing the next arm's body; a `None`
-                // entry marks a label we could not read as a `typeof` kind, which
-                // disables narrowing for that group.
-                let typeof_switch_local = Self::typeof_identifier_name(&switch_stmt.discriminant);
-                let mut pending_kinds: Vec<Option<String>> = Vec::new();
-                let mut arms = Vec::new();
-                let mut default = None;
-                let mut pending_empty_labels = Vec::new();
-
-                let case_count = switch_stmt.cases.len();
-                for (case_index, case) in switch_stmt.cases.iter().enumerate() {
-                    if case.consequent.is_empty() {
-                        if let Some(test) = &case.test {
-                            if typeof_switch_local.is_some() {
-                                pending_kinds.push(Self::string_literal_value(test));
-                            }
-                            pending_empty_labels.push(self.literal_case_label(test)?);
-                            continue;
-                        }
-                    }
-                    // Discriminant facts apply to labeled arms only; the default
-                    // arm handles the "no label matched" path and must not assume
-                    // the discriminant property is present.
-                    let case_narrowing = if case.test.is_some() {
-                        // Prefer the per-arm `typeof` fact when the discriminant is
-                        // `typeof x`; otherwise project the shared field-discriminant
-                        // fact. Grouped labels for this arm (`pending_kinds`) union
-                        // with the arm's own label, and a group we could not read as
-                        // kinds records no fact.
-                        let typeof_fact = typeof_switch_local.as_ref().and_then(|name| {
-                            let group = std::mem::take(&mut pending_kinds);
-                            let current = case.test.as_ref().and_then(Self::string_literal_value);
-                            match current {
-                                Some(current) if group.iter().all(Option::is_some) => {
-                                    let mut kinds: Vec<String> =
-                                        group.into_iter().flatten().collect();
-                                    kinds.push(current);
-                                    self.switch_typeof_case_narrowing(name, &kinds, body)
-                                }
-                                _ => None,
-                            }
-                        });
-                        let fact = typeof_fact.or_else(|| {
-                            let mut labels = pending_empty_labels.clone();
-                            labels.push(self.literal_case_label(case.test.as_ref()?).ok()?);
-                            self.switch_discriminant_narrowing(
-                                &switch_stmt.discriminant,
-                                &labels,
-                                true,
-                                body,
-                            )
-                        });
-                        fact.map(|(name, target)| std::collections::HashMap::from([(name, target)]))
-                    } else {
-                        // Drop any pending `typeof` group kinds that fell
-                        // through to the `default` arm: it proves no `typeof`
-                        // fact.
-                        pending_kinds.clear();
-                        all_labels
-                            .as_ref()
-                            .filter(|_| pending_empty_labels.is_empty())
-                            .and_then(|labels| {
-                                self.switch_discriminant_narrowing(
-                                    &switch_stmt.discriminant,
-                                    labels,
-                                    false,
-                                    body,
-                                )
-                            })
-                            .map(|(name, target)| std::collections::HashMap::from([(name, target)]))
-                    };
-                    let case_block = body.push_block(self.span(case.span.start, case.span.end));
-                    // A case body ends at the first statement that leaves it.
-                    // The two ways differ in what they LOWER: a JS `break`
-                    // exits the switch, which the match arm does by simply
-                    // ending, so it emits nothing; a `continue` targets the
-                    // ENCLOSING LOOP and has to be emitted, exactly as Rust
-                    // spells `continue` inside a `match` arm inside a loop.
-                    // Rejecting the second was the only reason Hono's HTML
-                    // escaper (`utils/html.ts`, `default: continue` inside the
-                    // scan loop) was a blocker. The synthetic-loop lowering
-                    // used for real fallthrough still rejects it, and says why.
-                    let case_ends =
-                        self.with_narrowing(case_narrowing, |this| -> Result<bool, SmeltError> {
-                            let mut case_ends = false;
-                            for case_statement in &case.consequent {
-                                if let Statement::BlockStatement(block_stmt) = case_statement {
-                                    for nested_statement in &block_stmt.body {
-                                        if matches!(nested_statement, Statement::BreakStatement(_))
-                                        {
-                                            case_ends = true;
-                                            break;
-                                        }
-                                        this.statement_in_block(
-                                            nested_statement,
-                                            body,
-                                            case_block,
-                                        )?;
-                                        if matches!(
-                                            nested_statement,
-                                            Statement::ContinueStatement(_)
-                                        ) {
-                                            case_ends = true;
-                                            break;
-                                        }
-                                    }
-                                    if case_ends {
-                                        break;
-                                    }
-                                    continue;
-                                }
-                                if matches!(case_statement, Statement::BreakStatement(_)) {
-                                    case_ends = true;
-                                    break;
-                                }
-                                this.statement_in_block(case_statement, body, case_block)?;
-                                if matches!(case_statement, Statement::ContinueStatement(_)) {
-                                    case_ends = true;
-                                    break;
-                                }
-                            }
-                            Ok(case_ends)
-                        })?;
-                    let saw_break = case_ends;
-                    let is_last_case = case_index + 1 == case_count;
-                    if !saw_break
-                        && !is_last_case
-                        && !case.consequent.iter().any(statement_terminates)
-                    {
-                        return Err(SmeltError::unsupported(
-                            self.span(case.span.start, case.span.end),
-                            "switch fallthrough is not lowered yet; each case must break, return, or throw",
-                        ));
-                    }
-
-                    if let Some(test) = &case.test {
-                        for label in std::mem::take(&mut pending_empty_labels) {
-                            arms.push(MatchArm {
-                                label,
-                                body: case_block,
-                            });
-                        }
-                        arms.push(MatchArm {
-                            label: self.literal_case_label(test)?,
-                            body: case_block,
-                        });
-                    } else if default.replace(case_block).is_some() {
-                        return Err(SmeltError::unsupported(
-                            self.span(case.span.start, case.span.end),
-                            "switch statements can only have one default case",
-                        ));
-                    } else {
-                        for label in std::mem::take(&mut pending_empty_labels) {
-                            arms.push(MatchArm {
-                                label,
-                                body: case_block,
-                            });
-                        }
-                    }
-                }
-                if !pending_empty_labels.is_empty() {
-                    return Err(SmeltError::unsupported(
-                        self.span(switch_stmt.span.start, switch_stmt.span.end),
-                        "switch fallthrough is not lowered yet; each case must break, return, or throw",
-                    ));
-                }
-
-                body.push_stmt_to_block(
-                    block,
-                    Stmt::Match {
-                        scrutinee,
-                        arms,
-                        default,
-                    },
-                );
-                Ok(())
+                // A `break` below a case's top level (`case 1: if (c) break;
+                // ..`) leaves the switch: the `Match` is lowered inside a
+                // labelled region that `break` targets. A top-level `break`
+                // ends its case by ending the arm (below).
+                let break_label = Self::switch_has_nested_break(switch_stmt).then(|| {
+                    self.ctx
+                        .krate
+                        .symbols
+                        .intern(&format!("__smelt_switch_break_{}", switch_stmt.span.start))
+                });
+                let enclosing_switch = std::mem::replace(&mut self.switch_break_label, break_label);
+                let lowered = self.match_switch_statement(switch_stmt, scrutinee, body, block);
+                self.switch_break_label = enclosing_switch;
+                lowered
             }
             Statement::BreakStatement(break_stmt) => {
                 let stmt = match &break_stmt.label {
                     Some(label) => {
                         Stmt::BreakLabel(self.ctx.krate.symbols.intern(label.name.as_str()))
                     }
-                    None => Stmt::Break,
+                    None => self
+                        .switch_break_label
+                        .map_or(Stmt::Break, Stmt::BreakLabel),
                 };
                 body.push_stmt_to_block(block, stmt);
                 Ok(())

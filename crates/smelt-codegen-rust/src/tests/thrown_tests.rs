@@ -46,6 +46,10 @@ return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::String("a 
 /// The fold of a throw payload looks only at the throwing function's own
 /// locals. A capturing closure elsewhere reuses the same local numbers, so the
 /// fixture occupies a spread of them.
+///
+/// Expectation corrected (branch rejoin at the post-dominator): the old text nested the rest of the
+/// body in the `else` of a branch whose arm throws; the same statements now follow the `if` once.
+/// Behaviour is unchanged.
 #[test]
 fn a_foreign_closure_capture_does_not_suppress_the_fold() {
     let source = source_for(
@@ -84,15 +88,18 @@ let _smelt_tmp_2: bool = !(_smelt_tmp_1);
 let _smelt_tmp_3: bool = if _smelt_tmp_2 { true } else { size <= 0.0 };
 if _smelt_tmp_3 {
 return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::Object(SmeltObject::from_unknown_record((SmeltRecord::from([(JsString::from("__smelt_error"), SmeltUnknown::String("Error".into())), (JsString::from("message"), SmeltUnknown::String("Size must be an integer greater than zero.".into())), (JsString::from("stack"), SmeltUnknown::Undefined), (JsString::from("cause"), SmeltUnknown::Undefined)])).clone()))));
-} else {
-return Ok(size);
 }
+return Ok(size);
 }"#
     );
 }
 
 /// `throw new Error(m)` is one expression at the throw site: no `let` stages
 /// the record or its erasure, because a hand-written crate would not.
+///
+/// Expectation corrected (branch rejoin at the post-dominator): the old text nested the rest of the
+/// body in the `else` of a branch whose arm throws; the same statements now follow the `if` once.
+/// Behaviour is unchanged.
 #[test]
 fn thrown_error_payload_is_built_at_the_throw_site() {
     let source = source_for(
@@ -112,9 +119,8 @@ export function chunk(size: number): number {
 let _smelt_tmp_1: bool = size <= 0.0;
 if _smelt_tmp_1 {
 return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::Object(SmeltObject::from_unknown_record((SmeltRecord::from([(JsString::from("__smelt_error"), SmeltUnknown::String("Error".into())), (JsString::from("message"), SmeltUnknown::String("Size must be an integer greater than zero.".into())), (JsString::from("stack"), SmeltUnknown::Undefined), (JsString::from("cause"), SmeltUnknown::Undefined)])).clone()))));
-} else {
-return Ok(size);
 }
+return Ok(size);
 }"#
     );
 }

@@ -111,8 +111,7 @@ impl FunctionEmitter<'_> {
             return None;
         }
         let (join, index, _) = self.common_exit_join(exit_block, &exits, &body, &boundaries)?;
-        (index > 0 && !self.loop_region_result_read_after(header, join, &boundaries))
-            .then_some(join)
+        (index > 0 && !self.region_result_read_after(&[header], join, &boundaries)).then_some(join)
     }
 
     /// The exit join of a loop in a closure body, headed by `header` and
@@ -141,7 +140,7 @@ impl FunctionEmitter<'_> {
                 .filter(|(_, _, rejoined)| *rejoined >= 2)
                 .map(|(join, _, _)| join)
         })?;
-        (!self.loop_region_result_read_after(header, join, &boundaries)).then_some(join)
+        (!self.region_result_read_after(&[header], join, &boundaries)).then_some(join)
     }
 
     /// The blocks outside `body` that its edges lead to, minus `boundaries`
@@ -238,19 +237,20 @@ impl FunctionEmitter<'_> {
         chain.get(furthest).map(|join| (*join, furthest, rejoined))
     }
 
-    /// Whether the code from `join` on reads the result of a call or `await`
-    /// in the loop or its exit region.
+    /// Whether the code from `join` on reads the result of a call or `await`,
+    /// or the `catch` binding of one, in the region from `starts` up to `join`
+    /// (a loop and its exit region, or the arms of a branch).
     ///
-    /// Such a result is bound (`let`) inside the labelled block, where its
-    /// call is emitted, and would be out of scope at the join after it.
-    fn loop_region_result_read_after(
+    /// Such a result is bound (`let`) inside the labelled block or arm where
+    /// its call is emitted, and would be out of scope at the join after it.
+    pub(in crate::emitter) fn region_result_read_after(
         &self,
-        header: smelt_mir::BlockId,
+        starts: &[smelt_mir::BlockId],
         join: smelt_mir::BlockId,
         boundaries: &[smelt_mir::BlockId],
     ) -> bool {
         let mut results = Vec::new();
-        let mut pending = vec![header];
+        let mut pending = starts.to_vec();
         let mut visited = BlockIdSet::default();
         while let Some(block_id) = pending.pop() {
             if block_id == join || !visited.insert(block_id) {
@@ -263,8 +263,18 @@ impl FunctionEmitter<'_> {
             else {
                 continue;
             };
-            if let Terminator::Call { dest, .. } | Terminator::Await { dest, .. } = terminator {
+            if let Terminator::Call { dest, unwind, .. } | Terminator::Await { dest, unwind, .. } =
+                terminator
+            {
                 results.push(*dest);
+                // A `catch` binding not declared yet is bound (`let`) in the
+                // call's `Err` arm; a declared one (a `finally`'s pending
+                // throw) is only assigned there.
+                results.extend(
+                    unwind
+                        .and_then(|handler| handler.exception_local)
+                        .filter(|local| !self.is_local_declared(*local)),
+                );
             }
             pending.extend(
                 control_flow_successors(terminator)

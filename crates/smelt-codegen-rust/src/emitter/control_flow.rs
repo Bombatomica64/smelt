@@ -635,12 +635,12 @@ impl FunctionEmitter<'_> {
                 cond,
                 then_block,
                 else_block,
-            } => self.emit_switch(current, cond, *then_block, *else_block, out),
+            } => self.emit_switch(current, cond, *then_block, *else_block, true, out),
             Terminator::Match {
                 scrutinee,
                 arms,
                 default,
-            } => self.emit_match(scrutinee, arms, *default, out),
+            } => self.emit_match(Some(current), scrutinee, arms, *default, out),
             Terminator::Return(operand) => self.emit_return_terminator(operand, out),
             Terminator::Throw(operand) => {
                 // Shared with the closure-body emitter so the two throw paths

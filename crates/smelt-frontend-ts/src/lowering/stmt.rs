@@ -13,3 +13,4 @@ mod local_functions;
 mod negative_index;
 mod statements;
 mod switch_fallthrough;
+mod switch_statement;

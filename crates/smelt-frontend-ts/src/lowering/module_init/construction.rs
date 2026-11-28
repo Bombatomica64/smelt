@@ -58,6 +58,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             conditional_bases: HashMap::new(),
             conditional_classes: HashMap::new(),
             forced_class_name: None,
+            switch_break_label: None,
             classes: ClassRegistry::new(classes, class_index_values),
             interfaces: InterfaceRegistry::new(
                 interfaces,

@@ -169,8 +169,9 @@ impl FunctionEmitter<'_> {
         Ok(result)
     }
 
-    /// Find where the two arms of a switch inside a forward join region meet
-    /// again, before (or at) the region's own `stop`.
+    /// Find where the arms of a branch inside a forward join region (the two
+    /// of a switch, or every target of a `match`) meet again, before (or at)
+    /// the region's own `stop`.
     ///
     /// The answer is the branch's immediate post-dominator within the region:
     /// the block `J` every non-diverging path of each arm reaches before
@@ -186,13 +187,11 @@ impl FunctionEmitter<'_> {
     pub(super) fn join_region_branch_join(
         &self,
         switch_block: smelt_mir::BlockId,
-        then_block: smelt_mir::BlockId,
-        else_block: smelt_mir::BlockId,
+        arms: &[smelt_mir::BlockId],
         stop: smelt_mir::BlockId,
     ) -> Result<Option<smelt_mir::BlockId>, EmitError> {
-        let arms = [then_block, else_block];
         let mut continuing = Vec::new();
-        for arm in arms {
+        for arm in arms.iter().copied() {
             if self.block_reaches_target_avoiding(
                 arm,
                 switch_block,

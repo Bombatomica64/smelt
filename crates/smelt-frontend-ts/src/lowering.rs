@@ -1133,6 +1133,13 @@ struct ModuleBuilder<'ctx> {
     /// The name the next class declaration takes instead of its own; set while
     /// one arm of a conditional class is lowered.
     forced_class_name: Option<String>,
+    /// The label an unlabelled `break` inside the `switch` being lowered
+    /// targets, when that `switch` lowers to a HIR `Match` and holds a
+    /// `break` below its case's top level (inside an `if`, a `try`, a block):
+    /// such a `break` leaves the switch, not the enclosing loop
+    /// (`switch_break_label`). Cleared while a loop (or a `switch` lowered as
+    /// a single-iteration loop) is lowered, where `break` is that loop's.
+    switch_break_label: Option<smelt_hir::Symbol>,
     /// Object constants that act as namespace-like API surfaces, each with its
     /// entries in source order.
     object_namespaces:

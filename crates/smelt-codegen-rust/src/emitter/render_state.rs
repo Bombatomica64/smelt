@@ -234,10 +234,8 @@ pub(super) struct AnalysisCaches {
     /// (see `local_analysis::LocalWriteIndex`), so per-local mutability queries
     /// do not each rescan every block.
     pub(super) local_write_index: std::cell::OnceCell<local_analysis::LocalWriteIndex>,
-    /// Immediate post-dominator of every block of this function CFG, computed
-    /// on first use (see `post_dominance`).
-    pub(super) post_dominators: RefCell<Option<Vec<Option<smelt_mir::BlockId>>>>,
-    /// The same over the paths that do not `throw` (see `post_dominance`).
+    /// Immediate post-dominator of every block of this function CFG over the
+    /// paths that do not `throw`, computed on first use (see `post_dominance`).
     pub(super) post_dominators_past_throws: RefCell<Option<Vec<Option<smelt_mir::BlockId>>>>,
     /// Cached loop-exit shape queries keyed by block, continue target, and break target.
     pub(super) loop_exit_cache:

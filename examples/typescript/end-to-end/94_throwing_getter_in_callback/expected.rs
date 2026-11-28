@@ -4661,10 +4661,9 @@ impl Registry {
     let _smelt_tmp_2: bool = _smelt_tmp_1 == 0.0;
     if _smelt_tmp_2 {
     return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::Object(SmeltObject::from_unknown_record((SmeltRecord::from([(JsString::from("__smelt_error"), SmeltUnknown::String("Error".into())), (JsString::from("message"), SmeltUnknown::String("registry is empty".into())), (JsString::from("stack"), SmeltUnknown::Undefined), (JsString::from("cause"), SmeltUnknown::Undefined)])).clone()))));
-    } else {
+    }
     _smelt_tmp_5 = Into::<SmeltList<_>>::into(self.0.borrow().slots.clone());
     return Ok(_smelt_tmp_5.borrow().get({ let smelt_normalized = 0.0 as i64; usize::try_from(smelt_normalized).unwrap_or(usize::MAX) }).cloned().unwrap_or_else(|| JsString::new()));
-    }
     }
     fn add(&self, name: JsString) -> () {
     let mut _smelt_tmp_2: SmeltList<JsString> = Into::<SmeltList<_>>::into(self.0.borrow().slots.clone());
@@ -4678,10 +4677,9 @@ impl Registry {
     let _smelt_tmp_2: bool = _smelt_tmp_1 > 3.0;
     if _smelt_tmp_2 {
     return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::Object(SmeltObject::from_unknown_record((SmeltRecord::from([(JsString::from("__smelt_error"), SmeltUnknown::String("Error".into())), (JsString::from("message"), SmeltUnknown::String("too many".into())), (JsString::from("stack"), SmeltUnknown::Undefined), (JsString::from("cause"), SmeltUnknown::Undefined)])).clone()))));
-    } else {
+    }
     _smelt_tmp_5 = JsString::from("first=") + &(self.__smelt_get_first()?).clone();
     return Ok(_smelt_tmp_5);
-    }
     }
     fn label(&self) -> JsString {
     let _smelt_tmp_1: JsString = JsString::from("[") + &self.__smelt_get_first().unwrap_or_else(|error| smelt_panic_throw(error)).clone();

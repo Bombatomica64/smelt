@@ -4667,10 +4667,9 @@ pub(crate) async fn work(kind: JsString) -> Result<JsString, Box<dyn std::error:
     if _smelt_tmp_1 {
     _smelt_tmp_2 = JsString::from("failed:") + &kind.clone();
     return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::Object(SmeltObject::from_unknown_record((SmeltRecord::from([(JsString::from("__smelt_error"), SmeltUnknown::String("Error".into())), (JsString::from("message"), SmeltUnknown::String(_smelt_tmp_2.into())), (JsString::from("stack"), SmeltUnknown::Undefined), (JsString::from("cause"), SmeltUnknown::Undefined)])).clone()))));
-    } else {
+    }
     _smelt_tmp_5 = JsString::from("ok:") + &kind.clone();
     return Ok(_smelt_tmp_5);
-    }
 }
 
 pub(crate) async fn run() -> Result<JsString, Box<dyn std::error::Error>> {

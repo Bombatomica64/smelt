@@ -381,6 +381,10 @@ return holder.__smelt_get___smelt_symbol_unique__at_13();
     );
 }
 
+/// Expectation corrected (branch rejoin at the post-dominator): the old text nested the rest of the
+/// body in the `else` of a branch whose arm throws/returns; the same statements now follow the `if`
+/// once. Here the two arms each ended in `return _smelt_tmp_3;`; the arms now only assign and the
+/// single `return` follows the `if`/`else`. Behaviour is unchanged.
 #[test]
 fn lowers_a_computed_method_call_over_known_members() {
     // `receiver[key]()` on a receiver whose member set is known is a choice among known methods
@@ -410,12 +414,11 @@ let _smelt_tmp_2: bool = key == "json";
 if _smelt_tmp_2 {
 let _smelt_tmp_4: JsString = body.json();
 _smelt_tmp_3 = _smelt_tmp_4;
-return _smelt_tmp_3;
 } else {
 let _smelt_tmp_5: JsString = body.text();
 _smelt_tmp_3 = _smelt_tmp_5;
-return _smelt_tmp_3;
 }
+return _smelt_tmp_3;
 }"#
     );
 }
@@ -1817,6 +1820,10 @@ return { let smelt_source_value = (({ let smelt_receiver = self.clone(); let sme
 /// path, the floor every non-fallible callback seam uses
 /// (`hono-fallible-ops.md`, in git history). The program stops at the throw rather
 /// than continuing with a fabricated value.
+///
+/// Expectation corrected (branch rejoin at the post-dominator): the old text nested the rest of the
+/// body in the `else` of a branch whose arm throws/returns; the same statements now follow the `if`
+/// once. Behaviour is unchanged.
 #[test]
 fn a_throwing_getter_read_is_fallible_in_both_enclosures() {
     let source = source_for(
@@ -1852,9 +1859,8 @@ export class Holder {
 let _smelt_tmp_1: bool = self.inner == "";
 if _smelt_tmp_1 {
 return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::Object(SmeltObject::from_unknown_record((SmeltRecord::from([(JsString::from("__smelt_error"), SmeltUnknown::String("Error".into())), (JsString::from("message"), SmeltUnknown::String("empty".into())), (JsString::from("stack"), SmeltUnknown::Undefined), (JsString::from("cause"), SmeltUnknown::Undefined)])).clone()))));
-} else {
-return Ok(self.inner.clone());
 }
+return Ok(self.inner.clone());
 }
 
 fn spread(&self) -> SmeltUnknown {
@@ -1867,9 +1873,8 @@ fn rethrow(&self) -> Result<JsString, Box<dyn std::error::Error>> {
 let _smelt_tmp_1: bool = self.inner == "x";
 if _smelt_tmp_1 {
 return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::Object(SmeltObject::from_unknown_record((SmeltRecord::from([(JsString::from("__smelt_error"), SmeltUnknown::String("Error".into())), (JsString::from("message"), SmeltUnknown::String("x".into())), (JsString::from("stack"), SmeltUnknown::Undefined), (JsString::from("cause"), SmeltUnknown::Undefined)])).clone()))));
-} else {
-return Ok((self.__smelt_get_active()?).clone());
 }
+return Ok((self.__smelt_get_active()?).clone());
 }"#
     );
 }

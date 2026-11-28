@@ -4551,12 +4551,11 @@ impl Registry {
     let _smelt_tmp_3: bool = key == "";
     if _smelt_tmp_3 {
     return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::Object(SmeltObject::from_unknown_record((SmeltRecord::from([(JsString::from("__smelt_error"), SmeltUnknown::String("Error".into())), (JsString::from("message"), SmeltUnknown::String("empty key".into())), (JsString::from("stack"), SmeltUnknown::Undefined), (JsString::from("cause"), SmeltUnknown::Undefined)])).clone()))));
-    } else {
+    }
     _smelt_tmp_6 = self.0.borrow()._seen.clone();
     _smelt_tmp_6.insert(key.clone(), value);
     self.0.borrow_mut()._seen = _smelt_tmp_6;
     return Ok(());
-    }
     }
     fn has(&self, key: JsString) -> JsString {
     let mut _smelt_tmp_4: JsString;

@@ -4715,7 +4715,6 @@ use super::*;
 pub(crate) async fn work(flag: bool) -> Result<JsString, Box<dyn std::error::Error>> {
     if flag {
     return Err::<_, Box<dyn std::error::Error>>(smelt_throw(SmeltUnknown::Object(SmeltObject::from_unknown_record((SmeltRecord::from([(JsString::from("__smelt_error"), SmeltUnknown::String("Error".into())), (JsString::from("message"), SmeltUnknown::String("rejected".into())), (JsString::from("stack"), SmeltUnknown::Undefined), (JsString::from("cause"), SmeltUnknown::Undefined)])).clone()))));
-    } else {
-    return Ok(JsString::from("resolved"));
     }
+    return Ok(JsString::from("resolved"));
 }
