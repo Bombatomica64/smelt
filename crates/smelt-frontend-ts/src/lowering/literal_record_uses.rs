@@ -49,13 +49,16 @@
 //! erasure reason that lowering already records.
 //!
 //! 1. **The literal is plain data spelled in place** ([`literal_shape`]):
-//!    every property is `key: value` with an identifier or string key that
-//!    JavaScript enumerates in source order, and every value is a primitive
-//!    literal or another such literal. No spread, computed key, method,
-//!    accessor, integer-like key (those enumerate first, in numeric order) or
-//!    `__proto__`, and no value produced elsewhere (an identifier, a call, a
-//!    function): such a value has its own representation and identity, which
-//!    a typed field would convert.
+//!    every property is `key: value` or a method, with an identifier or
+//!    string key that JavaScript enumerates in source order, and every value
+//!    is a primitive literal, a function spelled in place (a method, a
+//!    `function` expression or an arrow; see [`Shape::Function`]) or another
+//!    such literal. A method or `function` value that reads its own `this`
+//!    (or `super`) disqualifies. No spread, computed key, accessor,
+//!    integer-like key (those enumerate first, in numeric order) or
+//!    `__proto__`, and no value produced elsewhere (an identifier, a call):
+//!    such a value has its own representation and identity, which a typed
+//!    field would convert.
 //! 2. **Every use keeps the value typed or passes it on**
 //!    ([`Analysis::classify`]). A *flow* is a reference to `x`, a read of a
 //!    record- or array-valued part of a flow (`x.inner`, `xs[i]`), or a
@@ -133,7 +136,7 @@ use oxc::span::{GetSpan, Span};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub(in crate::lowering) enum Disqualifier {
     /// The literal is not plain data spelled in place: a spread, a computed
-    /// or integer-like key, a method or accessor, or a property value that is
+    /// or integer-like key, an accessor, a method reading its own `this`, or a property value that is
     /// not itself a literal.
     Shape,
     /// The key set or key order is observed or changed by an operation
@@ -394,6 +397,12 @@ enum Shape {
     Record(Vec<(String, Self)>),
     /// An array literal: the shape every element shares.
     Array(Box<Self>),
+    /// A function spelled in place: a method (`inc() { .. }`), a `function`
+    /// expression or an arrow. Its value has the identity of the one closure
+    /// the field holds (a read hands out that closure, so `x.f === x.f`) and
+    /// no parts; it is called or passed on, and never written over (a
+    /// replaced method would convert the assigned function into the field).
+    Function,
 }
 
 impl Shape {
@@ -404,7 +413,7 @@ impl Shape {
                 .iter()
                 .find(|(property, _)| property == name)
                 .map(|(_, shape)| shape),
-            Self::Primitive | Self::Array(_) => None,
+            Self::Primitive | Self::Array(_) | Self::Function => None,
         }
     }
 }
@@ -419,7 +428,7 @@ fn literal_shape(expression: &Expression<'_>) -> Result<Shape, Disqualifier> {
                 let ObjectPropertyKind::ObjectProperty(property) = property else {
                     return Err(Disqualifier::Shape);
                 };
-                if property.kind != PropertyKind::Init || property.method || property.computed {
+                if property.kind != PropertyKind::Init || property.computed {
                     return Err(Disqualifier::Shape);
                 }
                 let name = match &property.key {
@@ -461,6 +470,18 @@ fn literal_shape(expression: &Expression<'_>) -> Result<Shape, Disqualifier> {
             Ok(Shape::Array(Box::new(shared.unwrap_or(Shape::Primitive))))
         }
         Expression::ParenthesizedExpression(inner) => literal_shape(&inner.expression),
+        // A method or `function` value whose body reads its own `this` (or
+        // its home object through `super`) is called with the object as
+        // receiver, which a function field does not carry yet.
+        Expression::FunctionExpression(function) => {
+            if crate::lowering::own_this::function_reads_own_this(function) {
+                Err(Disqualifier::Shape)
+            } else {
+                Ok(Shape::Function)
+            }
+        }
+        // An arrow has no `this` of its own.
+        Expression::ArrowFunctionExpression(_) => Ok(Shape::Function),
         Expression::StringLiteral(_)
         | Expression::NumericLiteral(_)
         | Expression::BooleanLiteral(_)
@@ -478,7 +499,9 @@ fn literal_shape(expression: &Expression<'_>) -> Result<Shape, Disqualifier> {
         {
             match literal_shape(&unary.argument)? {
                 Shape::Primitive => Ok(Shape::Primitive),
-                Shape::Record(_) | Shape::Array(_) => Err(Disqualifier::Shape),
+                Shape::Record(_) | Shape::Array(_) | Shape::Function => {
+                    Err(Disqualifier::Shape)
+                }
             }
         }
         _ => Err(Disqualifier::Shape),
@@ -771,7 +794,7 @@ impl<'ast> Analysis<'_, 'ast> {
                 Some(_) => return Err(Disqualifier::Other),
                 None => element.as_ref(),
             },
-            Shape::Primitive => return Ok(()),
+            Shape::Primitive | Shape::Function => return Ok(()),
         };
         let member = self.unwrapped(member);
         let span = self.nodes.kind(member).span();
@@ -800,6 +823,10 @@ impl<'ast> Analysis<'_, 'ast> {
                 Err(Disqualifier::Other)
             }
             Shape::Primitive => Ok(()),
+            // A function is called or handed on like a primitive; writing
+            // over it would convert the assigned function into the field.
+            Shape::Function if written => Err(Disqualifier::PartWrite),
+            Shape::Function => Ok(()),
             Shape::Record(_) | Shape::Array(_) if written => Err(Disqualifier::PartWrite),
             // A part is a flow of its own shape.
             Shape::Record(_) | Shape::Array(_) => self.classify(member, part, visiting),
@@ -827,8 +854,8 @@ impl<'ast> Analysis<'_, 'ast> {
         {
             return Err(Disqualifier::Other);
         }
-        if *element == Shape::Primitive {
-            // A primitive element has no identity or parts to follow.
+        if matches!(element, Shape::Primitive | Shape::Function) {
+            // A primitive or function element has no parts to follow.
             return Ok(());
         }
         let symbol = binding.symbol_id.get().ok_or(Disqualifier::Other)?;
@@ -1111,10 +1138,27 @@ mod tests {
         assert_map("const x = { a: 1, ...rest };", Disqualifier::Shape);
         assert_map("const x = { [k]: 1, s: 'v' };", Disqualifier::Shape);
         assert_map("const x = { 1: 'a', s: 2 };", Disqualifier::Shape);
-        assert_map("const x = { a: 1, m() {} };", Disqualifier::Shape);
         assert_map("const x = { a: 1, o: other };", Disqualifier::Shape);
-        assert_map("const x = { a: 1, f: () => 1 };", Disqualifier::Shape);
+        assert_map("const x = { a: 1, get g() { return 1; } };", Disqualifier::Shape);
         assert_map("const x = [{ a: 1 }, { b: 's' }];", Disqualifier::Shape);
+    }
+
+    /// A function spelled in place is a field holding that one closure: it
+    /// is read, called and passed on; writing over it converts. A method or
+    /// `function` value reading its own `this` (or `super`) keeps the map; an
+    /// arrow's `this` and a nested `function`'s are not the method's.
+    #[test]
+    fn functions_spelled_in_place_take_the_struct() {
+        assert_struct("const x = { a: 1, m() { return 2; } }; x.m(); x.a;");
+        assert_struct("const x = { a: 1, f: () => 1, g: function () { return 3; } }; x.f(); x.g();");
+        assert_struct("const x = { a: 1, m() { return () => 1; } }; const f = x.m; f === x.m;");
+        assert_struct("const x = { m() { return function () { return this; }; } }; x.m();");
+        assert_struct("const x = { f: () => this }; x.f();");
+        assert_struct("const xs = [{ n: 'a', run() { return 1; } }]; for (const x of xs) x.run();");
+        assert_map("const x = { a: 1, m() { return this.a; } };", Disqualifier::Shape);
+        assert_map("const x = { a: 1, m() { return () => this.a; } };", Disqualifier::Shape);
+        assert_map("const x = { a: 1, m() { return super.toString(); } };", Disqualifier::Shape);
+        assert_map("const x = { a: 1, m() { return 1; } }; x.m = g;", Disqualifier::PartWrite);
     }
 
     /// Comparing the value by identity is a typed use: a record struct is

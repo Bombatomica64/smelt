@@ -10,6 +10,46 @@
 //! plain function reads the enclosing frame's receiver (`ClosureThis::Lexical`).
 
 use crate::lowering::ModuleBuilder;
+use oxc::ast::ast::Function;
+use oxc::ast_visit::{Visit, walk};
+
+/// Whether `function` (a `function` expression or an object literal's method)
+/// reads its own `this`, or its home object through `super`: a `this` or
+/// `super` outside any nested non-arrow function or class, whose own it would
+/// be. Arrows nested in the body see the function's `this`, so theirs count.
+pub(in crate::lowering) fn function_reads_own_this(function: &Function<'_>) -> bool {
+    let mut finder = OwnThisFinder::default();
+    if let Some(body) = &function.body {
+        walk::walk_function_body(&mut finder, body);
+    }
+    finder.found
+}
+
+/// Finds a `this` (or `super`) that belongs to the function being visited:
+/// one outside any nested non-arrow function, whose own `this` it would be.
+#[derive(Default)]
+struct OwnThisFinder {
+    /// Whether such a `this` was seen.
+    found: bool,
+}
+
+impl<'a> Visit<'a> for OwnThisFinder {
+    fn visit_this_expression(&mut self, _it: &oxc::ast::ast::ThisExpression) {
+        self.found = true;
+    }
+
+    fn visit_super(&mut self, _it: &oxc::ast::ast::Super) {
+        self.found = true;
+    }
+
+    fn visit_function(&mut self, _it: &Function<'a>, _flags: oxc::syntax::scope::ScopeFlags) {
+        // A nested `function` has its own `this`.
+    }
+
+    fn visit_class(&mut self, _it: &oxc::ast::ast::Class<'a>) {
+        // So do a nested class's members.
+    }
+}
 
 impl ModuleBuilder<'_> {
     /// Shadow an enclosing `this` binding for the body of a non-arrow function

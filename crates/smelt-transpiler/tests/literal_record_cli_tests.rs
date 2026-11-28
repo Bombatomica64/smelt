@@ -30,6 +30,11 @@
 //!   when the two record types share (the parameter holds a view of it,
 //!   `smelt-codegen-rust/src/structural_views.rs`), and keeps the map when
 //!   neither holds (a property at a wider type);
+//! - `methods-take-the-struct`: a literal holding functions spelled in place
+//!   (methods, `function` values, arrows) is a struct whose fields hold those
+//!   closures: called, read off and compared, iterated in an array, handed to
+//!   an interface declaring exactly its members; one whose method reads its
+//!   own `this` keeps the map;
 //! - `stored-at-another-record-type-stays-a-map`: a literal stored in or
 //!   returned at a slot of a record type it does not share with, or whose
 //!   record-valued property is replaced by a class instance, keeps the map.
@@ -307,6 +312,21 @@ fn literal_is_one_object_through_record_slots() -> TestResult {
                 ("view", "Outer"),
                 ("counts", "SmeltRecord<JsString, f64>"),
             ],
+        },
+    )
+}
+
+/// A literal holding functions spelled in place is a struct (`calc`, `ops`'
+/// elements, `square`), with no erased value in it; `counter`, whose method
+/// reads its own `this`, keeps the map.
+#[test]
+fn literal_with_methods_takes_the_struct() -> TestResult {
+    verify_fixture(
+        "methods-take-the-struct",
+        &Lowering {
+            maps: &["counter"],
+            structs: &["calc"],
+            typed: &[("square", "Shape")],
         },
     )
 }
