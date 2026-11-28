@@ -314,9 +314,7 @@ impl FunctionEmitter<'_> {
             // A `checked` view is fallible: `typed_array_view_call`.
             Rvalue::TypedArrayNew {
                 class_name, args, ..
-            } => {
-                self.typed_array_new_expr(class_name, args)
-            }
+            } => self.typed_array_new_expr(class_name, args),
             // A real read: a server must see its environment (`PORT`). The
             // profile's one fixed variable, `TZ`, never reaches here.
             Rvalue::ProcessEnvRead { name } => {
