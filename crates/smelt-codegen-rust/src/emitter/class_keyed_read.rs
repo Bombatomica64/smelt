@@ -58,12 +58,12 @@ impl FunctionEmitter<'_> {
         let Some(Type::Class { name, .. }) = self.mir.types.get(base_ty) else {
             return Ok(None);
         };
-        let name = *name;
+        let class_name = *name;
         if !self.keyof_key(self.operand_ty(index)?)
-            || self.is_match_class_symbol(name)?
+            || self.is_match_class_symbol(class_name)?
             || self.class_index_store_types(base_ty).is_some()
             || self.is_typed_array_view_class_type(base_ty)?
-            || self.record_has_non_field_members(name)
+            || self.record_has_non_field_members(class_name)
         {
             return Ok(None);
         }
@@ -117,8 +117,9 @@ impl FunctionEmitter<'_> {
                 base,
                 field: field.name,
             })?;
-            let value = self.rendered_at_type(&value.cloned_value(), field.ty, read.read_ty, &scope)?;
-            arms.push(format!("{key:?} => {},", value.delimited()));
+            let injected =
+                self.rendered_at_type(&value.cloned_value(), field.ty, read.read_ty, &scope)?;
+            arms.push(format!("{key:?} => {},", injected.delimited()));
         }
         let key_text = self.record_key_text(index)?;
         Ok(RustExpr::atom(format!(
@@ -151,7 +152,7 @@ impl FunctionEmitter<'_> {
     /// (or property key), or a type parameter constrained by one, which is
     /// how `keyof S` and `K extends keyof S` reach the backend.
     fn keyof_key(&self, key: TypeId) -> bool {
-        let key = match self.mir.types.get(key) {
+        let key_ty = match self.mir.types.get(key) {
             Some(Type::TypeParam { name }) => {
                 match self
                     .function
@@ -167,7 +168,7 @@ impl FunctionEmitter<'_> {
             _ => key,
         };
         matches!(
-            self.mir.types.get(key),
+            self.mir.types.get(key_ty),
             Some(Type::String | Type::PropKey)
         )
     }
@@ -183,7 +184,12 @@ impl FunctionEmitter<'_> {
                     .base
                     .is_some_and(|base| self.record_has_non_field_members(base));
         }
-        match self.mir.interfaces.iter().find(|interface| interface.name == name) {
+        match self
+            .mir
+            .interfaces
+            .iter()
+            .find(|interface| interface.name == name)
+        {
             Some(interface) => {
                 !interface.methods.is_empty()
                     || interface

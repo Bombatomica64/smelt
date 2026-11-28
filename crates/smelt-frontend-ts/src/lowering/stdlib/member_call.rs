@@ -1066,7 +1066,10 @@ impl ModuleBuilder<'_> {
 
     /// The static methods `class` declares, then those of each ancestor: a
     /// subclass inherits its base's statics.
-    pub(in crate::lowering) fn static_methods_through_chain(&self, class: &smelt_hir::Class) -> Vec<smelt_hir::ItemId> {
+    pub(in crate::lowering) fn static_methods_through_chain(
+        &self,
+        class: &smelt_hir::Class,
+    ) -> Vec<smelt_hir::ItemId> {
         let mut methods = class.static_methods.clone();
         let mut base = class.base;
         for _ in 0..64_u32 {

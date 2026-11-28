@@ -406,21 +406,19 @@ impl ModuleBuilder<'_> {
                     None if self.record_declares_methods(name) => return None,
                     None => {
                         // A `#private` field is not a key `keyof` names.
-                        let keyed: Vec<&smelt_hir::Field> = source
-                            .fields
-                            .iter()
-                            .filter(|field| {
-                                self.ctx
-                                    .krate
-                                    .symbols
-                                    .get(field.name)
-                                    .is_none_or(|name| !name.starts_with('#'))
-                            })
-                            .collect();
-                        let members: Vec<TypeId> = keyed
-                            .into_iter()
-                            .map(|field| self.field_read_type(field))
-                            .collect();
+                        let mut members: Vec<TypeId> = Vec::new();
+                        for field in &source.fields {
+                            if self
+                                .ctx
+                                .krate
+                                .symbols
+                                .get(field.name)
+                                .is_some_and(|spelling| spelling.starts_with('#'))
+                            {
+                                continue;
+                            }
+                            members.push(self.field_read_type(field));
+                        }
                         if members.is_empty() {
                             return None;
                         }
@@ -447,7 +445,9 @@ impl ModuleBuilder<'_> {
     ///
     /// A record that declares a method is left alone (`keyof` then names a
     /// member the property table does not list), and so is one with an index
-    /// signature, which keeps its own keyed store. Without an index signature
+    /// signature, which keeps its own keyed store, and one with an optional,
+    /// union, erased or generic property, which the backend rule does not
+    /// dispatch over (its read stays the erased one). Without an index signature
     /// TypeScript accepts a computed read of a record only with a key typed
     /// as its keys, so a `string` key here is a `keyof` key.
     pub(in crate::lowering) fn keyof_record_read_type(
@@ -472,7 +472,33 @@ impl ModuleBuilder<'_> {
             return None;
         }
         let records_before = self.ctx.krate.erasures.len();
-        let read = self.indexed_access_of(object, key, None);
+        let span = self.erasure_anchor;
+        // The backend dispatches only over plain fields (no optional, union,
+        // erased or generic one, whose read type the union would flatten);
+        // the read is typed exactly when it can render it, so the two agree.
+        let plain = self
+            .record_source(object, span)
+            .ok()
+            .flatten()
+            .is_some_and(|source| {
+                source.fields.iter().all(|field| {
+                    !field.optional
+                        && !matches!(
+                            self.ctx.krate.types.get(field.ty),
+                            None | Some(
+                                Type::Optional(..)
+                                    | Type::Union(_)
+                                    | Type::Unknown
+                                    | Type::TypeParam { .. }
+                            )
+                        )
+                })
+            });
+        let read = if plain {
+            self.indexed_access_of(object, key, None)
+        } else {
+            None
+        };
         self.ctx.krate.erasures.truncate(records_before);
         read
     }

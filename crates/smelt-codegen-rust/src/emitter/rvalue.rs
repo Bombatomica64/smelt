@@ -528,7 +528,7 @@ impl FunctionEmitter<'_> {
                 operand,
                 typed: false,
                 ..
-            } => self.structured_clone_expr(operand),
+            } => self.erased_structured_clone_expr(operand),
             Rvalue::StructuredClone {
                 operand, can_throw, ..
             } => self.typed_structured_clone_expr(operand, *can_throw),

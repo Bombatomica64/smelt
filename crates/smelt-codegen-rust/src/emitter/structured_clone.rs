@@ -132,7 +132,10 @@ pub(crate) fn emit_structured_clone_support(
         text.push_str(&record_impl_text(mir, context, record));
     }
     for index in 0..mir.types.all().len() {
-        let ty = TypeId(crate::error::compact_index(index, "union type index does not fit u32")?);
+        let ty = TypeId(crate::error::compact_index(
+            index,
+            "union type index does not fit u32",
+        )?);
         let Some(members) = emitter.concrete_union_members(ty) else {
             continue;
         };
@@ -163,37 +166,40 @@ fn record_impl_text(mir: &Mir, context: &EmitContext, record: &CloneRecord) -> S
         .map(|field| context.names().field(mir, field.name).into_string())
         .collect();
     if record.reference {
-        text.push_str("        let key = ::std::rc::Rc::as_ptr(&self.0) as *const () as usize;\n");
-        text.push_str("        if let Some(copy) = memo.get::<Self>(key) { return Ok(copy); }\n");
+        text.push_str(
+            "        let smelt_key = ::std::rc::Rc::as_ptr(&self.0) as *const () as usize;\n",
+        );
+        text.push_str("        if let Some(smelt_done) = memo.get::<Self>(smelt_key) { return Ok(smelt_done); }\n");
         text.push_str(&format!(
-            "        let copy = {name}(::std::rc::Rc::new(::std::cell::RefCell::new({name}Inner::default())));\n"
+            "        let smelt_copy = {name}(::std::rc::Rc::new(::std::cell::RefCell::new({name}Inner::default())));\n"
         ));
-        text.push_str("        memo.insert(key, &copy);\n");
+        text.push_str("        memo.insert(smelt_key, &smelt_copy);\n");
         for field in &field_names {
             text.push_str(&format!(
-                "        let smelt_field = self.0.borrow().{field}.smelt_clone_in(memo)?; copy.0.borrow_mut().{field} = smelt_field;\n"
+                "        let smelt_field = self.0.borrow().{field}.smelt_clone_in(memo)?; smelt_copy.0.borrow_mut().{field} = smelt_field;\n"
             ));
         }
     } else {
-        text.push_str("        let mut copy = self.clone();\n");
+        text.push_str("        let mut smelt_copy = self.clone();\n");
         for field in &field_names {
             text.push_str(&format!(
-                "        copy.{field} = self.{field}.smelt_clone_in(memo)?;\n"
+                "        smelt_copy.{field} = self.{field}.smelt_clone_in(memo)?;\n"
             ));
         }
     }
-    text.push_str("        Ok(copy)\n    }\n}\n");
+    text.push_str("        Ok(smelt_copy)\n    }\n}\n");
     text
 }
 
 /// `impl SmeltStructuredClone` for one concrete union enum: each member is
 /// copied as itself.
 fn union_impl_text(name: &str, arity: usize) -> String {
-    let arms: String = (0..arity)
-        .map(|index| {
-            format!("            Self::M{index}(value) => Self::M{index}(value.smelt_clone_in(memo)?),\n")
-        })
-        .collect();
+    let mut arms = String::new();
+    for index in 0..arity {
+        arms.push_str(&format!(
+            "            Self::M{index}(smelt_value) => Self::M{index}(smelt_value.smelt_clone_in(memo)?),\n"
+        ));
+    }
     format!(
         "impl SmeltStructuredClone for {name} {{\n    fn smelt_clone_in(&self, memo: &mut SmeltCloneMemo) -> Result<Self, SmeltDataCloneError> {{\n        Ok(match self {{\n{arms}        }})\n    }}\n}}\n"
     )
@@ -217,10 +223,7 @@ impl FunctionEmitter<'_> {
             )));
         }
         let value = self.operand_expr(operand)?;
-        let call = format!(
-            "smelt_structured_clone_value(&{})",
-            value.delimited()
-        );
+        let call = format!("smelt_structured_clone_value(&{})", value.delimited());
         if can_throw {
             return Ok(RustExpr::chain(format!(
                 "{call}.map_err(smelt_data_clone_error)"
@@ -231,10 +234,31 @@ impl FunctionEmitter<'_> {
         )))
     }
 
+    /// `structuredClone(operand)` of a value the frontend left to the erased
+    /// helper: an erased value, or one typed by a type parameter, which no
+    /// `SmeltStructuredClone` bound reaches. A value that is not the erased
+    /// carrier crosses into it, is copied, and is read back at its own type.
+    pub(super) fn erased_structured_clone_expr(
+        &self,
+        operand: &Operand,
+    ) -> Result<RustExpr, EmitError> {
+        let copy = self.structured_clone_expr(operand)?;
+        let ty = self.operand_ty(operand)?;
+        if self.renders_erased(ty)? {
+            return Ok(copy);
+        }
+        let unknown_ty = self.type_id(Type::Unknown)?;
+        self.rendered_at_type(&copy, unknown_ty, ty, &self.render_scope())
+    }
+
     /// Whether a value of type `ty` has a `SmeltStructuredClone` impl: a
     /// runtime container, or a record of `records` (or a concrete union)
     /// whose every field (member) has one. `visiting` breaks the recursion of
     /// a record that reaches itself.
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "every type not listed has no `SmeltStructuredClone` impl, and the answer for a new variant is the same `false`"
+    )]
     fn structured_cloneable_in(
         &self,
         ty: TypeId,
@@ -244,9 +268,8 @@ impl FunctionEmitter<'_> {
         let Some(found) = self.mir.types.get(ty) else {
             return Ok(false);
         };
-        let rendered = || -> Result<String, EmitError> {
-            Ok(self.lexical_rust_type(ty, false)?.to_string())
-        };
+        let rendered =
+            || -> Result<String, EmitError> { Ok(self.lexical_rust_type(ty, false)?.to_string()) };
         Ok(match found {
             Type::Float | Type::Int | Type::Bool | Type::String | Type::None => true,
             // An erased value is copied by the erased helper, which the
@@ -278,7 +301,10 @@ impl FunctionEmitter<'_> {
             }
             Type::Class { name, args } => {
                 let text = rendered()?;
-                if matches!(text.as_str(), "SmeltDate" | "SmeltRegExp" | "SmeltTypedArray") {
+                if matches!(
+                    text.as_str(),
+                    "SmeltDate" | "SmeltRegExp" | "SmeltTypedArray"
+                ) {
                     return Ok(true);
                 }
                 let Some(record) = records.get(name).filter(|_| args.is_empty()) else {

@@ -63,16 +63,16 @@ fn smelt_data_clone_error(error: SmeltDataCloneError) -> Box<dyn ::std::error::E
 // @smelt:item impl_SmeltStructuredClone_for_SmeltUnknown when structured_clone_typed & structured_clone
 //~ An erased value inside a typed graph is copied by the erased helper.
 impl SmeltStructuredClone for SmeltUnknown {
-    fn smelt_clone_in(&self, _memo: &mut SmeltCloneMemo) -> Result<Self, SmeltDataCloneError> { if matches!(self, SmeltUnknown::Function(_)) { return Err(SmeltDataCloneError("function could not be cloned.".to_owned())); } Ok(smelt_structured_clone(self.clone())) }
+    fn smelt_clone_in(&self, _memo: &mut SmeltCloneMemo) -> Result<Self, SmeltDataCloneError> { if matches!(self, Self::Function(_)) { return Err(SmeltDataCloneError("function could not be cloned.".to_owned())); } Ok(smelt_structured_clone(self.clone())) }
 }
 // @smelt:item-end
 
 // @smelt:item impl_SmeltStructuredClone_for_SmeltList when structured_clone_typed & smelt_list
 impl<T: SmeltStructuredClone + Clone + 'static> SmeltStructuredClone for SmeltList<T> {
     fn smelt_clone_in(&self, memo: &mut SmeltCloneMemo) -> Result<Self, SmeltDataCloneError> {
-        let key = ::std::rc::Rc::as_ptr(&self.values) as *const () as usize;
+        let key = ::std::rc::Rc::as_ptr(&self.values).cast::<()>() as usize;
         if let Some(copy) = memo.get::<Self>(key) { return Ok(copy); }
-        let copy = SmeltList::new(Vec::new());
+        let copy = Self::new(Vec::new());
         memo.insert(key, &copy);
         let items = self.values.borrow().clone();
         for item in &items { let item = item.smelt_clone_in(memo)?; copy.values.borrow_mut().push(item); }
@@ -84,9 +84,9 @@ impl<T: SmeltStructuredClone + Clone + 'static> SmeltStructuredClone for SmeltLi
 // @smelt:item impl_SmeltStructuredClone_for_SmeltJsMap when structured_clone_typed & unknown
 impl<K: SmeltStructuredClone + SmeltJsKeyEq + Clone + 'static, V: SmeltStructuredClone + Clone + 'static> SmeltStructuredClone for SmeltJsMap<K, V> {
     fn smelt_clone_in(&self, memo: &mut SmeltCloneMemo) -> Result<Self, SmeltDataCloneError> {
-        let key = ::std::rc::Rc::as_ptr(&self.store) as *const () as usize;
+        let key = ::std::rc::Rc::as_ptr(&self.store).cast::<()>() as usize;
         if let Some(copy) = memo.get::<Self>(key) { return Ok(copy); }
-        let mut copy = SmeltJsMap::new();
+        let mut copy = Self::new();
         memo.insert(key, &copy);
         for (entry_key, value) in self.iter() { let entry_key = entry_key.smelt_clone_in(memo)?; let value = value.smelt_clone_in(memo)?; copy.insert(entry_key, value); }
         Ok(copy)
@@ -94,11 +94,11 @@ impl<K: SmeltStructuredClone + SmeltJsKeyEq + Clone + 'static, V: SmeltStructure
 }
 impl<T: SmeltStructuredClone + Clone + IntoSmeltUnknown + 'static> SmeltStructuredClone for SmeltJsSet<T> {
     fn smelt_clone_in(&self, memo: &mut SmeltCloneMemo) -> Result<Self, SmeltDataCloneError> {
-        let key = ::std::rc::Rc::as_ptr(&self.store) as *const () as usize;
+        let key = ::std::rc::Rc::as_ptr(&self.store).cast::<()>() as usize;
         if let Some(copy) = memo.get::<Self>(key) { return Ok(copy); }
-        let mut copy = SmeltJsSet::new();
+        let mut copy = Self::new();
         memo.insert(key, &copy);
-        for member in self.iter() { let member = member.smelt_clone_in(memo)?; copy.insert(member); }
+        self.iter().try_for_each(|member| { let member = member.smelt_clone_in(memo)?; copy.insert(member); Ok(()) })?;
         Ok(copy)
     }
 }
@@ -107,11 +107,11 @@ impl<T: SmeltStructuredClone + Clone + IntoSmeltUnknown + 'static> SmeltStructur
 // @smelt:item impl_SmeltStructuredClone_for_SmeltPrimSet when structured_clone_typed & prim_set
 impl<T: SmeltStructuredClone + Clone + ::std::cmp::Eq + ::std::hash::Hash + 'static> SmeltStructuredClone for SmeltPrimSet<T> {
     fn smelt_clone_in(&self, memo: &mut SmeltCloneMemo) -> Result<Self, SmeltDataCloneError> {
-        let key = ::std::rc::Rc::as_ptr(&self.store) as *const () as usize;
+        let key = ::std::rc::Rc::as_ptr(&self.store).cast::<()>() as usize;
         if let Some(copy) = memo.get::<Self>(key) { return Ok(copy); }
-        let mut copy = SmeltPrimSet::new();
+        let mut copy = Self::new();
         memo.insert(key, &copy);
-        for member in self.iter() { let member = member.smelt_clone_in(memo)?; copy.insert(member); }
+        self.iter().try_for_each(|member| { let member = member.smelt_clone_in(memo)?; copy.insert(member); Ok(()) })?;
         Ok(copy)
     }
 }
@@ -120,9 +120,9 @@ impl<T: SmeltStructuredClone + Clone + ::std::cmp::Eq + ::std::hash::Hash + 'sta
 // @smelt:item impl_SmeltStructuredClone_for_SmeltRecord when structured_clone_typed & record
 impl<K: SmeltStructuredClone + Eq + ::std::hash::Hash + Clone + SmeltPropertyKey + 'static, V: SmeltStructuredClone + Clone + 'static> SmeltStructuredClone for SmeltRecord<K, V> {
     fn smelt_clone_in(&self, memo: &mut SmeltCloneMemo) -> Result<Self, SmeltDataCloneError> {
-        let key = ::std::rc::Rc::as_ptr(&self.store) as *const () as usize;
+        let key = ::std::rc::Rc::as_ptr(&self.store).cast::<()>() as usize;
         if let Some(copy) = memo.get::<Self>(key) { return Ok(copy); }
-        let copy = SmeltRecord::new();
+        let copy = Self::new();
         memo.insert(key, &copy);
         for (entry_key, value) in self.iter() { let entry_key = entry_key.smelt_clone_in(memo)?; let value = value.smelt_clone_in(memo)?; copy.insert(entry_key, value); }
         Ok(copy)
@@ -134,7 +134,7 @@ impl<K: SmeltStructuredClone + Eq + ::std::hash::Hash + Clone + SmeltPropertyKey
 //~ A `Date` clones to a new `Date` at the same time value.
 impl SmeltStructuredClone for SmeltDate {
     fn smelt_clone_in(&self, memo: &mut SmeltCloneMemo) -> Result<Self, SmeltDataCloneError> {
-        let key = ::std::rc::Rc::as_ptr(&self.time) as *const () as usize;
+        let key = ::std::rc::Rc::as_ptr(&self.time).cast::<()>() as usize;
         if let Some(copy) = memo.get::<Self>(key) { return Ok(copy); }
         let mut copy = self.clone();
         copy.id = smelt_next_object_id();
@@ -150,7 +150,7 @@ impl SmeltStructuredClone for SmeltDate {
 //~ `lastIndex` is not serialized, so the copy starts at 0.
 impl SmeltStructuredClone for SmeltRegExp {
     fn smelt_clone_in(&self, memo: &mut SmeltCloneMemo) -> Result<Self, SmeltDataCloneError> {
-        let key = ::std::rc::Rc::as_ptr(&self.last_index) as *const () as usize;
+        let key = ::std::rc::Rc::as_ptr(&self.last_index).cast::<()>() as usize;
         if let Some(copy) = memo.get::<Self>(key) { return Ok(copy); }
         let mut copy = self.clone();
         copy.id = smelt_next_object_id();
@@ -170,7 +170,7 @@ impl SmeltStructuredClone for SmeltTypedArray {
         if let Some(copy) = memo.get::<Self>(key) { return Ok(copy); }
         let width = self.kind.byte_width();
         let bytes = self.bytes.borrow()[self.byte_offset..self.byte_offset + self.length * width].to_vec();
-        let copy = SmeltTypedArray::with_bytes(self.kind, bytes);
+        let copy = Self::with_bytes(self.kind, bytes);
         memo.insert(key, &copy);
         Ok(copy)
     }

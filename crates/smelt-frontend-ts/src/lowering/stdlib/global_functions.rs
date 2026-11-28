@@ -73,7 +73,9 @@ impl ModuleBuilder<'_> {
         let Some(operand_ty) = body.expr_at(operand).map(|expr| expr.ty) else {
             return Ok(Some(operand));
         };
-        let typed = operand_ty != unknown_ty;
+        // A value typed by a type parameter is copied by the erased helper:
+        // no `SmeltStructuredClone` bound reaches a generic.
+        let typed = operand_ty != unknown_ty && !self.type_mentions_type_param(operand_ty);
         if typed && self.clone_is_identity(operand_ty) {
             return Ok(Some(operand));
         }
@@ -104,7 +106,9 @@ impl ModuleBuilder<'_> {
                 | Type::Never,
             ) => true,
             Some(Type::Optional(inner, _)) => self.clone_is_identity(*inner),
-            Some(Type::Union(members)) => members.iter().all(|member| self.clone_is_identity(*member)),
+            Some(Type::Union(members)) => {
+                members.iter().all(|member| self.clone_is_identity(*member))
+            }
             _ => false,
         }
     }

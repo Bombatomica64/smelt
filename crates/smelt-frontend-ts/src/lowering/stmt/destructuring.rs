@@ -57,6 +57,23 @@ impl ModuleBuilder<'_> {
                 // evaluated (it may itself diverge, `fail()`), then the binding
                 // diverges, as Rust's `unreachable!()` would; `x` is declared
                 // without a value, and every read of it is dead code.
+                //
+                // A literal initializer is a value of its own literal type, never
+                // of `never`, so that source is invalid and stays refused.
+                if annotated_ty.is_some()
+                    && matches!(self.ctx.krate.types.get(ty), Some(Type::Never))
+                    && typed_value.is_some_and(|initializer| {
+                        matches!(
+                            body.expr_at(initializer).map(|expr| &expr.kind),
+                            Some(ExprKind::Literal(_))
+                        )
+                    })
+                {
+                    return Err(SmeltError::unsupported(
+                        self.span(binding.span.start, binding.span.end),
+                        "a literal initializer is never a value of type `never`",
+                    ));
+                }
                 let typed_value = if annotated_ty.is_some()
                     && matches!(self.ctx.krate.types.get(ty), Some(Type::Never))
                     && let Some(initializer) = typed_value

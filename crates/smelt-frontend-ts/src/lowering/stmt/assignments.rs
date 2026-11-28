@@ -70,7 +70,7 @@ impl ModuleBuilder<'_> {
                     ty: self.item_expr_type(setter, span)?,
                     span,
                 });
-                let none_ty = self.ctx.krate.types.intern(smelt_hir::Type::None);
+                let none_ty = self.ctx.krate.types.intern(Type::None);
                 body.push_expr(Expr {
                     kind: ExprKind::Call {
                         callee,
