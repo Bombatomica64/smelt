@@ -264,7 +264,7 @@ impl ModuleBuilder<'_> {
 
     /// Whether `ty` is the erased record an object literal with
     /// function-valued members lowers to (`Dict<string, unknown>`).
-    fn is_erased_record(&self, ty: TypeId) -> bool {
+    pub(in crate::lowering) fn is_erased_record(&self, ty: TypeId) -> bool {
         matches!(
             self.ctx.krate.types.get(ty),
             Some(Type::Dict(key, value))

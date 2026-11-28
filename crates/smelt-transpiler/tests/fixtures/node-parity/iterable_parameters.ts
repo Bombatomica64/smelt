@@ -107,3 +107,14 @@ console.log(
   ).join(","),
 );
 console.log(sumOf(new Uint8Array([200, 55, 1])), sumOf(new Float64Array([0.5, 0.25])));
+function firstOf<T>(xs: Iterable<T>): T | undefined {
+  for (const x of xs) return x;
+  return undefined;
+}
+function countAll(xs: Iterable<unknown>): number {
+  let n = 0;
+  for (const _ of xs) n++;
+  return n;
+}
+console.log(firstOf(naturals()), firstOf(["p", "q"]), firstOf(new Set<boolean>()));
+console.log(countAll([1, "a", true]), countAll(new Set([1, 2])), countAll("abc"));

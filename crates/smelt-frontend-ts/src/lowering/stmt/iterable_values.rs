@@ -24,6 +24,7 @@
 
 use crate::SmeltError;
 use crate::lowering::ModuleBuilder;
+use crate::lowering::erasure::NotNewErasure;
 use smelt_hir::{
     Body, CaptureMode, ClosureCapture, ClosureExpr, ClosureThis, DictProjectionOp, Expr, ExprId,
     ExprKind, FunctionType, LocalDecl, Param, Span, Type, TypeId,
@@ -198,8 +199,8 @@ impl ModuleBuilder<'_> {
     /// thunk `() => <a fresh iterator over it>` ([`Self::fresh_iterator`],
     /// re-typed to the slot's iterator). The value is evaluated once, where
     /// the slot is; each call of the thunk starts a new iteration of it.
-    /// `None` for an erased value, which the emitter converts where it is
-    /// read (the erased iteration protocol).
+    /// An erased value (or erased record) is asserted to the thunk type,
+    /// which the emitter reads through the erased iteration protocol.
     ///
     /// # Errors
     /// Unsupported, for a value with no iterator Smelt can drive, or whose
@@ -241,10 +242,31 @@ impl ModuleBuilder<'_> {
             ty: value_ty,
             span,
         });
-        // An erased value is converted where it is read, by the erased
-        // iteration protocol (the emitter's extraction to the thunk type).
-        if matches!(self.ctx.krate.types.get(value_ty), Some(Type::Unknown)) {
-            return Ok(None);
+        // An erased value, or the erased record an object literal with methods
+        // lowers to (`{ *[Symbol.iterator]() { .. } }`), is read as the
+        // iterable through the erased iteration protocol: the emitter's
+        // extraction of an erased value to the thunk type.
+        // So is any value for a slot whose element the source declares
+        // `unknown` (`Iterable<unknown>`): its elements cross into the erased
+        // carrier there, which the erased protocol does (eagerly, at each
+        // iteration; the erasure is the source's).
+        let erased = matches!(self.ctx.krate.types.get(value_ty), Some(Type::Unknown));
+        if erased || self.is_erased_record(value_ty) || self.type_mentions_unknown(iterator_ty) {
+            let source = if erased {
+                value
+            } else {
+                let unknown = self.unknown_type(NotNewErasure::ErasedUpstream);
+                body.push_expr(Expr {
+                    kind: ExprKind::TypeAssert { value },
+                    ty: unknown,
+                    span,
+                })
+            };
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::TypeAssert { value: source },
+                ty: hint,
+                span,
+            })));
         }
         let Some(fresh) = self.fresh_iterator(source, span, &mut thunk)? else {
             return Err(SmeltError::unsupported(
@@ -252,11 +274,32 @@ impl ModuleBuilder<'_> {
                 "a value of this type where an `Iterable<T>` is expected is not lowered yet (it has no iterator Smelt can drive)",
             ));
         };
-        let fresh = if Self::expr_ty(&thunk, fresh) == iterator_ty {
+        // A generic slot (`Iterable<T>` of a generic function) is the call's
+        // specialization to resolve: the thunk is built at the value's own
+        // element type, as an array argument keeps its own element type. A
+        // concrete slot takes its own iterator type.
+        let fresh_ty = Self::expr_ty(&thunk, fresh);
+        let (target_iterator, thunk_ty) = if self.type_mentions_type_param(iterator_ty) {
+            let Some(Type::Generator { yield_ty, .. }) =
+                self.ctx.krate.types.get(fresh_ty).cloned()
+            else {
+                return Err(SmeltError::unsupported(
+                    span,
+                    "an iterable's iterator is no generator",
+                ));
+            };
+            (
+                self.collection_iterator_type(yield_ty),
+                self.iterable_thunk_type(yield_ty),
+            )
+        } else {
+            (iterator_ty, hint)
+        };
+        let fresh = if fresh_ty == target_iterator {
             fresh
         } else {
-            let retyped = self.iterator_value_at_slot(fresh, Some(iterator_ty), &mut thunk)?;
-            if Self::expr_ty(&thunk, retyped) != iterator_ty {
+            let retyped = self.iterator_value_at_slot(fresh, Some(target_iterator), &mut thunk)?;
+            if Self::expr_ty(&thunk, retyped) != target_iterator {
                 return Err(SmeltError::unsupported(
                     span,
                     "an iterable whose elements are not the `Iterable<T>` slot's `T` is not lowered yet",
@@ -271,7 +314,7 @@ impl ModuleBuilder<'_> {
                 params: Vec::new(),
                 rest: None,
                 required_params: Some(0),
-                return_ty: iterator_ty,
+                return_ty: target_iterator,
                 captures: vec![ClosureCapture {
                     source_local: source_param,
                     body_local: Some(captured),
@@ -286,7 +329,7 @@ impl ModuleBuilder<'_> {
                 this_binding: ClosureThis::Own,
                 span,
             }),
-            ty: hint,
+            ty: thunk_ty,
             span,
         });
         adapter
@@ -299,7 +342,7 @@ impl ModuleBuilder<'_> {
             rest: None,
             required_params: Some(1),
             mutable_params: Vec::new(),
-            return_ty: hint,
+            return_ty: thunk_ty,
             is_async: false,
             may_throw: false,
         }));
@@ -313,7 +356,7 @@ impl ModuleBuilder<'_> {
                 }],
                 rest: None,
                 required_params: Some(1),
-                return_ty: hint,
+                return_ty: thunk_ty,
                 captures: Vec::new(),
                 body: adapter_body,
                 name: None,
@@ -330,7 +373,7 @@ impl ModuleBuilder<'_> {
                 callee: adapter_closure,
                 args: vec![value],
             },
-            ty: hint,
+            ty: thunk_ty,
             span,
         })))
     }

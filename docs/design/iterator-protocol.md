@@ -146,6 +146,11 @@ effects all ran before the consumer's.
   the source wrote stays where it was, and laziness is not kept across it.
 * A generator's function-typed parameters (an `Iterable<T>` among them) are owned, since they move into its producer
   (`compute_owned_callback_params`).
+* Beside an array arm in a union (`ArrayLike<T> | Iterable<T>`), inside an intersection (`P & Iterable<P>`), and as
+  a type guard's or assertion's target (`value is Iterable<unknown>`), `Iterable<T>` keeps its array view `T[]`
+  (`iterable_member_as_array`). A union of an array with a function value, or an intersection with one, has no
+  concrete representation and would erase; a narrowing names a view of the value it tests, never a conversion. A
+  value converted for such a slot is drained into the array there, as every `Iterable<T>` was before.
 
 The thunk is precise: no erasure, `T` as declared. Like every interface-typed value it is not the object it was made
 from: `Array.isArray(xs)` of an `Iterable<number>` parameter given an array is `false`, and `===` compares thunks.
