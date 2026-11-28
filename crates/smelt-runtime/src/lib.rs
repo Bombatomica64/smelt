@@ -110,6 +110,7 @@ mod runtime {
     include!("runtime/for_in.rs");
     include!("runtime/form_data.rs");
     include!("runtime/function_object.rs");
+    include!("runtime/function_token.rs");
     include!("runtime/generator.rs");
     include!("runtime/host_method.rs");
     include!("runtime/host_module.rs");

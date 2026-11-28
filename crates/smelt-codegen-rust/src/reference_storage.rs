@@ -176,6 +176,9 @@ pub(crate) fn emit_reference_record_storage(
     let identity = context
         .carries_class_identity(*declared_name)
         .then(|| crate::class_identity::identity_literal(mir, *declared_name));
+    // The identity of the function the record was built from
+    // (`crate::function_identity`).
+    let function_token = context.carries_function_identity(*declared_name);
     // Fields holding a closure that captures this instance weakly
     // (`emitter::weak_receiver`): the handle exposes its cell to that capture,
     // and the erasure keeps the instance alive through those fields' values.
@@ -299,6 +302,7 @@ pub(crate) fn emit_reference_record_storage(
                     &scoped_type_params,
                     &phantom_args,
                     identity.is_some(),
+                    function_token,
                 );
                 // A widened record's view slot (`crate::class_widening`).
                 if context.is_widened_class(*declared_name) {
@@ -350,6 +354,7 @@ pub(crate) fn emit_reference_record_storage(
             identity.as_deref(),
             nested_base_type.is_some(),
             context.is_widened_class(*declared_name),
+            function_token,
         )?;
         emit_debug_impl_for_storage_type(writer, &inner_name, &debug_generics, type_args);
     } else {
@@ -367,6 +372,7 @@ pub(crate) fn emit_reference_record_storage(
                     &scoped_type_params,
                     &phantom_args,
                     false,
+                    function_token,
                 );
             },
         );
@@ -541,6 +547,13 @@ pub(crate) fn emit_reference_record_storage(
                     // The address alone: a polymorphic handle's `Rc<dyn ..>`
                     // also carries a vtable, which is no part of identity.
                     fn_writer.line("::std::ptr::addr_eq(::std::rc::Rc::as_ptr(&self.0), ::std::rc::Rc::as_ptr(&other.0))");
+                } else if function_token {
+                    // Two records built from one function are that one
+                    // function (`crate::function_identity`).
+                    fn_writer.line(format!(
+                        "::std::rc::Rc::ptr_eq(&self.0, &other.0) || {{ let smelt_left = self.0.borrow().{field}.key(); smelt_left.is_some() && smelt_left == other.0.borrow().{field}.key() }}",
+                        field = crate::function_identity::FUNCTION_IDENTITY_FIELD
+                    ));
                 } else if let Some(contents) = dataclass_contents_equality(mir, context, *declared_name, fields) {
                     fn_writer.line(contents);
                 } else {
@@ -800,6 +813,7 @@ fn emit_reference_inner_fields(
     scoped_type_params: &HashSet<smelt_hir::Symbol>,
     phantom_args: &str,
     identity: bool,
+    function_token: bool,
 ) {
     // A nested record holds its base's record first
     // (`crate::class_polymorphism`).
@@ -827,6 +841,9 @@ fn emit_reference_inner_fields(
     }
     if identity {
         block_writer.line(crate::class_identity::field_declaration(false));
+    }
+    if function_token {
+        block_writer.line(crate::function_identity::field_declaration(false));
     }
 }
 

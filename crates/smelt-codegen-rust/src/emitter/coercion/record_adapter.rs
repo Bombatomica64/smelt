@@ -223,6 +223,7 @@ impl FunctionEmitter<'_> {
             "smelt_struct_value"
         };
         self.push_class_identity_field(&mut field_text, *name, Some((source, identity_source)));
+        self.push_function_identity_field(&mut field_text, *name, Some((source, identity_source)));
         // A reference-class target is a handle newtype over its `Inner` record,
         // so the field-wise value is built as the record and wrapped in a fresh
         // shared cell. This is the structural conversion between two distinct
@@ -400,6 +401,7 @@ impl FunctionEmitter<'_> {
             field_text.push("_smelt_phantom: ::std::marker::PhantomData".to_owned());
         }
         self.push_class_identity_field(&mut field_text, *name, None);
+        self.push_function_identity_field(&mut field_text, *name, None);
         // The source is read once per field, so it is bound once: `value_text`
         // may be a call, and re-evaluating it per field would both duplicate
         // its effects and move any by-value argument more than once.
@@ -632,6 +634,7 @@ impl FunctionEmitter<'_> {
         } else {
             self.push_class_identity_field(&mut field_text, *name, None);
         }
+        self.push_function_identity_field(&mut field_text, *name, None);
         // A reference class is a `Rc<RefCell<Inner>>` newtype, not a named-field
         // struct. The record round-trip must mint a fresh shared cell around the
         // reconstructed inner record rather than emit a struct literal against a

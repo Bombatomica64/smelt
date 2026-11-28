@@ -139,6 +139,7 @@ mod fetch_types;
 mod field_access;
 mod fixed_int;
 mod flow_state;
+mod function_identity_eq;
 mod function_item;
 mod function_name;
 mod helper_reservation;
@@ -363,6 +364,9 @@ pub(crate) struct EmitContext {
     /// Classes whose instances carry the hidden runtime class tag, computed
     /// once by [`crate::class_identity::identity_classes`].
     identity_classes: HashSet<Symbol>,
+    /// Records built from a function value that carry its identity token,
+    /// computed once by [`crate::function_identity::token_records`].
+    function_token_records: HashSet<Symbol>,
     /// Reference classes with reference subclasses, emitted as polymorphic
     /// handles over shared storage, computed once by
     /// [`crate::class_polymorphism::polymorphic_classes`].
@@ -523,6 +527,7 @@ impl EmitContext {
             generic_reads: RefCell::new(HashSet::new()),
             read_only_arguments: ::std::cell::OnceCell::new(),
             weak_receivers: weak_receiver::WeakReceiverPlan::of(mir, &reference_classes),
+            function_token_records: crate::function_identity::token_records(mir),
             identity_classes: crate::class_identity::identity_classes(mir)
                 .into_iter()
                 .filter(|class| !polymorphic_classes.contains(class))
@@ -765,6 +770,23 @@ impl EmitContext {
     /// runtime class tag ([`crate::class_identity`]).
     pub(crate) fn carries_class_identity(&self, symbol: Symbol) -> bool {
         self.identity_classes.contains(&symbol)
+    }
+
+    /// Return whether values of the record named `symbol` carry the identity
+    /// token of the function they were built from ([`crate::function_identity`]).
+    ///
+    /// A structural view target (`crate::structural_views`) holds whichever
+    /// record an object was built as and keeps its own identity.
+    pub(crate) fn carries_function_identity(&self, symbol: Symbol) -> bool {
+        self.function_token_records.contains(&symbol) && !self.structural_views().is_target(symbol)
+    }
+
+    /// Whether some record carries a function-identity token, so the program
+    /// needs the `SmeltFunctionToken` runtime type.
+    pub(crate) fn has_function_tokens(&self) -> bool {
+        self.function_token_records
+            .iter()
+            .any(|symbol| self.carries_function_identity(*symbol))
     }
 
     /// Return which type-parameter positions the emitted Rust declares.

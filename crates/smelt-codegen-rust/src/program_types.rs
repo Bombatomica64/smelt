@@ -159,6 +159,9 @@ fn emit_interface_type(
     let has_function_field = fields
         .iter()
         .any(|field| type_holds_function(mir, field.ty, NominalStorage::Opaque));
+    // A record built from a function value keeps the function's identity
+    // (`crate::function_identity`).
+    let function_token = context.carries_function_identity(interface.name);
     // An interface-backed record is a by-value struct, exactly like a value
     // class, so it supports structural equality (JS `==`/`===`/`toBe`, and
     // derived comparisons in generated specs) under the same rule: every
@@ -191,6 +194,7 @@ fn emit_interface_type(
         && fields
             .iter()
             .any(|field| nests_type_param_in_nominal(mir, field.ty, false));
+    let mut serde_derived = false;
     if has_function_field {
         writer.line("#[derive(Clone)]");
         writer.line("#[allow(dead_code)]");
@@ -206,6 +210,7 @@ fn emit_interface_type(
             .iter()
             .any(|field| accessor_prelude::is_accessor_field(mir, interface.name, field.name))
     {
+        serde_derived = true;
         writer.line(format!(
             "#[derive(Clone, Debug, Default{interface_partial_eq_derive}, serde::Serialize, serde::Deserialize)]"
         ));
@@ -242,6 +247,9 @@ fn emit_interface_type(
                 "_smelt_phantom: ::std::marker::PhantomData<({phantom_args})>,"
             ));
         }
+        if function_token {
+            block_writer.line(crate::function_identity::field_declaration(serde_derived));
+        }
     });
     if has_function_field {
         emit_default_impl_for_storage_type(
@@ -258,6 +266,7 @@ fn emit_interface_type(
             None,
             false,
             false,
+            function_token,
         )?;
         emit_debug_impl_for_storage_type(writer, &name, &impl_generics, &type_params);
     }
@@ -280,6 +289,7 @@ fn emit_interface_type(
             None,
             false,
             false,
+            function_token,
         )?;
         emit_debug_impl_for_storage_type(writer, &name, &type_params, &type_params);
         let field_names = fields
@@ -541,6 +551,7 @@ fn emit_class_type(
             &phantom_args,
             &scoped_type_params,
             identity.as_deref(),
+            false,
             false,
             false,
         )?;
