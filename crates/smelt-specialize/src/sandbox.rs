@@ -863,7 +863,8 @@ fn run_prepared(
     })
 }
 
-/// Waits for a child and kills it on output or wall-time exhaustion.
+/// Waits for a child and kills it, with everything it started
+/// ([`crate::process_tree::kill_tree`]), on output or wall-time exhaustion.
 fn wait_for_child(
     child: &mut std::process::Child,
     output_exceeded: &AtomicBool,
@@ -875,13 +876,11 @@ fn wait_for_child(
             return Ok(Exit::Completed(status));
         }
         if output_exceeded.load(Ordering::Acquire) {
-            child.kill()?;
-            child.wait()?;
+            crate::process_tree::kill_tree(child)?;
             return Ok(Exit::OutputExceeded);
         }
         if started.elapsed() >= wall_limit {
-            child.kill()?;
-            child.wait()?;
+            crate::process_tree::kill_tree(child)?;
             return Ok(Exit::TimedOut);
         }
         thread::sleep(Duration::from_millis(5));

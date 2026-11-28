@@ -334,8 +334,8 @@ pub(crate) fn output_within(
             break Some(finished);
         }
         if started.elapsed() >= limit {
-            drop(child.kill());
-            drop(child.wait());
+            // The whole tree: killing `cargo` alone orphans the program it runs.
+            drop(smelt_specialize::process_tree::kill_tree(&mut child));
             break None;
         }
         std::thread::sleep(Duration::from_millis(20));
