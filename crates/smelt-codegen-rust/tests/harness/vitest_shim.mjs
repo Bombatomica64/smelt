@@ -332,6 +332,9 @@ export const vi = {
   },
 };
 
+// Jest-style fixtures reach the same mocks through the `jest` global.
+globalThis.jest = vi;
+
 // Run once the fixture module (and every module it imports) has registered its
 // tests: a microtask queued at import time would run before the importing
 // module's body, so wait for the next macrotask.

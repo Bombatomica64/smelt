@@ -35,7 +35,10 @@ use std::{
     io::{Read as _, Write as _},
     net::TcpListener,
     path::PathBuf,
-    sync::atomic::{AtomicUsize, Ordering},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+    },
     thread,
 };
 
@@ -46,20 +49,26 @@ fn scratch_root() -> PathBuf {
     std::env::temp_dir().join(format!("smelt-fetch-runtime-{}-{seq}", std::process::id()))
 }
 
-/// Serve exactly `count` HTTP/1.1 responses on a fresh port, then stop.
+/// Serve HTTP/1.1 responses on a fresh port until `stop` is set.
 ///
 /// Returns the bound port and the thread handle. The response is fixed: a 201
 /// with the reason phrase `Created`, one `x-smelt` header, and a text body.
 /// `Connection: close` plus an explicit `Content-Length` keeps the client from
-/// waiting for more.
-fn serve_fixed_responses(count: usize) -> (u16, thread::JoinHandle<()>) {
+/// waiting for more. The fixture's requests arrive twice when the harness's
+/// Node oracle runs it before the generated crate, once when it does not, so
+/// the server stops on a flag rather than after a count; whoever sets the
+/// flag connects once more to wake the blocked `accept`.
+fn serve_fixed_responses(stop: Arc<AtomicBool>) -> (u16, thread::JoinHandle<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
     let port = listener.local_addr().expect("local addr").port();
     let handle = thread::spawn(move || {
-        for _ in 0..count {
+        while !stop.load(Ordering::SeqCst) {
             let Ok((mut stream, _)) = listener.accept() else {
                 return;
             };
+            if stop.load(Ordering::SeqCst) {
+                return;
+            }
             // Read just the request head; the fixture sends no body.
             let mut buffer = [0_u8; 1024];
             drop(stream.read(&mut buffer));
@@ -78,8 +87,9 @@ fn serve_fixed_responses(count: usize) -> (u16, thread::JoinHandle<()>) {
 #[test]
 #[ignore = "slow: emits, compiles and runs a generated crate against a local HTTP server"]
 fn fetch_resolves_to_a_response_whose_parts_come_from_the_transport() {
-    // Four requests: one per generated test below.
-    let (port, server) = serve_fixed_responses(4);
+    // One request per test below, per run (Node oracle, generated crate).
+    let stop = Arc::new(AtomicBool::new(false));
+    let (port, server) = serve_fixed_responses(Arc::clone(&stop));
     let source = format!(
         r#"
 import {{ test, expect }} from 'vitest';
@@ -132,5 +142,7 @@ test('a fetched response clones like any other', async () => {{
     if let Err(payload) = outcome {
         std::panic::resume_unwind(payload);
     }
+    stop.store(true, Ordering::SeqCst);
+    drop(std::net::TcpStream::connect(("127.0.0.1", port)));
     drop(server.join());
 }

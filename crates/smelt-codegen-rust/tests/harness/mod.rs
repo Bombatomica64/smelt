@@ -70,10 +70,9 @@ pub(crate) fn generated_target_count() -> usize {
 /// `cargo clean`. The runtime value wins over the compile-time one, for a test
 /// archive unpacked at another path.
 ///
-/// One directory per rustc: a nested build uses the `rustc` its environment
-/// resolves (`RUSTUP_TOOLCHAIN` under `cargo test`, the default toolchain when
-/// a test binary runs on its own), and artifacts of two compilers in one
-/// directory fail with E0514 ("compiled by an incompatible version of rustc").
+/// One directory per rustc ([`nested_rustc`]): artifacts of two compilers in
+/// one directory fail with E0514 ("compiled by an incompatible version of
+/// rustc").
 pub(crate) fn generated_targets_root() -> PathBuf {
     std::env::var_os("CARGO_TARGET_TMPDIR")
         .map_or_else(|| PathBuf::from(env!("CARGO_TARGET_TMPDIR")), PathBuf::from)
@@ -81,14 +80,31 @@ pub(crate) fn generated_targets_root() -> PathBuf {
         .join(rustc_identity())
 }
 
-/// A short stable name for the `rustc` nested builds use: a hash of its
-/// `rustc -vV` (release and commit), computed once per process.
+/// The `rustc` every nested build uses: `RUSTC` when set, else the `rustc`
+/// beside the `cargo` that built this test, so the nested builds use the same
+/// toolchain. Left to itself, a nested `cargo` finds `rustc` through the
+/// rustup proxy, which picks the toolchain by `RUSTUP_TOOLCHAIN` (set under
+/// `cargo test`) or by the working directory (a generated crate in the temp
+/// directory: the default toolchain), so the same tier built its dependencies
+/// with two compilers depending on how it was started.
+fn nested_rustc() -> std::ffi::OsString {
+    std::env::var_os("RUSTC").unwrap_or_else(|| {
+        let beside = Path::new(env!("CARGO")).with_file_name("rustc");
+        if beside.exists() {
+            beside.into_os_string()
+        } else {
+            "rustc".into()
+        }
+    })
+}
+
+/// A short stable name for [`nested_rustc`]: a hash of its `rustc -vV`
+/// (release and commit), computed once per process.
 fn rustc_identity() -> String {
     static IDENTITY: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     IDENTITY
         .get_or_init(|| {
-            let rustc = std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into());
-            let version = Command::new(rustc)
+            let version = Command::new(nested_rustc())
                 .arg("-vV")
                 .output()
                 .map(|output| output.stdout)
@@ -173,6 +189,7 @@ impl Drop for SharedTarget {
                 .arg(&self.manifest)
                 .args(["--package", &package])
                 .env("CARGO_TARGET_DIR", &self.dir)
+                .env("RUSTC", nested_rustc())
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
                 .status(),
@@ -201,6 +218,7 @@ fn cargo_test(crate_dir: &Path, target_dir: &Path) -> Command {
         .arg("--manifest-path")
         .arg(crate_dir.join("Cargo.toml"))
         .env("CARGO_TARGET_DIR", target_dir)
+        .env("RUSTC", nested_rustc())
         .env("RUSTFLAGS", "-Awarnings");
     command
 }
@@ -403,6 +421,14 @@ const NODE_DIVERGENCES: &[(&str, &str)] = &[
         "JSON decodes an int32 slot as a whole number in range",
         "decodes JSON against a declared type the body does not have",
     ),
+    (
+        "JSON not matching a declared type throws a catchable TypeError",
+        "decodes JSON against a declared type the body does not have",
+    ),
+    (
+        "a concrete slot stores the number hole, and a string slot its default, for a miss",
+        "reads a missing element through a slot typed `string`",
+    ),
 ];
 
 /// Tests whose expected value is NOT what Node computes, because Smelt is
@@ -417,6 +443,11 @@ const NODE_OPEN_DEFECTS: &[(&str, &str)] = &[
     (
         "a match equals the plain array of its groups",
         "a match array's index/input/groups are named properties toEqual compares; Smelt ignores them",
+    ),
+    (
+        "JSON matching a declared type decodes",
+        "a key the declared type does not name (legal under structural typing) is dropped by the typed \
+         decode, so re-serializing loses it; Node keeps it",
     ),
     (
         "a deleted global has no instances",
