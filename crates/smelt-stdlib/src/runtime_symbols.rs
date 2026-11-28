@@ -762,6 +762,10 @@ pub mod markers {
 pub mod boundary {
     /// An erased callable.
     pub const FUNCTION_TAG: &str = "SmeltUnknown::Function";
+    /// An erased callable built as the dedicated carrier
+    /// (`SmeltErasedFunction { callback: .. }`): the same boundary as
+    /// [`FUNCTION_TAG`], spelled as the struct the erased-function ABI uses.
+    pub const ERASED_FUNCTION_LITERAL: &str = "SmeltErasedFunction { callback:";
     /// An erased promise.
     pub const PROMISE_TAG: &str = "SmeltUnknown::Promise";
     /// An erased symbol value.

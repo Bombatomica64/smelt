@@ -44,7 +44,8 @@ Counting is textual and deterministic:
 
 1. Roots are expanded to a sorted, de-duplicated list of `.rs` files
    (directories walked recursively; `target/` skipped).
-2. Each line is scanned for `SmeltUnknown` tokens and classified. Pure
+2. Each line is scanned for `SmeltUnknown` and `SmeltErasedFunction` tokens
+   (see "Erased callables" below) and classified. Pure
    fallibility-annotation spellings — the `Ok::<SmeltUnknown, Box<dyn
    std::error::Error>>` return turbofish and `-> Result<SmeltUnknown, ...>`
    return annotations — are stripped before counting: they annotate types, not
@@ -77,6 +78,24 @@ smelt smelt-unknown-report examples --baseline blocker-logs/smelt-unknown-baseli
 
 Paths in examples are recorded relative to the working directory, so a corpus
 scanned from the repo root produces a byte-identical baseline on any machine.
+
+### Erased callables (method change, 2026-11)
+
+`SmeltErasedFunction` is the dedicated carrier of an erased callable (a
+function value typed `any` or `(...args: unknown[]) => unknown`): its parameter
+and return types are as gone as a `SmeltUnknown`'s. Until 2026-11 the scan
+counted only the `SmeltUnknown` token, so a slot declared `let f:
+SmeltErasedFunction;` or a callable object's `__smelt_call:
+SmeltErasedFunction` field was invisible to the ratchet. Each
+`SmeltErasedFunction` token now counts as one erased value, classified by the
+same line rules: building the carrier (`SmeltErasedFunction { callback: .. }`)
+is the boundary `SmeltUnknown::Function` is, and storage is avoidable.
+
+This changes what the ratchet measures. Every baseline was re-snapshotted in
+the commit that made the change, so totals before and after it are not
+comparable: the jump at that commit is the newly counted erased callables, not
+a regression. The examples corpus has none, so its invariant (0 avoidable) is
+unchanged.
 
 ## Baselines
 

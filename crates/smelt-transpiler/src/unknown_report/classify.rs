@@ -247,8 +247,18 @@ pub(super) fn classify_program_line(line: &str) -> Category {
 }
 
 /// Spellings that put a line at a genuine dynamic boundary; each entry says why.
-const BOUNDARY_MARKERS: [&str; 51] = [
+const BOUNDARY_MARKERS: [&str; 52] = [
     boundary::FUNCTION_TAG,
+    // The erased callable built as its dedicated carrier struct
+    // (`SmeltErasedFunction { callback: .. }`), which the report counts
+    // since 2026-11 (`count_value_erasures`). It is the struct spelling of
+    // `SmeltUnknown::Function` above: a closure handed to a slot whose
+    // callable type is erased (`any`, `(...args: unknown[]) => unknown`), so
+    // the construction is the adapter into the erased-function ABI and the
+    // slot's own erasure is counted where it is declared (`let f:
+    // SmeltErasedFunction;`, a struct field), which stays avoidable. Proven
+    // in `erased_function_construction_is_a_boundary`.
+    boundary::ERASED_FUNCTION_LITERAL,
     boundary::PROMISE_TAG,
     // A JavaScript SYMBOL value. `Symbol()` mints a value whose whole
     // meaning is a unique runtime identity with no static counterpart:
