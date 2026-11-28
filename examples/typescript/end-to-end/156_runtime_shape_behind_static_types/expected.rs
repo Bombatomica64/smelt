@@ -2884,7 +2884,7 @@ fn smelt_blob_record_bytes(map: &SmeltObject) -> Vec<u8> {
 /// Build the erased `Blob`/`File` record for the reflected constructor.
 fn smelt_blob_record_from_parts(parts: SmeltUnknown, blob_type: String, file_name: Option<String>, last_modified: Option<f64>) -> SmeltUnknown {
     let bytes = smelt_blob_parts_bytes(parts);
-    smelt_blob_record(smelt_next_object_id(), &bytes, &blob_type, file_name, last_modified.unwrap_or(0.0))
+    smelt_blob_record(smelt_next_object_id(), &bytes, &blob_type, file_name, last_modified.unwrap_or_else(|| ::std::time::SystemTime::now().duration_since(::std::time::UNIX_EPOCH).map_or(0.0, |elapsed| (elapsed.as_secs_f64() * 1000.0).trunc())))
 }
 
 fn smelt_index_assign(target: &mut SmeltUnknown, key: impl Into<JsString>, value: SmeltUnknown) {

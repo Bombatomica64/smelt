@@ -157,7 +157,7 @@ impl SharedTarget {
         let (slot, lock) = free.unwrap_or_else(|| {
             // All taken: wait on one, spreading waiters over the slots.
             let spread = usize::try_from(std::process::id()).unwrap_or_default();
-            let (slot, lock) = open(spread % count);
+            let (slot, lock) = open(spread.checked_rem(count).unwrap_or_default());
             lock.lock().expect("wait for a shared target directory");
             (slot, lock)
         });
@@ -503,7 +503,6 @@ pub(crate) fn node_oracle(source: &str, crate_dir: &Path) -> Option<NodeVerdict>
             std::env::var_os("SMELT_REQUIRE_SANDBOX").is_none(),
             "SMELT_REQUIRE_SANDBOX is set but no `node` >= 22.7 is on PATH for the runtime-tier oracle"
         );
-        eprintln!("note: no `node` >= 22.7 on PATH; skipping the runtime-tier Node oracle");
         return None;
     }
     let root = crate_dir.parent().unwrap_or(crate_dir).join("node-oracle");
@@ -527,9 +526,9 @@ pub(crate) fn node_oracle(source: &str, crate_dir: &Path) -> Option<NodeVerdict>
     if let Some(path) = std::env::var_os("PATH") {
         command.env("PATH", path);
     }
-    let output = output_within(&mut command, generated_run_limit());
-    assert!(output.is_some(), "the fixture did not finish under Node");
-    let output = output?;
+    let finished = output_within(&mut command, generated_run_limit());
+    assert!(finished.is_some(), "the fixture did not finish under Node");
+    let output = finished?;
     let stdout = String::from_utf8_lossy(&output.stdout);
     let mut verdict = NodeVerdict {
         passed: Vec::new(),

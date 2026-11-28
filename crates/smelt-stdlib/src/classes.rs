@@ -659,6 +659,10 @@ pub fn stdlib_class_instance_has_property(class: StdlibClass, member: &str) -> O
 /// ([`StdlibClass::runtime`]). Not `#[non_exhaustive]`: the backend matches it
 /// exhaustively, so a new block is wired there before it compiles.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[expect(
+    clippy::exhaustive_enums,
+    reason = "the backend matches every block exhaustively, so a new one cannot be skipped there"
+)]
 pub enum ClassRuntime {
     /// No block of its own: what it needs comes with the types that hold it
     /// (the carrier, the containers).

@@ -68,8 +68,8 @@ impl ModuleBuilder<'_> {
     /// Lower a switch statement as a chain of `===` tests: one with genuine
     /// fallthrough, or one [`Self::switch_matches_by_label`] rejects.
     ///
-    /// Each case lowers to `if matched || scrutinee === label { matched = true;
-    /// <body> }`, and a trailing `default` body runs whenever control reaches
+    /// Each case lowers to
+    /// `if matched || scrutinee === label { matched = true; <body> }`, and a trailing `default` body runs whenever control reaches
     /// the end of the chain — exactly when JavaScript reaches it (no label
     /// matched, or an earlier case fell through without breaking).
     ///

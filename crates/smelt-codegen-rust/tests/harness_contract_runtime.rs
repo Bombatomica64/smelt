@@ -67,10 +67,10 @@ fn concurrent_fixtures_share_a_bounded_pool_of_target_directories() {
             });
         }
     });
-    let most = most.into_inner();
+    let held_at_once = most.into_inner();
     assert!(
-        (1..=bound).contains(&most),
-        "{most} target directories were held at once; the bound is {bound}"
+        (1..=bound).contains(&held_at_once),
+        "{held_at_once} target directories were held at once; the bound is {bound}"
     );
 }
 

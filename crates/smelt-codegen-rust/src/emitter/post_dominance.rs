@@ -311,7 +311,7 @@ impl FunctionEmitter<'_> {
                 .unwrap_or_default()
         };
         let is_exit = |block_id: smelt_mir::BlockId| {
-            self.block(block_id).ok().is_some_and(|block| {
+            self.block(block_id).is_ok_and(|block| {
                 matches!(
                     block.terminator,
                     Some(Terminator::Return(_) | Terminator::Throw(_))

@@ -2553,6 +2553,8 @@ fn callback_return_from_the_checker() -> TestResult {
         ensure(source.contains(slot), format!("no callback typed `{slot}`"))?;
     }
     Ok(())
+}
+
 /// `continue` inside a `switch` lowered as a `===` chain (fallthrough, or
 /// labels that are not literals), at the case's top level or nested in an
 /// `if`, a block or a `try`/`finally`, in `for`, `while`, `do`/`while` and

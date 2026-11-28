@@ -210,7 +210,12 @@ impl ModuleBuilder<'_> {
             }
             let block = body.push_block(span);
             body.push_stmt_to_block(block, smelt_hir::Stmt::Expr(operand));
-            body.blocks[block.0 as usize].tail = Some(word);
+            if let Some(slot) = usize::try_from(block.0)
+                .ok()
+                .and_then(|index| body.blocks.get_mut(index))
+            {
+                slot.tail = Some(word);
+            }
             return body.push_expr(Expr {
                 kind: ExprKind::Block(block),
                 ty: string_ty,

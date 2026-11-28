@@ -2990,7 +2990,7 @@ fn smelt_blob_record_bytes(map: &SmeltObject) -> Vec<u8> {
 /// Build the erased `Blob`/`File` record for the reflected constructor.
 fn smelt_blob_record_from_parts(parts: SmeltUnknown, blob_type: String, file_name: Option<String>, last_modified: Option<f64>) -> SmeltUnknown {
     let bytes = smelt_blob_parts_bytes(parts);
-    smelt_blob_record(smelt_next_object_id(), &bytes, &blob_type, file_name, last_modified.unwrap_or(0.0))
+    smelt_blob_record(smelt_next_object_id(), &bytes, &blob_type, file_name, last_modified.unwrap_or_else(|| ::std::time::SystemTime::now().duration_since(::std::time::UNIX_EPOCH).map_or(0.0, |elapsed| (elapsed.as_secs_f64() * 1000.0).trunc())))
 }
 
 fn smelt_index_assign(target: &mut SmeltUnknown, key: impl Into<JsString>, value: SmeltUnknown) {
@@ -5719,7 +5719,7 @@ impl SmeltBlob {
     pub fn file_from_bytes(bytes: Vec<u8>, blob_type: String, name: String, last_modified: f64) -> Self { Self { id: smelt_next_object_id(), bytes: ::std::rc::Rc::new(bytes), blob_type, file_name: Some(name), last_modified, instance_class: None } }
     pub fn from_string_parts<P: SmeltHostText>(parts: Vec<P>, blob_type: impl SmeltHostText, file_name: Option<impl SmeltHostText>, last_modified: Option<f64>) -> Self { let mut bytes: Vec<u8> = Vec::new(); for part in &parts { bytes.extend_from_slice(part.host_text().as_bytes()); } let blob_type = blob_type.into_host_string(); let file_name = file_name.map(SmeltHostText::into_host_string); Self::with_metadata(bytes, blob_type, file_name, last_modified) }
     pub fn from_blob_parts(parts: Vec<SmeltBlob>, blob_type: impl SmeltHostText, file_name: Option<impl SmeltHostText>, last_modified: Option<f64>) -> Self { let blob_type = blob_type.into_host_string(); let file_name = file_name.map(SmeltHostText::into_host_string); let mut bytes: Vec<u8> = Vec::new(); for part in &parts { bytes.extend_from_slice(&part.bytes); } Self::with_metadata(bytes, blob_type, file_name, last_modified) }
-    pub fn with_metadata(bytes: Vec<u8>, blob_type: String, file_name: Option<String>, last_modified: Option<f64>) -> Self { match file_name { Some(name) => Self::file_from_bytes(bytes, blob_type, name, last_modified.unwrap_or(0.0)), None => Self::from_bytes(bytes, blob_type) } }
+    pub fn with_metadata(bytes: Vec<u8>, blob_type: String, file_name: Option<String>, last_modified: Option<f64>) -> Self { match file_name { Some(name) => Self::file_from_bytes(bytes, blob_type, name, last_modified.unwrap_or_else(|| ::std::time::SystemTime::now().duration_since(::std::time::UNIX_EPOCH).map_or(0.0, |elapsed| (elapsed.as_secs_f64() * 1000.0).trunc()))), None => Self::from_bytes(bytes, blob_type) } }
     pub fn id(&self) -> usize { self.id }
     pub fn is_file(&self) -> bool { self.file_name.is_some() }
     pub fn size(&self) -> f64 { self.bytes.len() as f64 }
