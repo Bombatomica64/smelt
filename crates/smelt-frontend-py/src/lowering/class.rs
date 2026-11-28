@@ -387,7 +387,11 @@ impl ModuleBuilder<'_> {
                         .flatten()
                         .filter(|_| matches!(base_expr, Expr::Name(_) | Expr::Attribute(_)));
                     let Some(name) = name else {
-                        return Err(SmeltError::no_multiple_inheritance(span, class_name_str));
+                        return Err(SmeltError::no_multiple_inheritance(
+                            span,
+                            class_name_str,
+                            "needs every base to be a plain class name",
+                        ));
                     };
                     symbols.push(self.intern_name(&name));
                 }

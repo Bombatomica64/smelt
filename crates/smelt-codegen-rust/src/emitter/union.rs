@@ -2405,9 +2405,10 @@ impl FunctionEmitter<'_> {
         has_field
             || has_accessor
             || has_method
-            || class.program_bases().into_iter().any(|base| {
-                self.mir_class_has_member(base, member, depth.saturating_add(1))
-            })
+            || class
+                .program_bases()
+                .into_iter()
+                .any(|base| self.mir_class_has_member(base, member, depth.saturating_add(1)))
     }
 
     /// How an `in` test answers for union arm `member` and the property

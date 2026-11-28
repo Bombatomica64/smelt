@@ -789,7 +789,9 @@ impl FunctionEmitter<'_> {
         // the accessor of a view target (`crate::structural_views`), whose
         // handle has no cell of its own type to borrow.
         let field_place = |field: Symbol, field_name: &str| -> Result<RustExpr, EmitError> {
-            if self.is_view_target_type(target) || self.field_view_accessors(target, field).is_some() {
+            if self.is_view_target_type(target)
+                || self.field_view_accessors(target, field).is_some()
+            {
                 return Ok(RustExpr::atom(self.reference_field_read_place(
                     "smelt_object_value",
                     target,

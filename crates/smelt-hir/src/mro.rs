@@ -16,7 +16,7 @@ use crate::Symbol;
 pub enum MroError {
     /// The class is its own ancestor.
     Cycle(Symbol),
-    /// The bases' orders conflict (CPython: "Cannot create a consistent
+    /// The bases' orders conflict (`CPython`: "Cannot create a consistent
     /// method resolution order"); the payload is the heads left unmerged.
     Inconsistent(Vec<Symbol>),
 }
@@ -84,8 +84,11 @@ fn linearize_within(
 mod tests {
     use super::*;
 
+    /// One `(class, bases)` row of a test class table.
+    type Row<'a> = (u32, &'a [u32]);
+
     /// A class table of `(class, bases)` rows over symbols `0..`.
-    fn table(rows: &[(u32, &[u32])]) -> impl Fn(Symbol) -> Vec<Symbol> + '_ {
+    fn table<'a>(rows: &'a [Row<'a>]) -> impl Fn(Symbol) -> Vec<Symbol> + 'a {
         move |class| {
             rows.iter()
                 .find(|(name, _)| Symbol(*name) == class)

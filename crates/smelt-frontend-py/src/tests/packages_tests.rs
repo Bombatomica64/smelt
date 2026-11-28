@@ -429,8 +429,12 @@ class NullFile(IO[str]):
     Ok(())
 }
 
+/// Several bases that are not classes of the module are refused, naming the
+/// first one. (Before multiple inheritance was supported, every class with
+/// two bases was refused with this code; the requirement kept is that a base
+/// Smelt cannot lay out is refused, not miscompiled.)
 #[test]
-fn multiple_inheritance_rejected() -> TestResult {
+fn multiple_inheritance_from_unknown_bases_rejected() -> TestResult {
     let source = py!(r"
 class C(A, B):
     pass
@@ -439,6 +443,68 @@ class C(A, B):
     let errors = lower_errors(source, &mut ctx)?;
     let error = first_error(&errors)?;
     ensure_eq(&error.code, &"smelt::no-multiple-inheritance", "error code")?;
+    ensure(
+        error.message.contains("'A' is not"),
+        format!("message names the base: {}", error.message),
+    )?;
+    Ok(())
+}
+
+/// Bases whose orders conflict have no C3 linearization (CPython raises
+/// `TypeError` when the class statement runs): refused.
+#[test]
+fn multiple_inheritance_without_consistent_mro_rejected() -> TestResult {
+    let source = py!(r"
+class A:
+    pass
+class B:
+    pass
+class X(A, B):
+    pass
+class Y(B, A):
+    pass
+class Z(X, Y):
+    pass
+");
+    let mut ctx = HirCtx::new();
+    let errors = lower_errors(source, &mut ctx)?;
+    let error = first_error(&errors)?;
+    ensure_eq(&error.code, &"smelt::no-multiple-inheritance", "error code")?;
+    ensure(
+        error.message.contains("consistent method resolution order"),
+        format!("message names the MRO conflict: {}", error.message),
+    )?;
+    Ok(())
+}
+
+/// A class with several program bases keeps its first base in `base` and the
+/// others in `extra_bases`, in declaration order.
+#[test]
+fn multiple_inheritance_records_every_base() -> TestResult {
+    let source = py!(r"
+class A:
+    def a(self) -> int:
+        return 1
+class M:
+    def m(self) -> int:
+        return 2
+class C(A, M):
+    pass
+");
+    let mut ctx = HirCtx::new();
+    lower_module(source, &mut ctx)?;
+    let class = class_named(&ctx, "C")?;
+    ensure_eq(
+        &symbol(&ctx, class.base.ok_or("expected a first base")?)?,
+        &"A",
+        "first base",
+    )?;
+    let extra = class
+        .extra_bases
+        .iter()
+        .map(|base| symbol(&ctx, *base).map(ToOwned::to_owned))
+        .collect::<Result<Vec<_>, _>>()?;
+    ensure_eq(&extra, &vec!["M".to_owned()], "extra bases")?;
     Ok(())
 }
 

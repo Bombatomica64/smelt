@@ -78,12 +78,17 @@ byte-for-byte. Inside an MI hierarchy:
 
 - **Storage is flat.** No inner record nests another: `ItemInner` holds `name` and `count` directly. A diamond
   holds `A`'s fields once because they are one name each.
+- **Every class of the hierarchy is a reference class** (`classify.rs`): an object viewed as each of its bases must
+  be one shared cell.
 - **A class with subclasses is polymorphic**, as before, but its cell trait lends a *field view* instead of its
-  own inner record:
+  own inner record. Each field's accessor pair is declared by exactly one view trait, the one of the furthest
+  class of the MRO that has the field (`field_view_owner`); a view extends the views of its ancestors. A record
+  implementing several views (a diamond's bottom implements `Base`, `Left` and `Right`) therefore has one
+  accessor per field, never two candidates:
 
 ```text
 struct Named(Rc<dyn NamedSmeltCell>);            // any instance of Named or below
-trait NamedSmeltFields: Debug {                  // one accessor pair per effective field
+trait NamedSmeltFields: Debug {                  // the fields Named is the furthest owner of
     fn name(&self) -> &String;
     fn name_mut(&mut self) -> &mut String;
 }
@@ -100,8 +105,12 @@ impl NamedSmeltCell for RefCell<NamedInner> { .. }
 impl NamedSmeltCell for RefCell<ItemInner> { .. }
 ```
 
-- **A field access through a polymorphic MI handle calls the accessor**: `n.0.borrow().name()` for a read,
-  `*n.0.borrow_mut().name_mut() = v` for a write. A concrete leaf handle keeps `.0.borrow().name`.
+- **A field access through a polymorphic MI handle calls the owning view's accessor, fully qualified**:
+  `(*NamedSmeltFields::name(&*n.0.borrow()))` for a read, `(*NamedSmeltFields::name_mut(&mut *n.0.borrow_mut()))`
+  for a write. The qualified call also resolves on a concrete record: an inherited body emitted on a subclass
+  (`self` typed as the base in HIR) reads the subclass's own flat record, which implements every view of its MRO.
+  A concrete leaf handle keeps `.0.borrow().name`. The erasure and recovery impls read and write through the same
+  accessors (`guard_field_place`).
 - **An upcast is the same `Rc`, unsized** (`Counted(item.0.clone())`), or re-viewed through `smelt_as_<Target>`
   from a polymorphic source, toward *any* ancestor in the MRO, not only along the first-base chain.
 - **A downcast and `isinstance` are checked** through `smelt_any` over the target's concrete classes, which are
@@ -139,7 +148,19 @@ value is erased, no `SmeltUnknown` is introduced.
 
 ## 6. What stays refused
 
-- A class in an MI hierarchy that is generic, an exception class, a dataclass with an inherited field order that
-  differs from its MRO order, or derives from a builtin class (`dict`, `int`, ...) other than `object`.
-- A field declared at different types by two classes of one MRO.
-- Bases without a consistent C3 linearization (a `TypeError` in CPython).
+- A class in an MI hierarchy that is generic, an exception class, a dataclass, or derives from a builtin class
+  (`dict`, `int`, ...) other than `object`; a base that is not a class of the same module (the hierarchy is found
+  by a syntactic pre-scan of the module, `collect_multiple_inheritance_classes`, because a base is lowered before
+  the subclass that makes its hierarchy one).
+- Bases without a consistent C3 linearization (a `TypeError` in CPython; `ty` reports it first).
+
+## 7. Evidence
+
+`crates/smelt-transpiler/tests/fixtures/python-parity/multiple_inheritance.py` (its stdout equals `python3`'s).
+Planted defects, each caught by that fixture and then restored:
+- C3 replaced by a depth-first, left-first order: the diamond's `super()` chain skips `Right`, and `C(A, B)`
+  answers `C>A>Root`.
+- Definer aliases resolved along the definer's own MRO instead of the instance's (the single-inheritance rule):
+  `Right.__init__` never runs on a `Bottom`, which then has `right == 0`.
+- `isinstance` against a class unrelated to the static type but sharing a descendant answered statically: a
+  `LoudMixin` test on an `Animal` handle holding a `Dog` prints `False`.

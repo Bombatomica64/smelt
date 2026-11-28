@@ -18,8 +18,8 @@
 //! (`&mut self`) written side by side, so the two cannot list different
 //! positions.
 
-use smelt_hir::{Symbol, TypeId};
 use smelt_hir::op_field_types::OpFieldTypes;
+use smelt_hir::{Symbol, TypeId};
 
 use crate::{
     BasicBlock, Callee, Mir, MirClass, MirClosure, MirFunction, MirGlobal, MirInterface, Rvalue,

@@ -392,9 +392,10 @@ fn bound_method_can_throw(bound: Symbol, method: Symbol, facts: &CrateThrowFacts
         found
     };
     let reaches_bound = |class: &crate::MirClass| {
-        ancestry(class).into_iter().filter_map(class_named).any(|candidate| {
-            candidate.name == bound || candidate.implements.contains(&bound)
-        })
+        ancestry(class)
+            .into_iter()
+            .filter_map(class_named)
+            .any(|candidate| candidate.name == bound || candidate.implements.contains(&bound))
     };
     let declares_throwing = |class: &crate::MirClass| {
         class.methods.iter().any(|func| {
@@ -408,7 +409,12 @@ fn bound_method_can_throw(bound: Symbol, method: Symbol, facts: &CrateThrowFacts
         .classes
         .iter()
         .filter(|class| reaches_bound(class))
-        .any(|class| ancestry(class).into_iter().filter_map(class_named).any(declares_throwing))
+        .any(|class| {
+            ancestry(class)
+                .into_iter()
+                .filter_map(class_named)
+                .any(declares_throwing)
+        })
 }
 
 /// Returns whether a terminator can leave through an uncaught exception path.

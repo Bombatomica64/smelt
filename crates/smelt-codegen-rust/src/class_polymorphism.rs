@@ -410,7 +410,9 @@ fn fields_trait_declaration(
     let mut supertraits = vec!["::std::fmt::Debug".to_owned()];
     for ancestor in mir.class_mro(class.name).into_iter().skip(1) {
         if lends_field_view(mir, context.polymorphic_classes(), ancestor) {
-            supertraits.push(fields_trait_name(context.names().type_name(ancestor)?.as_str()));
+            supertraits.push(fields_trait_name(
+                context.names().type_name(ancestor)?.as_str(),
+            ));
         }
     }
     Ok(format!(
@@ -423,13 +425,30 @@ fn fields_trait_declaration(
 
 /// `impl <trait_class>SmeltFields for <inner>`: each accessor lends the
 /// record's own field of that name (the record is flat).
+///
+/// A field the record declares at another type than the view does (two
+/// classes of one MRO declaring it differently) is refused: no accessor can
+/// lend it at both.
 fn fields_impl_text(
     mir: &Mir,
     context: &crate::emitter::EmitContext,
     trait_class: &MirClass,
     trait_type: &str,
+    record: &MirClass,
     inner: &str,
 ) -> Result<String, crate::EmitError> {
+    let record_fields = effective_class_fields(mir, record);
+    for field in effective_class_fields(mir, trait_class) {
+        if record_fields
+            .iter()
+            .any(|own| own.name == field.name && own.ty != field.ty)
+        {
+            return Err(crate::EmitError::new(format!(
+                "multiple inheritance: field `{}` is declared at different types by classes of one method resolution order",
+                context.names().field_text(mir, field.name)
+            )));
+        }
+    }
     let mut methods = Vec::new();
     for (field, ty) in field_view_members(mir, context, trait_class)? {
         let (get, get_mut) = field_accessor_names(&field);
@@ -555,7 +574,14 @@ pub(crate) fn class_layout(
         let field_view = lends_field_view(mir, polymorphic_set, trait_class);
         let fields_impl = if field_view {
             let own_inner = format!("{}Inner{own_args}", type_name(class.name)?);
-            Some(fields_impl_text(mir, context, trait_mir, &trait_type, &own_inner)?)
+            Some(fields_impl_text(
+                mir,
+                context,
+                trait_mir,
+                &trait_type,
+                class,
+                &own_inner,
+            )?)
         } else {
             None
         };
@@ -598,7 +624,10 @@ pub(crate) fn cell_trait_declaration(
         format!("{type_name}Inner{type_args}")
     };
     let fields_trait = if field_view {
-        format!("{}\n", fields_trait_declaration(mir, context, class, &type_name)?)
+        format!(
+            "{}\n",
+            fields_trait_declaration(mir, context, class, &type_name)?
+        )
     } else {
         String::new()
     };

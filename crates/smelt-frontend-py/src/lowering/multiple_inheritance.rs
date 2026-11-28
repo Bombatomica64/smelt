@@ -132,12 +132,8 @@ impl ModuleBuilder<'_> {
         bases: &[Symbol],
         span: Span,
     ) -> Result<(), SmeltError> {
-        let refuse = |reason: String| {
-            Err(SmeltError::unsupported(
-                span,
-                format!("class '{class_name}': multiple inheritance {reason}"),
-            ))
-        };
+        let refuse =
+            |reason: String| Err(SmeltError::no_multiple_inheritance(span, class_name, &reason));
         for base in bases {
             let base_name = self.ctx.krate.symbols.source(*base).unwrap_or_default();
             let Some(class) = self.class_item_named(*base) else {

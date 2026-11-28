@@ -237,7 +237,9 @@ impl Mir {
     /// are field accessors (`docs/design/python-multiple-inheritance.md`).
     #[must_use]
     pub fn in_multiple_inheritance_hierarchy(&self, name: Symbol) -> bool {
-        self.lookups().multiple_inheritance_hierarchy.contains(&name)
+        self.lookups()
+            .multiple_inheritance_hierarchy
+            .contains(&name)
     }
 
     /// Whether class `name` has more than one program base.

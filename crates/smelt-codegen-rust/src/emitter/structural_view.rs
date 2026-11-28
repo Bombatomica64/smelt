@@ -29,7 +29,11 @@ impl FunctionEmitter<'_> {
     /// the call resolves on the receiver's concrete record as well (an
     /// inherited body emitted on a subclass reads its own flat record, which
     /// implements every view of its MRO).
-    pub(super) fn field_view_accessors(&self, ty: TypeId, field: Symbol) -> Option<(String, String)> {
+    pub(super) fn field_view_accessors(
+        &self,
+        ty: TypeId,
+        field: Symbol,
+    ) -> Option<(String, String)> {
         let Some(Type::Class { name, .. }) = self.mir.types.get(ty) else {
             return None;
         };
@@ -105,7 +109,8 @@ impl FunctionEmitter<'_> {
         base_ty: TypeId,
         field: Symbol,
     ) -> Result<RustExpr, EmitError> {
-        if self.is_view_target_type(base_ty) || self.field_view_accessors(base_ty, field).is_some() {
+        if self.is_view_target_type(base_ty) || self.field_view_accessors(base_ty, field).is_some()
+        {
             return Ok(RustExpr::chain(self.reference_field_read_place(
                 &base.tight(),
                 base_ty,
@@ -157,7 +162,8 @@ impl FunctionEmitter<'_> {
         base_ty: TypeId,
         field: Symbol,
     ) -> Result<String, EmitError> {
-        if self.is_view_target_type(base_ty) || self.field_view_accessors(base_ty, field).is_some() {
+        if self.is_view_target_type(base_ty) || self.field_view_accessors(base_ty, field).is_some()
+        {
             return self.reference_field_read_place(base_text, base_ty, field);
         }
         Ok(format!(
@@ -175,7 +181,8 @@ impl FunctionEmitter<'_> {
         base_ty: TypeId,
         field: Symbol,
     ) -> Result<RustExpr, EmitError> {
-        if self.is_view_target_type(base_ty) || self.field_view_accessors(base_ty, field).is_some() {
+        if self.is_view_target_type(base_ty) || self.field_view_accessors(base_ty, field).is_some()
+        {
             return self.reference_field_read_expr(base, base_ty, field);
         }
         Ok(base.postfix(self.reference_field_read_suffix(local, base_ty, field)))
@@ -189,7 +196,8 @@ impl FunctionEmitter<'_> {
         base_ty: TypeId,
         field: Symbol,
     ) -> Result<String, EmitError> {
-        if self.is_view_target_type(base_ty) || self.field_view_accessors(base_ty, field).is_some() {
+        if self.is_view_target_type(base_ty) || self.field_view_accessors(base_ty, field).is_some()
+        {
             return self.reference_field_write_place(base_text, base_ty, field);
         }
         Ok(self.reference_field_write_text(base_text, local, base_ty, field))
