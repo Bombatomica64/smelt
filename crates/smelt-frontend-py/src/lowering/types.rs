@@ -213,10 +213,35 @@ impl ModuleBuilder<'_> {
     fn resolved_spelling_to_hir(&mut self, spelling: &str) -> Option<TypeId> {
         let parsed = ruff_python_parser::parse_expression(spelling).ok()?;
         let expr = parsed.syntax().body.as_ref();
-        if self.mentions_nested_class_short_name(expr) {
+        if self.mentions_nested_class_short_name(expr) || self.mentions_builtin_iterator_class(expr) {
             return None;
         }
         self.annotation_to_hir(expr).ok()
+    }
+
+    /// Whether a `ty` type spelling names one of the builtin iterator classes
+    /// (`enumerate[int]`, `zip[tuple[int, str]]`, `map[str]`, `filter[int]`,
+    /// `reversed[int]`) the program does not rebind. The calls that produce
+    /// them lower to a list or to a lazy generator
+    /// (`lowering/lazy_iteration.rs`), never to an instance of that class, so
+    /// the spelling has no HIR type and a binding takes its value's type.
+    fn mentions_builtin_iterator_class(&self, expr: &Expr) -> bool {
+        /// Finds a builtin iterator class name.
+        struct Finder<'a, 'b>(&'a ModuleBuilder<'b>, bool);
+        impl<'c> ruff_python_ast::visitor::Visitor<'c> for Finder<'_, '_> {
+            fn visit_expr(&mut self, expr: &'c Expr) {
+                if let Expr::Name(name) = expr
+                    && matches!(name.id.as_str(), "enumerate" | "zip" | "map" | "filter" | "reversed")
+                    && !self.0.program_binds_name(name.id.as_str())
+                {
+                    self.1 = true;
+                }
+                ruff_python_ast::visitor::walk_expr(self, expr);
+            }
+        }
+        let mut finder = Finder(self, false);
+        ruff_python_ast::visitor::Visitor::visit_expr(&mut finder, expr);
+        finder.1
     }
 
     /// Whether any bare name in a `ty` type spelling is the short name of a
@@ -733,14 +758,20 @@ impl ModuleBuilder<'_> {
                 };
                 Ok(*inner)
             }
+            // `A | B | None` is an optional of the union `A | B`: a Rust
+            // `Option<SmeltUnionN>`, the shape a hand port writes, whose
+            // members `isinstance` and `is None` can test. The canonical
+            // union-with-a-`None`-arm has no concrete enum (codegen erases it,
+            // `union_member_is_concrete`), which would put a value with a
+            // fully static shape behind `SmeltUnknown`.
             (_, true) => {
-                types.push(none_ty);
-                let union = self.intern_type(Type::Union(types));
-                Ok(smelt_hir::type_normalize::normalize_type(
+                let raw_union = self.intern_type(Type::Union(types));
+                let union = smelt_hir::type_normalize::normalize_type(
                     &mut self.ctx.krate.types,
-                    union,
+                    raw_union,
                     smelt_hir::type_normalize::NormalizeOptions::default(),
-                ))
+                );
+                Ok(smelt_hir::type_normalize::optional_of(&mut self.ctx.krate.types, union))
             }
             (_, false) => {
                 let union = self.intern_type(Type::Union(types));

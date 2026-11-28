@@ -1,0 +1,14 @@
+[A(1), B()]
+[[A(2), B()], [B()]]
+{'a': A(3), 'b': B()}
+[A(1), B()] [A(1), B()]
+(A(4), B())
+'tab\there\nnew\rret'
+'ctl\x01\x1f\x7f\x80\x9f'
+'nbsp\xa0soft\xadé'
+'zero\u200bwidth\u2028line\u3000ideo'
+'private\ue000 max\U0010ffff emoji😀'
+"quote's"
+'both\'"'
+'back\\slash'
+['tab\there\nnew\rret', 'ctl\x01\x1f\x7f\x80\x9f', 'nbsp\xa0soft\xadé', 'zero\u200bwidth\u2028line\u3000ideo', 'private\ue000 max\U0010ffff emoji😀', "quote's", 'both\'"', 'back\\slash']

@@ -706,35 +706,64 @@ fn percent_mapping_misuse_rejects() -> TestResult {
     Ok(())
 }
 
-/// `isinstance` refuses what it cannot type: a union with a `None` member
-/// (erased today, so no member test exists) and a target that is neither a
-/// builtin type nor a class.
+/// `isinstance` refuses a target that is neither a builtin type nor a class.
+///
+/// Corrected requirement: this test also required the refusal of
+/// `isinstance` on an `int | str | None` value ("union with a `None`
+/// member"), because that union was erased (its canonical form, a union with a
+/// `None` arm, has no concrete enum). Python's `A | B | None` now lowers to
+/// `Optional(Union[A, B])`, a Rust `Option<SmeltUnionN>`
+/// (`docs/design/python-numeric-tower.md` §3), so its members are testable and
+/// `CPython` accepts the call; `isinstance_on_optional_union` checks it.
 #[test]
 fn isinstance_unsupported_forms_reject() -> TestResult {
-    for (source, expected) in [
-        (
-            py!(r#"
-def f(x: int | str | None) -> bool:
-    return isinstance(x, int)
-"#),
-            "union with a `None` member",
-        ),
-        (
-            py!(r#"
+    let source = py!(r#"
 def f(x: int) -> bool:
     return isinstance(x, bytes)
-"#),
-            "isinstance() of `bytes`",
-        ),
-    ] {
-        let mut ctx = HirCtx::new();
-        let errors = lower_errors(source, &mut ctx)?;
-        ensure(
-            first_error(&errors)?.message.contains(expected),
-            format!("expected an isinstance diagnostic containing {expected:?}"),
-        )?;
-    }
-    Ok(())
+"#);
+    let mut ctx = HirCtx::new();
+    let errors = lower_errors(source, &mut ctx)?;
+    ensure(
+        first_error(&errors)?
+            .message
+            .contains("isinstance() of `bytes`"),
+        "expected an isinstance diagnostic naming `bytes`",
+    )
+}
+
+/// `int | str | None` is an optional of the concrete union `int | str` (never
+/// the erased union with a `None` arm), and `isinstance` on it tests the
+/// union's members (`UnionArmTest`).
+#[test]
+fn isinstance_on_optional_union() -> TestResult {
+    let source = py!(r#"
+def f(x: int | str | None) -> bool:
+    return isinstance(x, int)
+"#);
+    let mut ctx = HirCtx::new();
+    lower_module(source, &mut ctx)?;
+    let function = function_named(&ctx, "f")?;
+    let param_ty = function
+        .params
+        .first()
+        .map(|param| param.ty)
+        .ok_or("f has no parameter")?;
+    let optional_union = matches!(ctx.krate.types.get(param_ty), Some(Type::Optional(inner, _))
+        if matches!(ctx.krate.types.get(*inner), Some(Type::Union(members)) if members.len() == 2
+            && members.iter().all(|member| matches!(ctx.krate.types.get(*member), Some(Type::PyInt | Type::PyStr)))));
+    ensure(
+        optional_union,
+        "`int | str | None` must lower to Optional(Union[int, str])",
+    )?;
+    let tested = ctx.krate.bodies.iter().any(|body| {
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::UnionArmTest { .. }))
+    });
+    ensure(
+        tested,
+        "isinstance on the optional union must test its members",
+    )
 }
 
 /// A literal `None` argument takes the optional parameter's type (as the

@@ -279,6 +279,12 @@ impl ModuleBuilder<'_> {
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let span = self.span(range);
 
+        if self.scope.lambda_templates.contains_key(name) && !self.scope.locals.contains_key(name) {
+            return Err(SmeltError::unsupported(
+                span,
+                format!("`{name}` is an unannotated lambda, typed only where it is called; annotate it with `Callable[...]` to use it as a value"),
+            ));
+        }
         if let Some(&local) = self.scope.locals.get(name) {
             if let Some(narrowed) = self.readable_narrowing(local, body) {
                 return Ok(self.narrowed_local_read(local, narrowed, span, body));

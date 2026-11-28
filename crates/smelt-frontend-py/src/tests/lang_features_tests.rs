@@ -370,3 +370,55 @@ def broken(n: int) -> int:
     )?;
     Ok(())
 }
+
+/// An unannotated `name = lambda ...` is lowered at each call with the
+/// call's argument types, but only where every name its body reads resolves
+/// to the variable it resolved to where the lambda was written: inside a
+/// comprehension whose variable shadows one of them, Python's closure still
+/// reads the enclosing variable, so the inline lowering is refused rather
+/// than reading the comprehension's. A use as a value (no call to type it)
+/// is refused too.
+#[test]
+fn lambda_template_refuses_shadowed_reads_and_value_uses() -> TestResult {
+    let typed = py!(r#"
+def f() -> int:
+    x = 2
+    double = lambda v: v * x
+    return double(3)
+"#);
+    let mut typed_ctx = HirCtx::new();
+    lower_module(typed, &mut typed_ctx)?;
+    for (source, expected) in [
+        (
+            py!(r#"
+def f() -> list[int]:
+    x = 2
+    scaled = lambda v: v * x
+    return [scaled(1) for x in [5, 6]]
+"#),
+            "a name its body reads means another variable",
+        ),
+        (
+            py!(r#"
+def f() -> list[int]:
+    inc = lambda v: v + 1
+    return list(map(inc, [1, 2]))
+"#),
+            "unannotated lambda",
+        ),
+    ] {
+        let mut ctx = HirCtx::new();
+        let errors = lower_errors(source, &mut ctx)?;
+        ensure(
+            errors.iter().any(|error| error.message.contains(expected)),
+            format!(
+                "expected a diagnostic containing {expected:?}, got {:?}",
+                errors
+                    .iter()
+                    .map(|error| &error.message)
+                    .collect::<Vec<_>>()
+            ),
+        )?;
+    }
+    Ok(())
+}

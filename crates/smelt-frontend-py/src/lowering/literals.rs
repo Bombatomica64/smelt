@@ -347,9 +347,10 @@ impl ModuleBuilder<'_> {
             // without a hint is rejected.
             Expr::Lambda(lambda) => self.lambda_expression(lambda, body, type_hint),
 
+            Expr::Yield(yield_expr) => self.yield_expression(yield_expr, body),
+            Expr::YieldFrom(yield_from) => self.yield_from_expression(yield_from, body),
+
             Expr::Named(_)
-            | Expr::Yield(_)
-            | Expr::YieldFrom(_)
             | Expr::TString(_)
             | Expr::BytesLiteral(_)
             | Expr::EllipsisLiteral(_)
@@ -470,8 +471,9 @@ impl ModuleBuilder<'_> {
     /// parameter, a typed return). When no function-typed hint is available the
     /// lambda's parameter types are unknowable and the construct is rejected with
     /// a specific message rather than routed through an erased ABI — keeping the
-    /// static-shape-first policy. (Bare `x = lambda ...` without an annotation is
-    /// the documented deferral; annotate the target with `Callable[...]`.)
+    /// static-shape-first policy. A lambda called where it is written takes its
+    /// call's argument types (`immediate_lambda_call`), and an unannotated
+    /// `x = lambda ...` is typed at each call of `x` (`record_lambda_template`).
     fn lambda_expression(
         &mut self,
         lambda: &ruff_python_ast::ExprLambda,
@@ -1074,20 +1076,11 @@ impl ModuleBuilder<'_> {
             (Some(Type::PyInt | Type::Float), Some(Type::PyInt | Type::Float))
         );
         let both_int = matches!(operand_kinds, (Some(Type::PyInt), Some(Type::PyInt)));
-        // An `int | float` operand (a `min`/`max` of mixed arguments, a
-        // function annotated `-> int | float`) needs the operation run per
-        // member, which the HIR has no member test for yet: refuse it here
-        // rather than emit Rust that narrows to one member.
-        let numeric_union = |kind: &Option<Type>| {
-            matches!(kind, Some(Type::Union(members)) if members.iter().any(|member| {
-                matches!(self.ctx.krate.types.get(*member), Some(Type::PyInt | Type::Float))
-            }))
-        };
-        if numeric_union(&operand_kinds.0) || numeric_union(&operand_kinds.1) {
-            return Err(SmeltError::unsupported(
-                span,
-                "arithmetic on an `int | float` value is not supported yet",
-            ));
+        // A union operand (`int | float`: a `min`/`max` of mixed arguments,
+        // a function annotated `-> int | float`) runs the operation on the
+        // member it holds (`union_member_arithmetic`).
+        if matches!(operand_kinds, (Some(Type::Union(_)), _) | (_, Some(Type::Union(_)))) {
+            return self.union_member_arithmetic(op, lhs, rhs, span, body);
         }
         let any_float = matches!(operand_kinds, (Some(Type::Float), _) | (_, Some(Type::Float)));
         if op == PythonArithmetic::Plain(BinOp::Mul)
@@ -1191,6 +1184,154 @@ impl ModuleBuilder<'_> {
                 SmeltError::unsupported(span, "shift and bitwise operators need two int operands"),
             ),
         }
+    }
+
+    /// `lhs <op> rhs` where an operand is a concrete union: Python
+    /// dispatches on the member the value holds (`union_binary_dispatch`).
+    #[expect(clippy::too_many_arguments, reason = "one operation, its operands and its lowering position")]
+    fn union_member_arithmetic(
+        &mut self,
+        op: PythonArithmetic,
+        lhs: smelt_hir::ExprId,
+        rhs: smelt_hir::ExprId,
+        span: Span,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        self.union_binary_dispatch(lhs, rhs, span, body, |this, left, right, inner| {
+            this.python_arithmetic(op, left, right, span, inner)
+        })
+    }
+
+    /// A binary operation where an operand is a concrete union, lowered by
+    /// `lower` once per member of that operand (`union_member_dispatch`).
+    /// Both operands are evaluated once, in order, before the dispatch; when
+    /// both are unions the right one is split the same way inside each
+    /// branch, since `lower` sees it still a union.
+    #[expect(clippy::too_many_arguments, reason = "one operation, its operands, its lowering position and the per-member lowering")]
+    fn union_binary_dispatch(
+        &mut self,
+        lhs: smelt_hir::ExprId,
+        rhs: smelt_hir::ExprId,
+        span: Span,
+        body: &mut Body,
+        mut lower: impl FnMut(&mut Self, smelt_hir::ExprId, smelt_hir::ExprId, &mut Body) -> Result<smelt_hir::ExprId, SmeltError>,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let lhs_ty = Self::expr_ty(body, lhs);
+        let rhs_ty = Self::expr_ty(body, rhs);
+        let block = body.push_block(span);
+        let left = self.bind_temporary(lhs, span, body, block);
+        let right = self.bind_temporary(rhs, span, body, block);
+        let left_is_union = matches!(self.ctx.krate.types.get(lhs_ty), Some(Type::Union(_)));
+        let (split, split_ty, other, other_ty) =
+            if left_is_union { (left, lhs_ty, right, rhs_ty) } else { (right, rhs_ty, left, lhs_ty) };
+        let split_read = body.push_expr(HirExpr { kind: ExprKind::Local(split), ty: split_ty, span });
+        let result = self.union_member_dispatch(split_read, span, body, |this, member_value, inner| {
+            let other_read = inner.push_expr(HirExpr { kind: ExprKind::Local(other), ty: other_ty, span });
+            if left_is_union {
+                lower(this, member_value, other_read, inner)
+            } else {
+                lower(this, other_read, member_value, inner)
+            }
+        })?;
+        let result_ty = Self::expr_ty(body, result);
+        let block_index = usize::try_from(block.0).map_err(|error| SmeltError::unsupported(span, error.to_string()))?;
+        body.blocks[block_index].tail = Some(result);
+        Ok(body.push_expr(HirExpr { kind: ExprKind::Block(block), ty: result_ty, span }))
+    }
+
+    /// Bind `value` to a fresh immutable temporary in `block`, evaluating it
+    /// there once.
+    fn bind_temporary(
+        &mut self,
+        value: smelt_hir::ExprId,
+        span: Span,
+        body: &mut Body,
+        block: smelt_hir::BlockId,
+    ) -> smelt_hir::LocalId {
+        let ty = Self::expr_ty(body, value);
+        let local = body.push_local(self.synthetic_local("__smelt_operand", ty, false, span));
+        let pat = body.push_pattern(HirPattern::Binding(local));
+        body.push_stmt_to_block(block, HirStmt::Let { pat, ty, value: Some(value) });
+        local
+    }
+
+    /// An operation on `value`, a concrete union, run on the member it holds:
+    /// `lower` builds the operation once per member, from the value read as
+    /// that member, and the member test (`ExprKind::UnionArmTest`) picks the
+    /// branch at run time:
+    ///
+    /// ```text
+    /// v = value                         # evaluated once
+    /// if v holds int:   result = lower(v as int)
+    /// elif ...
+    /// else:             result = lower(v as float)   # the last member
+    /// result
+    /// ```
+    ///
+    /// The result has each branch's type: one type when every branch agrees
+    /// (`int | float` times a `float` is a `float`), else their union (`int |
+    /// float` plus `1` is an `int | float`). A member `lower` refuses refuses
+    /// the whole operation, as it would for that member alone; a union with a
+    /// `None` member (an optional) is refused.
+    fn union_member_dispatch(
+        &mut self,
+        value: smelt_hir::ExprId,
+        span: Span,
+        body: &mut Body,
+        mut lower: impl FnMut(&mut Self, smelt_hir::ExprId, &mut Body) -> Result<smelt_hir::ExprId, SmeltError>,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let union_ty = Self::expr_ty(body, value);
+        let Some(Type::Union(members)) = self.ctx.krate.types.get(union_ty).cloned() else {
+            return Err(SmeltError::unsupported(span, "internal error: expected a union operand"));
+        };
+        if members.iter().any(|member| matches!(self.ctx.krate.types.get(*member), Some(Type::None | Type::Union(_)))) {
+            return Err(SmeltError::unsupported(span, "an operation on a union with a `None` member is not supported; test for `None` first"));
+        }
+        let block = body.push_block(span);
+        let split = self.bind_temporary(value, span, body, block);
+        let mut branches = Vec::with_capacity(members.len());
+        for &member in &members {
+            let read = body.push_expr(HirExpr { kind: ExprKind::Local(split), ty: union_ty, span });
+            let member_value = body.push_expr(HirExpr { kind: ExprKind::UnknownCast { value: read, target: member }, ty: member, span });
+            branches.push((member, lower(self, member_value, body)?));
+        }
+        let mut result_types: Vec<TypeId> = Vec::new();
+        for (_, result) in &branches {
+            let ty = Self::expr_ty(body, *result);
+            if !result_types.contains(&ty) {
+                result_types.push(ty);
+            }
+        }
+        let result_ty = match result_types.as_slice() {
+            [single] => *single,
+            _ => self.union_from_types(result_types, span)?,
+        };
+        let result = body.push_local(self.synthetic_local("__smelt_result", result_ty, true, span));
+        let result_pat = body.push_pattern(HirPattern::Binding(result));
+        body.push_stmt_to_block(block, HirStmt::Let { pat: result_pat, ty: result_ty, value: None });
+        let bool_ty = self.intern_type(Type::Bool);
+        let none_ty = self.intern_type(Type::None);
+        let mut current = block;
+        let last = branches.len().saturating_sub(1);
+        for (index, (member, branch_value)) in branches.into_iter().enumerate() {
+            let assign_block = body.push_block(span);
+            let target = body.push_expr(HirExpr { kind: ExprKind::Local(result), ty: result_ty, span });
+            body.push_stmt_to_block(assign_block, HirStmt::Assign { target, value: branch_value });
+            if index == last {
+                let nested = body.push_expr(HirExpr { kind: ExprKind::Block(assign_block), ty: none_ty, span });
+                body.push_stmt_to_block(current, HirStmt::Expr(nested));
+                break;
+            }
+            let tested = body.push_expr(HirExpr { kind: ExprKind::Local(split), ty: union_ty, span });
+            let cond = body.push_expr(HirExpr { kind: ExprKind::UnionArmTest { value: tested, arms: vec![member] }, ty: bool_ty, span });
+            let otherwise = body.push_block(span);
+            body.push_stmt_to_block(current, HirStmt::If { cond, then_block: assign_block, else_block: Some(otherwise) });
+            current = otherwise;
+        }
+        let tail = body.push_expr(HirExpr { kind: ExprKind::Local(result), ty: result_ty, span });
+        let block_index = usize::try_from(block.0).map_err(|error| SmeltError::unsupported(span, error.to_string()))?;
+        body.blocks[block_index].tail = Some(tail);
+        Ok(body.push_expr(HirExpr { kind: ExprKind::Block(block), ty: result_ty, span }))
     }
 
     /// Python's sequence `+` and `*` on lists and tuples: `xs + ys` is a new
@@ -1752,6 +1893,20 @@ impl ModuleBuilder<'_> {
             CmpOp::Is => BinOp::Eq,
             CmpOp::IsNot => BinOp::NotEq,
         };
+        // A numeric union operand (`int | float`) compares as the member it
+        // holds: `int` with `float` is Python's exact mixed comparison.
+        let numeric_union = |this: &Self, ty: TypeId| {
+            matches!(this.ctx.krate.types.get(ty), Some(Type::Union(members)) if members.iter().all(|member| {
+                matches!(this.ctx.krate.types.get(*member), Some(Type::PyInt | Type::Float | Type::Bool))
+            }))
+        };
+        if !matches!(op, CmpOp::Is | CmpOp::IsNot)
+            && (numeric_union(self, Self::expr_ty(body, lhs)) || numeric_union(self, Self::expr_ty(body, rhs)))
+        {
+            return self.union_binary_dispatch(lhs, rhs, span, body, |this, left, right, inner| {
+                this.compare_pair(op, left, right, span, inner)
+            });
+        }
         // Ordering two sets is Python's subset order: `a <= b` is
         // `a.issubset(b)`, `a < b` a proper subset, and `>=`/`>` the
         // superset forms.
@@ -1916,6 +2071,16 @@ impl ModuleBuilder<'_> {
         {
             let ty = Self::expr_ty(body, operand);
             return Ok(body.push_expr(HirExpr { kind: ExprKind::Literal(negated), ty, span }));
+        }
+        // `-x` of a union (`int | float`) negates the member it holds.
+        if op == UnaryOp::Neg && matches!(self.ctx.krate.types.get(Self::expr_ty(body, operand)), Some(Type::Union(_))) {
+            return self.union_member_dispatch(operand, span, body, |this, member, inner| {
+                if !matches!(this.ctx.krate.types.get(Self::expr_ty(inner, member)), Some(Type::PyInt | Type::Float)) {
+                    return Err(SmeltError::unsupported(span, "unary '-' needs an int or float operand"));
+                }
+                let ty = Self::expr_ty(inner, member);
+                Ok(inner.push_expr(HirExpr { kind: ExprKind::UnaryOp { op: UnaryOp::Neg, operand: member }, ty, span }))
+            });
         }
         // `not x` negates `x`'s Python truth test.
         let tested = if op == UnaryOp::Not { self.python_truth(operand, span, body)? } else { operand };

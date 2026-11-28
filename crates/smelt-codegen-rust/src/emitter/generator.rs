@@ -203,6 +203,22 @@ impl FunctionEmitter<'_> {
         )))
     }
 
+    /// Whether `rendered`, `smelt_value` of type `source` rendered at
+    /// `target` (`rendered_at_type`), is a value of `target`: the types are
+    /// one Rust type, or the rendering converted the value. A rendering that
+    /// left `smelt_value` as it is between two different Rust types found no
+    /// conversion.
+    fn converts_between(
+        &self,
+        rendered: &RustExpr,
+        source: TypeId,
+        target: TypeId,
+    ) -> Result<bool, EmitError> {
+        Ok(source == target
+            || rendered.as_str() != "smelt_value"
+            || self.rendered_type(source)?.as_str() == self.rendered_type(target)?.as_str())
+    }
+
     /// The value a generator step result carries, at the destination type.
     pub(super) fn generator_value_expr(
         &self,
@@ -231,11 +247,28 @@ impl FunctionEmitter<'_> {
             dest_ty,
             &self.render_scope(),
         )?;
+        // A step read at the type of one arm, when the other arm's value has
+        // no conversion to it, is a read the frontend guarded by a `done`
+        // test (Python's `next(g)` raises `StopIteration` on completion, a
+        // TypeScript read after narrowing `!step.done`): the other arm is
+        // unreachable, and spelling its value would not type-check.
+        let unreachable =
+            RustExpr::atom("unreachable!(\"a generator step read at the type of its other arm\")");
+        let yielded_arm = if self.converts_between(&yielded, *yield_ty, dest_ty)? {
+            yielded
+        } else {
+            unreachable.clone()
+        };
+        let returned_arm = if self.converts_between(&returned, *return_ty, dest_ty)? {
+            returned
+        } else {
+            unreachable
+        };
         Ok(RustExpr::atom(format!(
             "match {} {{ SmeltGeneratorResult::Yielded(smelt_value) => {yielded}, SmeltGeneratorResult::Complete(smelt_value) => {returned} }}",
             self.operand_expr(result)?.delimited(),
-            yielded = yielded.delimited(),
-            returned = returned.delimited()
+            yielded = yielded_arm.delimited(),
+            returned = returned_arm.delimited()
         )))
     }
 
@@ -405,10 +438,33 @@ impl FunctionEmitter<'_> {
                     *return_ty,
                     &self.render_scope(),
                 )?;
+                // A `return(v)` the outer generator receives is forwarded to
+                // the delegate when `v` is a value of the delegate's return
+                // type. Otherwise (`yield from` of a generator returning
+                // another type) the delegate is closed with its default return
+                // value, so its pending `finally` blocks run, and the outer
+                // generator completes with `v`: the completion JavaScript's
+                // `yield*` reaches once the delegate's `return()` is done.
+                let forward_return = if self.converts_between(
+                    &returned_command,
+                    *outer_return_ty,
+                    *return_ty,
+                )? {
+                    format!(
+                        "SmeltGeneratorCommand::Return({returned_command})",
+                        returned_command = returned_command.delimited()
+                    )
+                } else {
+                    let close = if *is_async {
+                        "smelt_delegate.resume(SmeltGeneratorCommand::Return(Default::default())).await"
+                    } else {
+                        "smelt_delegate.try_resume(SmeltGeneratorCommand::Return(Default::default()))"
+                    };
+                    format!("{{ let _ = {close}; {return_command} }}")
+                };
                 let delegate_command = format!(
-                    "{{ let smelt_command = smelt_generator_input.borrow_mut().take().unwrap_or_else(|| SmeltGeneratorCommand::Next(Default::default())); match smelt_command {{ SmeltGeneratorCommand::Next(smelt_value) => SmeltGeneratorCommand::Next({sent}), SmeltGeneratorCommand::Return(smelt_value) => SmeltGeneratorCommand::Return({returned_command}), SmeltGeneratorCommand::Throw(smelt_error) => SmeltGeneratorCommand::Throw(smelt_error) }} }}",
+                    "{{ let smelt_command = smelt_generator_input.borrow_mut().take().unwrap_or_else(|| SmeltGeneratorCommand::Next(Default::default())); match smelt_command {{ SmeltGeneratorCommand::Next(smelt_value) => SmeltGeneratorCommand::Next({sent}), SmeltGeneratorCommand::Return(smelt_value) => {forward_return}, SmeltGeneratorCommand::Throw(smelt_error) => SmeltGeneratorCommand::Throw(smelt_error) }} }}",
                     sent = sent.delimited(),
-                    returned_command = returned_command.delimited()
                 );
                 let delegation = delegate_loop(
                     "smelt_delegate",

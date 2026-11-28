@@ -22,6 +22,15 @@ impl ModuleBuilder<'_> {
             ));
         }
 
+        if let Expr::Lambda(lambda) = call.func.as_ref() {
+            return self.immediate_lambda_call(lambda, call, body);
+        }
+        if let Some(expr) = self.lambda_template_call(call, body)? {
+            return Ok(expr);
+        }
+        if let Some(expr) = self.generator_send_call_expression(call, body)? {
+            return Ok(expr);
+        }
         if let Some(expr) = self.exception_call_expression(call, body)? {
             return Ok(expr);
         }
@@ -357,6 +366,11 @@ impl ModuleBuilder<'_> {
             // import or local spelled `abs`, `len`, `print`, …) is that binding.
             if self.program_binds_name(name.id.as_str()) {
                 return Ok(None);
+            }
+            if name.id.as_str() == "next"
+                && let Some(expr) = self.next_call_expression(call, body, span)?
+            {
+                return Ok(Some(expr));
             }
             if name.id.as_str() == "isinstance" {
                 return self.isinstance_expression(call, body, span).map(Some);
@@ -747,6 +761,94 @@ impl ModuleBuilder<'_> {
         })))
     }
 
+    /// `next(g)` / `next(g, default)` on a generator: one resumption
+    /// (`generator_resume_expression`). `None` when the argument is not a
+    /// generator.
+    fn next_call_expression(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+        span: Span,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let (generator_ast, default_ast) = match (call.arguments.args.as_ref(), call.arguments.keywords.is_empty()) {
+            ([generator], true) => (generator, None),
+            ([generator, default], true) => (generator, Some(default)),
+            _ => return Ok(None),
+        };
+        let generator = self.expression(generator_ast, body)?;
+        let Some(Type::Generator { is_async: false, yield_ty, .. }) = self.ctx.krate.types.get(Self::expr_ty(body, generator)).cloned() else {
+            return Err(SmeltError::unsupported(span, "next() is supported on a generator"));
+        };
+        let default = default_ast.map(|default| self.expression_with_hint(default, body, Some(yield_ty))).transpose()?;
+        self.generator_resume_expression(generator, None, default, span, body).map(Some)
+    }
+
+    /// `g.send(value)` on a generator: resume it with `value` as the result of
+    /// the `yield` it is suspended at (`generator_resume_expression`). `None`
+    /// when the receiver is not a generator.
+    fn generator_send_call_expression(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expr::Attribute(attr) = call.func.as_ref() else {
+            return Ok(None);
+        };
+        if attr.attr.as_str() != "send" {
+            return Ok(None);
+        }
+        let generator = self.expression(&attr.value, body)?;
+        let Some(Type::Generator { is_async: false, next_ty, .. }) = self.ctx.krate.types.get(Self::expr_ty(body, generator)).cloned() else {
+            return Ok(None);
+        };
+        let span = self.span(call.range());
+        let ([sent_ast], []) = (call.arguments.args.as_ref(), call.arguments.keywords.as_ref()) else {
+            return Err(SmeltError::unsupported(span, "generator.send() takes one value"));
+        };
+        let sent = self.expression_with_hint(sent_ast, body, Some(next_ty))?;
+        if Self::expr_ty(body, sent) != next_ty {
+            return Err(SmeltError::unsupported(span, "generator.send() needs a value of the generator's send type"));
+        }
+        self.generator_resume_expression(generator, Some(sent), None, span, body).map(Some)
+    }
+
+    /// Lower `(lambda x, y: body)(a, b)`, a lambda called where it is written.
+    ///
+    /// The call is the lambda's only use, so its arguments are the context
+    /// that types its parameters: each parameter takes its argument's static
+    /// type, the body lowers under those, and the lambda's return type is its
+    /// body's. Python evaluates the lambda expression (its defaults) before
+    /// the arguments; `ClosureCall` keeps that order, callee first. Only
+    /// positional arguments are typed this way: a keyword or starred argument
+    /// names no parameter position.
+    fn immediate_lambda_call(
+        &mut self,
+        lambda: &ruff_python_ast::ExprLambda,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let span = self.span(call.range());
+        if !call.arguments.keywords.is_empty() || call.arguments.args.iter().any(|arg| matches!(arg, Expr::Starred(_))) {
+            return Err(SmeltError::unsupported(
+                span,
+                "an immediately called lambda takes positional arguments only",
+            ));
+        }
+        let args = call
+            .arguments
+            .args
+            .iter()
+            .map(|arg| self.expression(arg, body))
+            .collect::<Result<Vec<_>, _>>()?;
+        let params = args.iter().map(|arg| Self::expr_ty(body, *arg)).collect::<Vec<_>>();
+        let closure = self.lambda_closure(lambda, &params, None, body)?;
+        Ok(body.push_expr(HirExpr {
+            kind: ExprKind::ClosureCall { callee: closure.expr, args },
+            ty: closure.return_ty,
+            span,
+        }))
+    }
+
     /// Lower and validate Python call arguments for a statically typed callable.
     fn callable_call_args(
         &mut self,
@@ -917,13 +1019,25 @@ impl ModuleBuilder<'_> {
                 continue;
             }
             // A value is an `Optional` of its own type (a defaulted parameter).
-            let optional_of_supplied =
-                matches!(self.ctx.krate.types.get(*expected), Some(Type::Optional(inner, _)) if *inner == supplied);
+            // A value of one arm of an optional union is a value of the
+            // optional (`int` for `int | str | None`).
+            let optional_of_supplied = matches!(self.ctx.krate.types.get(*expected), Some(Type::Optional(inner, _))
+                if *inner == supplied
+                    || matches!(self.ctx.krate.types.get(*inner), Some(Type::Union(arms)) if arms.contains(&supplied)));
             // A value of one arm is a value of the union declaring that arm.
             let arm_of_union = matches!(self.ctx.krate.types.get(*expected), Some(Type::Union(arms)) if arms.contains(&supplied));
+            // A subclass instance is an instance of each of its bases; the
+            // code generator upcasts it to the base's handle, as it does for
+            // an annotated assignment (`b: Base = Leaf()`).
+            let subclass_of_expected = matches!(
+                (self.ctx.krate.types.get(*expected), self.ctx.krate.types.get(supplied)),
+                (Some(&Type::Class { name: base, args: ref base_args }), Some(&Type::Class { name: leaf, args: ref leaf_args }))
+                    if base_args.is_empty() && leaf_args.is_empty() && self.class_extends(leaf, base)
+            );
             if supplied != *expected
                 && !optional_of_supplied
                 && !arm_of_union
+                && !subclass_of_expected
                 && !self.structurally_conforms(*expected, supplied)
             {
                 return Err(SmeltError::unsupported(

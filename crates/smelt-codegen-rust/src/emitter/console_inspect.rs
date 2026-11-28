@@ -434,20 +434,43 @@ pub(crate) fn emit_console_inspect_support(
 impl FunctionEmitter<'_> {
     /// Whether `ty` is a concrete union the emitter gives a `SmeltPyRepr`
     /// impl (`emit_union_definitions`): every member has Python text and one
-    /// of them is Python's own `int` or `str`, so the union only occurs in a
-    /// Python crate, where `SmeltPyInt`/`SmeltPyStr` demand the trait.
+    /// of them only occurs in a Python crate (`is_python_only_type`), where
+    /// the trait is demanded.
     pub(crate) fn union_has_py_repr(&self, ty: TypeId) -> bool {
         let Some(Type::Union(members)) = self.mir.types.get(ty) else {
             return false;
         };
         self.concrete_union_members(ty).is_some()
-            && members.iter().any(|member| {
-                matches!(self.mir.types.get(*member), Some(Type::PyInt | Type::PyStr))
-            })
+            && members
+                .iter()
+                .any(|member| self.is_python_only_type(*member))
             && members.iter().all(|member| {
                 !matches!(self.mir.types.get(*member), Some(Type::Union(_)))
                     && self.type_has_py_repr(*member)
             })
+    }
+
+    /// Whether `ty` only occurs in a Python crate: Python's own `int` or
+    /// `str`, a class with a Python `__repr__` protocol, a Python exception,
+    /// or a list, set, tuple, dict or optional of such a type. A union with
+    /// such a member is Python source, so it prints through `SmeltPyRepr`
+    /// (`[A(1), B()]`, `[[A(1)], [B()]]`), never Rust's `Debug`.
+    fn is_python_only_type(&self, ty: TypeId) -> bool {
+        match self.mir.types.get(ty) {
+            Some(Type::PyInt | Type::PyStr) => true,
+            Some(Type::Class { name, .. }) => {
+                py_text_protocol::class_has_python_repr(self.mir, *name)
+                    || self.is_py_exception_type(ty)
+            }
+            Some(Type::List(item) | Type::Set(item) | Type::Optional(item, _)) => {
+                self.is_python_only_type(*item)
+            }
+            Some(Type::Dict(key, value)) => {
+                self.is_python_only_type(*key) || self.is_python_only_type(*value)
+            }
+            Some(Type::Tuple(items)) => items.iter().any(|item| self.is_python_only_type(*item)),
+            _ => false,
+        }
     }
 
     /// Whether a value of type `ty` has a `SmeltPyRepr` impl

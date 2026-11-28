@@ -35,6 +35,9 @@ impl ModuleBuilder<'_> {
 
             // `x = value` — assignment to an already-declared local.
             Stmt::Assign(s) => {
+                if self.record_lambda_template(s) {
+                    return Ok(());
+                }
                 if s.targets.len() != 1 {
                     return Err(SmeltError::unsupported(
                         self.span(s.range),
@@ -108,11 +111,20 @@ impl ModuleBuilder<'_> {
 
             // `return [value]`
             Stmt::Return(ret) => {
-                if self.scope.generator.is_some() && ret.value.is_some() {
-                    return Err(SmeltError::unsupported(
-                        self.span(ret.range),
-                        "a generator's `return value` (StopIteration.value) is not supported; use a bare `return`",
-                    ));
+                // A generator's `return value` completes it with the value
+                // `StopIteration` carries: its annotated `R`.
+                if let Some(generator) = self.scope.generator
+                    && let Some(returned) = ret.value.as_deref()
+                {
+                    let value = self.expression_with_hint(returned, body, Some(generator.returned))?;
+                    if Self::expr_ty(body, value) != generator.returned {
+                        return Err(SmeltError::unsupported(
+                            self.span(ret.range),
+                            "a generator's return value must have the return type its `Generator[Y, S, R]` annotation names",
+                        ));
+                    }
+                    body.push_stmt_to_block(block, HirStmt::Return(Some(value)));
+                    return Ok(());
                 }
                 let value = ret
                     .value
