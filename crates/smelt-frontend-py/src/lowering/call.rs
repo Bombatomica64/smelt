@@ -34,6 +34,16 @@ impl ModuleBuilder<'_> {
         if let Some(expr) = self.exception_call_expression(call, body)? {
             return Ok(expr);
         }
+        // A method of a user class is the class's, whatever builtin method it
+        // is spelled like (`registry.find(name)`, `store.items()`): the
+        // string and collection handlers below dispatch on the method name.
+        if let Expr::Attribute(attr) = call.func.as_ref()
+            && let Some(receiver_ty) = self.static_receiver_type(&attr.value, body)
+            && self.class_method_dispatch(receiver_ty, attr.attr.as_str()).is_some()
+            && let Some(expr) = self.protocol_call_expression(call, body)?
+        {
+            return Ok(expr);
+        }
         if let Some(expr) = self.stdlib_module_call_expression(call, body)? {
             return Ok(expr);
         }
@@ -77,6 +87,48 @@ impl ModuleBuilder<'_> {
             span,
             "only calls to top-level functions, class constructors, and print() are supported",
         ))
+    }
+
+    /// The static type of `receiver`, read without lowering it, when its
+    /// shape names it directly: a local (as narrowed here), a module
+    /// variable, a call of a class constructor, or a field of one of those.
+    /// `None` for any other expression, whose type only lowering it tells.
+    fn static_receiver_type(&mut self, receiver: &Expr, body: &Body) -> Option<TypeId> {
+        match receiver {
+            Expr::Name(name) => {
+                if let Some(&local) = self.scope.locals.get(name.id.as_str()) {
+                    return Some(self.readable_narrowing(local, body).unwrap_or_else(|| Self::local_ty(body, local)));
+                }
+                let item = match self.module_variables.get(name.id.as_str()) {
+                    Some(variable) => variable.item,
+                    None => *self.items.get(name.id.as_str())?,
+                };
+                match self.item_ref(item) {
+                    Item::MutableGlobal(global) => Some(global.ty),
+                    Item::Const(constant) => Some(constant.ty),
+                    _ => None,
+                }
+            }
+            Expr::Call(call) => {
+                let Expr::Name(name) = call.func.as_ref() else {
+                    return None;
+                };
+                if self.scope.locals.contains_key(name.id.as_str()) {
+                    return None;
+                }
+                let item = self.items.get(name.id.as_str())?;
+                match self.item_ref(*item) {
+                    Item::Class(class) => self.ctx.krate.types.lookup(&Type::Class { name: class.name, args: Vec::new() }),
+                    _ => None,
+                }
+            }
+            Expr::Attribute(attr) => {
+                let owner = self.static_receiver_type(&attr.value, body)?;
+                let field = self.intern_name(attr.attr.as_str());
+                self.field_type(owner, field).ok()
+            }
+            _ => None,
+        }
     }
 
     /// Lower an ordinary zero-argument-`super()` method call.

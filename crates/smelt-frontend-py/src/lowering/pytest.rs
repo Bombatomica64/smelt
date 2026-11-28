@@ -374,6 +374,7 @@ impl ModuleBuilder<'_> {
             // the module (`lowering/deferred_bodies.rs`).
             let param_names = func.parameters.iter().map(|param| param.name().as_str()).collect::<Vec<_>>();
             this.scope.single_binding = Self::single_binding_names(&param_names, &func.body);
+            this.scope.assigned_attributes = Self::assigned_attribute_paths(&func.body);
             let deferred = this.lower_or_defer_statements(func, &mut fn_body)?;
             Ok((fn_body, params, variadics, deferred))
         })?;

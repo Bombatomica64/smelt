@@ -262,8 +262,13 @@ struct FnScope {
     /// The names this function binds exactly once, which an `isinstance`
     /// narrowing may name (see `lowering/narrowing.rs`).
     single_binding: HashSet<String>,
-    /// The narrowed type of each local an enclosing `isinstance` test proved.
-    narrowed: HashMap<smelt_hir::LocalId, TypeId>,
+    /// The narrowed type of each local (or field of a local) an enclosing
+    /// `isinstance` or `is None` test proved.
+    narrowed: HashMap<NarrowKey, TypeId>,
+    /// `(receiver, attribute)` of every attribute store this function makes
+    /// through a name (`self.tree = ...`): such a field is never narrowed,
+    /// since a later store could make a narrowed read stale.
+    assigned_attributes: HashSet<(String, String)>,
     /// The generator function being lowered, if it is one
     /// (`lowering/generators.rs`).
     generator: Option<GeneratorScope>,

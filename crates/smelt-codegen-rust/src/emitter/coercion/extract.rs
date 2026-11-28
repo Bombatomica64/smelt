@@ -410,6 +410,16 @@ impl FunctionEmitter<'_> {
         if let Some(projected) = self.project_union_value(&value_text, source, target)? {
             return self.rendered_at_type(&projected, target, dest_ty, &self.render_scope());
         }
+        // A value of a polymorphic class cast to one of its descendants (a
+        // Python read narrowed by `isinstance`) is the checked downcast of the
+        // same object, never an extraction from an erased value.
+        if let Some(downcast) = self.polymorphic_downcast_expr(source, target)? {
+            let checked = RustExpr::atom(format!(
+                "{{ let smelt_struct_value = {value_text}.clone(); match {downcast} {{ Some(smelt_downcast) => smelt_downcast, None => panic!(\"a narrowed value is not an instance of its narrowed class\") }} }}",
+                value_text = value_text.tight()
+            ));
+            return self.rendered_at_type(&checked, target, dest_ty, &self.render_scope());
+        }
         let cast_text = if self.renders_erased(target)? {
             self.erase(unknown_value)?
         } else {

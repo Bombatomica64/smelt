@@ -207,12 +207,24 @@ impl FunctionEmitter<'_> {
         };
         let class = crate::classes::find_class(self.mir, *name)
             .ok_or_else(|| EmitError::new("union method class is not materialized"))?;
-        let function = class
-            .methods
-            .iter()
-            .filter_map(|id| self.mir.functions.get(id.0 as usize))
-            .find(|function| function.name == method)
-            .ok_or_else(|| EmitError::new("union member does not implement method"))?;
+        // The member's own method, or the one it inherits: the nearest class
+        // up its base chain that declares it (`Dog` in `Animal | Dog` answers
+        // `sound` from `Animal`), as a call on the member resolves it.
+        let mut declaring = Some(class);
+        let function = loop {
+            let Some(current) = declaring else {
+                return Err(EmitError::new("union member does not implement method"));
+            };
+            if let Some(found) = current
+                .methods
+                .iter()
+                .filter_map(|id| self.mir.functions.get(id.0 as usize))
+                .find(|function| function.name == method)
+            {
+                break found;
+            }
+            declaring = current.base.and_then(|base| crate::classes::find_class(self.mir, base));
+        };
         let substitutions = class
             .type_params
             .iter()

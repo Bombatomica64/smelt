@@ -748,3 +748,16 @@ fn generator_throw_close() -> TestResult {
 fn super_chains() -> TestResult {
     verify_python_parity("super_chains")
 }
+
+/// An `is None` test on `self.field` narrows the field (refused before), an
+/// `isinstance` test on a base-class value narrows it to the subclass as a
+/// checked downcast of the same object (a miscompile or refusal before), a
+/// conditional expression with branches of different types is their union,
+/// a list of sibling classes dispatches an inherited method, and a user
+/// method spelled like a builtin one (`find`, `items`, `count`) is the
+/// user's. Requirements: `CPython`'s output, identity of the narrowed object
+/// included.
+#[test]
+fn narrowing_and_dispatch() -> TestResult {
+    verify_python_parity("narrowing_and_dispatch")
+}
