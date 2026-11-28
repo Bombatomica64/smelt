@@ -391,6 +391,15 @@ fn function_at_object_type() -> TestResult {
     verify_node_parity("function_at_object_type")
 }
 
+/// A record built from a function value (`const n: Named = hello`) is that
+/// function: `===` and `Object.is` between them, and between two records built
+/// from it, agree with Node, through parameters, returns and lists; records
+/// built from different (even short-lived) closures stay distinct.
+#[test]
+fn function_identity_records() -> TestResult {
+    verify_node_parity("function_identity_records")
+}
+
 /// A function keeps one identity across its representations: erased into
 /// `unknown`, read at a typed slot, stored in a list, a `Set` or a `Map`, and
 /// found again with `===`, `indexOf`, `includes`, `has` and `get`.

@@ -24,6 +24,7 @@ pub const ORDER: &[Entry] = &[
     Entry::Item("smelt_number_format_checked"),
     Entry::Item("impl_IntoSmeltUnknown_for_SmeltAccessor_T"),
     Entry::Item("SmeltAccessor"),
+    Entry::Item("SmeltFunctionToken"),
     Entry::Item("smelt_py_float_repr"),
     Entry::Item("smelt_py_str_repr"),
     Entry::Item("SmeltPyRepr"),

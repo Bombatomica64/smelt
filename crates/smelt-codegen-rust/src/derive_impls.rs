@@ -108,6 +108,7 @@ pub(crate) fn emit_default_impl_for_storage_type(
     identity: Option<&str>,
     nested_base: bool,
     view_slot: bool,
+    function_token: bool,
 ) -> Result<(), EmitError> {
     // Each field's default expression is computed ONCE and used twice: for the
     // body, and to decide the impl's `where` clause.
@@ -213,6 +214,14 @@ pub(crate) fn emit_default_impl_for_storage_type(
                         self_writer.line(format!(
                             "{}: {identity_literal},",
                             crate::class_identity::CLASS_IDENTITY_FIELD
+                        ));
+                    }
+                    // A defaulted record was built from no function
+                    // (`crate::function_identity`).
+                    if function_token {
+                        self_writer.line(format!(
+                            "{}: ::std::default::Default::default(),",
+                            crate::function_identity::FUNCTION_IDENTITY_FIELD
                         ));
                     }
                 });

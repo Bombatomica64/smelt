@@ -52,6 +52,39 @@ impl FunctionEmitter<'_> {
         fields.push(format!("{field}: {value}"));
     }
 
+    /// Add the function-identity token to a record literal of `record` when
+    /// the record carries one ([`crate::function_identity`]) and `fields`
+    /// does not already supply it (`function_record_expr` does).
+    ///
+    /// `copied_from` is the record the literal converts, when there is one:
+    /// a record converted from another record that carries a token stands for
+    /// the same function. Everything else was built from no function.
+    pub(super) fn push_function_identity_field(
+        &self,
+        fields: &mut Vec<String>,
+        record: Symbol,
+        copied_from: Option<(TypeId, &str)>,
+    ) {
+        let field = crate::function_identity::FUNCTION_IDENTITY_FIELD;
+        if !self.context.carries_function_identity(record)
+            || fields.iter().any(|part| {
+                part.strip_prefix(field)
+                    .is_some_and(|rest| rest.starts_with(':'))
+            })
+        {
+            return;
+        }
+        let copied =
+            copied_from.and_then(|(source_ty, source)| match self.mir.types.get(source_ty) {
+                Some(Type::Class { name, .. }) if self.context.carries_function_identity(*name) => {
+                    Some(format!("{source}.{field}.clone()"))
+                }
+                _ => None,
+            });
+        let value = copied.unwrap_or_else(|| "::std::default::Default::default()".to_owned());
+        fields.push(format!("{field}: {value}"));
+    }
+
     /// A list literal at its destination.
     pub(super) fn list_literal_expr(
         &self,
@@ -476,6 +509,7 @@ impl FunctionEmitter<'_> {
         }
         self.push_phantom_field(&mut parts, mir_class.name, mir_class.type_params.len());
         self.push_class_identity_field(&mut parts, mir_class.name, None);
+        self.push_function_identity_field(&mut parts, mir_class.name, None);
         // A reference class wraps its inner record in a fresh shared cell.
         // Identity lives in the `Rc`, so the constructor mints one cell;
         // aliasing later clones the handle (`Rc::clone`), sharing it.
@@ -675,6 +709,7 @@ impl FunctionEmitter<'_> {
     ) -> Result<RustExpr, EmitError> {
         self.push_phantom_field(&mut field_text, name, type_args);
         self.push_class_identity_field(&mut field_text, name, None);
+        self.push_function_identity_field(&mut field_text, name, None);
 
         let type_name = self.type_rust_name(name)?;
         // A reference-class record is a handle newtype over its `Inner`
