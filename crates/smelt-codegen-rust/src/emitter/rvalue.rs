@@ -827,6 +827,7 @@ impl FunctionEmitter<'_> {
                 set,
                 collection,
             } => self.collection_iterator_expr(*op, *set, collection),
+            Rvalue::ListIterator { list } => self.list_iterator_expr(list),
             Rvalue::CollectionLen { collection, .. } => {
                 let collection_text = self.operand_expr(collection)?;
                 Ok(RustExpr::atom(format!(

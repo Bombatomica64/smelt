@@ -281,9 +281,21 @@ impl ModuleBuilder<'_> {
             ("Capitalize" | "Uncapitalize" | "Uppercase" | "Lowercase", [_]) => {
                 Ok(self.ctx.krate.types.intern(Type::String))
             }
-            ("Array" | "ArrayLike" | "Iterable" | "ReadonlyArray", [item]) => {
+            ("Array" | "ArrayLike" | "ReadonlyArray", [item]) => {
                 let lowered_item = self.ts_type_to_hir(item)?;
                 Ok(self.ctx.krate.types.intern(Type::List(lowered_item)))
+            }
+            // `Iterable<T>` is the interface `{ [Symbol.iterator](): Iterator<T> }`,
+            // lowered as Smelt lowers any one-method interface: the method
+            // itself, `() => Iterator<T>` (`iterable_thunk_type`). A consumer
+            // calls it for a fresh iterator each time it iterates, so the
+            // value is lazy (an infinite iterable works, and its side effects
+            // interleave with the consumer's as in Node) and re-iterable (an
+            // array iterated twice restarts). It used to be `T[]`, which
+            // drained the argument into a list at the call.
+            ("Iterable", [item]) => {
+                let lowered_item = self.ts_type_to_hir(item)?;
+                Ok(self.iterable_thunk_type(lowered_item))
             }
             // `Partial<X>` of a concrete interface record is its OWN record
             // with every field optional. Lowering it as `X` made the fields of

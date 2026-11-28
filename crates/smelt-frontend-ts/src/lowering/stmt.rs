@@ -7,6 +7,7 @@ mod control_flow;
 mod destructuring;
 mod for_each;
 mod generators;
+mod iterable_values;
 mod iterator_protocol;
 mod local_declarations;
 mod local_functions;

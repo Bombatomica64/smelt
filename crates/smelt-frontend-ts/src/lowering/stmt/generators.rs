@@ -213,6 +213,21 @@ impl ModuleBuilder<'_> {
             // operand remains a collection rather than masquerading as a
             // generator carrier; MIR/codegen adapt its concrete protocol.
             (value, self.ctx.krate.types.intern(Type::None))
+        } else if let Some(iterator) = self.iterable_thunk_call(value, span, body) {
+            // An `Iterable<T>` value delegates to the iterator its thunk
+            // answers (module `iterable_values`); its completion is
+            // `undefined`.
+            let item_ty = match self.ctx.krate.types.get(Self::expr_ty(body, iterator)) {
+                Some(Type::Generator { yield_ty, .. }) => *yield_ty,
+                _ => outer_yield_ty,
+            };
+            if !self.type_assignable_to(item_ty, outer_yield_ty) {
+                return Err(SmeltError::unsupported(
+                    span,
+                    "yield* iterable item type is not assignable to the outer yield type",
+                ));
+            }
+            (iterator, self.ctx.krate.types.intern(Type::None))
         } else {
             // TypeScript's iterable protocol delegates through the
             // well-known `Symbol.iterator` member. Computed-key lowering

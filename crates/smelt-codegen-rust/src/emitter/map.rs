@@ -1219,6 +1219,18 @@ impl FunctionEmitter<'_> {
         )))
     }
 
+    /// Emit a live array iterator (`Rvalue::ListIterator`): a
+    /// `smelt_live_iterator` generator reading the list's shared buffer by
+    /// position (`get_index`), so it sees elements pushed after it was made.
+    /// It yields the list's own element type (`SmeltGenerator<T, (), ()>`).
+    pub(super) fn list_iterator_expr(&self, list: &Operand) -> Result<RustExpr, EmitError> {
+        let list_text = self.operand_expr(list)?;
+        Ok(RustExpr::chain(format!(
+            "smelt_live_iterator({{ let smelt_source = {list}.clone(); move |smelt_index| smelt_source.get_index(smelt_index) }})",
+            list = list_text.delimited()
+        )))
+    }
+
     /// Emit `Rvalue::CollectionAt`: the item at a position below the live
     /// length, through the collection's typed accessor (see
     /// [`Self::collection_iterator_expr`]). The `for...of` lowering reads it

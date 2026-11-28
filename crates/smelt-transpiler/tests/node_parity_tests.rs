@@ -2304,6 +2304,19 @@ fn iterator_protocol_open_return() -> TestResult {
     verify_node_parity("iterator_protocol_open_return")
 }
 
+/// A parameter typed `Iterable<T>` receives the iterable itself, iterated
+/// lazily and afresh by each consumer: an infinite generator works with the
+/// producer's logs interleaved with the consumer's, iterating twice restarts
+/// an array and finds a generator exhausted, and arrays, sets, maps, strings,
+/// generators and classes with `[Symbol.iterator]()` pass to every consumer
+/// (`for-of`, spread, `Array.from`, `new Set`, destructuring, `yield*`), also
+/// returned and passed on. It used to be drained into a list at the call, so
+/// an infinite one never returned.
+#[test]
+fn iterable_parameters() -> TestResult {
+    verify_node_parity("iterable_parameters")
+}
+
 /// An unannotated method, static method, getter, async method, abstract
 /// override or function declaration returns the type TypeScript inferred
 /// from its body, as an unannotated function expression already did.

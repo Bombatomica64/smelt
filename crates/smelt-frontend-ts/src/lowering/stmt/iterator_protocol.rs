@@ -793,6 +793,9 @@ impl ModuleBuilder<'_> {
         span: Span,
         body: &mut Body,
     ) -> Option<ExprId> {
+        if let Some(iterator) = self.iterable_thunk_call(value, span, body) {
+            return Some(iterator);
+        }
         let (method, returned) = self.symbol_iterator_method(value, body)?;
         if self.type_mentions_unknown(returned) {
             return None;
@@ -826,6 +829,11 @@ impl ModuleBuilder<'_> {
         span: Span,
         body: &mut Body,
     ) -> Result<Option<ExprId>, SmeltError> {
+        // An `Iterable<T>` value is its `[Symbol.iterator]()` (module
+        // `iterable_values`): call it for a fresh iterator.
+        if let Some(iterator) = self.iterable_thunk_call(value, span, body) {
+            return Ok(Some(iterator));
+        }
         let Some((iterator, returned_ty)) = self.symbol_iterator_method(value, body) else {
             return Ok(None);
         };
@@ -944,6 +952,11 @@ impl ModuleBuilder<'_> {
             return Ok(value);
         }
         let span = Self::body_expr_span(body, value);
+        // An `Iterable<T>` slot takes a thunk over the value (module
+        // `iterable_values`).
+        if self.iterable_thunk_iterator(hint).is_some() {
+            return Ok(self.iterable_at_slot(value, hint, body)?.unwrap_or(value));
+        }
         match self.ctx.krate.types.get(hint).cloned() {
             Some(Type::Generator {
                 is_async: false,

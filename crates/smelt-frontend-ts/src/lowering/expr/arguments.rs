@@ -214,7 +214,8 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
         type_hint: Option<smelt_hir::TypeId>,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        let value = self.argument_with_hint_unadjusted(argument, body, type_hint)?;
+        let shape_hint = type_hint.map(|hint| self.iterable_shape_hint(hint));
+        let value = self.argument_with_hint_unadjusted(argument, body, shape_hint)?;
         let value = self.absent_static_at_slot(value, type_hint, body);
         // A hand-written iterator for an `Iterator<T>` parameter, or an
         // iterable for an `Iterable<T>` one, as `expression_with_hint`.
