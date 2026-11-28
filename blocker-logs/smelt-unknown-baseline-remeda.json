@@ -30621,13 +30621,13 @@
     }
   ],
   "erasure": {
-    "records": 3414,
-    "avoidable": 2511,
+    "records": 3450,
+    "avoidable": 2547,
     "by_reason": [
       {
         "reason": "erased-generic",
         "class": "avoidable",
-        "count": 770
+        "count": 806
       },
       {
         "reason": "source-unknown",
@@ -30718,11 +30718,18 @@
     "avoidable_lines_total": 2221,
     "avoidable_lines": [
       {
+        "file": "packages/remeda/src/zipWith.ts",
+        "line": 76,
+        "reason": "erased-generic",
+        "count": 6,
+        "detail": "T1 of callee zip_with_implementation: unbound at this caller"
+      },
+      {
         "file": "packages/remeda/src/funnel.reference-batch.test.ts",
         "line": 55,
         "reason": "erased-generic",
         "count": 5,
-        "detail": "Args"
+        "detail": "Args of callee funnel: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/internal/lazyDataLastImpl.ts",
@@ -30736,56 +30743,91 @@
         "line": 79,
         "reason": "erased-generic",
         "count": 4,
-        "detail": "S"
+        "detail": "S: in a closure of a function that does not lift it"
       },
       {
         "file": "packages/remeda/src/flatMap.ts",
         "line": 55,
         "reason": "erased-generic",
         "count": 4,
-        "detail": "T"
+        "detail": "T: in a closure of a function that does not lift it"
+      },
+      {
+        "file": "packages/remeda/src/flatMap.ts",
+        "line": 72,
+        "reason": "erased-generic",
+        "count": 4,
+        "detail": "K of lazy_implementation__module_flat_map: no inference source in the emitted signature"
       },
       {
         "file": "packages/remeda/src/map.ts",
         "line": 53,
         "reason": "erased-generic",
         "count": 4,
-        "detail": "T"
+        "detail": "T: in a closure of a function that does not lift it"
+      },
+      {
+        "file": "packages/remeda/src/map.ts",
+        "line": 65,
+        "reason": "erased-generic",
+        "count": 4,
+        "detail": "T of lazy_implementation__module_map: no inference source in the emitted signature"
       },
       {
         "file": "packages/remeda/src/zip.ts",
         "line": 64,
         "reason": "erased-generic",
         "count": 4,
-        "detail": "F"
+        "detail": "F: in a closure of a function that does not lift it"
+      },
+      {
+        "file": "packages/remeda/src/zipWith.ts",
+        "line": 115,
+        "reason": "erased-generic",
+        "count": 4,
+        "detail": "T1 of lazy_implementation__module_zip_with: no inference source in the emitted signature"
       },
       {
         "file": "packages/remeda/src/addProp.ts",
         "line": 52,
         "reason": "erased-generic",
         "count": 3,
-        "detail": "K"
+        "detail": "K: another function's parameter (a demoted callee's result or argument)"
       },
       {
         "file": "packages/remeda/src/addProp.ts",
         "line": 53,
         "reason": "erased-generic",
         "count": 3,
-        "detail": "K"
+        "detail": "K: in a closure of a function that does not lift it"
       },
       {
         "file": "packages/remeda/src/conditional.ts",
         "line": 724,
         "reason": "erased-generic",
         "count": 3,
-        "detail": "In"
+        "detail": "In: another function's parameter (a demoted callee's result or argument)"
+      },
+      {
+        "file": "packages/remeda/src/dropFirstBy.ts",
+        "line": 59,
+        "reason": "erased-generic",
+        "count": 3,
+        "detail": "T of callee heap_maybe_insert: unbound at this caller"
+      },
+      {
+        "file": "packages/remeda/src/find.ts",
+        "line": 91,
+        "reason": "erased-generic",
+        "count": 3,
+        "detail": "S of lazy_implementation__module_find: bounded parameter without a liftable bound trait"
       },
       {
         "file": "packages/remeda/src/flatMap.ts",
         "line": 54,
         "reason": "erased-generic",
         "count": 3,
-        "detail": "K"
+        "detail": "K: another function's parameter (a demoted callee's result or argument)"
       },
       {
         "file": "packages/remeda/src/fromEntries.ts",
@@ -30804,49 +30846,63 @@
         "line": 52,
         "reason": "erased-generic",
         "count": 3,
-        "detail": "Args"
+        "detail": "Args of callee funnel: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/funnel.lodash-debounce.test.ts",
         "line": 48,
         "reason": "erased-generic",
         "count": 3,
-        "detail": "Args"
+        "detail": "Args of callee funnel: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/funnel.lodash-throttle-with-cached-value.test.ts",
         "line": 47,
         "reason": "erased-generic",
         "count": 3,
-        "detail": "Args"
+        "detail": "Args of callee funnel: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/funnel.lodash-throttle.test.ts",
         "line": 43,
         "reason": "erased-generic",
         "count": 3,
-        "detail": "Args"
+        "detail": "Args of callee funnel: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/funnel.reference-batch.test.ts",
         "line": 58,
         "reason": "erased-generic",
         "count": 3,
-        "detail": "BatchResponse"
+        "detail": "BatchResponse: in a closure of a function that does not lift it"
       },
       {
         "file": "packages/remeda/src/funnel.reference-batch.test.ts",
         "line": 62,
         "reason": "erased-generic",
         "count": 3,
-        "detail": "BatchResponse"
+        "detail": "BatchResponse: in a closure of a function that does not lift it"
       },
       {
         "file": "packages/remeda/src/funnel.remeda-debounce.test.ts",
         "line": 57,
         "reason": "erased-generic",
         "count": 3,
-        "detail": "Args"
+        "detail": "Args of callee funnel: unbound at this caller"
+      },
+      {
+        "file": "packages/remeda/src/funnel.ts",
+        "line": 172,
+        "reason": "erased-generic",
+        "count": 3,
+        "detail": "Args of funnel: the body-cleanliness trial demoted the function"
+      },
+      {
+        "file": "packages/remeda/src/intersection.ts",
+        "line": 51,
+        "reason": "erased-generic",
+        "count": 3,
+        "detail": "S of lazy_implementation: partial lift: it keys a map"
       },
       {
         "file": "packages/remeda/src/isDeepEqual.test.ts",
@@ -30867,84 +30923,91 @@
         "line": 82,
         "reason": "erased-generic",
         "count": 3,
-        "detail": "K"
+        "detail": "K: another function's parameter (a demoted callee's result or argument)"
       },
       {
         "file": "packages/remeda/src/pullObject.ts",
         "line": 83,
         "reason": "erased-generic",
         "count": 3,
-        "detail": "K"
+        "detail": "K: in a closure of a function that does not lift it"
       },
       {
         "file": "packages/remeda/src/pullObject.ts",
         "line": 94,
         "reason": "erased-generic",
         "count": 3,
-        "detail": "K"
+        "detail": "K of pull_object_implementation: bounded parameter without a liftable bound trait"
       },
       {
         "file": "packages/remeda/src/set.ts",
         "line": 46,
         "reason": "erased-generic",
         "count": 3,
-        "detail": "K"
+        "detail": "K: another function's parameter (a demoted callee's result or argument)"
       },
       {
         "file": "packages/remeda/src/set.ts",
         "line": 47,
         "reason": "erased-generic",
         "count": 3,
-        "detail": "K"
+        "detail": "K: in a closure of a function that does not lift it"
+      },
+      {
+        "file": "packages/remeda/src/takeFirstBy.ts",
+        "line": 59,
+        "reason": "erased-generic",
+        "count": 3,
+        "detail": "T of callee heap_maybe_insert: unbound at this caller"
+      },
+      {
+        "file": "packages/remeda/src/when.test.ts",
+        "line": 151,
+        "reason": "erased-generic",
+        "count": 3,
+        "detail": "T of callee is_not: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/when.ts",
         "line": 162,
         "reason": "erased-generic",
         "count": 3,
-        "detail": "T"
-      },
-      {
-        "file": "packages/remeda/src/zipWith.ts",
-        "line": 76,
-        "reason": "erased-generic",
-        "count": 3,
-        "detail": "T1"
+        "detail": "T of when_implementation__module_when: a call site passes an erased argument at a type-parameter position"
       },
       {
         "file": "packages/remeda/src/zipWith.ts",
         "line": 86,
         "reason": "erased-generic",
         "count": 3,
-        "detail": "T1"
+        "detail": "T1: in a closure of a function that does not lift it"
       },
       {
         "file": "packages/remeda/src/zipWith.ts",
         "line": 88,
         "reason": "erased-generic",
         "count": 3,
-        "detail": "T1"
+        "detail": "T1: in a closure of a function that does not lift it"
       },
       {
         "file": "packages/remeda/src/zipWith.ts",
         "line": 103,
         "reason": "erased-generic",
         "count": 3,
-        "detail": "T1"
+        "detail": "T1 of zip_with_implementation: the body-cleanliness trial demoted the function"
       },
       {
         "file": "packages/remeda/src/zipWith.ts",
         "line": 106,
         "reason": "erased-generic",
         "count": 3,
-        "detail": "T1"
+        "detail": "T1: in a closure of a function that does not lift it"
       },
       {
         "file": "packages/remeda/src/zipWith.ts",
         "line": 107,
         "reason": "erased-generic",
         "count": 3,
-        "detail": "T1"
+        "detail": "T1: in a closure of a function that does not lift it"
       },
       {
         "file": "packages/remeda/src/addProp.ts",
@@ -30958,14 +31021,14 @@
         "line": 50,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "T"
+        "detail": "T of all_pass_implementation__module_all_pass: a callback position the renderer cannot express"
       },
       {
         "file": "packages/remeda/src/anyPass.ts",
         "line": 50,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "T"
+        "detail": "T of any_pass_implementation__module_any_pass: a callback position the renderer cannot express"
       },
       {
         "file": "packages/remeda/src/clone.test.ts",
@@ -30978,21 +31041,21 @@
         "line": 45,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "T1"
+        "detail": "T1: another function's parameter (a demoted callee's result or argument)"
       },
       {
         "file": "packages/remeda/src/concat.ts",
         "line": 46,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "T1"
+        "detail": "T1: in a closure of a function that does not lift it"
       },
       {
         "file": "packages/remeda/src/concat.ts",
         "line": 55,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "T1"
+        "detail": "T1 of concat_implementation__module_concat: bounded parameter without a liftable bound trait"
       },
       {
         "file": "packages/remeda/src/conditional.test.ts",
@@ -31006,98 +31069,98 @@
         "line": 725,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "In"
+        "detail": "In: in a closure of a function that does not lift it"
       },
       {
         "file": "packages/remeda/src/conditional.ts",
         "line": 731,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "In"
+        "detail": "In of conditional_implementation: a callback position the renderer cannot express"
       },
       {
         "file": "packages/remeda/src/debounce.test.ts",
         "line": 36,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "F"
+        "detail": "F of callee debounce: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/debounce.test.ts",
         "line": 110,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "F"
+        "detail": "F of callee debounce: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/debounce.test.ts",
         "line": 248,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "F"
+        "detail": "F of callee debounce: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/debounce.test.ts",
         "line": 287,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "F"
+        "detail": "F of callee debounce: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/debounce.test.ts",
         "line": 300,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "F"
+        "detail": "F of callee debounce: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/debounce.test.ts",
         "line": 313,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "F"
+        "detail": "F of callee debounce: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/debounce.test.ts",
         "line": 321,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "F"
+        "detail": "F of callee debounce: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/debounce.test.ts",
         "line": 338,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "F"
+        "detail": "F of callee debounce: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/debounce.test.ts",
         "line": 355,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "F"
+        "detail": "F of callee debounce: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/debounce.test.ts",
         "line": 367,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "F"
+        "detail": "F of callee debounce: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/debounce.test.ts",
         "line": 381,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "F"
+        "detail": "F of callee debounce: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/debounce.test.ts",
         "line": 394,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "F"
+        "detail": "F: in a closure of a function that does not lift it"
       },
       {
         "file": "packages/remeda/src/debounce.ts",
@@ -31110,42 +31173,63 @@
         "line": 61,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "Fallback"
+        "detail": "Fallback: another function's parameter (a demoted callee's result or argument)"
       },
       {
         "file": "packages/remeda/src/defaultTo.ts",
         "line": 62,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "Fallback"
+        "detail": "Fallback: in a closure of a function that does not lift it"
       },
       {
         "file": "packages/remeda/src/defaultTo.ts",
         "line": 68,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "Fallback"
+        "detail": "Fallback of default_to_implementation__module_default_to: bounded parameter without a liftable bound trait"
+      },
+      {
+        "file": "packages/remeda/src/difference.ts",
+        "line": 44,
+        "reason": "erased-generic",
+        "count": 2,
+        "detail": "T of lazy_implementation: the body-cleanliness trial demoted the function"
       },
       {
         "file": "packages/remeda/src/differenceWith.ts",
         "line": 54,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "Other"
+        "detail": "Other: another function's parameter (a demoted callee's result or argument)"
       },
       {
         "file": "packages/remeda/src/differenceWith.ts",
         "line": 55,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "Other"
+        "detail": "Other: in a closure of a function that does not lift it"
+      },
+      {
+        "file": "packages/remeda/src/differenceWith.ts",
+        "line": 63,
+        "reason": "erased-generic",
+        "count": 2,
+        "detail": "T of lazy_implementation__module_difference_with: no inference source in the emitted signature"
       },
       {
         "file": "packages/remeda/src/drop.ts",
         "line": 133,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "T"
+        "detail": "T: in a closure of a function that does not lift it"
+      },
+      {
+        "file": "packages/remeda/src/drop.ts",
+        "line": 141,
+        "reason": "erased-generic",
+        "count": 2,
+        "detail": "T of lazy_implementation: no inference source in the emitted signature"
       },
       {
         "file": "packages/remeda/src/evolve.ts",
@@ -31164,14 +31248,21 @@
         "line": 40,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "T"
+        "detail": "T: another function's parameter (a demoted callee's result or argument)"
       },
       {
         "file": "packages/remeda/src/filter.ts",
         "line": 95,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "T"
+        "detail": "T: in a closure of a function that does not lift it"
+      },
+      {
+        "file": "packages/remeda/src/filter.ts",
+        "line": 107,
+        "reason": "erased-generic",
+        "count": 2,
+        "detail": "T of lazy_implementation__module_filter: no inference source in the emitted signature"
       },
       {
         "file": "packages/remeda/src/find.test.ts",
@@ -31190,28 +31281,35 @@
         "line": 78,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "S"
-      },
-      {
-        "file": "packages/remeda/src/find.ts",
-        "line": 91,
-        "reason": "erased-generic",
-        "count": 2,
-        "detail": "S"
+        "detail": "S: another function's parameter (a demoted callee's result or argument)"
       },
       {
         "file": "packages/remeda/src/findLast.ts",
         "line": 73,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "S"
+        "detail": "S: another function's parameter (a demoted callee's result or argument)"
       },
       {
         "file": "packages/remeda/src/findLast.ts",
         "line": 74,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "S"
+        "detail": "S: in a closure of a function that does not lift it"
+      },
+      {
+        "file": "packages/remeda/src/first.ts",
+        "line": 55,
+        "reason": "erased-generic",
+        "count": 2,
+        "detail": "T: another function's parameter (a demoted callee's result or argument)"
+      },
+      {
+        "file": "packages/remeda/src/firstBy.ts",
+        "line": 73,
+        "reason": "erased-generic",
+        "count": 2,
+        "detail": "T of callee purry_order_rules: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/flatMap.ts",
@@ -31221,18 +31319,18 @@
         "detail": "union of 2 arms"
       },
       {
-        "file": "packages/remeda/src/flatMap.ts",
-        "line": 72,
-        "reason": "erased-generic",
-        "count": 2,
-        "detail": "K"
-      },
-      {
         "file": "packages/remeda/src/forEach.ts",
         "line": 60,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "T"
+        "detail": "T: in a closure of a function that does not lift it"
+      },
+      {
+        "file": "packages/remeda/src/forEach.ts",
+        "line": 77,
+        "reason": "erased-generic",
+        "count": 2,
+        "detail": "T of lazy_implementation__module_for_each: no inference source in the emitted signature"
       },
       {
         "file": "packages/remeda/src/fromEntries.test.ts",
@@ -31246,14 +31344,14 @@
         "line": 75,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "T"
+        "detail": "T: another function's parameter (a demoted callee's result or argument)"
       },
       {
         "file": "packages/remeda/src/fromKeys.ts",
         "line": 76,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "T"
+        "detail": "T: in a closure of a function that does not lift it"
       },
       {
         "file": "packages/remeda/src/funnel.lodash-debounce-with-cached-value.test.ts",
@@ -31312,42 +31410,42 @@
         "line": 59,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "Params"
+        "detail": "Params: in a closure of a function that does not lift it"
       },
       {
         "file": "packages/remeda/src/funnel.reference-batch.test.ts",
         "line": 76,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "Params"
+        "detail": "Params: in a closure of a function that does not lift it"
       },
       {
         "file": "packages/remeda/src/funnel.reference-batch.test.ts",
         "line": 87,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "Params"
+        "detail": "Params: in a closure of a function that does not lift it"
       },
       {
         "file": "packages/remeda/src/funnel.reference-batch.test.ts",
         "line": 107,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "BatchResponse"
+        "detail": "BatchResponse of callee batch: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/funnel.reference-batch.test.ts",
         "line": 146,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "BatchResponse"
+        "detail": "BatchResponse of callee batch: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/funnel.reference-batch.test.ts",
         "line": 181,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "BatchResponse"
+        "detail": "BatchResponse of callee batch: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/funnel.remeda-debounce.test.ts",
@@ -31373,434 +31471,427 @@
         "line": 140,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "F"
+        "detail": "F of callee debounce: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/funnel.remeda-debounce.test.ts",
         "line": 206,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "F"
+        "detail": "F of callee debounce: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/funnel.remeda-debounce.test.ts",
         "line": 327,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "F"
+        "detail": "F of callee debounce: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/funnel.remeda-debounce.test.ts",
         "line": 364,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "F"
+        "detail": "F of callee debounce: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/funnel.remeda-debounce.test.ts",
         "line": 377,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "F"
+        "detail": "F of callee debounce: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/funnel.remeda-debounce.test.ts",
         "line": 389,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "F"
+        "detail": "F of callee debounce: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/funnel.remeda-debounce.test.ts",
         "line": 397,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "F"
+        "detail": "F of callee debounce: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/funnel.remeda-debounce.test.ts",
         "line": 413,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "F"
+        "detail": "F of callee debounce: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/funnel.remeda-debounce.test.ts",
         "line": 429,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "F"
+        "detail": "F of callee debounce: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/funnel.remeda-debounce.test.ts",
         "line": 440,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "F"
+        "detail": "F of callee debounce: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/funnel.remeda-debounce.test.ts",
         "line": 454,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "F"
+        "detail": "F of callee debounce: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/funnel.remeda-debounce.test.ts",
         "line": 467,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "F"
+        "detail": "F: in a closure of a function that does not lift it"
       },
       {
         "file": "packages/remeda/src/funnel.test.ts",
         "line": 22,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "Args"
+        "detail": "Args of callee funnel: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/funnel.test.ts",
         "line": 31,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "Args"
+        "detail": "Args of callee funnel: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/funnel.test.ts",
         "line": 49,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "Args"
+        "detail": "Args of callee funnel: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/funnel.test.ts",
         "line": 62,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "Args"
+        "detail": "Args of callee funnel: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/funnel.test.ts",
         "line": 83,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "Args"
+        "detail": "Args of callee funnel: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/funnel.test.ts",
         "line": 96,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "Args"
+        "detail": "Args of callee funnel: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/funnel.test.ts",
         "line": 114,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "Args"
+        "detail": "Args of callee funnel: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/funnel.test.ts",
         "line": 140,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "Args"
+        "detail": "Args of callee funnel: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/funnel.test.ts",
         "line": 167,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "Args"
+        "detail": "Args of callee funnel: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/funnel.test.ts",
         "line": 198,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "Args"
+        "detail": "Args of callee funnel: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/funnel.test.ts",
         "line": 227,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "Args"
+        "detail": "Args of callee funnel: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/funnel.test.ts",
         "line": 254,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "Args"
+        "detail": "Args of callee funnel: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/funnel.test.ts",
         "line": 286,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "Args"
+        "detail": "Args of callee funnel: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/funnel.test.ts",
         "line": 316,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "Args"
+        "detail": "Args of callee funnel: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/funnel.test.ts",
         "line": 346,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "Args"
+        "detail": "Args of callee funnel: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/funnel.test.ts",
         "line": 375,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "Args"
+        "detail": "Args of callee funnel: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/funnel.test.ts",
         "line": 403,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "Args"
+        "detail": "Args of callee funnel: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/funnel.test.ts",
         "line": 435,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "Args"
+        "detail": "Args of callee funnel: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/funnel.test.ts",
         "line": 464,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "Args"
+        "detail": "Args of callee funnel: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/funnel.test.ts",
         "line": 498,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "Args"
+        "detail": "Args of callee funnel: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/funnel.test.ts",
         "line": 528,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "Args"
+        "detail": "Args of callee funnel: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/funnel.test.ts",
         "line": 556,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "Args"
+        "detail": "Args of callee funnel: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/funnel.test.ts",
         "line": 581,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "Args"
+        "detail": "Args of callee funnel: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/funnel.test.ts",
         "line": 611,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "Args"
+        "detail": "Args of callee funnel: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/funnel.test.ts",
         "line": 643,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "Args"
+        "detail": "Args of callee funnel: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/funnel.test.ts",
         "line": 673,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "Args"
+        "detail": "Args of callee funnel: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/funnel.test.ts",
         "line": 697,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "Args"
+        "detail": "Args of callee funnel: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/funnel.test.ts",
         "line": 718,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "Args"
+        "detail": "Args of callee funnel: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/funnel.test.ts",
         "line": 736,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "Args"
+        "detail": "Args of callee funnel: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/funnel.test.ts",
         "line": 751,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "Args"
+        "detail": "Args of callee funnel: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/funnel.test.ts",
         "line": 774,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "Args"
+        "detail": "Args of callee funnel: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/funnel.test.ts",
         "line": 799,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "Args"
+        "detail": "Args of callee funnel: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/funnel.test.ts",
         "line": 828,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "Args"
+        "detail": "Args of callee funnel: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/funnel.test.ts",
         "line": 848,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "Args"
+        "detail": "Args of callee funnel: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/funnel.test.ts",
         "line": 873,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "Args"
+        "detail": "Args of callee funnel: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/funnel.test.ts",
         "line": 889,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "Args"
+        "detail": "Args of callee funnel: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/funnel.test.ts",
         "line": 909,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "Args"
+        "detail": "Args of callee funnel: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/funnel.test.ts",
         "line": 928,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "Args"
+        "detail": "Args of callee funnel: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/funnel.test.ts",
         "line": 952,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "Args"
+        "detail": "Args of callee funnel: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/funnel.test.ts",
         "line": 989,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "Args"
-      },
-      {
-        "file": "packages/remeda/src/funnel.ts",
-        "line": 172,
-        "reason": "erased-generic",
-        "count": 2,
-        "detail": "Args"
+        "detail": "Args of callee funnel: unbound at this caller"
       },
       {
         "file": "packages/remeda/src/groupBy.ts",
         "line": 73,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "Key"
+        "detail": "Key: another function's parameter (a demoted callee's result or argument)"
       },
       {
         "file": "packages/remeda/src/groupBy.ts",
         "line": 74,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "Key"
+        "detail": "Key: in a closure of a function that does not lift it"
       },
       {
         "file": "packages/remeda/src/groupBy.ts",
         "line": 80,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "Key"
+        "detail": "Key of group_by_implementation__module_group_by: bounded parameter without a liftable bound trait"
       },
       {
         "file": "packages/remeda/src/groupByProp.ts",
         "line": 181,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "Prop"
+        "detail": "Prop: another function's parameter (a demoted callee's result or argument)"
       },
       {
         "file": "packages/remeda/src/groupByProp.ts",
         "line": 182,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "Prop"
+        "detail": "Prop: in a closure of a function that does not lift it"
       },
       {
         "file": "packages/remeda/src/groupByProp.ts",
         "line": 188,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "Prop"
+        "detail": "Prop of group_by_prop_implementation: bounded parameter without a liftable bound trait"
       },
       {
         "file": "packages/remeda/src/hasProp.ts",
         "line": 85,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "Key"
+        "detail": "Key: another function's parameter (a demoted callee's result or argument)"
       },
       {
         "file": "packages/remeda/src/hasProp.ts",
         "line": 86,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "Key"
+        "detail": "Key: in a closure of a function that does not lift it"
       },
       {
         "file": "packages/remeda/src/hasProp.ts",
         "line": 92,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "Key"
+        "detail": "Key of has_prop_implementation: bounded parameter without a liftable bound trait"
       },
       {
         "file": "packages/remeda/src/hasSubObject.test.ts",
@@ -31844,21 +31935,21 @@
         "line": 103,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "S"
+        "detail": "S: another function's parameter (a demoted callee's result or argument)"
       },
       {
         "file": "packages/remeda/src/hasSubObject.ts",
         "line": 104,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "S"
+        "detail": "S: in a closure of a function that does not lift it"
       },
       {
         "file": "packages/remeda/src/hasSubObject.ts",
         "line": 110,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "S"
+        "detail": "S of has_sub_object_implementation: bounded parameter without a liftable bound trait"
       },
       {
         "file": "packages/remeda/src/identity.ts",
@@ -31871,21 +31962,49 @@
         "line": 55,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "K"
+        "detail": "K: another function's parameter (a demoted callee's result or argument)"
       },
       {
         "file": "packages/remeda/src/indexBy.ts",
         "line": 56,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "K"
+        "detail": "K: in a closure of a function that does not lift it"
       },
       {
         "file": "packages/remeda/src/indexBy.ts",
         "line": 62,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "K"
+        "detail": "K of index_by_implementation: bounded parameter without a liftable bound trait"
+      },
+      {
+        "file": "packages/remeda/src/internal/heap.ts",
+        "line": 44,
+        "reason": "erased-generic",
+        "count": 2,
+        "detail": "T of callee heap_sift_down: unbound at this caller"
+      },
+      {
+        "file": "packages/remeda/src/internal/purryOrderRules.ts",
+        "line": 64,
+        "reason": "erased-generic",
+        "count": 2,
+        "detail": "T of callee order_rule_comparer: unbound at this caller"
+      },
+      {
+        "file": "packages/remeda/src/internal/purryOrderRules.ts",
+        "line": 104,
+        "reason": "erased-generic",
+        "count": 2,
+        "detail": "T of callee purry_order_rules: unbound at this caller"
+      },
+      {
+        "file": "packages/remeda/src/internal/purryOrderRules.ts",
+        "line": 125,
+        "reason": "erased-generic",
+        "count": 2,
+        "detail": "T of order_rule_comparer: no inference source in the emitted signature"
       },
       {
         "file": "packages/remeda/src/internal/purryOrderRules.ts",
@@ -31935,35 +32054,35 @@
         "line": 45,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "S"
+        "detail": "S: another function's parameter (a demoted callee's result or argument)"
       },
       {
         "file": "packages/remeda/src/intersection.ts",
         "line": 46,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "S"
-      },
-      {
-        "file": "packages/remeda/src/intersection.ts",
-        "line": 51,
-        "reason": "erased-generic",
-        "count": 2,
-        "detail": "S"
+        "detail": "S: in a closure of a function that does not lift it"
       },
       {
         "file": "packages/remeda/src/intersectionWith.ts",
         "line": 64,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "TFirst"
+        "detail": "TFirst: another function's parameter (a demoted callee's result or argument)"
       },
       {
         "file": "packages/remeda/src/intersectionWith.ts",
         "line": 65,
         "reason": "erased-generic",
         "count": 2,
-        "detail": "TFirst"
+        "detail": "TFirst: in a closure of a function that does not lift it"
+      },
+      {
+        "file": "packages/remeda/src/intersectionWith.ts",
+        "line": 73,
+        "reason": "erased-generic",
+        "count": 2,
+        "detail": "TFirst of lazy_implementation__module_intersection_with: no inference source in the emitted signature"
       },
       {
         "file": "packages/remeda/src/isEmpty.ts",
@@ -31971,124 +32090,6 @@
         "reason": "erased-union",
         "count": 2,
         "detail": "union of 2 arms"
-      },
-      {
-        "file": "packages/remeda/src/isEmptyish.test.ts",
-        "line": 28,
-        "reason": "missing-annotation",
-        "count": 2,
-        "detail": "empty array literal"
-      },
-      {
-        "file": "packages/remeda/src/isEmptyish.test.ts",
-        "line": 76,
-        "reason": "missing-annotation",
-        "count": 2,
-        "detail": "empty object literal"
-      },
-      {
-        "file": "packages/remeda/src/isEmptyish.test.ts",
-        "line": 144,
-        "reason": "untyped-builtin",
-        "count": 2,
-        "detail": "Error record"
-      },
-      {
-        "file": "packages/remeda/src/keys.ts",
-        "line": 6,
-        "reason": "type-level",
-        "count": 2
-      },
-      {
-        "file": "packages/remeda/src/map.ts",
-        "line": 52,
-        "reason": "erased-generic",
-        "count": 2,
-        "detail": "T"
-      },
-      {
-        "file": "packages/remeda/src/map.ts",
-        "line": 65,
-        "reason": "erased-generic",
-        "count": 2,
-        "detail": "T"
-      },
-      {
-        "file": "packages/remeda/src/mapKeys.ts",
-        "line": 85,
-        "reason": "erased-generic",
-        "count": 2,
-        "detail": "Key"
-      },
-      {
-        "file": "packages/remeda/src/mapKeys.ts",
-        "line": 86,
-        "reason": "erased-generic",
-        "count": 2,
-        "detail": "Key"
-      },
-      {
-        "file": "packages/remeda/src/mapKeys.ts",
-        "line": 92,
-        "reason": "erased-generic",
-        "count": 2,
-        "detail": "Key"
-      },
-      {
-        "file": "packages/remeda/src/mapValues.ts",
-        "line": 58,
-        "reason": "erased-generic",
-        "count": 2,
-        "detail": "T"
-      },
-      {
-        "file": "packages/remeda/src/mapValues.ts",
-        "line": 59,
-        "reason": "erased-generic",
-        "count": 2,
-        "detail": "T"
-      },
-      {
-        "file": "packages/remeda/src/mapValues.ts",
-        "line": 65,
-        "reason": "erased-generic",
-        "count": 2,
-        "detail": "T"
-      },
-      {
-        "file": "packages/remeda/src/mapWithFeedback.ts",
-        "line": 71,
-        "reason": "erased-generic",
-        "count": 2,
-        "detail": "T"
-      },
-      {
-        "file": "packages/remeda/src/mapWithFeedback.ts",
-        "line": 72,
-        "reason": "erased-generic",
-        "count": 2,
-        "detail": "T"
-      },
-      {
-        "file": "packages/remeda/src/mapWithFeedback.ts",
-        "line": 83,
-        "reason": "erased-generic",
-        "count": 2,
-        "detail": "T"
-      },
-      {
-        "file": "packages/remeda/src/mapWithFeedback.ts",
-        "line": 85,
-        "reason": "erased-generic",
-        "count": 2,
-        "detail": "T"
-      },
-      {
-        "file": "packages/remeda/src/meanBy.test.ts",
-        "line": 7,
-        "reason": "missing-annotation",
-        "count": 2,
-        "detail": "destructured closure parameter"
       }
     ]
   }

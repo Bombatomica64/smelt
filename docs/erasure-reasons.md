@@ -42,7 +42,7 @@ Records live in `smelt_hir::Crate::erasures` (frontends) and are returned by
 | `runtime-narrowing` | legitimate | TS guards | the value is inspected through runtime narrowing (Bun's can-throw) |
 | `test-harness` | legitimate | TS testing | `vi.fn()`, matchers: compared dynamically by the test runtime |
 | `dynamic-metadata` | legitimate | Python/TS specialization | dynamic metadata the source language makes dynamic |
-| `erased-generic` | avoidable | codegen | a type parameter no Rust generic carries here |
+| `erased-generic` | avoidable | codegen | a type parameter no Rust generic carries here; the detail names whose parameter it is and why it did not lift (see "Demotion reasons") |
 | `erased-union` | avoidable | codegen | a union that is not a concrete generated union |
 | `unresolved-class` | avoidable | codegen | a class type naming no lowered class |
 | `never-value` | avoidable | codegen | `never` rendered as the tagged value |
@@ -71,6 +71,32 @@ record sits follows what is emitted erased:
 So an overload nothing calls contributes no `type-level` record for the
 access, and a fall in this count is not by itself a gain in typed values: the
 typedness report measures that.
+
+## Demotion reasons (`erased-generic` detail)
+
+An `erased-generic` record's detail says which function's type parameter was
+erased and why (`emitter/backend_erasure.rs`, `erased_generic_detail`):
+
+- `T of f: <reason>`: `f`'s own parameter. The reason is the first check of the
+  lift gate it fails (`generic_lifting::type_param_refusal`, which mirrors
+  `liftable_type_params`): a call site passes an erased argument at a
+  type-parameter position; a callback-only parameter is unpinned at a call
+  site; a bounded parameter without a liftable bound trait; no inference
+  source in the emitted signature; a callback position the renderer cannot
+  express; a partial lift whose body inspects a value of it or keys a map; a
+  virtual slot or constructor. When the gate lifts it, the body-cleanliness
+  trial demoted the function.
+- `T of callee g: unbound at this caller`: a callee's parameter reaching this
+  body unbound, named when exactly one static callee declares a parameter of
+  that name.
+- `T: a call site left the callee's parameter unpinned` (rendering a callee
+  under call-site bindings), `T: in a closure of a function that does not lift
+  it`, and `T: another function's parameter ..` for the rest.
+
+Ranking a sidecar by the reason after the colon, and the `of callee` names by
+count, gives the demotion report: which callees to make liftable first.
+Records are deduplicated by span, reason and detail, so one function erasing
+two callees' `T` keeps two records where it kept one before.
 
 ## Severities
 

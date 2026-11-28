@@ -108,7 +108,7 @@
       "clippy::arithmetic_side_effects": 9,
       "clippy::as_conversions": 4,
       "clippy::expect_used": 69,
-      "clippy::indexing_slicing": 22,
+      "clippy::indexing_slicing": 21,
       "clippy::integer_division": 2,
       "clippy::print_stderr": 2,
       "clippy::shadow_reuse": 16,

@@ -805,6 +805,86 @@ pub(crate) fn liftable_type_params(
         .collect()
 }
 
+/// Why the type parameter `name` of `function` does not lift to a Rust
+/// generic: the first check of [`liftable_type_params`] it fails, as a stable
+/// label for the `erased-generic` record's detail (the demotion-reason
+/// report). `None` when the gate itself lifts it, so a remaining demotion was
+/// decided by the body-cleanliness trial or a forwarding caller (the emitter
+/// names those). Mirrors [`liftable_type_params`] check for check; it never
+/// decides anything, so a drift between the two mislabels a record but cannot
+/// change emitted code.
+pub(crate) fn type_param_refusal(
+    mir: &Mir,
+    function: &MirFunction,
+    owned_callback_params: &HashSet<(FuncId, LocalId)>,
+    bounds: &BoundTraitPlan,
+    elision: &TypeParamElision,
+    erased_arguments: &ErasedArgumentMemo,
+    name: Symbol,
+) -> Option<&'static str> {
+    if !may_declare_own_generics(mir, function) {
+        return Some("a virtual slot or constructor cannot declare generics");
+    }
+    let type_param = function
+        .type_params
+        .iter()
+        .find(|param| param.name == name)?;
+    if called_with_erased_type_param_argument_memoized(mir, function, erased_arguments) {
+        return Some("a call site passes an erased argument at a type-parameter position");
+    }
+    if !callback_only_params_are_pinned_at_every_call_site(
+        mir,
+        function,
+        owned_callback_params,
+        elision,
+    ) {
+        return Some("a callback-only type parameter is unpinned at a call site");
+    }
+    if type_param.constraint.is_some()
+        && !bounded_type_param_liftable(mir, function, type_param, bounds)
+    {
+        return Some("bounded parameter without a liftable bound trait");
+    }
+    let directly = function.params.iter().any(|param| {
+        id_index(param.0, "local index does not fit usize")
+            .ok()
+            .and_then(|index| function.locals.get(index))
+            .is_some_and(|local| type_param_preserved_in_emitted_type(mir, elision, local.ty, name))
+    });
+    if !directly
+        && type_param_inferable_through_callback(
+            mir,
+            function,
+            owned_callback_params,
+            elision,
+            name,
+        )
+        .is_none()
+    {
+        return Some("no inference source in the emitted signature");
+    }
+    if !callback_occurrences_are_liftable(mir, function, owned_callback_params, name) {
+        return Some("a callback position the renderer cannot express");
+    }
+    // Every per-parameter check passed; a parameter still outside the lifted
+    // set fell to the partial-lift opacity filter.
+    let lifted = liftable_type_params(
+        mir,
+        function,
+        owned_callback_params,
+        bounds,
+        elision,
+        erased_arguments,
+    );
+    if !lifted.contains(&name) {
+        if type_param_used_as_map_key(mir, function, name) {
+            return Some("partial lift: it keys a map");
+        }
+        return Some("partial lift: the body inspects a value of it");
+    }
+    None
+}
+
 /// Whether every type parameter of `function` is only ever moved, copied or
 /// handed on in its body (closures included) and never keys a map: no
 /// operation reads into a `T` value, so the body renders with each `T` kept
