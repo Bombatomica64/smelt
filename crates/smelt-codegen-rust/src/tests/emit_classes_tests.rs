@@ -1471,6 +1471,16 @@ return self.0.borrow().x.clone();
 
 /// Python `super().method()` calls the immediate base implementation without
 /// recursing into the derived override.
+///
+/// Corrected expectation: the call used to name the class-wide alias
+/// `__smelt_super_greet`. An inherited body emitted on a subclass resolved
+/// that alias on the subclass, so a three-level chain called the body itself
+/// forever. The call now names the definer's alias, `__smelt_super_B_greet`,
+/// which `B` (and every class running `B`'s bodies) defines as the next
+/// definition in the MRO (`reserve_super_call_aliases` in the Python
+/// frontend); the class-wide alias stays for inherited protocols. The
+/// requirement, a typed call of the base body that does not recurse into the
+/// override, is unchanged; `super_chains` checks it at run time.
 #[test]
 fn python_super_method_uses_a_typed_base_alias() {
     let source = source_for_py(
@@ -1497,11 +1507,15 @@ return self_;
 }
 fn greet(&self, value: SmeltPyInt) -> SmeltPyInt {
 let _smelt_tmp_3: SmeltPyInt;
-let _smelt_tmp_2: SmeltPyInt = self.__smelt_super_greet(value.clone());
+let _smelt_tmp_2: SmeltPyInt = self.__smelt_super_B_greet(value.clone());
 _smelt_tmp_3 = (&_smelt_tmp_2) + (&SmeltPyInt::Small(10));
 return _smelt_tmp_3;
 }
 fn __smelt_super_greet(&self, value: SmeltPyInt) -> SmeltPyInt {
+let _smelt_tmp_2: SmeltPyInt = (&value) + (&SmeltPyInt::Small(1));
+return _smelt_tmp_2;
+}
+fn __smelt_super_B_greet(&self, value: SmeltPyInt) -> SmeltPyInt {
 let _smelt_tmp_2: SmeltPyInt = (&value) + (&SmeltPyInt::Small(1));
 return _smelt_tmp_2;
 }

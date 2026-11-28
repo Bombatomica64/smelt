@@ -2725,19 +2725,27 @@ fn smelt_promise_race<T: Clone + 'static>(racers: Vec<SmeltFuture<T>>) -> SmeltF
 
 #[derive(Clone, Debug)]
 pub enum SmeltGeneratorResult<Y, R> { Yielded(Y), Complete(R) }
-#[derive(Clone, Debug)]
-pub enum SmeltGeneratorCommand<N, R> { Next(N), Return(R), Throw(SmeltUnknown) }
+#[derive(Debug)]
+pub enum SmeltGeneratorCommand<N, R> { Next(N), Return(R), Throw(Box<dyn ::std::error::Error>) }
 pub struct SmeltGenerator<Y, R, N> {
     resume: ::std::rc::Rc<::std::cell::RefCell<Box<dyn FnMut(SmeltGeneratorCommand<N, R>) -> Result<SmeltGeneratorResult<Y, R>, Box<dyn ::std::error::Error>>>>>,
     completed: ::std::rc::Rc<::std::cell::RefCell<Option<R>>>,
+    started: ::std::rc::Rc<::std::cell::Cell<bool>>,
 }
-impl<Y, R, N> Clone for SmeltGenerator<Y, R, N> { fn clone(&self) -> Self { Self { resume: self.resume.clone(), completed: self.completed.clone() } } }
+impl<Y, R, N> Clone for SmeltGenerator<Y, R, N> { fn clone(&self) -> Self { Self { resume: self.resume.clone(), completed: self.completed.clone(), started: self.started.clone() } } }
 impl<Y, R, N> PartialEq for SmeltGenerator<Y, R, N> { fn eq(&self, other: &Self) -> bool { ::std::rc::Rc::ptr_eq(&self.resume, &other.resume) } }
 impl<Y, R, N> ::std::fmt::Debug for SmeltGenerator<Y, R, N> { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.write_str("SmeltGenerator") } }
 impl<Y, R: Clone + Default, N> SmeltGenerator<Y, R, N> {
-    fn new(resume: impl FnMut(SmeltGeneratorCommand<N, R>) -> Result<SmeltGeneratorResult<Y, R>, Box<dyn ::std::error::Error>> + 'static) -> Self { Self { resume: ::std::rc::Rc::new(::std::cell::RefCell::new(Box::new(resume))), completed: ::std::rc::Rc::new(::std::cell::RefCell::new(None)) } }
+    fn new(resume: impl FnMut(SmeltGeneratorCommand<N, R>) -> Result<SmeltGeneratorResult<Y, R>, Box<dyn ::std::error::Error>> + 'static) -> Self { Self { resume: ::std::rc::Rc::new(::std::cell::RefCell::new(Box::new(resume))), completed: ::std::rc::Rc::new(::std::cell::RefCell::new(None)), started: ::std::rc::Rc::new(::std::cell::Cell::new(false)) } }
     fn try_resume(&self, command: SmeltGeneratorCommand<N, R>) -> Result<SmeltGeneratorResult<Y, R>, Box<dyn ::std::error::Error>> {
         if self.completed.borrow().is_some() { return Ok(SmeltGeneratorResult::Complete(R::default())); }
+        if !self.started.replace(true) {
+            match command {
+                SmeltGeneratorCommand::Next(_) => {}
+                SmeltGeneratorCommand::Return(value) => { *self.completed.borrow_mut() = Some(value.clone()); return Ok(SmeltGeneratorResult::Complete(value)); }
+                SmeltGeneratorCommand::Throw(error) => { *self.completed.borrow_mut() = Some(R::default()); return Err(error); }
+            }
+        }
         let result = (self.resume.borrow_mut())(command);
         match &result {
             Ok(SmeltGeneratorResult::Complete(value)) => *self.completed.borrow_mut() = Some(value.clone()),
@@ -2747,6 +2755,8 @@ impl<Y, R: Clone + Default, N> SmeltGenerator<Y, R, N> {
         result
     }
     fn resume(&self, command: SmeltGeneratorCommand<N, R>) -> SmeltGeneratorResult<Y, R> { self.try_resume(command).unwrap_or_else(|error| smelt_panic_throw(error)) }
+    #[allow(dead_code)]
+    fn is_started(&self) -> bool { self.started.get() }
 }
 fn smelt_live_iterator<Y: 'static>(mut at: impl FnMut(usize) -> Option<Y> + 'static) -> SmeltGenerator<Y, (), ()> {
     let mut index = 0_usize;
@@ -4595,7 +4605,7 @@ pub(crate) fn range(start: f64, end: f64, step: Option<f64>) -> SmeltGenerator<f
     loop {
     _smelt_tmp_6 = i <= end;
     if !(_smelt_tmp_6) { break; }
-    _smelt_tmp_8 = { smelt_co.yield_(i).await; let smelt_command = smelt_generator_input.borrow_mut().take().unwrap_or_else(|| SmeltGeneratorCommand::Next(Default::default())); match smelt_command { SmeltGeneratorCommand::Next(smelt_value) => smelt_value, SmeltGeneratorCommand::Return(smelt_value) => return smelt_value, SmeltGeneratorCommand::Throw(smelt_error) => smelt_panic_throw(smelt_throw(smelt_error)) } };
+    _smelt_tmp_8 = { smelt_co.yield_(i).await; let smelt_command = smelt_generator_input.borrow_mut().take().unwrap_or_else(|| SmeltGeneratorCommand::Next(Default::default())); match smelt_command { SmeltGeneratorCommand::Next(smelt_value) => smelt_value, SmeltGeneratorCommand::Return(smelt_value) => return smelt_value, SmeltGeneratorCommand::Throw(smelt_error) => smelt_panic_throw(smelt_error) } };
     i = i + step_1;
     }
     return;
@@ -4616,7 +4626,7 @@ pub(crate) fn labels(count: f64) -> SmeltGenerator<JsString, (), ()> {
     _smelt_tmp_2 = i < count;
     if !(_smelt_tmp_2) { break; }
     _smelt_tmp_4 = JsString::from("item-") + &JsString::from(smelt_number_to_string(i));
-    _smelt_tmp_5 = { smelt_co.yield_(_smelt_tmp_4).await; let smelt_command = smelt_generator_input.borrow_mut().take().unwrap_or_else(|| SmeltGeneratorCommand::Next(Default::default())); match smelt_command { SmeltGeneratorCommand::Next(smelt_value) => smelt_value, SmeltGeneratorCommand::Return(smelt_value) => return smelt_value, SmeltGeneratorCommand::Throw(smelt_error) => smelt_panic_throw(smelt_throw(smelt_error)) } };
+    _smelt_tmp_5 = { smelt_co.yield_(_smelt_tmp_4).await; let smelt_command = smelt_generator_input.borrow_mut().take().unwrap_or_else(|| SmeltGeneratorCommand::Next(Default::default())); match smelt_command { SmeltGeneratorCommand::Next(smelt_value) => smelt_value, SmeltGeneratorCommand::Return(smelt_value) => return smelt_value, SmeltGeneratorCommand::Throw(smelt_error) => smelt_panic_throw(smelt_error) } };
     i = i + 1.0;
     }
     return;

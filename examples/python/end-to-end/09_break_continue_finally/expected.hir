@@ -5,17 +5,17 @@ module examples/python/end-to-end/09_break_continue_finally/input.py (ModuleId(0
     fn continue_in_try owner Module
     fn nested owner Module
   exprs
-    #0: None = @0(console_log)
-    #1: fn(PyInt) -> PyInt = @1(break_in_try)
+    #0: None = @3(console_log)
+    #1: fn(PyInt) -> PyInt = @0(break_in_try)
     #2: PyInt = 3
     #3: PyInt = call #1(#2)
     #4: None = call #0(#3)
-    #5: None = @0(console_log)
-    #6: fn(PyInt) -> PyInt = @2(continue_in_try)
+    #5: None = @3(console_log)
+    #6: fn(PyInt) -> PyInt = @1(continue_in_try)
     #7: PyInt = 3
     #8: PyInt = call #6(#7)
     #9: None = call #5(#8)
-    #10: fn(PyInt) -> None = @3(nested)
+    #10: fn(PyInt) -> None = @2(nested)
     #11: PyInt = 3
     #12: None = call #10(#11)
   stmts
@@ -25,8 +25,8 @@ module examples/python/end-to-end/09_break_continue_finally/input.py (ModuleId(0
 
 interned types
   t0 = PyInt
-  t1 = Bool
-  t2 = None
+  t1 = None
+  t2 = Bool
   t3 = PyStr
   t4 = fn(PyInt) -> PyInt
   t5 = fn(PyInt) -> None
