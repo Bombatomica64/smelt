@@ -85,6 +85,9 @@ declare_needs! {
     AllSettled,
     /// `Date.now()` override state.
     DateNow,
+    /// The `Function.prototype.name` table of typed function values
+    /// (`smelt_named_function`), for a program that reads a function's name.
+    FunctionNames,
     /// `getTimezoneOffset()` override state.
     DateTimezoneOffset,
     /// The `Date` host class.

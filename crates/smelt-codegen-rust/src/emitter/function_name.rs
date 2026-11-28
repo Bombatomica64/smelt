@@ -12,9 +12,11 @@
 //! ([`super::slot_function_names`]).
 //!
 //! A read whose operand's closure is not statically known (a function
-//! parameter, a list element, a local reassigned to different functions) has no
-//! name storage in a typed `Rc<dyn Fn>` or `&dyn Fn` handle, so it answers the
-//! empty string, the name of an anonymous function.
+//! parameter, a list element, a local reassigned to different functions) reads
+//! the name the closure's creation registered for its allocation
+//! (`smelt_named_function` / `smelt_typed_function_name`): a typed `Rc<dyn Fn>`
+//! or `&dyn Fn` handle has no name storage of its own. An anonymous function
+//! answers the empty string.
 
 use super::slot_function_names::{FunctionSlot, SlotFunctions};
 use super::*;
@@ -56,11 +58,49 @@ impl FunctionEmitter<'_> {
         operand: &Operand,
         dest_ty: TypeId,
     ) -> Result<RustExpr, EmitError> {
-        let name = self.static_function_name(operand)?.unwrap_or_default();
+        let Some(name) = self.static_function_name(operand)? else {
+            if let Some(read) = self.dynamic_function_name_expr(operand)? {
+                return Ok(match self.mir.types.get(dest_ty) {
+                    Some(Type::String) => {
+                        RustExpr::atom(format!("JsString::from({})", read.delimited()))
+                    }
+                    _ => RustExpr::atom(format!("{}.to_owned()", read.tight())),
+                });
+            }
+            return Ok(match self.mir.types.get(dest_ty) {
+                Some(Type::String) => RustExpr::js_string_literal(""),
+                _ => RustExpr::string_literal(""),
+            });
+        };
         Ok(match self.mir.types.get(dest_ty) {
             Some(Type::String) => RustExpr::js_string_literal(&name),
             _ => RustExpr::string_literal(&name),
         })
+    }
+
+    /// The run-time name of a typed function value whose closure is not
+    /// statically known (a parameter, a list element, a reassigned field): the
+    /// name its creation registered (`smelt_typed_function_name`, see
+    /// `FunctionEmitter::register_typed_function_name`), `""` for an anonymous
+    /// function. `None` when the operand is not an `Rc<dyn Fn>` or `&dyn Fn`
+    /// handle, or the program carries no name table.
+    fn dynamic_function_name_expr(&self, operand: &Operand) -> Result<Option<RustExpr>, EmitError> {
+        if !self.context.demand().has(Need::FunctionNames) {
+            return Ok(None);
+        }
+        let ty = self.operand_ty(operand)?;
+        if !matches!(self.mir.types.get(ty), Some(Type::Function(_)))
+            || !self
+                .rendered_type(ty)?
+                .to_string()
+                .starts_with("::std::rc::Rc<")
+        {
+            return Ok(None);
+        }
+        Ok(Some(RustExpr::atom(format!(
+            "smelt_typed_function_name(&*{})",
+            self.operand_expr(operand)?.tight()
+        ))))
     }
 
     /// The name of the one function `operand` can hold, when that is known

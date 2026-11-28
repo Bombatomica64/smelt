@@ -540,3 +540,39 @@ fn smelt_register_function_name_once<T: ?Sized + 'static>(function: &::std::rc::
 fn smelt_callable_name_or<F: ?Sized>(function: &::std::rc::Rc<F>, fallback: &str) -> String { smelt_read_callable(function, |meta| meta.identity.as_ref().and_then(|identity| identity.0.name.borrow().clone())).unwrap_or_else(|| fallback.to_owned()) }
 
 // @smelt:item-end
+
+//~ `Function.prototype.name` of TYPED function values (`Rc<dyn Fn>`), which
+//~ carry no name storage of their own. A named closure registers its
+//~ allocation where it is created (`smelt_named_function`), and a `.name` read
+//~ whose function is not statically known looks the allocation up
+//~ (`smelt_typed_function_name`), through the `Rc` or through a `&dyn Fn`
+//~ borrowed from it (both point at the same allocation). Each entry keeps a
+//~ liveness probe on a `Weak`, so an address reused by a later allocation is
+//~ never read as the dead function's name. Only a program that reads a
+//~ function's name pays for this (`function_names`).
+// @smelt:item SMELT_TYPED_FUNCTION_NAMES when function_names
+thread_local! {
+    static SMELT_TYPED_FUNCTION_NAMES: ::std::cell::RefCell<(::std::collections::HashMap<usize, (Box<dyn Fn() -> bool>, &'static str)>, usize)> = ::std::cell::RefCell::new((::std::collections::HashMap::new(), 256));
+}
+
+/// Record `name` as the `Function.prototype.name` of the callable allocation
+/// `function`, unless a live registration already names it; answers `function`.
+fn smelt_named_function<F: ?Sized + 'static>(function: ::std::rc::Rc<F>, name: &'static str) -> ::std::rc::Rc<F> {
+    let key = ::std::rc::Rc::as_ptr(&function).cast::<()>() as usize;
+    let weak = ::std::rc::Rc::downgrade(&function);
+    SMELT_TYPED_FUNCTION_NAMES.with(|table| {
+        let (names, sweep_at) = &mut *table.borrow_mut();
+        if names.get(&key).is_some_and(|(live, _)| live()) { return; }
+        if names.len() >= *sweep_at { names.retain(|_, (live, _)| live()); *sweep_at = (names.len() * 2).max(256); }
+        names.insert(key, (Box::new(move || weak.strong_count() != 0), name));
+    });
+    function
+}
+
+/// The `Function.prototype.name` registered for the allocation `function`
+/// points into, or `""` (an anonymous function's name) when none is.
+fn smelt_typed_function_name<F: ?Sized>(function: &F) -> &'static str {
+    let key = ::std::ptr::from_ref(function).cast::<()>() as usize;
+    SMELT_TYPED_FUNCTION_NAMES.with(|table| table.borrow().0.get(&key).filter(|(live, _)| live()).map_or("", |(_, name)| *name))
+}
+// @smelt:item-end

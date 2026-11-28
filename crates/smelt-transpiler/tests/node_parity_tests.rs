@@ -2423,3 +2423,76 @@ fn async_generic_callbacks() -> TestResult {
     }
     Ok(())
 }
+
+/// Transpile node-parity fixture `name` alone and require its generated
+/// program module to hold no erased value (`SmeltUnknown`), as the type
+/// preservation half of a lowering rule's check.
+fn ensure_fixture_program_typed(name: &str) -> TestResult {
+    let fixtures = workspace_root()?.join("crates/smelt-transpiler/tests/fixtures/node-parity");
+    let project = TempProject::new()?;
+    let root = project.path();
+    fs::create_dir_all(root.join("src"))?;
+    fs::copy(
+        fixtures.join(format!("{name}.ts")),
+        root.join("src/main.ts"),
+    )?;
+    fs::write(
+        root.join("Smelt.toml"),
+        "[project]\nname = \"typed-fixture\"\nversion = \"0.1.0\"\n\n[sources]\nentries = [\"src/main.ts\"]\n\n[output]\ntarget = \"./dist\"\nbuild = false\n",
+    )?;
+    smelt_in(root, &["build"])?;
+    let program = fs::read_to_string(root.join("dist/src/source_main.rs"))?;
+    for line in program.lines() {
+        ensure(
+            !line.contains("SmeltUnknown") && !line.contains("smelt_get_unknown_field"),
+            format!("{name}: erased value in the generated program: {line}"),
+        )?;
+    }
+    Ok(())
+}
+
+/// A call through a function value (an array element, a typed local, an
+/// object or class field, a record entry, a map read, a call result, a tuple
+/// element) may omit trailing optional or defaulted parameters, which read
+/// `undefined` or take their default.
+#[test]
+fn optional_parameter_value_calls() -> TestResult {
+    verify_node_parity("optional_parameter_value_calls")
+}
+
+/// `Object.is` is `SameValue` on erased values and through its value form
+/// (`0` and `-0` differ, `NaN` equals `NaN`), and `a === b || Object.is(a, b)`
+/// keeps `SameValueZero`.
+#[test]
+fn object_is_erased() -> TestResult {
+    verify_node_parity("object_is_erased")
+}
+
+/// A write through an `any` view of a class instance (data or function
+/// field) reaches the instance.
+#[test]
+fn erased_write_class_instance() -> TestResult {
+    verify_node_parity("erased_write_class_instance")
+}
+
+/// `Array.from`/`of`, `Reflect.has`, `Object.freeze` and the `Promise`
+/// statics read as values are callable and report Node's `name`/`length`.
+#[test]
+fn builtin_static_values() -> TestResult {
+    verify_node_parity("builtin_static_values")
+}
+
+/// A field the union's arms declare at different types reads as the union of
+/// those types, typed, in one block or in sibling blocks.
+#[test]
+fn union_field_read_arm_types() -> TestResult {
+    verify_node_parity("union_field_read_arm_types")?;
+    ensure_fixture_program_typed("union_field_read_arm_types")
+}
+
+/// A typed function value keeps its creation name through a reassigned class
+/// field, a parameter, a list element, a record entry and a reassigned local.
+#[test]
+fn typed_function_names() -> TestResult {
+    verify_node_parity("typed_function_names")
+}

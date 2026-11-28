@@ -296,6 +296,7 @@ fn need_of_flag(name: &str) -> Option<Need> {
         "timers" => Need::Timers,
         "all_settled" => Need::AllSettled,
         "date_now" => Need::DateNow,
+        "function_names" => Need::FunctionNames,
         "date_timezone_offset" => Need::DateTimezoneOffset,
         "date" => Need::Date,
         "math_round" => Need::MathRound,

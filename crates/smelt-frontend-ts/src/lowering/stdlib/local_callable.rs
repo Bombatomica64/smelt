@@ -242,10 +242,7 @@ impl ModuleBuilder<'_> {
                     matches!(this.ctx.krate.types.get(*param), Some(Type::Optional(..)))
                 })
         };
-        let required_arg_count = (0..fixed_param_count)
-            .rev()
-            .find(|index| !omittable(self, *index))
-            .map_or(0, |index| index + 1);
+        let required_arg_count = self.closure_required_arg_count(&function, fixed_param_count);
         if supplied_arg_count < required_arg_count
             || (rest.is_none() && supplied_arg_count > function.params.len())
         {
@@ -451,6 +448,32 @@ impl ModuleBuilder<'_> {
         };
         let receiver_ty = Self::expr_ty(body, receiver);
         self.receiver_type_dispatches_dynamically(receiver_ty)
+    }
+
+    /// The fewest arguments a call through a function value of type
+    /// `function` may supply: one past the last fixed parameter (of the first
+    /// `fixed_param_count`) that is neither declared omittable
+    /// (`required_params`: optional and defaulted parameters) nor typed to
+    /// hold the absence (`Option`). JavaScript passes `undefined` for every
+    /// parameter after the supplied ones, so the trailing omittable ones may
+    /// be left out whatever path reached the callee (a local, a computed
+    /// member, a call result).
+    pub(in crate::lowering) fn closure_required_arg_count(
+        &self,
+        function: &FunctionType,
+        fixed_param_count: usize,
+    ) -> usize {
+        let declared_required =
+            fixed_param_count.min(function.required_params.unwrap_or(fixed_param_count));
+        (0..fixed_param_count)
+            .rev()
+            .find(|index| {
+                *index < declared_required
+                    && !function.params.get(*index).is_some_and(|param| {
+                        matches!(self.ctx.krate.types.get(*param), Some(Type::Optional(..)))
+                    })
+            })
+            .map_or(0, |index| index + 1)
     }
 
     /// Lower call arguments for a statically typed, possibly under-applied

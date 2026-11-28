@@ -6,6 +6,7 @@ mod abort_signal;
 mod array_construction;
 mod blob;
 mod buffer;
+mod builtin_static_values;
 pub(in crate::lowering) mod call_dispatch;
 mod callee_forms;
 mod collections;

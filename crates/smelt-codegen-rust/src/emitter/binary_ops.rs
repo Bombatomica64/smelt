@@ -398,11 +398,15 @@ impl FunctionEmitter<'_> {
                     format_args!(".js_strict_eq({rhs_reference_text})"),
                 ))
             } else if strict {
-                // `Object.is` / `a === b || Object.is(a,b)` SameValueZero idiom:
-                // NaN-equal, reference objects.
-                lhs_text.postfix(self.carrier_format(
+                // `Object.is` (SameValue): `NaN` equals `NaN` and `0` differs
+                // from `-0`, references compare by identity. SameValueZero
+                // (`same_js_key`) would answer `true` for `Object.is(0, -0)`.
+                RustExpr::atom(self.carrier_format(
                     self.carrier()?,
-                    format_args!(".same_js_key({rhs_reference_text})"),
+                    format_args!(
+                        "smelt_js_same_value(&{lhs}, {rhs_reference_text})",
+                        lhs = lhs_text.tight()
+                    ),
                 ))
             } else {
                 // Loose/structural `==`/`!=` on erased values: SmeltUnknown's

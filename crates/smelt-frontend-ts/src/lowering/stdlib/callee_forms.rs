@@ -70,11 +70,30 @@ impl ModuleBuilder<'_> {
             return self.erased_value_call(callee, member.span, call, body);
         }
         if let Some(Type::Function(function)) = self.ctx.krate.types.get(callee_ty).cloned() {
-            if call.arguments.len() < function.rest.unwrap_or(function.params.len()) {
-                return Err(SmeltError::unsupported(
-                    self.span(call.span.start, call.span.end),
-                    "computed member call argument count does not match function",
-                ));
+            let fixed_param_count = function.rest.unwrap_or(function.params.len());
+            if call.arguments.len() < fixed_param_count {
+                // `fns[0](x)` may leave out trailing optional or defaulted
+                // parameters: they receive `undefined`, as through any other
+                // callee path. Omitting a required one is a `tsc` error.
+                if call.arguments.len()
+                    < self.closure_required_arg_count(&function, fixed_param_count)
+                {
+                    return Err(SmeltError::unsupported(
+                        self.span(call.span.start, call.span.end),
+                        "computed member call argument count does not match function",
+                    ));
+                }
+                let args = self.typed_under_applied_closure_arguments(
+                    &function,
+                    &call.arguments,
+                    call.span,
+                    body,
+                )?;
+                return Ok(body.push_expr(Expr {
+                    kind: ExprKind::ClosureCall { callee, args },
+                    ty: function.return_ty,
+                    span: self.span(call.span.start, call.span.end),
+                }));
             }
             let args = self.value_call_arguments(&function, call, body)?;
             return Ok(body.push_expr(Expr {

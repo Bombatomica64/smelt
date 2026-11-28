@@ -200,6 +200,51 @@ impl FunctionEmitter<'_> {
         id: smelt_mir::ClosureId,
         dest_ty: TypeId,
     ) -> Result<RustExpr, EmitError> {
+        let value = self.closure_value_unnamed_expr(id, dest_ty)?;
+        self.register_typed_function_name(id, dest_ty, value)
+    }
+
+    /// A named closure created as a typed `Rc<dyn Fn>` in a program that
+    /// reads function names: its allocation is registered under its
+    /// `Function.prototype.name` (`smelt_named_function`), so a read through a
+    /// parameter, a list element or a reassigned field answers it at run time
+    /// (`FunctionEmitter::function_name_expr`). Anything else is `value`.
+    fn register_typed_function_name(
+        &self,
+        id: smelt_mir::ClosureId,
+        dest_ty: TypeId,
+        value: RustExpr,
+    ) -> Result<RustExpr, EmitError> {
+        if !self.context.demand().has(Need::FunctionNames)
+            || !matches!(self.mir.types.get(dest_ty), Some(Type::Function(_)))
+            || !self
+                .rendered_type(dest_ty)?
+                .to_string()
+                .starts_with("::std::rc::Rc<")
+        {
+            return Ok(value);
+        }
+        let Some(name) = self
+            .mir_closure(id)
+            .ok()
+            .and_then(|closure| closure.name)
+            .and_then(|name| self.symbol_source_name(name).ok())
+            .filter(|name| !name.is_empty())
+        else {
+            return Ok(value);
+        };
+        Ok(RustExpr::atom(format!(
+            "smelt_named_function({value}, {name:?})",
+            value = value.delimited()
+        )))
+    }
+
+    /// [`Self::closure_value_expr`] before its name registration.
+    fn closure_value_unnamed_expr(
+        &self,
+        id: smelt_mir::ClosureId,
+        dest_ty: TypeId,
+    ) -> Result<RustExpr, EmitError> {
         if !matches!(
             self.mir.types.get(dest_ty),
             Some(Type::Function(_) | Type::Unknown | Type::TypeParam { .. } | Type::Union(_))

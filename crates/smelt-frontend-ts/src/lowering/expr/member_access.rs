@@ -661,6 +661,9 @@ impl ModuleBuilder<'_> {
         if let Some(expr) = self.date_static_function_member(member, body) {
             return Ok(self.name_builtin_static_function_value(member, expr, body));
         }
+        if let Some(expr) = self.builtin_static_function_value(member, body) {
+            return Ok(self.name_builtin_static_function_value(member, expr, body));
+        }
         if let Some(expr) = self.object_static_member(member, body) {
             return Ok(expr);
         }
