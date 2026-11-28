@@ -152,6 +152,10 @@ pub(crate) struct ModuleBuilder<'ctx> {
     class_attribute_stores: HashSet<(String, String)>,
     /// Every name a class of this module lists as a base.
     subclassed_names: HashSet<String>,
+    /// For each class of this module (by qualified name), the methods its own
+    /// bodies call through `super()`, each of which every class inheriting
+    /// those bodies needs a definer alias for (`reserve_super_call_aliases`).
+    super_called_methods: HashMap<String, HashSet<String>>,
     /// Each class of this module with the names of its bases, in source order.
     module_class_bases: Vec<(String, Vec<String>)>,
     /// The names the module body binds exactly once (`single_binding_names`).
@@ -204,6 +208,14 @@ pub(crate) struct ModuleBuilder<'ctx> {
     handled_exceptions: Vec<smelt_hir::LocalId>,
     /// Whether the module body awaits (`asyncio.run`), which makes it async.
     module_awaits: bool,
+    /// Whether a function or method declared now has its body queued in
+    /// [`Self::deferred_bodies`] instead of lowered at once: set while pass 1
+    /// declares the module's top-level functions and classes
+    /// (`lowering/deferred_bodies.rs`).
+    defer_bodies: BodyLowering,
+    /// Declared functions and methods whose statements lower once every
+    /// module-level declaration exists, in declaration order.
+    deferred_bodies: Vec<DeferredBody>,
 }
 
 /// What kind of body the lowering cursor is in.
@@ -250,8 +262,13 @@ struct FnScope {
     /// The names this function binds exactly once, which an `isinstance`
     /// narrowing may name (see `lowering/narrowing.rs`).
     single_binding: HashSet<String>,
-    /// The narrowed type of each local an enclosing `isinstance` test proved.
-    narrowed: HashMap<smelt_hir::LocalId, TypeId>,
+    /// The narrowed type of each local (or field of a local) an enclosing
+    /// `isinstance` or `is None` test proved.
+    narrowed: HashMap<NarrowKey, TypeId>,
+    /// `(receiver, attribute)` of every attribute store this function makes
+    /// through a name (`self.tree = ...`): such a field is never narrowed,
+    /// since a later store could make a narrowed read stale.
+    assigned_attributes: HashSet<(String, String)>,
     /// The generator function being lowered, if it is one
     /// (`lowering/generators.rs`).
     generator: Option<GeneratorScope>,
@@ -458,6 +475,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             class_fields: HashMap::new(),
             class_attribute_stores: HashSet::new(),
             subclassed_names: HashSet::new(),
+            super_called_methods: HashMap::new(),
             module_class_bases: Vec::new(),
             module_single_binding: HashSet::new(),
             unlowered_class_bases: HashMap::new(),
@@ -477,6 +495,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
             exception_args_getters: HashMap::new(),
             handled_exceptions: Vec::new(),
             module_awaits: false,
+            defer_bodies: BodyLowering::Eager,
+            deferred_bodies: Vec::new(),
         }
     }
 
@@ -540,6 +560,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         self.module_single_binding = Self::single_binding_names(&[], &module.body);
         self.collect_exception_classes(module);
         self.collect_class_attribute_stores(module);
+        self.collect_super_called_methods(&module.body, None);
 
         // Pass 1 — collect top-level function/class declarations so later
         // statements can reference them in calls. Each statement pass 1 takes
@@ -550,10 +571,17 @@ impl<'ctx> ModuleBuilder<'ctx> {
         // write them as module globals.
         self.declare_module_variables(module, &mut hir_module);
         let mut declared = vec![false; module.body.len()];
+        // Pass 1 declares signatures only: each top-level function's and
+        // method's statements are queued and lowered below, once every
+        // module-level class, function and signature exists, so a body may use
+        // a definition written after it (`lowering/deferred_bodies.rs`).
+        self.defer_bodies = BodyLowering::Deferred;
         for (slot, stmt) in declared.iter_mut().zip(&module.body) {
             *slot = self.declare_module_stmt(stmt, module, &mut hir_module, &mut errors);
         }
+        self.defer_bodies = BodyLowering::Eager;
         self.register_module_namespace(&hir_module);
+        self.lower_deferred_bodies(&mut errors);
 
         // Pass 2 — lower the remaining module-level statements into the
         // module body.
@@ -721,6 +749,8 @@ include!("lowering/type_name.rs");
 include!("lowering/class_init.rs");
 // Function signature and pytest parametrization helpers.
 include!("lowering/function.rs");
+// Function and method bodies lowered after every module-level declaration.
+include!("lowering/deferred_bodies.rs");
 // Pytest-specific lowering helpers.
 include!("lowering/pytest.rs");
 // Type annotation lowering helpers.

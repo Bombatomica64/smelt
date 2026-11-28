@@ -21,7 +21,7 @@ fn __init__ (FuncId(1)) -> None
     %0.field2 = copy %1
     return move %0
 
-fn smelt_global_init$counter$4 (FuncId(2)) -> Counter
+fn smelt_global_init$counter$3 (FuncId(2)) -> Counter
   locals
     %0 temp: Counter
   bb0:

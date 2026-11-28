@@ -453,7 +453,7 @@ impl RuntimeDemand {
             Rvalue::PyJsonLoads { .. } => {
                 self.add(Need::PyJsonLoads);
             }
-            Rvalue::PyExceptionArgs { .. } => {
+            Rvalue::PyExceptionArgs { .. } | Rvalue::PyExceptionValue { .. } => {
                 self.add(Need::PyException);
             }
             Rvalue::PyExceptionCaughtBy { .. }
@@ -518,6 +518,8 @@ impl RuntimeDemand {
             | Rvalue::GeneratorCollect { .. }
             | Rvalue::GeneratorTake { .. }
             | Rvalue::GeneratorDone { .. }
+            | Rvalue::GeneratorStarted { .. }
+            | Rvalue::PyWrite { .. }
             | Rvalue::GeneratorValue { .. }
             | Rvalue::GeneratorYielded { .. }
             | Rvalue::GeneratorCompleted { .. }

@@ -3,20 +3,20 @@ module examples/python/end-to-end/11_numbers_and_module_state/input.py (ModuleId
   items
     fn __init__ owner Constructor { class: Symbol(0) }
     fn tick owner ClassMethod { class: Symbol(0), method: Symbol(1) }
-    class Counter fields [Public value: PyInt] constructor Some(ItemId(3)) methods [ItemId(1)] implements []
-    fn smelt_global_init$counter$4 owner Module
+    class Counter fields [Public value: PyInt] constructor Some(ItemId(2)) methods [ItemId(1)] implements []
+    fn smelt_global_init$counter$3 owner Module
     global mut counter: Counter
     fn bump owner Module
     fn run owner Module
   exprs
-    #0: None = @2(console_log)
+    #0: None = @7(console_log)
     #1: PyStr = "before"
     #2: None = call #0(#1)
-    #3: None = global_get @4(counter)
-    #4: None = @2(console_log)
+    #3: None = global_get @3(counter)
+    #4: None = @7(console_log)
     #5: PyStr = "after"
     #6: None = call #4(#5)
-    #7: fn() -> None = @7(run)
+    #7: fn() -> None = @6(run)
     #8: None = call #7()
   stmts
     s0: #2

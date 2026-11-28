@@ -34,6 +34,16 @@ impl ModuleBuilder<'_> {
         if let Some(expr) = self.exception_call_expression(call, body)? {
             return Ok(expr);
         }
+        // A method of a user class is the class's, whatever builtin method it
+        // is spelled like (`registry.find(name)`, `store.items()`): the
+        // string and collection handlers below dispatch on the method name.
+        if let Expr::Attribute(attr) = call.func.as_ref()
+            && let Some(receiver_ty) = self.static_receiver_type(&attr.value, body)
+            && self.class_method_dispatch(receiver_ty, attr.attr.as_str()).is_some()
+            && let Some(expr) = self.protocol_call_expression(call, body)?
+        {
+            return Ok(expr);
+        }
         if let Some(expr) = self.stdlib_module_call_expression(call, body)? {
             return Ok(expr);
         }
@@ -77,6 +87,111 @@ impl ModuleBuilder<'_> {
             span,
             "only calls to top-level functions, class constructors, and print() are supported",
         ))
+    }
+
+    /// `print(*values, sep=..., end=..., file=..., flush=...)`: the values'
+    /// `str`s joined by `sep` (default `" "`) and followed by `end` (default
+    /// `"\n"`), written as one text with nothing added (`ExprKind::PyWrite`);
+    /// `None` for `sep` or `end` is the default. `file=` may name `sys.stdout`
+    /// or `sys.stderr`; `flush=` changes nothing a program's output shows,
+    /// and is accepted when it is a literal (its evaluation cannot be seen).
+    fn print_with_keywords(&mut self, call: &ruff_python_ast::ExprCall, span: Span, body: &mut Body) -> Result<smelt_hir::ExprId, SmeltError> {
+        let str_ty = self.intern_type(Type::PyStr);
+        let none_ty = self.intern_type(Type::None);
+        let values = call.arguments.args.iter().map(|arg| self.expression(arg, body)).collect::<Result<Vec<_>, _>>()?;
+        let mut sep = None;
+        let mut end = None;
+        let mut stderr = false;
+        for keyword in &call.arguments.keywords {
+            let keyword_span = self.span(keyword.range);
+            match keyword.arg.as_ref().map(ruff_python_ast::Identifier::as_str) {
+                Some(slot @ ("sep" | "end")) => {
+                    if matches!(keyword.value, Expr::NoneLiteral(_)) {
+                        continue;
+                    }
+                    let value = self.expression(&keyword.value, body)?;
+                    if Self::expr_ty(body, value) != str_ty {
+                        return Err(SmeltError::unsupported(keyword_span, format!("print()'s `{slot}=` must be a str")));
+                    }
+                    if slot == "sep" { sep = Some(value) } else { end = Some(value) }
+                }
+                Some("file") => {
+                    let stream = match &keyword.value {
+                        Expr::Attribute(attr) if matches!(attr.value.as_ref(), Expr::Name(module) if self.import_aliases.get(module.id.as_str()).is_some_and(|target| target == "sys")) => attr.attr.as_str(),
+                        _ => "",
+                    };
+                    match stream {
+                        "stdout" => stderr = false,
+                        "stderr" => stderr = true,
+                        _ => return Err(SmeltError::unsupported(keyword_span, "print()'s `file=` must be sys.stdout or sys.stderr")),
+                    }
+                }
+                Some("flush") if matches!(keyword.value, Expr::BooleanLiteral(_) | Expr::NoneLiteral(_)) => {}
+                _ => return Err(SmeltError::unsupported(keyword_span, "print() takes `sep=`, `end=`, `file=` and a literal `flush=`")),
+            }
+        }
+        let str_literal = |this: &mut Self, text: &str, inner: &mut Body| {
+            let ty = this.intern_type(Type::PyStr);
+            inner.push_expr(HirExpr { kind: ExprKind::Literal(Literal::String(text.to_owned())), ty, span })
+        };
+        let concat = |lhs: smelt_hir::ExprId, rhs: smelt_hir::ExprId, inner: &mut Body| {
+            inner.push_expr(HirExpr { kind: ExprKind::BinOp { op: BinOp::Add, lhs, rhs }, ty: str_ty, span })
+        };
+        let mut text: Option<smelt_hir::ExprId> = None;
+        for value in values {
+            let value_span = Self::expr_span(body, value);
+            let shown = self.python_text_expr(value, false, value_span, body)?;
+            text = Some(text.map_or(shown, |previous| {
+                let separator = sep.unwrap_or_else(|| str_literal(self, " ", body));
+                let joined = concat(previous, separator, body);
+                concat(joined, shown, body)
+            }));
+        }
+        let ending = end.unwrap_or_else(|| str_literal(self, "\n", body));
+        let written = text.map_or(ending, |joined| concat(joined, ending, body));
+        Ok(body.push_expr(HirExpr { kind: ExprKind::PyWrite { text: written, stderr }, ty: none_ty, span }))
+    }
+
+    /// The static type of `receiver`, read without lowering it, when its
+    /// shape names it directly: a local (as narrowed here), a module
+    /// variable, a call of a class constructor, or a field of one of those.
+    /// `None` for any other expression, whose type only lowering it tells.
+    fn static_receiver_type(&mut self, receiver: &Expr, body: &Body) -> Option<TypeId> {
+        match receiver {
+            Expr::Name(name) => {
+                if let Some(&local) = self.scope.locals.get(name.id.as_str()) {
+                    return Some(self.readable_narrowing(local, body).unwrap_or_else(|| Self::local_ty(body, local)));
+                }
+                let item = match self.module_variables.get(name.id.as_str()) {
+                    Some(variable) => variable.item,
+                    None => *self.items.get(name.id.as_str())?,
+                };
+                match self.item_ref(item) {
+                    Item::MutableGlobal(global) => Some(global.ty),
+                    Item::Const(constant) => Some(constant.ty),
+                    _ => None,
+                }
+            }
+            Expr::Call(call) => {
+                let Expr::Name(name) = call.func.as_ref() else {
+                    return None;
+                };
+                if self.scope.locals.contains_key(name.id.as_str()) {
+                    return None;
+                }
+                let item = self.items.get(name.id.as_str())?;
+                match self.item_ref(*item) {
+                    Item::Class(class) => self.ctx.krate.types.lookup(&Type::Class { name: class.name, args: Vec::new() }),
+                    _ => None,
+                }
+            }
+            Expr::Attribute(attr) => {
+                let owner = self.static_receiver_type(&attr.value, body)?;
+                let field = self.intern_name(attr.attr.as_str());
+                self.field_type(owner, field).ok()
+            }
+            _ => None,
+        }
     }
 
     /// Lower an ordinary zero-argument-`super()` method call.
@@ -147,7 +262,12 @@ impl ModuleBuilder<'_> {
             .iter()
             .map(|arg| self.expression(arg, body))
             .collect::<Result<Vec<_>, _>>()?;
-        let alias = self.intern_synthesized_name(&format!("__smelt$super${method}"));
+        // The enclosing class's definer alias (`reserve_super_call_aliases`),
+        // resolved on whichever class runs this body.
+        let Some(definer) = self.ctx.krate.symbols.source(class_sym).map(ToOwned::to_owned) else {
+            return Err(SmeltError::unsupported(span, "super() class is not resolvable"));
+        };
+        let alias = self.intern_synthesized_name(&Self::super_call_alias_name(&definer, method));
         Ok(body.push_expr(HirExpr {
             kind: ExprKind::Method {
                 receiver,
@@ -443,6 +563,9 @@ impl ModuleBuilder<'_> {
                 && let Some(expr) = self.range_call_expression(call, body)?
             {
                 return Ok(Some(expr));
+            }
+            if name.id.as_str() == "print" && !call.arguments.keywords.is_empty() {
+                return self.print_with_keywords(call, span, body).map(Some);
             }
             if name.id.as_str() == "print" {
                 let print_item = self.ensure_print_item(span);
@@ -780,7 +903,7 @@ impl ModuleBuilder<'_> {
             return Err(SmeltError::unsupported(span, "next() is supported on a generator"));
         };
         let default = default_ast.map(|default| self.expression_with_hint(default, body, Some(yield_ty))).transpose()?;
-        self.generator_resume_expression(generator, None, default, span, body).map(Some)
+        self.generator_resume_expression(generator, None, smelt_hir::GeneratorResumeKind::Next, default, span, body).map(Some)
     }
 
     /// `g.send(value)` on a generator: resume it with `value` as the result of
@@ -794,7 +917,8 @@ impl ModuleBuilder<'_> {
         let Expr::Attribute(attr) = call.func.as_ref() else {
             return Ok(None);
         };
-        if attr.attr.as_str() != "send" {
+        let method = attr.attr.as_str();
+        if !matches!(method, "send" | "throw" | "close") {
             return Ok(None);
         }
         let generator = self.expression(&attr.value, body)?;
@@ -802,14 +926,29 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         };
         let span = self.span(call.range());
-        let ([sent_ast], []) = (call.arguments.args.as_ref(), call.arguments.keywords.as_ref()) else {
-            return Err(SmeltError::unsupported(span, "generator.send() takes one value"));
-        };
-        let sent = self.expression_with_hint(sent_ast, body, Some(next_ty))?;
-        if Self::expr_ty(body, sent) != next_ty {
-            return Err(SmeltError::unsupported(span, "generator.send() needs a value of the generator's send type"));
+        match (method, call.arguments.args.as_ref(), call.arguments.keywords.as_ref()) {
+            ("send", [sent_ast], []) => {
+                // A value assignable to the send type is converted to it where
+                // it is sent (`int` into an `Optional[int]` channel).
+                let sent = self.expression_with_hint(sent_ast, body, Some(next_ty))?;
+                if !self.type_assignable_to(Self::expr_ty(body, sent), next_ty) {
+                    return Err(SmeltError::unsupported(span, "generator.send() needs a value of the generator's send type"));
+                }
+                self.generator_send_expression(generator, sent, span, body).map(Some)
+            }
+            ("throw", [thrown_ast], []) => {
+                let thrown = self.thrown_into_generator(thrown_ast, body)?;
+                self.generator_resume_expression(generator, Some(thrown), smelt_hir::GeneratorResumeKind::Throw, None, span, body)
+                    .map(Some)
+            }
+            ("close", [], []) => self.generator_close_expression(generator, span, body).map(Some),
+            ("send", ..) => Err(SmeltError::unsupported(span, "generator.send() takes one value")),
+            ("throw", ..) => Err(SmeltError::unsupported(
+                span,
+                "generator.throw() takes one exception (the three-argument form is deprecated)",
+            )),
+            _ => Err(SmeltError::unsupported(span, "generator.close() takes no arguments")),
         }
-        self.generator_resume_expression(generator, Some(sent), None, span, body).map(Some)
     }
 
     /// Lower `(lambda x, y: body)(a, b)`, a lambda called where it is written.

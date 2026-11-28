@@ -224,9 +224,19 @@ impl FunctionEmitter<'_> {
         let rendered = self.rvalue_expr_for_dest(value, write_ty)?;
         let method_name = self.method_rust_name(method_symbol)?;
         let base_text = self.local_mut_value(base)?;
+        // A setter that can throw answers `Result`: its error propagates as a
+        // getter's does (a `try` around the store sees it through the call
+        // MIR lowers it to), never dropped with the unused `Result`.
+        let propagated = if !setter.can_throw {
+            ""
+        } else if self.function.can_throw {
+            "?"
+        } else {
+            ".unwrap_or_else(|error| smelt_panic_throw(error))"
+        };
         if setter_class == owner.name {
             return Ok(Some(format!(
-                "{base_text}.{method_name}({rendered});",
+                "{base_text}.{method_name}({rendered}){propagated};",
                 base_text = base_text.tight(),
                 rendered = rendered.delimited()
             )));
@@ -253,7 +263,7 @@ impl FunctionEmitter<'_> {
             *last = rendered.into();
         }
         Ok(Some(format!(
-            "{descriptor_value}.{method_name}({});",
+            "{descriptor_value}.{method_name}({}){propagated};",
             arguments.join(", "),
             descriptor_value = descriptor_value.tight()
         )))

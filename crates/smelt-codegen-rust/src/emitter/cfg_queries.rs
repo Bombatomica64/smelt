@@ -1,5 +1,7 @@
 //! Control-flow-graph reachability queries over a function's MIR blocks: whether a block can re-execute, sits under a repeating region, or can reach a target block.
 
+#[cfg(test)]
+use super::core::flow_successors;
 use super::core::terminator_successors;
 use super::*;
 
@@ -19,16 +21,33 @@ impl FunctionEmitter<'_> {
         let Some(block) = self.block(block_id).ok() else {
             return true;
         };
-        let Some(terminator) = &block.terminator else {
-            return false;
-        };
         visited.insert(block_id);
-        terminator_successors(terminator)
-            .into_iter()
-            .any(|successor| {
-                successor == block_id
-                    || self.block_can_reach(successor, block_id, &mut visited.clone())
-            })
+        flow_successors(block).into_iter().any(|successor| {
+            successor == block_id
+                || self.block_can_flow_to(successor, block_id, &mut visited.clone())
+        })
+    }
+
+    /// [`Self::block_can_reach`] over [`super::core::flow_successors`]: the
+    /// reference for `LocalWriteIndex::repeat_reachable`.
+    #[cfg(test)]
+    fn block_can_flow_to(
+        &self,
+        block_id: smelt_mir::BlockId,
+        target: smelt_mir::BlockId,
+        visited: &mut BlockIdSet,
+    ) -> bool {
+        if block_id == target {
+            return true;
+        }
+        if !visited.insert(block_id) {
+            return false;
+        }
+        self.block(block_id).is_ok_and(|block| {
+            flow_successors(block)
+                .into_iter()
+                .any(|next| self.block_can_flow_to(next, target, visited))
+        })
     }
 
     /// Return whether `block_id` is emitted under a structured Rust loop.
@@ -50,7 +69,7 @@ impl FunctionEmitter<'_> {
             .filter(|candidate| candidate.id != block_id)
             .any(|candidate| {
                 self.block_can_repeat(candidate.id, &mut BlockIdSet::default())
-                    && self.block_can_reach(candidate.id, block_id, &mut BlockIdSet::default())
+                    && self.block_can_flow_to(candidate.id, block_id, &mut BlockIdSet::default())
             })
     }
 

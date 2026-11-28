@@ -272,7 +272,19 @@ impl ModuleBuilder<'_> {
         if let Expr::Name(name) = annotation {
             self.name_annotation(name.id.as_str(), name.range)
         } else if let Expr::StringLiteral(name) = annotation {
-            self.name_annotation(name.value.to_str().as_ref(), name.range)
+            // A string annotation is a forward reference (PEP 484): its text is
+            // an annotation expression, evaluated later -- `"Node"`, but also
+            // `"Node | None"` or `"list[Node]"`. A plain name keeps the name
+            // path; anything else is parsed and lowered as the expression it
+            // spells, with spans pointing at the string.
+            let text = name.value.to_str();
+            match ruff_python_parser::parse_expression(text) {
+                Ok(parsed) if !matches!(parsed.syntax().body.as_ref(), Expr::Name(_)) => {
+                    let inner = parsed.syntax().body.as_ref().clone();
+                    self.annotation_to_hir(&relocated_annotation(inner, name.range))
+                }
+                _ => self.name_annotation(text, name.range),
+            }
         } else if let Expr::NoneLiteral(_) = annotation {
             Ok(self.intern_type(Type::None))
         } else if let Expr::Attribute(attr) = annotation {
@@ -797,4 +809,12 @@ fn is_int_like(ty: &Type) -> bool {
 /// contract in Python).
 fn is_float_like(ty: &Type) -> bool {
     matches!(ty, Type::Float)
+}
+
+/// `expr`, parsed from the text of a string annotation, with every node's
+/// range set to the string literal's `range`, so a diagnostic about the
+/// annotation points at the string in the source file.
+fn relocated_annotation(mut expr: Expr, range: TextRange) -> Expr {
+    ruff_python_ast::relocate::relocate_expr(&mut expr, range);
+    expr
 }

@@ -89,6 +89,9 @@ value: int = mapping.setdefault("b")
     )
 }
 
+/// Corrected expectation: the arity diagnostic used to say `sum()` takes
+/// "exactly one list"; `sum(values, start)` is supported now, so it names
+/// the optional start. A call with no argument is still refused.
 #[test]
 fn unsupported_builtin_sum_forms_reject() -> TestResult {
     let mut ctx = HirCtx::new();
@@ -101,7 +104,7 @@ total: int = sum()
     ensure(
         first_error(&wrong_arity)?
             .message
-            .contains("exactly one list"),
+            .contains("one list argument and an optional start"),
         "expected sum arity diagnostic",
     )?;
 

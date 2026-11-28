@@ -419,11 +419,17 @@ return_ty: class_ty,
         let Item::Function(function) = self.item_ref(constructor) else {
             return false;
         };
+        // A queued body (`lowering/deferred_bodies.rs`) has no statements yet:
+        // its source decides.
         function.params.is_empty()
-            && function
-                .body
-                .and_then(|body| self.ctx.krate.bodies.get(usize::try_from(body.0).ok()?))
-                .is_some_and(|body| body.stmts.is_empty())
+            && function.body.is_some_and(|body_id| {
+                self.ctx
+                    .krate
+                    .bodies
+                    .get(usize::try_from(body_id.0).unwrap_or(usize::MAX))
+                    .is_some_and(|body| body.stmts.is_empty())
+                    && self.deferred_body_is_empty(body_id).unwrap_or(true)
+            })
     }
 
     /// Synthesize the initializer Python inherits from a direct base class.

@@ -13,14 +13,32 @@
 // once in its function (a parameter never reassigned, or a single
 // assignment): no later store can make a narrowed read stale. Facts are
 // scoped to the block that proved them and never reach a nested function.
+//
+// An `is None` test on a field read through such a local (`self.tree is None`)
+// narrows that field the same way, unless the function stores to the field
+// through that name anywhere (`assigned_attribute_paths`): the read is the
+// field at its optional's payload, as `ty` narrows a member access. As in
+// `ty`, a call between the test and the read is assumed not to reset the
+// field; if one does, the payload read fails at run time where CPython's
+// attribute access on `None` would raise.
+
+/// What a narrowing fact is about: a local, or one field read through a
+/// local (`self.tree`), the way `ty` narrows a member access.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum NarrowKey {
+    /// The local itself.
+    Local(smelt_hir::LocalId),
+    /// The field `Symbol` of the value the local holds.
+    Field(smelt_hir::LocalId, Symbol),
+}
 
 /// What an `isinstance` test proves about one local in each branch.
 #[derive(Debug, Default)]
 struct NarrowingFacts {
     /// Facts holding where the test is true.
-    then_facts: Vec<(smelt_hir::LocalId, TypeId)>,
+    then_facts: Vec<(NarrowKey, TypeId)>,
     /// Facts holding where the test is false.
-    else_facts: Vec<(smelt_hir::LocalId, TypeId)>,
+    else_facts: Vec<(NarrowKey, TypeId)>,
 }
 
 /// One class or builtin type named by `isinstance`'s second argument.
@@ -421,21 +439,41 @@ impl ModuleBuilder<'_> {
     /// order) on a single-binding local of an optional type: where the local
     /// is not `None` it holds the optional's payload. The `None` side records
     /// nothing, since a read there has no payload to project.
-    fn none_test_facts(&self, compare: &ruff_python_ast::ExprCompare, body: &Body) -> Option<NarrowingFacts> {
+    fn none_test_facts(&mut self, compare: &ruff_python_ast::ExprCompare, body: &Body) -> Option<NarrowingFacts> {
         let ([op], [right]) = (compare.ops.as_ref(), compare.comparators()) else {
             return None;
         };
-        let ((Expr::Name(name), Expr::NoneLiteral(_)) | (Expr::NoneLiteral(_), Expr::Name(name))) = (compare.first_operand(), right) else {
+        let ((tested, Expr::NoneLiteral(_)) | (Expr::NoneLiteral(_), tested)) = (compare.first_operand(), right) else {
             return None;
         };
-        if !self.scope.single_binding.contains(name.id.as_str()) {
-            return None;
-        }
-        let local = *self.scope.locals.get(name.id.as_str())?;
-        let &Type::Optional(inner, _) = self.ctx.krate.types.get(Self::local_ty(body, local))? else {
+        let (key, tested_ty) = match tested {
+            Expr::Name(name) => {
+                if !self.scope.single_binding.contains(name.id.as_str()) {
+                    return None;
+                }
+                let local = *self.scope.locals.get(name.id.as_str())?;
+                (NarrowKey::Local(local), Self::local_ty(body, local))
+            }
+            Expr::Attribute(attr) => {
+                let Expr::Name(name) = attr.value.as_ref() else {
+                    return None;
+                };
+                if !self.scope.single_binding.contains(name.id.as_str())
+                    || self.scope.assigned_attributes.contains(&(name.id.to_string(), attr.attr.to_string()))
+                {
+                    return None;
+                }
+                let local = *self.scope.locals.get(name.id.as_str())?;
+                let field = self.intern_name(attr.attr.as_str());
+                let receiver_ty = self.readable_narrowing(local, body).unwrap_or_else(|| Self::local_ty(body, local));
+                (NarrowKey::Field(local, field), self.field_type(receiver_ty, field).ok()?)
+            }
+            _ => return None,
+        };
+        let &Type::Optional(inner, _) = self.ctx.krate.types.get(tested_ty)? else {
             return None;
         };
-        let present = vec![(local, inner)];
+        let present = vec![(key, inner)];
         match op {
             CmpOp::Is => Some(NarrowingFacts { then_facts: Vec::new(), else_facts: present }),
             CmpOp::IsNot => Some(NarrowingFacts { then_facts: present, else_facts: Vec::new() }),
@@ -460,6 +498,22 @@ impl ModuleBuilder<'_> {
         }
         let local = *self.scope.locals.get(name.id.as_str())?;
         let base_ty = Self::local_ty(body, local);
+        // A value of a class whose subclass the test names is that subclass
+        // where the test holds (`isinstance(shape, Box)` on a `shape: Shape`):
+        // a read there is the checked downcast, so the value can flow where a
+        // `Box` is expected, as `ty` narrows it.
+        if let Some(Type::Class { .. }) = self.ctx.krate.types.get(base_ty) {
+            let targets = self.instance_targets(target_ast, self.span(call.range())).ok()?;
+            self.record_unlowered_ancestry(&[base_ty], &targets);
+            let InstanceAnswer::Subclass(class) = self.instance_answer(base_ty, &targets) else {
+                return None;
+            };
+            if targets.len() != 1 {
+                return None;
+            }
+            let narrowed = self.intern_type(Type::Class { name: class, args: Vec::new() });
+            return Some(NarrowingFacts { then_facts: vec![(NarrowKey::Local(local), narrowed)], else_facts: Vec::new() });
+        }
         match self.ctx.krate.types.get(base_ty) {
             Some(Type::Optional(..)) => {}
             Some(Type::Union(items))
@@ -468,17 +522,17 @@ impl ModuleBuilder<'_> {
         }
         let targets = self.instance_targets(target_ast, self.span(call.range())).ok()?;
         // An earlier test may already have ruled members out (`elif`).
-        let known_ty = self.scope.narrowed.get(&local).copied().unwrap_or(base_ty);
+        let known_ty = self.scope.narrowed.get(&NarrowKey::Local(local)).copied().unwrap_or(base_ty);
         let members = self.flattened_members(known_ty);
         self.record_unlowered_ancestry(&members, &targets);
         let (passing, failing): (Vec<TypeId>, Vec<TypeId>) =
             members.into_iter().partition(|&member| self.instance_answer(member, &targets) == InstanceAnswer::Always);
         let mut facts = NarrowingFacts::default();
         if let Some(ty) = self.narrowed_member_type(base_ty, &passing) {
-            facts.then_facts.push((local, ty));
+            facts.then_facts.push((NarrowKey::Local(local), ty));
         }
         if let Some(ty) = self.narrowed_member_type(base_ty, &failing) {
-            facts.else_facts.push((local, ty));
+            facts.else_facts.push((NarrowKey::Local(local), ty));
         }
         Some(facts)
     }
@@ -509,7 +563,7 @@ impl ModuleBuilder<'_> {
     /// still a union of several members leaves the read at its own type,
     /// unless that union is the whole payload of the local's optional.
     fn readable_narrowing(&self, local: smelt_hir::LocalId, body: &Body) -> Option<TypeId> {
-        let narrowed = *self.scope.narrowed.get(&local)?;
+        let narrowed = *self.scope.narrowed.get(&NarrowKey::Local(local))?;
         let payload = matches!(self.ctx.krate.types.get(Self::local_ty(body, local)), Some(&Type::Optional(inner, _)) if inner == narrowed);
         (payload || !matches!(self.ctx.krate.types.get(narrowed), Some(Type::Union(_)))).then_some(narrowed)
     }
@@ -528,6 +582,55 @@ impl ModuleBuilder<'_> {
         body.push_expr(HirExpr { kind: ExprKind::UnknownCast { value: read, target: narrowed }, ty: narrowed, span })
     }
 
+    /// A read of `receiver.field` whose field an enclosing `is None` test
+    /// narrowed: the field read at its optional type, then its payload.
+    fn narrowed_field_read(&mut self, attr: &ruff_python_ast::ExprAttribute, body: &mut Body) -> Option<smelt_hir::ExprId> {
+        let Expr::Name(name) = attr.value.as_ref() else {
+            return None;
+        };
+        let local = *self.scope.locals.get(name.id.as_str())?;
+        let field = self.intern_name(attr.attr.as_str());
+        let narrowed = *self.scope.narrowed.get(&NarrowKey::Field(local, field))?;
+        let span = self.span(attr.range);
+        let receiver_ty = self.readable_narrowing(local, body).unwrap_or_else(|| Self::local_ty(body, local));
+        let receiver = match self.readable_narrowing(local, body) {
+            Some(ty) => self.narrowed_local_read(local, ty, span, body),
+            None => body.push_expr(HirExpr { kind: ExprKind::Local(local), ty: receiver_ty, span }),
+        };
+        let field_ty = self.field_type(receiver_ty, field).ok()?;
+        let read = body.push_expr(HirExpr { kind: ExprKind::Field { receiver, field }, ty: field_ty, span });
+        Some(body.push_expr(HirExpr { kind: ExprKind::UnknownCast { value: read, target: narrowed }, ty: narrowed, span }))
+    }
+
+    /// `(receiver, attribute)` of every attribute store `stmts` make through
+    /// a name, nested blocks included (nested functions and classes aside):
+    /// `x.a = v`, `x.a += v`, `x.a: T = v`, `del x.a`, and a `for`/`with`
+    /// target.
+    fn assigned_attribute_paths(stmts: &[Stmt]) -> HashSet<(String, String)> {
+        /// Collects attribute store targets.
+        struct Stores(HashSet<(String, String)>);
+        impl<'a> ruff_python_ast::visitor::Visitor<'a> for Stores {
+            fn visit_stmt(&mut self, stmt: &'a Stmt) {
+                if matches!(stmt, Stmt::FunctionDef(_) | Stmt::ClassDef(_)) {
+                    return;
+                }
+                ruff_python_ast::visitor::walk_stmt(self, stmt);
+            }
+            fn visit_expr(&mut self, expr: &'a Expr) {
+                if let Expr::Attribute(attr) = expr
+                    && !matches!(attr.ctx, ruff_python_ast::ExprContext::Load)
+                    && let Expr::Name(name) = attr.value.as_ref()
+                {
+                    self.0.insert((name.id.to_string(), attr.attr.to_string()));
+                }
+                ruff_python_ast::visitor::walk_expr(self, expr);
+            }
+        }
+        let mut stores = Stores(HashSet::new());
+        ruff_python_ast::visitor::Visitor::visit_body(&mut stores, stmts);
+        stores.0
+    }
+
     /// Whether a block that ends with `stmts` never falls through to the
     /// statement after it.
     fn always_leaves(stmts: &[Stmt]) -> bool {
@@ -536,7 +639,7 @@ impl ModuleBuilder<'_> {
 
     /// Run `lower` with `facts` added to the narrowings, restoring the
     /// enclosing narrowings afterwards.
-    fn with_narrowings<T>(&mut self, facts: &[(smelt_hir::LocalId, TypeId)], lower: impl FnOnce(&mut Self) -> T) -> T {
+    fn with_narrowings<T>(&mut self, facts: &[(NarrowKey, TypeId)], lower: impl FnOnce(&mut Self) -> T) -> T {
         let enclosing = self.scope.narrowed.clone();
         self.scope.narrowed.extend(facts.iter().copied());
         let result = lower(self);

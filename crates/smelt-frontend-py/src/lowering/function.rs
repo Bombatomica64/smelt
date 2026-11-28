@@ -234,6 +234,7 @@ impl ModuleBuilder<'_> {
 
             let param_names = func.parameters.iter().map(|param| param.name().as_str()).collect::<Vec<_>>();
             this.scope.single_binding = Self::single_binding_names(&param_names, &func.body);
+            this.scope.assigned_attributes = Self::assigned_attribute_paths(&func.body);
             let body_error = func
                 .body
                 .iter()

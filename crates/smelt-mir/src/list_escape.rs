@@ -457,6 +457,18 @@ enum OperandRole {
 /// An operand the table gives no role, or any other role, answers `false`, so
 /// an unmodelled operation never looks like a pure read.
 pub(crate) fn reads_list_elements_only(value: &Rvalue, position: usize) -> bool {
+    // An identity comparison (`a is b`, `===`) reads the list's identity, not
+    // its elements: a copy is a distinct object, so it cannot be replaced by
+    // its source there.
+    if matches!(
+        value,
+        Rvalue::Binary {
+            op: smelt_hir::BinOp::JsStrictEq | smelt_hir::BinOp::JsStrictNotEq,
+            ..
+        }
+    ) {
+        return false;
+    }
     let mut operands = Vec::new();
     value.reads(|operand| operands.push(std::ptr::from_ref(operand)));
     let Some(target) = operands.get(position).copied() else {

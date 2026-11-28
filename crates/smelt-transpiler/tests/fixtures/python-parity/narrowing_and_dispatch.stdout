@@ -1,0 +1,9 @@
+0 2 -1
+ALPHA loose
+True True ['alpha', 'beta', 'gamma'] 3
+True True
+True True 3 0
+shape 0
+shape 4
+circle 0
+2 2.5

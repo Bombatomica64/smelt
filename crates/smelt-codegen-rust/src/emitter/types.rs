@@ -676,6 +676,9 @@ impl FunctionEmitter<'_> {
         if self.stdlib_class_of_symbol(name)? == Some(smelt_stdlib::StdlibClass::PyExceptionArgs) {
             return Ok(RustType::raw("SmeltPyExceptionArgs"));
         }
+        if self.stdlib_class_of_symbol(name)? == Some(smelt_stdlib::StdlibClass::PyExceptionValue) {
+            return Ok(RustType::raw("SmeltPyExceptionArg"));
+        }
         if self.stdlib_class_of_symbol(name)? == Some(smelt_stdlib::StdlibClass::UrlSearchParams) {
             return Ok(RustType::raw("SmeltUrlSearchParams"));
         }

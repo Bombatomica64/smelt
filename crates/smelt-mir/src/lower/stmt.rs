@@ -257,6 +257,33 @@ impl LoweringCtx<'_> {
                 Ok(())
             }
             HirStmt::Assign { target, value } => {
+                // Inside a `try`, a store through a SETTER is a call that can
+                // throw, and the throw has to reach the handler, as a getter
+                // read's does (`lower_expr`'s `Field` arm): a place write
+                // gave the `try` no throwing call, so its handler was dropped.
+                if self.current_exception_handler().is_some()
+                    && let smelt_hir::ExprKind::Field { receiver, field } =
+                        self.hir_expr(*target)?.kind.clone()
+                    && let Some((setter, returned)) = self.setter_function_of_field(receiver, field)
+                {
+                    let receiver_operand = self.lower_expr(receiver)?;
+                    let assigned = self.lower_expr(*value)?;
+                    let info = self.hir_expr(*value)?;
+                    let (from, span) = (info.ty, info.span);
+                    let to = self.hir_expr(*target)?.ty;
+                    let lowered_value = self.erased_conversion_in_try(assigned, from, to, span)?;
+                    let dest = self.push_temp(returned, span);
+                    let next = self.function.push_block(span);
+                    self.terminate(Terminator::Call {
+                        callee: crate::Callee::Static(setter),
+                        args: vec![receiver_operand, lowered_value],
+                        dest,
+                        target: next,
+                        unwind: self.current_exception_handler(),
+                    })?;
+                    self.switch_to(next);
+                    return Ok(());
+                }
                 let (place, writebacks) = self.lower_place(*target)?;
                 let assigned = self.lower_expr(*value)?;
                 let info = self.hir_expr(*value)?;

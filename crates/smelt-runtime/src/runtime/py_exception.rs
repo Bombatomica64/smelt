@@ -139,6 +139,12 @@ impl SmeltPyException {
             .map_or_else(|| SmeltPyExceptionArgs(self.args.clone()), |instance| instance.py_args())
     }
 
+    //~ `e.value` of a `StopIteration`: its first argument, or `None` when it
+    //~ was raised without one.
+    fn value(&self) -> SmeltPyExceptionArg {
+        self.args().0.first().cloned().unwrap_or_else(|| SmeltPyExceptionArg { text: "None".to_owned(), repr: "None".to_owned() })
+    }
+
     //~ `repr(e.args)`: the tuple of the arguments' `repr`s.
     fn args_repr(&self) -> String {
         self.args().py_repr()
@@ -171,6 +177,23 @@ impl SmeltPyRepr for SmeltPyExceptionArgs {
 impl ::std::fmt::Display for SmeltPyExceptionArgs {
     fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
         formatter.write_str(&self.py_repr())
+    }
+}
+
+//~ One argument of an exception (`StopIteration.value`), which has no static
+//~ type: its `str` and `repr` are all it offers.
+impl SmeltPyRepr for SmeltPyExceptionArg {
+    fn py_repr(&self) -> String {
+        self.repr.clone()
+    }
+    fn py_str(&self) -> String {
+        self.text.clone()
+    }
+}
+
+impl ::std::fmt::Display for SmeltPyExceptionArg {
+    fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        formatter.write_str(&self.text)
     }
 }
 

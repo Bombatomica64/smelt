@@ -179,6 +179,9 @@ impl ModuleBuilder<'_> {
                 if let Some(error) = self.unmapped_import_use(expr, self.span(attr.range)) {
                     return Err(error);
                 }
+                if let Some(read) = self.narrowed_field_read(attr, body) {
+                    return Ok(read);
+                }
                 let receiver = self.expression(&attr.value, body)?;
                 let receiver_ty = Self::expr_ty(body, receiver);
                 if receiver_ty == self.py_exception_type() {
@@ -861,13 +864,23 @@ impl ModuleBuilder<'_> {
         let facts = self.narrowing_facts(&if_expr.test, body);
         let then_expr = self.with_narrowings(&facts.then_facts, |this| this.expression(&if_expr.body, body))?;
         let else_expr = self.with_narrowings(&facts.else_facts, |this| this.expression(&if_expr.orelse, body))?;
-        let ty = Self::expr_ty(body, then_expr);
-        if Self::expr_ty(body, else_expr) != ty {
-            return Err(SmeltError::unsupported(
-                self.span(if_expr.range),
-                "conditional expression branches must have the same type",
-            ));
-        }
+        // Branches of different types make the expression their union, as
+        // `ty` types it (`node if found else None` is `Node | None`): each
+        // branch's value is stored at that type where the branch ends.
+        let then_ty = Self::expr_ty(body, then_expr);
+        let else_ty = Self::expr_ty(body, else_expr);
+        let ty = if then_ty == else_ty {
+            then_ty
+        } else {
+            let joined = self.union_from_types(vec![then_ty, else_ty], self.span(if_expr.range))?;
+            if !self.type_assignable_to(then_ty, joined) || !self.type_assignable_to(else_ty, joined) {
+                return Err(SmeltError::unsupported(
+                    self.span(if_expr.range),
+                    "conditional expression branches must have one type, or types a union holds",
+                ));
+            }
+            joined
+        };
         Ok(body.push_expr(HirExpr {
             kind: ExprKind::Conditional {
                 cond,

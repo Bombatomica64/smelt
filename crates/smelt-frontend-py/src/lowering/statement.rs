@@ -53,6 +53,10 @@ impl ModuleBuilder<'_> {
                 if Self::is_starred_unpacking(target_expr) {
                     return self.starred_unpacking_assign(target_expr, &s.value, s.range, body, block);
                 }
+                if Self::is_destructuring_target(target_expr) && self.destructuring_stores(target_expr) {
+                    let value = self.expression(&s.value, body)?;
+                    return self.destructuring_assign(target_expr, value, body, block);
+                }
                 if Self::is_destructuring_target(target_expr) {
                     let value = self.expression(&s.value, body)?;
                     let value_ty = Self::expr_ty(body, value);

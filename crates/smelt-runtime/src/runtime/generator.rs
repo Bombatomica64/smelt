@@ -7,31 +7,45 @@
 // @smelt:item SmeltGeneratorResult when iterator_result
 #[derive(Clone, Debug)]
 pub enum SmeltGeneratorResult<Y, R> { Yielded(Y), Complete(R) }
-//~ JavaScript permits throwing any runtime value, independently of the
-//~ generator's concrete Y/R/N parameters. This is a genuine dynamic
-//~ boundary: preserving a number, object, symbol, or string for a catch
-//~ binding requires the tagged runtime carrier rather than a concrete
-//~ Rust generic shared with the other protocol channels.
-#[derive(Clone, Debug)]
-pub enum SmeltGeneratorCommand<N, R> { Next(N), Return(R), Throw(SmeltUnknown) }
+//~ `Throw` injects an exception at the suspended `yield`: the error channel's
+//~ own `Box<dyn Error>`, which carries whatever the source language throws
+//~ (JavaScript's thrown value, wrapped by `smelt_throw`; Python's
+//~ `SmeltPyException`), so a `catch`/`except` around the `yield` sees it
+//~ exactly as it sees a throw from a call.
+#[derive(Debug)]
+pub enum SmeltGeneratorCommand<N, R> { Next(N), Return(R), Throw(Box<dyn ::std::error::Error>) }
 pub struct SmeltGenerator<Y, R, N> {
     resume: ::std::rc::Rc<::std::cell::RefCell<Box<dyn FnMut(SmeltGeneratorCommand<N, R>) -> Result<SmeltGeneratorResult<Y, R>, Box<dyn ::std::error::Error>>>>>,
     completed: ::std::rc::Rc<::std::cell::RefCell<Option<R>>>,
+    //~ Whether the body has been entered (a first `next`/`send` ran it).
+    started: ::std::rc::Rc<::std::cell::Cell<bool>>,
 }
-impl<Y, R, N> Clone for SmeltGenerator<Y, R, N> { fn clone(&self) -> Self { Self { resume: self.resume.clone(), completed: self.completed.clone() } } }
+impl<Y, R, N> Clone for SmeltGenerator<Y, R, N> { fn clone(&self) -> Self { Self { resume: self.resume.clone(), completed: self.completed.clone(), started: self.started.clone() } } }
 //~ A generator is an object: two are `===` exactly when they are the same
 //~ one (`it[Symbol.iterator]() === it`), which is sharing one state machine.
 impl<Y, R, N> PartialEq for SmeltGenerator<Y, R, N> { fn eq(&self, other: &Self) -> bool { ::std::rc::Rc::ptr_eq(&self.resume, &other.resume) } }
 impl<Y, R, N> ::std::fmt::Debug for SmeltGenerator<Y, R, N> { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.write_str("SmeltGenerator") } }
 impl<Y, R: Clone + Default, N> SmeltGenerator<Y, R, N> {
     //~ Hide the producer future type while retaining concrete yield/return types.
-    fn new(resume: impl FnMut(SmeltGeneratorCommand<N, R>) -> Result<SmeltGeneratorResult<Y, R>, Box<dyn ::std::error::Error>> + 'static) -> Self { Self { resume: ::std::rc::Rc::new(::std::cell::RefCell::new(Box::new(resume))), completed: ::std::rc::Rc::new(::std::cell::RefCell::new(None)) } }
+    fn new(resume: impl FnMut(SmeltGeneratorCommand<N, R>) -> Result<SmeltGeneratorResult<Y, R>, Box<dyn ::std::error::Error>> + 'static) -> Self { Self { resume: ::std::rc::Rc::new(::std::cell::RefCell::new(Box::new(resume))), completed: ::std::rc::Rc::new(::std::cell::RefCell::new(None)), started: ::std::rc::Rc::new(::std::cell::Cell::new(false)) } }
     //~ Resume execution until the next suspension point or completion, or
     //~ until the body throws: the throw is returned, so a `try` around
     //~ `.next()` catches it, and the generator is done from then on (a later
     //~ `next()` answers `{ value: undefined, done: true }`).
+    //~
+    //~ A `Return` or `Throw` sent before the body was ever entered completes
+    //~ the generator without running it (ECMAScript's `GeneratorResumeAbrupt`
+    //~ in state suspended-start; CPython's `gen.throw`/`gen.close` on a
+    //~ just-started generator): the return value is answered, the throw raised.
     fn try_resume(&self, command: SmeltGeneratorCommand<N, R>) -> Result<SmeltGeneratorResult<Y, R>, Box<dyn ::std::error::Error>> {
         if self.completed.borrow().is_some() { return Ok(SmeltGeneratorResult::Complete(R::default())); }
+        if !self.started.replace(true) {
+            match command {
+                SmeltGeneratorCommand::Next(_) => {}
+                SmeltGeneratorCommand::Return(value) => { *self.completed.borrow_mut() = Some(value.clone()); return Ok(SmeltGeneratorResult::Complete(value)); }
+                SmeltGeneratorCommand::Throw(error) => { *self.completed.borrow_mut() = Some(R::default()); return Err(error); }
+            }
+        }
         let result = (self.resume.borrow_mut())(command);
         match &result {
             Ok(SmeltGeneratorResult::Complete(value)) => *self.completed.borrow_mut() = Some(value.clone()),
@@ -43,6 +57,10 @@ impl<Y, R: Clone + Default, N> SmeltGenerator<Y, R, N> {
     //~ [`Self::try_resume`] for a consumer with no `try` to deliver a throw to:
     //~ the throw unwinds as an uncaught one.
     fn resume(&self, command: SmeltGeneratorCommand<N, R>) -> SmeltGeneratorResult<Y, R> { self.try_resume(command).unwrap_or_else(|error| smelt_panic_throw(error)) }
+    //~ Whether the body has been entered: a generator neither resumed yet nor
+    //~ completed is just-started.
+    #[allow(dead_code)]
+    fn is_started(&self) -> bool { self.started.get() }
 }
 //~ A collection iterator (`map.keys()`, `set.values()`, `map.entries()`):
 //~ single-pass over the collection's live store, reading position `index`

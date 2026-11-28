@@ -1,0 +1,7 @@
+animal a | ... | <animal a>
+dog > animal d | woof ... | <dog > animal d>
+puppy > dog > animal p | woof ... | <puppy > dog > animal p>
+puppy > dog > animal t | yip woof ... | tiny <puppy > dog > animal t>
+11
+['Logging.step(5)', 'Doubling.step(5)', 'Counter.step(10)']
+2 ['Doubling.step(1)', 'Counter.step(2)']

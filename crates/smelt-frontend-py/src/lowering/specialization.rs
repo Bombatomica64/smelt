@@ -851,6 +851,17 @@ impl ModuleBuilder<'_> {
         if func.decorator_list.is_empty() || self.has_frontend_only_test_decorators(func) {
             return self.function_defs(func);
         }
+        self.eagerly(|this| this.materialized_function_defs(func, module))
+    }
+
+    /// [`Self::specialized_function_defs`] for a decorated function: lowered
+    /// through its materialized final binding, with its body lowered at once
+    /// (`lowering/deferred_bodies.rs`).
+    fn materialized_function_defs(
+        &mut self,
+        func: &StmtFunctionDef,
+        module: &ModModule,
+    ) -> Result<Vec<ItemId>, SmeltError> {
         let name = func.name.as_str();
         let definition = self
             .specialization
@@ -1194,7 +1205,9 @@ impl ModuleBuilder<'_> {
         lower: impl FnOnce(&mut Self) -> Result<T, SmeltError>,
     ) -> Result<T, SmeltError> {
         let mut saved = Vec::new();
-        let result = install(self, &mut saved).and_then(|()| lower(self));
+        // The aliases exist only while `lower` runs, so what it declares lowers
+        // its body now (`lowering/deferred_bodies.rs`).
+        let result = install(self, &mut saved).and_then(|()| self.eagerly(lower));
         self.restore_capture_aliases(saved);
         result
     }

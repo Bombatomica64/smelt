@@ -1135,7 +1135,18 @@ class A:
     Ok(())
 }
 
-/// `super().<method>()` targets the reserved immediate-base alias.
+/// `super().<method>()` targets the enclosing class's definer alias.
+///
+/// Corrected expectation: the call used to target one alias per class,
+/// `__smelt$super$greet`, the base's `greet`. That alias is resolved on the
+/// class that RUNS the body, so the body of a `B.greet` inherited by a
+/// `C(B)` called `B.greet` itself again and recursed forever (`CPython` calls
+/// `A.greet`: the definition after `B` in `C`'s MRO). The call now names the
+/// definer, `__smelt$super$B$greet`, which every class running `B`'s bodies
+/// defines as the definition following `B` (`reserve_super_call_aliases`);
+/// the requirement, that the call reach the next definition of `greet` in the
+/// MRO with its concrete signature, is unchanged, and `super_chains` checks it
+/// at run time.
 #[test]
 fn super_method_call_lowers_to_a_base_alias() -> TestResult {
     let source = py!(r"
@@ -1155,11 +1166,11 @@ class B(A):
                 matches!(
                     expr.kind,
                     ExprKind::Method { method, .. }
-                        if symbol(&ctx, method).ok() == Some("__smelt$super$greet")
+                        if symbol(&ctx, method).ok() == Some("__smelt$super$B$greet")
                 )
             })
         }),
-        "expected super().greet() to target the base alias",
+        "expected super().greet() to target B's definer alias",
     )?;
     Ok(())
 }

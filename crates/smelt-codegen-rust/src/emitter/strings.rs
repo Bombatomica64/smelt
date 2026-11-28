@@ -499,12 +499,27 @@ impl FunctionEmitter<'_> {
         ) {
             return Err(EmitError::new("string predicate operand must be a string"));
         }
+        let operand_expr = self.operand_expr(operand)?;
+        // `isupper`/`islower`: some cased character, and none of the other
+        // case (CPython's rule; a string without cased characters is neither).
+        let cased = |present: &str, absent: &str| {
+            RustExpr::loose(format!(
+                "{operand_expr}.chars().any(|smelt_char| smelt_char.{present}()) && !{operand_expr}.chars().any(|smelt_char| smelt_char.{absent}())",
+                operand_expr = operand_expr.tight()
+            ))
+        };
         let method_name = match op {
             smelt_hir::StringPredicateOp::IsDigit => "is_ascii_digit",
             smelt_hir::StringPredicateOp::IsAlpha => "is_alphabetic",
             smelt_hir::StringPredicateOp::IsAlnum => "is_alphanumeric",
+            smelt_hir::StringPredicateOp::IsSpace => "is_whitespace",
+            smelt_hir::StringPredicateOp::IsUpper => {
+                return Ok(cased("is_uppercase", "is_lowercase"));
+            }
+            smelt_hir::StringPredicateOp::IsLower => {
+                return Ok(cased("is_lowercase", "is_uppercase"));
+            }
         };
-        let operand_expr = self.operand_expr(operand)?;
         Ok(RustExpr::loose(format!(
             // A closure, not a `char::` path: `char::is_ascii_digit` takes `&self`
             // while `chars()` yields owned `char`s.

@@ -1050,6 +1050,57 @@ impl LoweringCtx<'_> {
         None
     }
 
+    /// The instance setter function behind a store to `object.field`, when
+    /// the field is a setter-backed descriptor of the object's class or one
+    /// of its bases (the counterpart of [`Self::getter_function_of_field`]).
+    pub(super) fn setter_function_of_field(
+        &self,
+        object: ExprId,
+        field: Symbol,
+    ) -> Option<(FuncId, TypeId)> {
+        let object_expr = self.hir_expr(object).ok()?;
+        let Some(Type::Class { name, .. }) = self.krate.types.get(object_expr.ty) else {
+            return None;
+        };
+        let mut class = Some(*name);
+        let mut visited = std::collections::HashSet::new();
+        while let Some(class_name) = class
+            && visited.insert(class_name)
+        {
+            let class_item = self.krate.items.iter().find_map(|item| {
+                if let smelt_hir::Item::Class(class_item) = item
+                    && class_item.name == class_name
+                {
+                    Some(class_item)
+                } else {
+                    None
+                }
+            })?;
+            if let Some(setter) = class_item.descriptors.iter().find_map(|descriptor| {
+                (descriptor.name == field && !descriptor.is_static)
+                    .then_some(descriptor.setter)
+                    .flatten()
+            }) {
+                let smelt_hir::Item::Function(setter_function) =
+                    self.krate.items.get(usize::try_from(setter.0).ok()?)?
+                else {
+                    return None;
+                };
+                let returned = setter_function.return_ty;
+                return self
+                    .item_functions
+                    .get(&setter)
+                    .copied()
+                    .map(|function| (function, returned));
+            }
+            if class_item.fields.iter().any(|item| item.name == field) {
+                return None;
+            }
+            class = class_item.base;
+        }
+        None
+    }
+
     fn receiver_reads_through_getter(&self, receiver: ExprId) -> bool {
         let Ok(receiver_expr) = self.hir_expr(receiver) else {
             return false;

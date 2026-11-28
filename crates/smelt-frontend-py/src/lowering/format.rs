@@ -215,6 +215,9 @@ impl ModuleBuilder<'_> {
             "isdigit" => StringPredicateOp::IsDigit,
             "isalpha" => StringPredicateOp::IsAlpha,
             "isalnum" => StringPredicateOp::IsAlnum,
+            "isspace" => StringPredicateOp::IsSpace,
+            "isupper" => StringPredicateOp::IsUpper,
+            "islower" => StringPredicateOp::IsLower,
             _ => return Ok(None),
         };
         let span = self.span(call.range());

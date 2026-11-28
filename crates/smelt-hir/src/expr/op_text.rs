@@ -322,6 +322,9 @@ impl StringPredicateOp {
             Self::IsDigit => "isdigit",
             Self::IsAlpha => "isalpha",
             Self::IsAlnum => "isalnum",
+            Self::IsSpace => "isspace",
+            Self::IsUpper => "isupper",
+            Self::IsLower => "islower",
         }
     }
 }

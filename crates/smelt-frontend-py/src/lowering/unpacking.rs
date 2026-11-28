@@ -151,3 +151,112 @@ impl ModuleBuilder<'_> {
         }
     }
 }
+
+impl ModuleBuilder<'_> {
+    /// Whether the tuple or list target `target` stores to anything that
+    /// already exists: a bound local, a module variable past its first
+    /// assignment, an attribute or a subscript. Such an assignment writes
+    /// those places (`a, b = b, a + b` in a loop updates `a` and `b`); one
+    /// made only of fresh names declares them.
+    fn destructuring_stores(&self, target: &Expr) -> bool {
+        match target {
+            Expr::Name(name) => {
+                self.scope.locals.contains_key(name.id.as_str())
+                    || (self.written_module_variable(name.id.as_str()).is_some()
+                        && !(self.scope.kind == FnKind::Module
+                            && self.module_variables.get(name.id.as_str()).is_some_and(|variable| !variable.reached)))
+            }
+            Expr::Attribute(_) | Expr::Subscript(_) => true,
+            Expr::Tuple(tuple) => tuple.elts.iter().any(|element| self.destructuring_stores(element)),
+            Expr::List(list) => list.elts.iter().any(|element| self.destructuring_stores(element)),
+            _ => false,
+        }
+    }
+
+    /// `a, b = value` where a target already exists (`destructuring_stores`):
+    /// the value is evaluated once into a temporary, then each element is
+    /// stored left to right, as Python assigns: into the existing local, the
+    /// module variable, the attribute or the subscript it names, or a fresh
+    /// local for a name not bound yet. A nested target unpacks its element
+    /// the same way. The value must be a tuple (its elements' static types are
+    /// known one by one).
+    fn destructuring_assign(
+        &mut self,
+        target: &Expr,
+        value: smelt_hir::ExprId,
+        body: &mut Body,
+        block: smelt_hir::BlockId,
+    ) -> Result<(), SmeltError> {
+        let span = self.span(target.range());
+        let value_ty = Self::expr_ty(body, value);
+        let elements: Vec<&Expr> = match target {
+            Expr::Tuple(tuple) => tuple.elts.iter().collect(),
+            Expr::List(list) => list.elts.iter().collect(),
+            _ => return Err(SmeltError::unsupported(span, "internal error: expected a tuple or list target")),
+        };
+        let Some(Type::Tuple(items)) = self.ctx.krate.types.get(value_ty).cloned() else {
+            return Err(SmeltError::unsupported(
+                span,
+                "an unpacking assignment to existing names, attributes or items needs a tuple value",
+            ));
+        };
+        if items.len() != elements.len() {
+            return Err(SmeltError::unsupported(
+                span,
+                format!("cannot unpack {} values into {} targets", items.len(), elements.len()),
+            ));
+        }
+        let temp = body.push_local(self.synthetic_local("__smelt_unpacked", value_ty, false, span));
+        let pat = body.push_pattern(HirPattern::Binding(temp));
+        body.push_stmt_to_block(block, HirStmt::Let { pat, ty: value_ty, value: Some(value) });
+        for (index, (element, item_ty)) in elements.into_iter().zip(items).enumerate() {
+            let element_span = self.span(element.range());
+            let tuple = body.push_expr(HirExpr { kind: ExprKind::Local(temp), ty: value_ty, span: element_span });
+            let item = body.push_expr(HirExpr { kind: ExprKind::TupleIndex { tuple, index }, ty: item_ty, span: element_span });
+            self.store_unpacked(element, item, body, block)?;
+        }
+        Ok(())
+    }
+
+    /// Store the unpacked `item` into one element target of
+    /// [`Self::destructuring_assign`].
+    fn store_unpacked(
+        &mut self,
+        element: &Expr,
+        item: smelt_hir::ExprId,
+        body: &mut Body,
+        block: smelt_hir::BlockId,
+    ) -> Result<(), SmeltError> {
+        let span = self.span(element.range());
+        let item_ty = Self::expr_ty(body, item);
+        match element {
+            Expr::Tuple(_) | Expr::List(_) => self.destructuring_assign(element, item, body, block),
+            Expr::Name(name) if self.scope.locals.contains_key(name.id.as_str()) => {
+                let target = self.expression(element, body)?;
+                body.push_stmt_to_block(block, HirStmt::Assign { target, value: item });
+                Ok(())
+            }
+            Expr::Name(name) if let Some(global) = self.written_module_variable(name.id.as_str()) => {
+                let Item::MutableGlobal(declared) = self.item_ref(global) else {
+                    return Err(SmeltError::unsupported(span, "internal error: a module variable is not a global"));
+                };
+                let ty = declared.ty;
+                let set = body.push_expr(HirExpr { kind: ExprKind::GlobalSet { item: global, value: item }, ty, span });
+                body.push_stmt_to_block(block, HirStmt::Expr(set));
+                Ok(())
+            }
+            Expr::Name(_) => {
+                let pat = self.binding_pattern_from_target(element, body, Some(item_ty))?;
+                body.push_stmt_to_block(block, HirStmt::Let { pat, ty: item_ty, value: Some(item) });
+                Ok(())
+            }
+            Expr::Attribute(_) | Expr::Subscript(_) => {
+                let read = self.expression(element, body)?;
+                let target = Self::subscript_store_target(read, body);
+                body.push_stmt_to_block(block, HirStmt::Assign { target, value: item });
+                Ok(())
+            }
+            _ => Err(SmeltError::unsupported(span, "an unpacking target must be a name, an attribute, an item, or a tuple of them")),
+        }
+    }
+}

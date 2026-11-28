@@ -37,6 +37,11 @@ pub enum StdlibClass {
     /// `tuple[Any, ...]`: its elements have no static type, so the value
     /// offers only what every element has, its `str` and `repr`.
     PyExceptionArgs,
+    /// `e.value` of a Python `StopIteration`, backed by the generated concrete
+    /// `SmeltPyExceptionArg` runtime type: its first argument, or `None`.
+    /// `StopIteration.value` is `Any`, so like an element of `args` the value
+    /// offers only its `str` and `repr`.
+    PyExceptionValue,
     /// JavaScript `RegExp`, backed by the generated regex runtime shim.
     RegExp,
     /// JavaScript `Set`, represented by set HIR values.
@@ -350,7 +355,10 @@ impl StdlibClass {
         self.erases_through_adapter()
             || matches!(
                 self,
-                Self::MatchGroups | Self::PyException | Self::PyExceptionArgs
+                Self::MatchGroups
+                    | Self::PyException
+                    | Self::PyExceptionArgs
+                    | Self::PyExceptionValue
             )
     }
 
@@ -376,7 +384,9 @@ impl StdlibClass {
     pub const fn runtime(self) -> ClassRuntime {
         match self {
             Self::Headers => ClassRuntime::Headers,
-            Self::PyException | Self::PyExceptionArgs => ClassRuntime::PyException,
+            Self::PyException | Self::PyExceptionArgs | Self::PyExceptionValue => {
+                ClassRuntime::PyException
+            }
             Self::Response => ClassRuntime::Response,
             Self::Request => ClassRuntime::Request,
             Self::EventEmitter => ClassRuntime::EventEmitter,
@@ -455,6 +465,10 @@ pub const PY_EXCEPTION_CLASS_NAME: &str = "__SmeltPyException";
 /// [`StdlibClass::PyExceptionArgs`]).
 pub const PY_EXCEPTION_ARGS_CLASS_NAME: &str = "__SmeltPyExceptionArgs";
 
+/// Reserved synthetic class name of a Python `StopIteration`'s `value` (see
+/// [`StdlibClass::PyExceptionValue`]).
+pub const PY_EXCEPTION_VALUE_CLASS_NAME: &str = "__SmeltPyExceptionValue";
+
 /// `Array.prototype` methods that READ an array without mutating it.
 ///
 /// A regex match result (`exec` / `String.prototype.match`) IS a JavaScript
@@ -517,6 +531,7 @@ pub fn typescript_stdlib_class(name: &str) -> Option<StdlibClass> {
         MATCH_GROUPS_CLASS_NAME => Some(StdlibClass::MatchGroups),
         PY_EXCEPTION_CLASS_NAME => Some(StdlibClass::PyException),
         PY_EXCEPTION_ARGS_CLASS_NAME => Some(StdlibClass::PyExceptionArgs),
+        PY_EXCEPTION_VALUE_CLASS_NAME => Some(StdlibClass::PyExceptionValue),
         "MatchFnResult" => Some(StdlibClass::MatchFnResult),
         "RegExp" => Some(StdlibClass::RegExp),
         "Set" => Some(StdlibClass::Set),

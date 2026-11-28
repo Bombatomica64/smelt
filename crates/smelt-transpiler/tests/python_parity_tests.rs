@@ -715,3 +715,60 @@ fn generator_protocol() -> TestResult {
 fn numeric_unions() -> TestResult {
     verify_python_parity("numeric_unions")
 }
+
+/// A function or method body constructs, annotates, calls and reads the
+/// members of classes and functions written after it (refused before: bodies
+/// lowered in source order), mutual recursion between module functions, and
+/// string annotations spelling an expression (`"Entry | None"`). Requirements:
+/// `CPython`'s output, with every forward-referenced value at its concrete
+/// class type.
+#[test]
+fn forward_references() -> TestResult {
+    verify_python_parity("forward_references")
+}
+
+/// `g.throw(exc)` raises at the suspended `yield` (or ends a just-started
+/// generator), `g.close()` runs `finally` blocks and `except GeneratorExit`
+/// handlers and refuses a generator that yields again, `send()` of a
+/// non-`None` value to a just-started generator raises `TypeError`, and
+/// `except StopIteration as e` reads `e.value` (all refused before).
+/// Requirements: `CPython`'s output, every handler and `finally` print
+/// included, in order.
+#[test]
+fn generator_throw_close() -> TestResult {
+    verify_python_parity("generator_throw_close")
+}
+
+/// `super()` chains through three and four levels of single inheritance,
+/// from overriding and from inherited bodies, `super().__str__()` included
+/// (a three-level chain recursed forever before: an inherited body's
+/// `super()` alias resolved to itself). Requirements: `CPython`'s output,
+/// each call reaching the definition after its own class in the MRO.
+#[test]
+fn super_chains() -> TestResult {
+    verify_python_parity("super_chains")
+}
+
+/// An `is None` test on `self.field` narrows the field (refused before), an
+/// `isinstance` test on a base-class value narrows it to the subclass as a
+/// checked downcast of the same object (a miscompile or refusal before), a
+/// conditional expression with branches of different types is their union,
+/// a list of sibling classes dispatches an inherited method, and a user
+/// method spelled like a builtin one (`find`, `items`, `count`) is the
+/// user's. Requirements: `CPython`'s output, identity of the narrowed object
+/// included.
+#[test]
+fn narrowing_and_dispatch() -> TestResult {
+    verify_python_parity("narrowing_and_dispatch")
+}
+
+/// Semantics a probe sweep found diverging: `print`'s `sep=`/`end=`/`file=`
+/// (ignored before), tuple assignment to existing names, attributes and items
+/// (`a, b = b, a + b` in a loop declared fresh names, so `fib` answered 1),
+/// an exception raised by a property setter (dropped), `a.copy() is a`
+/// (the copy was elided), `sum`'s `start` and `CPython`'s compensated float
+/// sum, and `isspace`/`isupper`/`islower`. Requirements: `CPython`'s output.
+#[test]
+fn sweep_semantics() -> TestResult {
+    verify_python_parity("sweep_semantics")
+}

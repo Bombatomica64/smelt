@@ -733,6 +733,16 @@ impl FunctionEmitter<'_> {
         if block.id == stop {
             return Ok(());
         }
+        // A region whose stop lies past the innermost open loop (the join of a
+        // throwing call inside a `yield`'s inlined handler is the `finally`
+        // after the loop) reaches that loop's header or continue target on the
+        // way: that edge ends the iteration, as the loop's own walker treats
+        // it. Walking on would emit a second copy of the loop inside itself.
+        if self.flow.is_innermost_loop_continue(block.id)
+            && let Some(jump) = self.flow.open_loop_jump(block.id)
+        {
+            return self.emit_loop_jump(jump, out);
+        }
         if Some(block.id) == break_target {
             out.push_str("    break;\n");
             return Ok(());
