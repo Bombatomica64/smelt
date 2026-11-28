@@ -215,7 +215,6 @@ impl FunctionEmitter<'_> {
             | PyCollectionMethod::GetOrInsert
             | PyCollectionMethod::GetItem => value,
             PyCollectionMethod::PopItem => self.type_id(Type::Tuple(vec![first, value]))?,
-            PyCollectionMethod::ToDict => self.type_id(Type::Dict(first, value))?,
         })
     }
 }

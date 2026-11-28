@@ -158,8 +158,6 @@ pub enum PyCollectionMethod {
     PopItem,
     /// `od.move_to_end(k, last)`: `[key, bool]`, `KeyError` when missing.
     MoveToEnd,
-    /// `dict(d)` of a `defaultdict` or `OrderedDict`: `[]`, a new plain dict.
-    ToDict,
 }
 
 impl PyCollectionMethod {
@@ -207,7 +205,6 @@ impl PyCollectionMethod {
             Self::GetItem => "get_item",
             Self::PopItem => "popitem",
             Self::MoveToEnd => "move_to_end",
-            Self::ToDict => "to_dict",
         }
     }
 
@@ -282,7 +279,6 @@ impl PyCollectionMethod {
                 | Self::Plus
                 | Self::Minus
                 | Self::GetItem
-                | Self::ToDict
         )
     }
 }

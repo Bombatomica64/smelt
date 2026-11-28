@@ -908,9 +908,7 @@ impl ModuleBuilder<'_> {
         let receiver = self.py_collection_temporary(receiver, span, body, block);
         let (_, index) = self.py_collection_index_operand(&container, &sub.slice, body)?;
         let index = self.py_collection_temporary(index, span, body, block);
-        let Some(current) = self.py_collection_subscript_read_lowered(&container, receiver, index, span, body) else {
-            return Ok(false);
-        };
+        let current = self.py_collection_subscript_read_lowered(&container, receiver, index, span, body);
         let rhs = self.expression(&aug.value, body)?;
         let op = Self::python_arithmetic_op(aug.op).ok_or_else(|| {
             SmeltError::unsupported(span, format!("augmented assignment operator '{:?}' is not supported", aug.op))
@@ -941,7 +939,7 @@ impl ModuleBuilder<'_> {
         index: smelt_hir::ExprId,
         span: Span,
         body: &mut Body,
-    ) -> Option<smelt_hir::ExprId> {
+    ) -> smelt_hir::ExprId {
         use smelt_hir::PyCollectionMethod as Method;
         let method = match container.class {
             PyCollectionClass::Deque => Method::GetIndex,
@@ -949,7 +947,7 @@ impl ModuleBuilder<'_> {
             PyCollectionClass::DefaultDict => Method::GetOrInsert,
             PyCollectionClass::OrderedDict => Method::GetItem,
         };
-        Some(self.py_collection_op(method, receiver, vec![index], container.value, span, body))
+        self.py_collection_op(method, receiver, vec![index], container.value, span, body)
     }
 
     /// `value` bound once to a fresh immutable temporary in `block`, read back.
@@ -1120,7 +1118,12 @@ impl ModuleBuilder<'_> {
         if !container.class.is_mapping() {
             return None;
         }
+        // The pairs, collected by the dict conversion every other pair list
+        // takes, so the dict gets the backing its key type selects.
+        let pair = self.intern_type(Type::Tuple(vec![container.first, container.value]));
+        let pairs_ty = self.intern_type(Type::List(pair));
+        let pairs = self.py_collection_op(smelt_hir::PyCollectionMethod::Items, value, Vec::new(), pairs_ty, span, body);
         let ty = self.intern_type(Type::Dict(container.first, container.value));
-        Some(self.py_collection_op(smelt_hir::PyCollectionMethod::ToDict, value, Vec::new(), ty, span, body))
+        Some(body.push_expr(HirExpr { kind: ExprKind::ListPairsToDict { list: pairs }, ty, span }))
     }
 }

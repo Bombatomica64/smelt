@@ -43,6 +43,7 @@ struct SmeltPyDequeStore<T> {
 
 impl<T> Clone for SmeltPyDeque<T> { fn clone(&self) -> Self { Self { store: ::std::rc::Rc::clone(&self.store) } } }
 impl<T: ::std::fmt::Debug> ::std::fmt::Debug for SmeltPyDeque<T> { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { self.store.borrow().items.fmt(formatter) } }
+impl<T> Default for SmeltPyDeque<T> { fn default() -> Self { Self { store: ::std::rc::Rc::new(::std::cell::RefCell::new(SmeltPyDequeStore { items: ::std::collections::VecDeque::new(), maxlen: None })) } } }
 impl<T: PartialEq> PartialEq for SmeltPyDeque<T> { fn eq(&self, other: &Self) -> bool { self.store.borrow().items == other.store.borrow().items } }
 
 /// Python's index rule for a sequence of `len` items: a negative index counts
@@ -182,6 +183,7 @@ struct SmeltPyCounter<K> {
 
 impl<K> Clone for SmeltPyCounter<K> { fn clone(&self) -> Self { Self { store: ::std::rc::Rc::clone(&self.store) } } }
 impl<K: ::std::fmt::Debug> ::std::fmt::Debug for SmeltPyCounter<K> { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { self.store.borrow().fmt(formatter) } }
+impl<K> Default for SmeltPyCounter<K> { fn default() -> Self { Self { store: ::std::rc::Rc::new(::std::cell::RefCell::new(::indexmap::IndexMap::new())) } } }
 impl<K: Clone + Eq + ::std::hash::Hash> PartialEq for SmeltPyCounter<K> { fn eq(&self, other: &Self) -> bool { self.equals(other) } }
 
 #[allow(dead_code)]
@@ -351,6 +353,11 @@ struct SmeltPyDefaultDict<K, V> {
 
 impl<K: ::std::fmt::Debug, V: ::std::fmt::Debug> ::std::fmt::Debug for SmeltPyDefaultDict<K, V> { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { self.store.borrow().fmt(formatter) } }
 impl<K: Clone + Eq + ::std::hash::Hash, V: Clone + PartialEq> PartialEq for SmeltPyDefaultDict<K, V> { fn eq(&self, other: &Self) -> bool { self.equals(other) } }
+//~ The placeholder a generated struct's field holds before its constructor
+//~ assigns it: an empty map whose factory is the value type's default.
+impl<K, V: Default + 'static> Default for SmeltPyDefaultDict<K, V> {
+    fn default() -> Self { Self { store: ::std::rc::Rc::new(::std::cell::RefCell::new(::indexmap::IndexMap::new())), factory: ::std::rc::Rc::new(V::default), factory_repr: ::std::rc::Rc::from("None") } }
+}
 impl<K, V> Clone for SmeltPyDefaultDict<K, V> {
     fn clone(&self) -> Self { Self { store: ::std::rc::Rc::clone(&self.store), factory: ::std::rc::Rc::clone(&self.factory), factory_repr: ::std::rc::Rc::clone(&self.factory_repr) } }
 }
@@ -401,8 +408,6 @@ impl<K: Clone + Eq + ::std::hash::Hash, V: Clone> SmeltPyDefaultDict<K, V> {
     fn clear(&self) { self.store.borrow_mut().clear(); }
     //~ `d.copy()`: a new map with the same entries and factory.
     fn copy(&self) -> Self { Self { store: ::std::rc::Rc::new(::std::cell::RefCell::new(self.store.borrow().clone())), factory: ::std::rc::Rc::clone(&self.factory), factory_repr: ::std::rc::Rc::clone(&self.factory_repr) } }
-    //~ `dict(d)`: the entries as a plain dict.
-    fn to_dict(&self) -> ::indexmap::IndexMap<K, V> { self.store.borrow().clone() }
     //~ `d1 == d2`: the same entries, in any order (dict equality).
     fn equals(&self, other: &Self) -> bool where V: PartialEq {
         let left = self.store.borrow();
@@ -430,6 +435,7 @@ struct SmeltPyOrderedDict<K, V> {
 
 impl<K, V> Clone for SmeltPyOrderedDict<K, V> { fn clone(&self) -> Self { Self { store: ::std::rc::Rc::clone(&self.store) } } }
 impl<K: ::std::fmt::Debug, V: ::std::fmt::Debug> ::std::fmt::Debug for SmeltPyOrderedDict<K, V> { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { self.store.borrow().fmt(formatter) } }
+impl<K, V> Default for SmeltPyOrderedDict<K, V> { fn default() -> Self { Self { store: ::std::rc::Rc::new(::std::cell::RefCell::new(::indexmap::IndexMap::new())) } } }
 impl<K: Clone + Eq + ::std::hash::Hash, V: Clone + PartialEq> PartialEq for SmeltPyOrderedDict<K, V> { fn eq(&self, other: &Self) -> bool { self.equals(other) } }
 
 #[allow(dead_code)]
@@ -487,8 +493,6 @@ impl<K: Clone + Eq + ::std::hash::Hash, V: Clone> SmeltPyOrderedDict<K, V> {
     fn clear(&self) { self.store.borrow_mut().clear(); }
     //~ `od.copy()`.
     fn copy(&self) -> Self { Self { store: ::std::rc::Rc::new(::std::cell::RefCell::new(self.store.borrow().clone())) } }
-    //~ `dict(od)`.
-    fn to_dict(&self) -> ::indexmap::IndexMap<K, V> { self.store.borrow().clone() }
     //~ `od1 == od2`: the same entries in the same order.
     fn equals(&self, other: &Self) -> bool where V: PartialEq {
         let left = self.store.borrow();

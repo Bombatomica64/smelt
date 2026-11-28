@@ -589,7 +589,7 @@ impl ModuleBuilder<'_> {
                     .collect::<Result<_, _>>()?;
                 // `print(x)` writes `str(x)`: a class instance's own text.
                 for arg in &mut args {
-                    if self.class_text_method(Self::expr_ty(body, *arg), false).is_some() {
+                    if self.class_text_method(Self::expr_ty(body, *arg), false).is_some() || self.py_collection_item_type(Self::expr_ty(body, *arg)).is_some() {
                         let arg_span = Self::expr_span(body, *arg);
                         *arg = self.python_text_expr(*arg, false, arg_span, body)?;
                     }
@@ -634,6 +634,55 @@ impl ModuleBuilder<'_> {
         Ok(None)
     }
 
+    /// The arguments of a class construction that passes keywords, in the
+    /// constructor's parameter order: each keyword binds the parameter of its
+    /// name, and a parameter left out takes its default (`None` here, which
+    /// the constructor replaces), exactly as a function call's arguments do.
+    /// A class with no constructor of its own takes no keywords.
+    fn constructor_keyword_args(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        constructor: Option<ItemId>,
+        class_name: &str,
+        span: Span,
+        body: &mut Body,
+    ) -> Result<Vec<smelt_hir::ExprId>, SmeltError> {
+        let Some(Item::Function(function)) = constructor.map(|item| self.item_ref(item).clone()) else {
+            return Err(SmeltError::unsupported(
+                span,
+                format!("class '{class_name}' takes no keyword arguments"),
+            ));
+        };
+        let params = function.params.iter().map(|param| param.ty).collect::<Vec<_>>();
+        let param_names = function
+            .params
+            .iter()
+            .map(|param| self.ctx.krate.symbols.get(param.name).unwrap_or("").to_owned())
+            .collect::<Vec<_>>();
+        let required = function.required_params.unwrap_or(params.len());
+        let defaults = params
+            .iter()
+            .enumerate()
+            .map(|(index, param)| {
+                (index >= required)
+                    .then(|| body.push_expr(HirExpr { kind: ExprKind::Literal(Literal::None), ty: *param, span }))
+            })
+            .collect::<Vec<_>>();
+        self.callable_call_args(
+            call,
+            body,
+            &CallableCallSignature {
+                params: &params,
+                param_names: Some(&param_names),
+                vararg: None,
+                kwarg: None,
+                defaults: &defaults,
+                label: "constructor",
+                type_params: &[],
+            },
+        )
+    }
+
     /// Lower a named function call or class constructor call resolved by item table.
     fn named_item_call_expression(
         &mut self,
@@ -671,12 +720,18 @@ impl ModuleBuilder<'_> {
                             name: class_sym,
                             args: vec![],
                         });
-                        let args: Vec<_> = call
-                            .arguments
-                            .args
-                            .iter()
-                            .map(|a| self.expression(a, body))
-                            .collect::<Result<_, _>>()?;
+                        let constructor = c.constructor;
+                        let args: Vec<_> = if call.arguments.keywords.is_empty() {
+                            call.arguments
+                                .args
+                                .iter()
+                                .map(|a| self.expression(a, body))
+                                .collect::<Result<_, _>>()?
+                        } else {
+                            // `Point(x=3, y=4)`: keywords bind the constructor's
+                            // parameters by name, as for a function call.
+                            self.constructor_keyword_args(call, constructor, name_str, span, body)?
+                        };
                         return Ok(Some(body.push_expr(HirExpr {
                             kind: ExprKind::New {
                                 class: class_sym,
