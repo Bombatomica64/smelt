@@ -139,7 +139,8 @@ fn forward_bound_callees(function: &mut crate::MirFunction) -> bool {
     changed
 }
 
-/// Returns whether any function or closure in the program reads `this`.
+/// Returns whether any function or closure in the program reads `this`
+/// (a `this` expression, or a builtin's receiver check).
 fn program_reads_this(mir: &Mir) -> bool {
     let function_blocks = mir
         .functions
@@ -155,7 +156,11 @@ fn program_reads_this(mir: &Mir) -> bool {
         .any(|statement| {
             matches!(
                 statement.value(),
-                Some(Rvalue::ThisRead | Rvalue::BindOwnThis { .. })
+                Some(
+                    Rvalue::ThisRead
+                        | Rvalue::RequireObjectReceiver { .. }
+                        | Rvalue::BindOwnThis { .. }
+                )
             )
         })
 }

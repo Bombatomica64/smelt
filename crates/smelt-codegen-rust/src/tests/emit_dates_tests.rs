@@ -67,6 +67,14 @@ return Ok(_smelt_tmp_11);
     );
 }
 
+/// A `getTimezoneOffset` spy pins the offset and `mockRestore` unpins it.
+///
+/// Corrected expectation. Old requirement: the spy set the offset slot to its
+/// value and the restore set it back to `0.0`, the UTC offset the date model
+/// assumed. New requirement: the spy sets `Some(value)` and the restore
+/// `None`, after which `getTimezoneOffset()` reads the process time zone at
+/// the date again (`date_local_tz` parity fixture), as Node's restored
+/// method does.
 #[test]
 fn emits_vitest_date_timezone_offset_mock_state() {
     let source = source_for(
@@ -81,9 +89,9 @@ spy.mockRestore();
     );
 
     assert!(source.contains("SMELT_DATE_TIMEZONE_OFFSET"), "{source}");
-    assert!(source.contains("value.set(480.0)"), "{source}");
+    assert!(source.contains("value.set(Some(480.0))"), "{source}");
     assert!(source.contains("with(::std::cell::Cell::get)"), "{source}");
-    assert!(source.contains("value.set(0.0)"), "{source}");
+    assert!(source.contains("value.set(None)"), "{source}");
 }
 
 #[test]
@@ -193,6 +201,16 @@ const iso = result.toISOString();
 /// alias sees the write. The old requirement (copy the metadata onto a fresh
 /// replacement object) detached the result from its aliases, which a
 /// JavaScript setter never does (`node_parity::date_setter_erased_receiver`).
+///
+/// Corrected expectation (local time zone). Old requirement: local-time
+/// getters and setters worked on the time value's UTC fields, and an
+/// offset-less ISO date-time or slashed date string was read as UTC. New
+/// requirement: they work in the process time zone, as Node does: a local
+/// getter reads `LocalTime(t)` (the offset from `smelt_date_local_offset`), a local setter stores
+/// `UTC(..)` of its UTC-field update (`smelt_date_utc_offset_for_local`), and an
+/// offset-less date-time string is read through the same `UTC` conversion
+/// (ECMA-262 LocalTime/UTC; values pinned by the `date_local_tz` parity
+/// fixture). The emitted shape this test pins is otherwise unchanged.
 #[test]
 fn preserves_erased_date_metadata_across_setters() {
     let source = source_for(
@@ -209,7 +227,7 @@ const iso = bump(value as any);
     assert_eq!(
         rust_fn(&source, "bump"),
         r#"fn bump(mut date: SmeltUnknown) -> JsString {
-{ let smelt_next_value = { let smelt_date_result = { let smelt_timestamp_ms = ({ use chrono::{Datelike as _, Timelike as _}; let smelt_timestamp_ms = (match &date.clone() { SmeltUnknown::Number(smelt_value) => *smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get("__smelt_date") { Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }, SmeltUnknown::String(smelt_value) => { let smelt_value = smelt_value.to_string_lossy(); chrono::DateTime::parse_from_rfc3339(&smelt_value).or_else(|_| chrono::DateTime::parse_from_str(&smelt_value, "%a %b %d %Y %H:%M:%S GMT%z")).map(|smelt_date| smelt_date.timestamp_millis() as f64).or_else(|_| chrono::NaiveDateTime::parse_from_str(&smelt_value, "%Y-%m-%dT%H:%M:%S%.f").or_else(|_| chrono::NaiveDateTime::parse_from_str(&smelt_value, "%Y-%m-%dT%H:%M")).map(|smelt_date| smelt_date.and_utc().timestamp_millis() as f64)).or_else(|_| chrono::NaiveDate::parse_from_str(&smelt_value, "%Y/%m/%d").or_else(|_| chrono::NaiveDate::parse_from_str(&smelt_value, "%Y-%m-%d")).map(|smelt_date| smelt_date.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp_millis() as f64)).unwrap_or_else(|_| smelt_value.parse::<f64>().unwrap_or(f64::NAN)) }, SmeltUnknown::Bool(smelt_value) => if *smelt_value { 1.0 } else { 0.0 }, SmeltUnknown::Null => 0.0, SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }) as f64; if smelt_timestamp_ms.is_finite() && ((2024.0) as f64).is_finite() { chrono::DateTime::<chrono::Utc>::from_timestamp_millis(smelt_timestamp_ms as i64).and_then(|smelt_date| { let smelt_month_index = smelt_date.month0() as i32; let smelt_normalized_year = (2024.0 as i32) + smelt_month_index.div_euclid(12); let smelt_normalized_month0 = smelt_month_index.rem_euclid(12) as u32; chrono::NaiveDate::from_ymd_opt(smelt_normalized_year, smelt_normalized_month0 + 1, 1).and_then(|smelt_base| smelt_base.and_hms_nano_opt(smelt_date.hour(), smelt_date.minute(), smelt_date.second(), smelt_date.nanosecond())).map(|smelt_base| smelt_base + chrono::Duration::days((smelt_date.day() as i64) - 1)).map(|smelt_date| smelt_date.and_utc()) }).map(|smelt_date| smelt_date.timestamp_millis()).unwrap_or(i64::MIN) } else { i64::MIN } }) as f64; let smelt_timestamp_ms = if !smelt_timestamp_ms.is_finite() || smelt_timestamp_ms == i64::MIN as f64 { f64::NAN } else { smelt_timestamp_ms }; SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_date".to_owned(), SmeltUnknown::Number(smelt_timestamp_ms))]))) }; match (&smelt_date_result, &date.clone()) { (SmeltUnknown::Object(smelt_result), SmeltUnknown::Object(smelt_receiver)) => { smelt_receiver.insert("__smelt_date", smelt_result.get("__smelt_date").unwrap_or(SmeltUnknown::Number(f64::NAN))); SmeltUnknown::Object(smelt_receiver.clone()) } _ => smelt_date_result } }; date = smelt_next_value; }
+{ let smelt_next_value = { let smelt_date_result = { let smelt_timestamp_ms = ({ let smelt_local_ms: i64 = { use chrono::{Datelike as _, Timelike as _}; let smelt_timestamp_ms = ({ let smelt_local_t = (match &date.clone() { SmeltUnknown::Number(smelt_value) => *smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get("__smelt_date") { Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }, SmeltUnknown::String(smelt_value) => { let smelt_value = smelt_value.to_string_lossy(); chrono::DateTime::parse_from_rfc3339(&smelt_value).or_else(|_| chrono::DateTime::parse_from_str(smelt_value.rsplit_once(" (").map_or(&smelt_value[..], |(smelt_head, _)| smelt_head), "%a %b %d %Y %H:%M:%S GMT%z")).map(|smelt_date| smelt_date.timestamp_millis() as f64).or_else(|_| chrono::NaiveDateTime::parse_from_str(&smelt_value, "%Y-%m-%dT%H:%M:%S%.f").or_else(|_| chrono::NaiveDateTime::parse_from_str(&smelt_value, "%Y-%m-%dT%H:%M")).or_else(|_| chrono::NaiveDate::parse_from_str(&smelt_value, "%Y/%m/%d").map(|smelt_date| smelt_date.and_hms_opt(0, 0, 0).unwrap_or_default())).map(|smelt_date| { let smelt_local_ms = smelt_date.and_utc().timestamp_millis(); smelt_date_utc_offset_for_local(smelt_local_ms).map_or(f64::NAN, |smelt_offset| (smelt_local_ms - i64::from(smelt_offset) * 1000) as f64) })).or_else(|_| chrono::NaiveDate::parse_from_str(&smelt_value, "%Y-%m-%d").map(|smelt_date| smelt_date.and_hms_opt(0, 0, 0).unwrap_or_default().and_utc().timestamp_millis() as f64)).unwrap_or_else(|_| smelt_value.parse::<f64>().unwrap_or(f64::NAN)) }, SmeltUnknown::Bool(smelt_value) => if *smelt_value { 1.0 } else { 0.0 }, SmeltUnknown::Null => 0.0, SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }) as f64; if smelt_local_t.is_finite() { smelt_date_local_offset(smelt_local_t as i64).map_or(f64::NAN, |smelt_offset| smelt_local_t + f64::from(smelt_offset) * 1000.0) } else { f64::NAN } }) as f64; if smelt_timestamp_ms.is_finite() && ((2024.0) as f64).is_finite() { chrono::DateTime::<chrono::Utc>::from_timestamp_millis(smelt_timestamp_ms as i64).and_then(|smelt_date| { let smelt_month_index = smelt_date.month0() as i32; let smelt_normalized_year = (2024.0 as i32) + smelt_month_index.div_euclid(12); let smelt_normalized_month0 = smelt_month_index.rem_euclid(12) as u32; chrono::NaiveDate::from_ymd_opt(smelt_normalized_year, smelt_normalized_month0 + 1, 1).and_then(|smelt_base| smelt_base.and_hms_nano_opt(smelt_date.hour(), smelt_date.minute(), smelt_date.second(), smelt_date.nanosecond())).map(|smelt_base| smelt_base + chrono::Duration::days((smelt_date.day() as i64) - 1)).map(|smelt_date| smelt_date.and_utc()) }).map(|smelt_date| smelt_date.timestamp_millis()).unwrap_or(i64::MIN) } else { i64::MIN } }; if smelt_local_ms == i64::MIN { i64::MIN } else { smelt_date_utc_offset_for_local(smelt_local_ms).map_or(i64::MIN, |smelt_offset| smelt_local_ms - i64::from(smelt_offset) * 1000) } }) as f64; let smelt_timestamp_ms = if !smelt_timestamp_ms.is_finite() || smelt_timestamp_ms == i64::MIN as f64 { f64::NAN } else { smelt_timestamp_ms }; SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_date".to_owned(), SmeltUnknown::Number(smelt_timestamp_ms))]))) }; match (&smelt_date_result, &date.clone()) { (SmeltUnknown::Object(smelt_result), SmeltUnknown::Object(smelt_receiver)) => { smelt_receiver.insert("__smelt_date", smelt_result.get("__smelt_date").unwrap_or(SmeltUnknown::Number(f64::NAN))); SmeltUnknown::Object(smelt_receiver.clone()) } _ => smelt_date_result } }; date = smelt_next_value; }
 let _smelt_tmp_2: JsString = JsString::from((date.clone()).to_iso_string());
 return _smelt_tmp_2;
 }"#
@@ -217,6 +235,16 @@ return _smelt_tmp_2;
 }
 
 /// `new Date(x)` over an erased value parses at run time; values are in `date_semantics`.
+///
+/// Corrected expectation (local time zone). Old requirement: local-time
+/// getters and setters worked on the time value's UTC fields, and an
+/// offset-less ISO date-time or slashed date string was read as UTC. New
+/// requirement: they work in the process time zone, as Node does: a local
+/// getter reads `LocalTime(t)` (the offset from `smelt_date_local_offset`), a local setter stores
+/// `UTC(..)` of its UTC-field update (`smelt_date_utc_offset_for_local`), and an
+/// offset-less date-time string is read through the same `UTC` conversion
+/// (ECMA-262 LocalTime/UTC; values pinned by the `date_local_tz` parity
+/// fixture). The emitted shape this test pins is otherwise unchanged.
 #[test]
 fn emits_date_to_iso_string_for_erased_datearg_surfaces() {
     let source = source_for(
@@ -230,7 +258,7 @@ export function isoFrom(value: unknown): string {
     assert_eq!(
         rust_fn(&source, "iso_from"),
         r#"fn iso_from(value: SmeltUnknown) -> JsString {
-let _smelt_tmp_1: f64 = { let smelt_timestamp_ms = (match &value.clone() { SmeltUnknown::Number(smelt_value) => *smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get("__smelt_date") { Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }, SmeltUnknown::String(smelt_value) => { let smelt_value = smelt_value.to_string_lossy(); chrono::DateTime::parse_from_rfc3339(&smelt_value).or_else(|_| chrono::DateTime::parse_from_str(&smelt_value, "%a %b %d %Y %H:%M:%S GMT%z")).map(|smelt_date| smelt_date.timestamp_millis() as f64).or_else(|_| chrono::NaiveDateTime::parse_from_str(&smelt_value, "%Y-%m-%dT%H:%M:%S%.f").or_else(|_| chrono::NaiveDateTime::parse_from_str(&smelt_value, "%Y-%m-%dT%H:%M")).map(|smelt_date| smelt_date.and_utc().timestamp_millis() as f64)).or_else(|_| chrono::NaiveDate::parse_from_str(&smelt_value, "%Y/%m/%d").or_else(|_| chrono::NaiveDate::parse_from_str(&smelt_value, "%Y-%m-%d")).map(|smelt_date| smelt_date.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp_millis() as f64)).unwrap_or_else(|_| smelt_value.parse::<f64>().unwrap_or(f64::NAN)) }, SmeltUnknown::Bool(smelt_value) => if *smelt_value { 1.0 } else { 0.0 }, SmeltUnknown::Null => 0.0, SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }) as f64; if !smelt_timestamp_ms.is_finite() || smelt_timestamp_ms == i64::MIN as f64 { f64::NAN } else { smelt_timestamp_ms } };
+let _smelt_tmp_1: f64 = { let smelt_timestamp_ms = (match &value.clone() { SmeltUnknown::Number(smelt_value) => *smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get("__smelt_date") { Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }, SmeltUnknown::String(smelt_value) => { let smelt_value = smelt_value.to_string_lossy(); chrono::DateTime::parse_from_rfc3339(&smelt_value).or_else(|_| chrono::DateTime::parse_from_str(smelt_value.rsplit_once(" (").map_or(&smelt_value[..], |(smelt_head, _)| smelt_head), "%a %b %d %Y %H:%M:%S GMT%z")).map(|smelt_date| smelt_date.timestamp_millis() as f64).or_else(|_| chrono::NaiveDateTime::parse_from_str(&smelt_value, "%Y-%m-%dT%H:%M:%S%.f").or_else(|_| chrono::NaiveDateTime::parse_from_str(&smelt_value, "%Y-%m-%dT%H:%M")).or_else(|_| chrono::NaiveDate::parse_from_str(&smelt_value, "%Y/%m/%d").map(|smelt_date| smelt_date.and_hms_opt(0, 0, 0).unwrap_or_default())).map(|smelt_date| { let smelt_local_ms = smelt_date.and_utc().timestamp_millis(); smelt_date_utc_offset_for_local(smelt_local_ms).map_or(f64::NAN, |smelt_offset| (smelt_local_ms - i64::from(smelt_offset) * 1000) as f64) })).or_else(|_| chrono::NaiveDate::parse_from_str(&smelt_value, "%Y-%m-%d").map(|smelt_date| smelt_date.and_hms_opt(0, 0, 0).unwrap_or_default().and_utc().timestamp_millis() as f64)).unwrap_or_else(|_| smelt_value.parse::<f64>().unwrap_or(f64::NAN)) }, SmeltUnknown::Bool(smelt_value) => if *smelt_value { 1.0 } else { 0.0 }, SmeltUnknown::Null => 0.0, SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }) as f64; if !smelt_timestamp_ms.is_finite() || smelt_timestamp_ms == i64::MIN as f64 { f64::NAN } else { smelt_timestamp_ms } };
 let _smelt_tmp_2: SmeltDate = SmeltDate::new((_smelt_tmp_1) as f64);
 let _smelt_tmp_3: JsString = JsString::from((_smelt_tmp_2).to_iso_string());
 return _smelt_tmp_3;
@@ -268,6 +296,16 @@ return;
 }
 
 /// Date setters take a numeric argument read out of an erased value.
+///
+/// Corrected expectation (local time zone). Old requirement: local-time
+/// getters and setters worked on the time value's UTC fields, and an
+/// offset-less ISO date-time or slashed date string was read as UTC. New
+/// requirement: they work in the process time zone, as Node does: a local
+/// getter reads `LocalTime(t)` (the offset from `smelt_date_local_offset`), a local setter stores
+/// `UTC(..)` of its UTC-field update (`smelt_date_utc_offset_for_local`), and an
+/// offset-less date-time string is read through the same `UTC` conversion
+/// (ECMA-262 LocalTime/UTC; values pinned by the `date_local_tz` parity
+/// fixture). The emitted shape this test pins is otherwise unchanged.
 #[test]
 fn emits_date_getters_and_setters_for_erased_datearg_surfaces() {
     let source = source_for(
@@ -285,15 +323,25 @@ export function yearRoundTrip(value: unknown): number {
         r#"fn year_round_trip(value: SmeltUnknown) -> f64 {
 let mut date: SmeltDate = SmeltDate::new((0.0) as f64);
 let _smelt_tmp_3: f64 = match value.clone() { SmeltUnknown::Number(smelt_value) => smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get("__smelt_date") { Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }, SmeltUnknown::String(smelt_value) => smelt_js_string_to_number(&smelt_value), SmeltUnknown::Bool(smelt_value) => if smelt_value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN };
-{ let smelt_next_value = { let smelt_time_ms = ({ use chrono::{Datelike as _, Timelike as _}; let smelt_timestamp_ms = ((date).get_time()) as f64; if smelt_timestamp_ms.is_finite() && ((_smelt_tmp_3) as f64).is_finite() { chrono::DateTime::<chrono::Utc>::from_timestamp_millis(smelt_timestamp_ms as i64).and_then(|smelt_date| { let smelt_month_index = smelt_date.month0() as i32; let smelt_normalized_year = (_smelt_tmp_3 as i32) + smelt_month_index.div_euclid(12); let smelt_normalized_month0 = smelt_month_index.rem_euclid(12) as u32; chrono::NaiveDate::from_ymd_opt(smelt_normalized_year, smelt_normalized_month0 + 1, 1).and_then(|smelt_base| smelt_base.and_hms_nano_opt(smelt_date.hour(), smelt_date.minute(), smelt_date.second(), smelt_date.nanosecond())).map(|smelt_base| smelt_base + chrono::Duration::days((smelt_date.day() as i64) - 1)).map(|smelt_date| smelt_date.and_utc()) }).map(|smelt_date| smelt_date.timestamp_millis()).unwrap_or(i64::MIN) } else { i64::MIN } }) as f64; (date).set_time(smelt_time_ms); date }; date = smelt_next_value; }
+{ let smelt_next_value = { let smelt_time_ms = ({ let smelt_local_ms: i64 = { use chrono::{Datelike as _, Timelike as _}; let smelt_timestamp_ms = ({ let smelt_local_t = ((date).get_time()) as f64; if smelt_local_t.is_finite() { smelt_date_local_offset(smelt_local_t as i64).map_or(f64::NAN, |smelt_offset| smelt_local_t + f64::from(smelt_offset) * 1000.0) } else { f64::NAN } }) as f64; if smelt_timestamp_ms.is_finite() && ((_smelt_tmp_3) as f64).is_finite() { chrono::DateTime::<chrono::Utc>::from_timestamp_millis(smelt_timestamp_ms as i64).and_then(|smelt_date| { let smelt_month_index = smelt_date.month0() as i32; let smelt_normalized_year = (_smelt_tmp_3 as i32) + smelt_month_index.div_euclid(12); let smelt_normalized_month0 = smelt_month_index.rem_euclid(12) as u32; chrono::NaiveDate::from_ymd_opt(smelt_normalized_year, smelt_normalized_month0 + 1, 1).and_then(|smelt_base| smelt_base.and_hms_nano_opt(smelt_date.hour(), smelt_date.minute(), smelt_date.second(), smelt_date.nanosecond())).map(|smelt_base| smelt_base + chrono::Duration::days((smelt_date.day() as i64) - 1)).map(|smelt_date| smelt_date.and_utc()) }).map(|smelt_date| smelt_date.timestamp_millis()).unwrap_or(i64::MIN) } else { i64::MIN } }; if smelt_local_ms == i64::MIN { i64::MIN } else { smelt_date_utc_offset_for_local(smelt_local_ms).map_or(i64::MIN, |smelt_offset| smelt_local_ms - i64::from(smelt_offset) * 1000) } }) as f64; (date).set_time(smelt_time_ms); date }; date = smelt_next_value; }
 let _smelt_tmp_5: f64 = (date).get_time();
-let _smelt_tmp_6: f64 = { use chrono::Datelike as _; let smelt_timestamp_ms = (_smelt_tmp_5) as f64; if smelt_timestamp_ms.is_finite() { chrono::DateTime::<chrono::Utc>::from_timestamp_millis(smelt_timestamp_ms as i64).map_or(f64::NAN, |smelt_date| smelt_date.year() as f64) } else { f64::NAN } };
+let _smelt_tmp_6: f64 = { use chrono::Datelike as _; let smelt_timestamp_ms = ({ let smelt_local_t = (_smelt_tmp_5) as f64; if smelt_local_t.is_finite() { smelt_date_local_offset(smelt_local_t as i64).map_or(f64::NAN, |smelt_offset| smelt_local_t + f64::from(smelt_offset) * 1000.0) } else { f64::NAN } }) as f64; if smelt_timestamp_ms.is_finite() { chrono::DateTime::<chrono::Utc>::from_timestamp_millis(smelt_timestamp_ms as i64).map_or(f64::NAN, |smelt_date| smelt_date.year() as f64) } else { f64::NAN } };
 return _smelt_tmp_6;
 }"#
     );
 }
 
 /// A date setter stays inside its branch, after the locals it reads.
+///
+/// Corrected expectation (local time zone). Old requirement: local-time
+/// getters and setters worked on the time value's UTC fields, and an
+/// offset-less ISO date-time or slashed date string was read as UTC. New
+/// requirement: they work in the process time zone, as Node does: a local
+/// getter reads `LocalTime(t)` (the offset from `smelt_date_local_offset`), a local setter stores
+/// `UTC(..)` of its UTC-field update (`smelt_date_utc_offset_for_local`), and an
+/// offset-less date-time string is read through the same `UTC` conversion
+/// (ECMA-262 LocalTime/UTC; values pinned by the `date_local_tz` parity
+/// fixture). The emitted shape this test pins is otherwise unchanged.
 #[test]
 fn keeps_date_setter_side_effects_inside_branch_blocks() {
     let source = source_for(
@@ -315,7 +363,7 @@ function apply(isTwoDigitYear: boolean, year: number, date: Date): Date {
 let normalized_two_digit_year: f64;
 if is_two_digit_year {
 normalized_two_digit_year = year + 2000.0;
-{ let smelt_next_value = { let smelt_time_ms = ({ use chrono::{Datelike as _, Timelike as _}; let smelt_timestamp_ms = ((date.clone()).get_time()) as f64; if smelt_timestamp_ms.is_finite() && ((normalized_two_digit_year) as f64).is_finite() && ((0.0) as f64).is_finite() && ((1.0) as f64).is_finite() { chrono::DateTime::<chrono::Utc>::from_timestamp_millis(smelt_timestamp_ms as i64).and_then(|smelt_date| { let smelt_month_index = 0.0 as i32; let smelt_normalized_year = (normalized_two_digit_year as i32) + smelt_month_index.div_euclid(12); let smelt_normalized_month0 = smelt_month_index.rem_euclid(12) as u32; chrono::NaiveDate::from_ymd_opt(smelt_normalized_year, smelt_normalized_month0 + 1, 1).and_then(|smelt_base| smelt_base.and_hms_nano_opt(smelt_date.hour(), smelt_date.minute(), smelt_date.second(), smelt_date.nanosecond())).map(|smelt_base| smelt_base + chrono::Duration::days((1.0 as i64) - 1)).map(|smelt_date| smelt_date.and_utc()) }).map(|smelt_date| smelt_date.timestamp_millis()).unwrap_or(i64::MIN) } else { i64::MIN } }) as f64; (date.clone()).set_time(smelt_time_ms); date.clone() }; date = smelt_next_value; }
+{ let smelt_next_value = { let smelt_time_ms = ({ let smelt_local_ms: i64 = { use chrono::{Datelike as _, Timelike as _}; let smelt_timestamp_ms = ({ let smelt_local_t = ((date.clone()).get_time()) as f64; if smelt_local_t.is_finite() { smelt_date_local_offset(smelt_local_t as i64).map_or(f64::NAN, |smelt_offset| smelt_local_t + f64::from(smelt_offset) * 1000.0) } else { f64::NAN } }) as f64; if smelt_timestamp_ms.is_finite() && ((normalized_two_digit_year) as f64).is_finite() && ((0.0) as f64).is_finite() && ((1.0) as f64).is_finite() { chrono::DateTime::<chrono::Utc>::from_timestamp_millis(smelt_timestamp_ms as i64).and_then(|smelt_date| { let smelt_month_index = 0.0 as i32; let smelt_normalized_year = (normalized_two_digit_year as i32) + smelt_month_index.div_euclid(12); let smelt_normalized_month0 = smelt_month_index.rem_euclid(12) as u32; chrono::NaiveDate::from_ymd_opt(smelt_normalized_year, smelt_normalized_month0 + 1, 1).and_then(|smelt_base| smelt_base.and_hms_nano_opt(smelt_date.hour(), smelt_date.minute(), smelt_date.second(), smelt_date.nanosecond())).map(|smelt_base| smelt_base + chrono::Duration::days((1.0 as i64) - 1)).map(|smelt_date| smelt_date.and_utc()) }).map(|smelt_date| smelt_date.timestamp_millis()).unwrap_or(i64::MIN) } else { i64::MIN } }; if smelt_local_ms == i64::MIN { i64::MIN } else { smelt_date_utc_offset_for_local(smelt_local_ms).map_or(i64::MIN, |smelt_offset| smelt_local_ms - i64::from(smelt_offset) * 1000) } }) as f64; (date.clone()).set_time(smelt_time_ms); date.clone() }; date = smelt_next_value; }
 return date.clone();
 } else {
 return date.clone();
@@ -325,6 +373,16 @@ return date.clone();
 }
 
 /// A `Date` crossing into an erased callable goes through the date boundary adapter.
+///
+/// Corrected expectation (local time zone). Old requirement: local-time
+/// getters and setters worked on the time value's UTC fields, and an
+/// offset-less ISO date-time or slashed date string was read as UTC. New
+/// requirement: they work in the process time zone, as Node does: a local
+/// getter reads `LocalTime(t)` (the offset from `smelt_date_local_offset`), a local setter stores
+/// `UTC(..)` of its UTC-field update (`smelt_date_utc_offset_for_local`), and an
+/// offset-less date-time string is read through the same `UTC` conversion
+/// (ECMA-262 LocalTime/UTC; values pinned by the `date_local_tz` parity
+/// fixture). The emitted shape this test pins is otherwise unchanged.
 #[test]
 fn preserves_erased_date_values_when_retyping_unknown_callback_fields() {
     let source = source_for(
@@ -368,7 +426,7 @@ _smelt_tmp_1.clone()
 let _smelt_tmp_3 = ::std::rc::Rc::new(|closure_arg_0: SmeltDate, closure_arg_1: &SmeltList<JsString>| {
 let mut _smelt_tmp_5: SmeltList<JsString>;
 let _smelt_tmp_2: f64 = (closure_arg_0.clone()).get_time();
-let _smelt_tmp_3: f64 = { use chrono::Datelike as _; let smelt_timestamp_ms = (_smelt_tmp_2) as f64; if smelt_timestamp_ms.is_finite() { chrono::DateTime::<chrono::Utc>::from_timestamp_millis(smelt_timestamp_ms as i64).map_or(f64::NAN, |smelt_date| smelt_date.day() as f64) } else { f64::NAN } };
+let _smelt_tmp_3: f64 = { use chrono::Datelike as _; let smelt_timestamp_ms = ({ let smelt_local_t = (_smelt_tmp_2) as f64; if smelt_local_t.is_finite() { smelt_date_local_offset(smelt_local_t as i64).map_or(f64::NAN, |smelt_offset| smelt_local_t + f64::from(smelt_offset) * 1000.0) } else { f64::NAN } }) as f64; if smelt_timestamp_ms.is_finite() { chrono::DateTime::<chrono::Utc>::from_timestamp_millis(smelt_timestamp_ms as i64).map_or(f64::NAN, |smelt_date| smelt_date.day() as f64) } else { f64::NAN } };
 let _smelt_tmp_4: bool = _smelt_tmp_3 == 1.0;
 if _smelt_tmp_4 {
 _smelt_tmp_5 = Into::<SmeltList<_>>::into(closure_arg_1.clone());

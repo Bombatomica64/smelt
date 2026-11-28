@@ -890,3 +890,45 @@ fn either(value: SmeltUnknown) -> SmeltUnknown
 fn member(key: SmeltUnknown) -> SmeltUnknown"
     );
 }
+
+/// A whole `T` erased through its `IntoSmeltUnknown` bound by the rendered
+/// erasure (`erase_value`) does not count against the generic trial, as it
+/// does not through the operand erasure (`erase`): `flatMapAll` erases the
+/// `U` elements of a fresh list handed once to a reading callee, which no
+/// caller can observe, so `T` and `U` stay generic. A list the body also
+/// keeps (`mapAndKeep` hands `out` to a callee that stores it, then returns
+/// it) would be copied by that erasure, so that function stays erased.
+#[test]
+fn bound_erasure_of_a_whole_type_parameter_keeps_generics() {
+    let source = source_for(
+        r"
+function flattenAll(values: unknown[]): unknown[] {
+  const out: unknown[] = [];
+  for (const v of values) out.push(v);
+  return out;
+}
+export function flatMapAll<T, U>(arr: readonly T[], f: (item: T, index: number, array: readonly T[]) => U): unknown[] {
+  return flattenAll(arr.map((item: T, index: number) => f(item, index, arr)));
+}
+const kept: unknown[][] = [];
+function keep(values: unknown[]): void {
+  kept.push(values);
+}
+export function mapAndKeep<T, U>(arr: readonly T[], f: (item: T) => U): U[] {
+  const out = arr.map(f);
+  keep(out);
+  return out;
+}
+",
+    );
+    let flat = emitted_function_body(&source, "fn flat_map_all");
+    assert!(
+        flat.starts_with("fn flat_map_all<T"),
+        "a body that only erases whole type-parameter values keeps its generics: {flat}"
+    );
+    let kept = emitted_function_body(&source, "fn map_and_keep");
+    assert!(
+        kept.starts_with("fn map_and_keep("),
+        "erasing the elements of a list the body keeps would copy it: {kept}"
+    );
+}

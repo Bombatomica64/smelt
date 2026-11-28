@@ -32,6 +32,17 @@ impl SmeltSymbol {
     //~ are distinct symbols with the same description.
     //~ A `Symbol(d)` evaluation at the site `base` names: a fresh symbol.
     fn unique(base: Self) -> Self { thread_local! { static SMELT_SYMBOL_EVALUATIONS: ::std::cell::RefCell<::std::collections::HashMap<::std::rc::Rc<str>, u64>> = ::std::cell::RefCell::new(::std::collections::HashMap::new()); } let count = SMELT_SYMBOL_EVALUATIONS.with(|counts| { let mut counts = counts.borrow_mut(); let count = counts.entry(base.0.clone()).or_insert(0); let seen = *count; *count += 1; seen }); if count == 0 { base } else { Self(format!("{}#{count}", base.0).into()) } }
+    //~ `Symbol.for(key)`: the registry symbol for `key`. The registry is
+    //~ the spelling itself, `Symbol.for(<key>)`, which is what a literal
+    //~ `Symbol.for("<key>")` folds to, so a run-time key and a literal one
+    //~ name the same symbol and the same property.
+    fn registered(key: &JsString) -> Self { Self(format!("Symbol.for({})", key.to_string_lossy()).into()) }
+    //~ `Symbol(description)` at the call site this symbol spells (`Symbol()@<site>`):
+    //~ the site's symbol with the run-time description in place of the empty one.
+    fn described(&self, description: &JsString) -> Self { let site = self.0.rsplit_once('@').map_or("", |(_, site)| site); Self(format!("Symbol({})@{site}", description.to_string_lossy()).into()) }
+    //~ `Symbol.keyFor(symbol)`: the key of a registry symbol, `None` for a
+    //~ unique or well-known one.
+    fn registry_key(&self) -> Option<JsString> { self.0.strip_prefix("Symbol.for(").and_then(|rest| rest.strip_suffix(')')).map(JsString::from) }
     //~ The symbol an erased `SmeltUnknown::Symbol` payload names.
     const fn from_shared(spelling: ::std::rc::Rc<str>) -> Self { Self(spelling) }
     //~ The opaque spelling this symbol is identified by.

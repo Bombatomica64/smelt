@@ -1577,6 +1577,63 @@ pub enum DatePart {
     Millisecond,
 }
 
+/// The time zone a `Date` component is read or written in.
+///
+/// JavaScript's local-time methods (`getHours`, `setDate`, `new Date(y, m)`)
+/// work in the process time zone (`TZ`), the `UTC` ones (`getUTCHours`,
+/// `Date.UTC`) in UTC.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DateZone {
+    /// The process's local time zone.
+    Local,
+    /// Coordinated Universal Time.
+    Utc,
+}
+
+impl DateZone {
+    /// The suffix the IR dump spells after the op name (`""` for local time,
+    /// so a local op prints as it always did).
+    #[must_use]
+    pub const fn op_suffix(self) -> &'static str {
+        match self {
+            Self::Local => "",
+            Self::Utc => "_utc",
+        }
+    }
+}
+
+/// Which local-time string method a `DateToString` renders.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DateStringStyle {
+    /// `toString()`: `Mon Jan 15 2024 10:30:45 GMT-0500 (Eastern Standard Time)`.
+    Full,
+    /// `toDateString()`: `Mon Jan 15 2024`.
+    Date,
+    /// `toTimeString()`: `10:30:45 GMT-0500 (Eastern Standard Time)`.
+    Time,
+    /// `toLocaleString()` in `en-US`: `1/15/2024, 10:30:45 AM`.
+    LocaleFull,
+    /// `toLocaleDateString()` in `en-US`: `1/15/2024`.
+    LocaleDate,
+    /// `toLocaleTimeString()` in `en-US`: `10:30:45 AM`.
+    LocaleTime,
+}
+
+impl DateStringStyle {
+    /// The suffix the IR dump spells after the op name (`""` for `toString`).
+    #[must_use]
+    pub const fn op_suffix(self) -> &'static str {
+        match self {
+            Self::Full => "",
+            Self::Date => "_date",
+            Self::Time => "_time",
+            Self::LocaleFull => "_locale",
+            Self::LocaleDate => "_locale_date",
+            Self::LocaleTime => "_locale_time",
+        }
+    }
+}
+
 /// A WHATWG URL component: one getter (and, except `Origin`, one setter) of
 /// the `URL` class.
 ///

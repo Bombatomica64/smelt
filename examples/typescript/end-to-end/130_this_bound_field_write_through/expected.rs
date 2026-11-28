@@ -3677,6 +3677,9 @@ fn smelt_throw_not_a_record(expected: &str, value: &SmeltUnknown) -> ! { let rec
 /// member read (see `smelt_get_unknown_field`).
 fn smelt_unmodeled_import() -> SmeltUnknown { SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_unmodeled".to_owned(), SmeltUnknown::Bool(true)), ("__smelt_call".to_owned(), SmeltUnknown::Function(::std::rc::Rc::new(|_smelt_args: Vec<SmeltUnknown>| Ok(smelt_unmodeled_import()))))]))) }
 
+/// Throw JavaScript's `TypeError: <builtin> called on non-object` unless the
+/// receiver a builtin static was called with is an object.
+fn smelt_require_object_receiver(receiver: &SmeltUnknown, builtin: &str) { if !matches!(receiver, SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_)) { smelt_throw_builtin_error("TypeError", format!("{builtin} called on non-object")) } }
 /// Read a property off an erased JavaScript array (`arr.k` / `arr[k]`).
 fn smelt_get_array_field(values: &SmeltArray, field: &(impl SmeltHostText + ?Sized)) -> SmeltUnknown { let field = field.host_text(); let field: &str = &field;
     if field == "length" { return SmeltUnknown::Number(values.len() as f64); }

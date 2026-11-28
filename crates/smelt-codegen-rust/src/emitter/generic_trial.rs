@@ -11,6 +11,26 @@
 use super::*;
 use std::collections::HashSet;
 
+/// What a generic trial render found ([`FunctionEmitter::renders_real_generics`]).
+pub(crate) struct TrialRender {
+    /// Whether the body kept every type parameter opaque.
+    pub(crate) clean: bool,
+    /// The emitter site that first touched the erased carrier, when one did.
+    pub(crate) first_touch: Option<&'static std::panic::Location<'static>>,
+    /// Whether the body erased a whole own `T` through its bound
+    /// ([`EmitContext::bound_conversion`]).
+    pub(crate) bound_conversions: bool,
+}
+
+/// Why the crate-wide decision left a generic function erased, for the
+/// `SMELT_GENERIC_TRIAL_TRACE` report.
+pub(crate) struct GenericDemotion {
+    /// The emitter site that first touched the carrier in the trial render.
+    pub(crate) first_touch: Option<&'static std::panic::Location<'static>>,
+    /// The first MIR-level fallback condition that failed.
+    pub(crate) fallback: &'static str,
+}
+
 impl<'mir> FunctionEmitter<'mir> {
     /// An emitter for a generic free function's body-cleanliness trial (see
     /// [`Self::renders_real_generics`] and [`emit_role::OwnGenerics::Trial`]).
@@ -69,7 +89,7 @@ impl<'mir> FunctionEmitter<'mir> {
     /// declared-locals state is reset afterwards so the real emit renders from a
     /// clean slate. The caller only invokes this for signature-generic-safe
     /// functions, so the type parameters are in scope during the trial.
-    pub(crate) fn renders_real_generics(&self) -> Result<bool, EmitError> {
+    pub(crate) fn renders_real_generics(&self) -> Result<TrialRender, EmitError> {
         let mut body = String::new();
         // The crate-wide set grows from empty, so a self-recursive function
         // would never see itself as generic and its recursive call would erase
@@ -84,10 +104,12 @@ impl<'mir> FunctionEmitter<'mir> {
         {
             let _trial = self.context.checkpoint();
             self.context.take_carrier_touched();
+            self.context.take_bound_conversion_used();
             self.emit_body(&mut body)?;
         }
         let first_touch = self.context.carrier_first_touch();
         let touched_carrier = self.context.take_carrier_touched();
+        let bound_conversions = self.context.take_bound_conversion_used();
         self.reset_body_emission_state();
         // A partial lift is governed by `classes::type_param_only_moved`, which
         // asks MIR whether each *lifted* parameter is ever inspected. The carrier
@@ -97,33 +119,37 @@ impl<'mir> FunctionEmitter<'mir> {
         // per-parameter lifting exists to remove.
         let liftable = self.context.liftable_type_params(self.mir, self.function);
         if liftable.len() < self.function.type_params.len() {
-            return Ok(!liftable.is_empty());
+            return Ok(TrialRender {
+                clean: !liftable.is_empty(),
+                first_touch: None,
+                bound_conversions: false,
+            });
         }
-        if touched_carrier {
-            self.trace_generic_trial_demotion(first_touch);
-        }
-        Ok(!touched_carrier)
+        Ok(TrialRender {
+            clean: !touched_carrier,
+            first_touch: first_touch.filter(|_| touched_carrier),
+            bound_conversions,
+        })
     }
 
     /// With `SMELT_GENERIC_TRIAL_TRACE` set, print the demotion-reason line
-    /// for a generic function whose trial render touched the erased carrier:
-    /// the function and the emitter site that first wrote a
-    /// carrier use (the kind of operation that erased a `T`-typed value). A
-    /// developer aid like `SMELT_STRUCT_VIEW_TRACE`: sorting the lines by site
-    /// ranks the demotion causes across a corpus.
-    fn trace_generic_trial_demotion(
-        &self,
-        first_touch: Option<&'static std::panic::Location<'static>>,
+    /// for a generic function the crate-wide decision left erased: the
+    /// function, the emitter site that first touched the carrier in its trial
+    /// render, and the first MIR-level fallback condition that did not rescue
+    /// it ([`GenericDemotion`]). Printed once, after the fixed point settles,
+    /// so a function the fallback lifts is never reported. A developer aid
+    /// like `SMELT_STRUCT_VIEW_TRACE`: sorting the lines by reason ranks the
+    /// demotion causes across a corpus.
+    pub(crate) fn trace_generic_trial_demotion(
+        mir: &Mir,
+        function: &MirFunction,
+        demotion: &GenericDemotion,
     ) {
         if std::env::var_os("SMELT_GENERIC_TRIAL_TRACE").is_none() {
             return;
         }
-        let name = self
-            .mir
-            .symbols
-            .get(self.function.name)
-            .unwrap_or("<anonymous>");
-        let site = first_touch.map_or_else(
+        let name = mir.symbols.get(function.name).unwrap_or("<anonymous>");
+        let site = demotion.first_touch.map_or_else(
             || "<unknown site>".to_owned(),
             |location| format!("{}:{}", location.file(), location.line()),
         );
@@ -132,7 +158,10 @@ impl<'mir> FunctionEmitter<'mir> {
             reason = "SMELT_GENERIC_TRIAL_TRACE is an opt-in developer trace"
         )]
         {
-            eprintln!("generic-trial demoted {name}: carrier first touched at {site}");
+            eprintln!(
+                "generic-trial demoted {name}: carrier first touched at {site}; fallback: {}",
+                demotion.fallback
+            );
         }
     }
 

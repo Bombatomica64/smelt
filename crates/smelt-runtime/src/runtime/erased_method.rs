@@ -527,3 +527,14 @@ fn smelt_throw_not_a_record(expected: &str, value: &SmeltUnknown) -> ! { let rec
 fn smelt_unmodeled_import() -> SmeltUnknown { SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_unmodeled".to_owned(), SmeltUnknown::Bool(true)), ("__smelt_call".to_owned(), SmeltUnknown::Function(::std::rc::Rc::new(|_smelt_args: Vec<SmeltUnknown>| Ok(smelt_unmodeled_import()))))]))) }
 
 // @smelt:item-end
+
+// The receiver check of a builtin static read as a value (`Promise.resolve`).
+// @smelt:item smelt_require_object_receiver when this_read
+/// Throw JavaScript's `TypeError: <builtin> called on non-object` unless the
+/// receiver a builtin static was called with is an object.
+//~
+//~ `Promise.resolve`, `Promise.reject` and `Promise.all` read `this` as the
+//~ constructor to build with; called without a receiver (`const r =
+//~ Promise.resolve; r(1)`) it is `undefined`, which V8 rejects in these words.
+fn smelt_require_object_receiver(receiver: &SmeltUnknown, builtin: &str) { if !matches!(receiver, SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_)) { smelt_throw_builtin_error("TypeError", format!("{builtin} called on non-object")) } }
+// @smelt:item-end

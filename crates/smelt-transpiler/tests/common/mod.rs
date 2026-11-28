@@ -574,6 +574,16 @@ pub(crate) fn npm_available() -> bool {
 /// [`ensure_node_agrees`] skips such a program when `npm` is absent, and an
 /// install that fails is an error, not a skip.
 pub(crate) fn node_typescript_stdout(files: &[(&str, &str)], entry: &str) -> TestResult<String> {
+    node_typescript_stdout_in_zone(files, entry, smelt_stdlib::NODE_PROFILE_TIMEZONE)
+}
+
+/// [`node_typescript_stdout`] with `TZ` set to `zone` instead of the Node
+/// profile's zone, for a program whose output is local time.
+pub(crate) fn node_typescript_stdout_in_zone(
+    files: &[(&str, &str)],
+    entry: &str,
+    zone: &str,
+) -> TestResult<String> {
     let project = TempProject::new()?;
     let root = project.path().join("node-oracle");
     for (relative, source) in files {
@@ -610,7 +620,7 @@ pub(crate) fn node_typescript_stdout(files: &[(&str, &str)], entry: &str) -> Tes
     command
         .current_dir(&root)
         .env_clear()
-        .env("TZ", smelt_stdlib::NODE_PROFILE_TIMEZONE)
+        .env("TZ", zone)
         .arg("--experimental-transform-types")
         .arg("--no-warnings")
         .arg(entry);
@@ -650,6 +660,23 @@ pub(crate) fn ensure_node_agrees(
     expected_stdout: &str,
     name: &str,
 ) -> TestResult {
+    ensure_node_agrees_in_zone(
+        files,
+        entry,
+        expected_stdout,
+        name,
+        smelt_stdlib::NODE_PROFILE_TIMEZONE,
+    )
+}
+
+/// [`ensure_node_agrees`] with `node` run in time zone `zone`.
+pub(crate) fn ensure_node_agrees_in_zone(
+    files: &[(&str, &str)],
+    entry: &str,
+    expected_stdout: &str,
+    name: &str,
+    zone: &str,
+) -> TestResult {
     if !node_runs_typescript() {
         return missing_prerequisite(name, NODE_ORACLE);
     }
@@ -660,7 +687,7 @@ pub(crate) fn ensure_node_agrees(
     {
         return missing_prerequisite(name, "npm");
     }
-    let node_stdout = node_typescript_stdout(files, entry)?;
+    let node_stdout = node_typescript_stdout_in_zone(files, entry, zone)?;
     ensure(
         node_stdout == expected_stdout,
         format!(

@@ -1,0 +1,7 @@
+true Symbol(app.key) app.key
+app.key undefined undefined
+true false
+true z
+7
+Symbol() true
+false t1 Symbol(t1) undefined

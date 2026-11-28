@@ -21,14 +21,14 @@ pub use kinds::{ExprKind, GeneratorResumeKind, ListSpliceItem, PropertyLookup, S
 pub use literals::{Literal, UnknownKind};
 pub use ops::{
     AbortSignalOp, Base64Op, BigIntOp, BlobOp, BoolFoldOp, ByteArrayOp, CryptoOp, DatePart,
-    DictProjectionOp, ErasedPatternMethod, EventEmitterOp, FormDataOp, HashOp, HeadersOp,
-    HostModuleOp, HttpServerOp, IncomingMessageOp, ListCallbackOp, ListProjectionOp, ListSearchOp,
-    NumericExtremaOp, NumericFormatMethod, NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp,
-    PathOp, PrimitiveCastOp, PyNumericOp, PyStrOp, PythonDivisionOp, RegexMatchOp, RegexReplaceArg,
-    RequestInitMember, RequestOp, ResponseOp, ServerResponseOp, SetBinaryOp, SetProjectionOp,
-    SetRelationOp, SetRemoveOp, SqliteOp, StringAffixOp, StringCaseOp, StringNormalizeForm,
-    StringPadOp, StringPredicateOp, StringReplaceOp, StringSearchOp, StringSliceKind,
-    StringTrimSide, TextDecoderOp, TextEncoderOp, UnboundRead, UriTranscodeOp, UrlField, UrlOp,
-    UrlSearchParamsOp, regex_replace_args_text,
+    DateStringStyle, DateZone, DictProjectionOp, ErasedPatternMethod, EventEmitterOp, FormDataOp,
+    HashOp, HeadersOp, HostModuleOp, HttpServerOp, IncomingMessageOp, ListCallbackOp,
+    ListProjectionOp, ListSearchOp, NumericExtremaOp, NumericFormatMethod, NumericPredicateOp,
+    NumericRoundOp, NumericUnaryFuncOp, PathOp, PrimitiveCastOp, PyNumericOp, PyStrOp,
+    PythonDivisionOp, RegexMatchOp, RegexReplaceArg, RequestInitMember, RequestOp, ResponseOp,
+    ServerResponseOp, SetBinaryOp, SetProjectionOp, SetRelationOp, SetRemoveOp, SqliteOp,
+    StringAffixOp, StringCaseOp, StringNormalizeForm, StringPadOp, StringPredicateOp,
+    StringReplaceOp, StringSearchOp, StringSliceKind, StringTrimSide, TextDecoderOp, TextEncoderOp,
+    UnboundRead, UriTranscodeOp, UrlField, UrlOp, UrlSearchParamsOp, regex_replace_args_text,
 };
 pub use types::{BinOp, UnaryOp, bin_op_text};

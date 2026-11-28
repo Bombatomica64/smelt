@@ -5,7 +5,10 @@ use crate::lowering::ModuleBuilder;
 use crate::lowering::body_arena::BodyArena;
 use oxc::ast::ast::{CallExpression, Expression};
 use oxc::span::GetSpan;
-use smelt_hir::{Body, DatePart, ErasureReason, Expr, ExprKind, PrimitiveCastOp, Stmt, Type};
+use smelt_hir::{
+    Body, DatePart, DateStringStyle, DateZone, ErasureReason, Expr, ExprKind, PrimitiveCastOp,
+    Stmt, Type,
+};
 use smelt_stdlib::RuleId;
 
 impl ModuleBuilder<'_> {
@@ -163,7 +166,10 @@ impl ModuleBuilder<'_> {
         }
         let ty = self.ctx.krate.types.intern(Type::Int);
         Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::DateFromParts { parts },
+            kind: ExprKind::DateFromParts {
+                zone: DateZone::Utc,
+                parts,
+            },
             ty,
             span: self.span(call.span.start, call.span.end),
         })))
@@ -309,7 +315,10 @@ impl ModuleBuilder<'_> {
             }
             let ty = self.ctx.krate.types.intern(Type::Int);
             return Ok(body.push_expr(Expr {
-                kind: ExprKind::DateFromParts { parts },
+                kind: ExprKind::DateFromParts {
+                    zone: DateZone::Local,
+                    parts,
+                },
                 ty,
                 span: self.span(new_expr.span.start, new_expr.span.end),
             }));
@@ -480,13 +489,61 @@ impl ModuleBuilder<'_> {
                     "Date.getTimezoneOffset() does not accept arguments",
                 ));
             }
+            let receiver = self.expression(&member.object, body)?;
+            let timestamp_ms = self.date_receiver_timestamp(receiver, member, body)?;
             let ty = self.ctx.krate.types.intern(Type::Float);
             return Ok(Some(body.push_expr(Expr {
-                kind: ExprKind::DateTimezoneOffset,
+                kind: ExprKind::DateTimezoneOffset { timestamp_ms },
                 ty,
                 span: self.span(call.span.start, call.span.end),
             })));
         }
+        // The local-time string methods; a locale or options argument is
+        // refused rather than formatted in the default locale.
+        let string_style = match method {
+            "toString" => Some(DateStringStyle::Full),
+            "toDateString" => Some(DateStringStyle::Date),
+            "toTimeString" => Some(DateStringStyle::Time),
+            "toLocaleString" => Some(DateStringStyle::LocaleFull),
+            "toLocaleDateString" => Some(DateStringStyle::LocaleDate),
+            "toLocaleTimeString" => Some(DateStringStyle::LocaleTime),
+            _ => None,
+        };
+        // `toString`/`toLocaleString` are every object's methods, so the
+        // receiver must be a `Date` by the checker's type (the lib's global
+        // `Date`, not a source class of that name) before it is lowered.
+        if let Some(style) = string_style
+            && self.checker_types_as_global_class(
+                member.object.span().start,
+                member.object.span().end,
+                "Date",
+            )
+        {
+            if !call.arguments.is_empty() {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    format!(
+                        "Date.{method}() with a locale or options argument is not supported (only the default en-US form)"
+                    ),
+                ));
+            }
+            let receiver = self.expression(&member.object, body)?;
+            let timestamp_ms = self.date_receiver_timestamp(receiver, member, body)?;
+            let ty = self.ctx.krate.types.intern(Type::String);
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::DateToString {
+                    style,
+                    timestamp_ms,
+                },
+                ty,
+                span: self.span(call.span.start, call.span.end),
+            })));
+        }
+        let zone = if method.starts_with("getUTC") || method.starts_with("setUTC") {
+            DateZone::Utc
+        } else {
+            DateZone::Local
+        };
         let getter_part = match method {
             "getFullYear" | "getUTCFullYear" => Some(DatePart::FullYear),
             "getMonth" | "getUTCMonth" => Some(DatePart::Month),
@@ -509,7 +566,11 @@ impl ModuleBuilder<'_> {
             let timestamp_ms = self.date_receiver_timestamp(receiver, member, body)?;
             let ty = self.ctx.krate.types.intern(Type::Float);
             return Ok(Some(body.push_expr(Expr {
-                kind: ExprKind::DateGetPart { part, timestamp_ms },
+                kind: ExprKind::DateGetPart {
+                    part,
+                    zone,
+                    timestamp_ms,
+                },
                 ty,
                 span: self.span(call.span.start, call.span.end),
             })));
@@ -564,6 +625,7 @@ impl ModuleBuilder<'_> {
         let value = body.push_expr(Expr {
             kind: ExprKind::DateSetPart {
                 part,
+                zone,
                 timestamp_ms: receiver,
                 values,
             },

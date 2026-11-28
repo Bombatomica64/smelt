@@ -1,5 +1,5 @@
-//! Static functions of the `Promise`, `Array`, `Reflect` and `Object`
-//! namespaces read as values (`const resolve = Promise.resolve`,
+//! Static functions of the `Promise`, `Array`, `Reflect`, `Object` and
+//! `Symbol` namespaces read as values (`const resolve = Promise.resolve`,
 //! `items.map(Array.of)`, `const has = Reflect.has`).
 //!
 //! JavaScript hands out the builtin function object itself, so a call through
@@ -38,7 +38,7 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(object) = &member.object else {
             return None;
         };
-        let owner = ["Promise", "Array", "Reflect", "Object"]
+        let owner = ["Promise", "Array", "Reflect", "Object", "Symbol"]
             .into_iter()
             .find(|owner| self.names_host(object.name.as_str(), owner))?;
         let span = self.span(member.span.start, member.span.end);
@@ -58,6 +58,7 @@ impl ModuleBuilder<'_> {
                     span,
                     outer_body,
                     |this, body, [first]| {
+                        this.require_object_receiver("PromiseResolve", span, body);
                         let duration = this.zero_duration(span, body);
                         body.push_expr(Expr {
                             kind: ExprKind::AsyncOp {
@@ -81,6 +82,7 @@ impl ModuleBuilder<'_> {
                     span,
                     outer_body,
                     |this, body, [first]| {
+                        this.require_object_receiver("PromiseReject", span, body);
                         let duration = this.zero_duration(span, body);
                         body.push_expr(Expr {
                             kind: ExprKind::AsyncOp {
@@ -108,7 +110,8 @@ impl ModuleBuilder<'_> {
                     future_ty,
                     span,
                     outer_body,
-                    |_, body, [first]| {
+                    |this, body, [first]| {
+                        this.require_object_receiver("Promise.all", span, body);
                         let futures = body.push_expr(Expr {
                             kind: ExprKind::UnknownCast {
                                 value: first,
@@ -198,8 +201,64 @@ impl ModuleBuilder<'_> {
                     |_, _, [first]| first,
                 ))
             }
+            // `Symbol.for(key)`: the registry symbol for the key, as the
+            // direct call with a run-time key answers it. Both parameter and
+            // result are typed: the builtin is not generic.
+            ("Symbol", "for") => {
+                let string_ty = self.ctx.krate.types.intern(Type::String);
+                let symbol_ty = self.ctx.krate.types.intern(Type::Symbol);
+                Some(self.builtin_value_closure(
+                    [("key", string_ty)],
+                    (None, 1),
+                    symbol_ty,
+                    span,
+                    outer_body,
+                    |_, body, [key]| {
+                        body.push_expr(Expr {
+                            kind: ExprKind::SymbolFor { key },
+                            ty: symbol_ty,
+                            span,
+                        })
+                    },
+                ))
+            }
+            // `Symbol.keyFor(sym)`: the registry key, or `undefined`.
+            ("Symbol", "keyFor") => {
+                let symbol_ty = self.ctx.krate.types.intern(Type::Symbol);
+                let string_ty = self.ctx.krate.types.intern(Type::String);
+                let result_ty = self
+                    .ctx
+                    .krate
+                    .types
+                    .intern(Type::Optional(string_ty, smelt_hir::Absence::Undefined));
+                Some(self.builtin_value_closure(
+                    [("sym", symbol_ty)],
+                    (None, 1),
+                    result_ty,
+                    span,
+                    outer_body,
+                    |this, body, [sym]| this.symbol_key_for_expr(sym, span, body),
+                ))
+            }
             _ => None,
         }
+    }
+
+    /// Push the check that the closure was called with an object receiver
+    /// (`RequireObjectReceiver`): the `Promise` statics build with their
+    /// `this`, so a call through a copy that supplies none throws Node's
+    /// `TypeError: <builtin> called on non-object`, while `.call(Promise, ..)`
+    /// and `.bind(Promise)` pass.
+    fn require_object_receiver(&mut self, builtin: &str, span: Span, body: &mut Body) {
+        let none = self.ctx.krate.types.intern(Type::None);
+        let check = body.push_expr(Expr {
+            kind: ExprKind::RequireObjectReceiver {
+                builtin: builtin.to_owned(),
+            },
+            ty: none,
+            span,
+        });
+        body.push_stmt(Stmt::Expr(check));
     }
 
     /// The `0` delay operand the `Resolve`/`Reject` async ops carry for their

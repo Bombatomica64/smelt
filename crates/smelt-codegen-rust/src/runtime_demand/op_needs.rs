@@ -17,7 +17,7 @@ impl RuntimeDemand {
             Rvalue::FunctionName { .. } => {
                 self.add(Need::FunctionNames);
             }
-            Rvalue::ThisRead => {
+            Rvalue::ThisRead | Rvalue::RequireObjectReceiver { .. } => {
                 self.add(Need::ThisRead);
             }
             Rvalue::BindThis { .. }
@@ -259,8 +259,9 @@ impl RuntimeDemand {
                 self.add(Need::DateNow);
                 self.add(Need::DepChrono);
             }
-            Rvalue::DateTimezoneOffset => {
+            Rvalue::DateTimezoneOffset { .. } => {
                 self.add(Need::DateTimezoneOffset);
+                self.add(Need::DateLocalTime);
             }
             Rvalue::DateSetTimezoneOffset { .. } => {
                 self.add(Need::DateTimezoneOffset);
@@ -298,21 +299,23 @@ impl RuntimeDemand {
             }
             Rvalue::DateToString { .. } => {
                 self.add(Need::DepChrono);
+                self.add(Need::DateLocalString);
             }
             Rvalue::DateToUtcString { .. } => {
                 self.add(Need::DepChrono);
             }
-            Rvalue::DateFromParts { .. } => {
-                self.add(Need::DepChrono);
-            }
+            // A string read without an offset is local time.
             Rvalue::DateFromValue { .. } => {
                 self.add(Need::DepChrono);
+                self.add(Need::DateLocalTime);
             }
-            Rvalue::DateGetPart { .. } => {
+            Rvalue::DateFromParts { zone, .. }
+            | Rvalue::DateGetPart { zone, .. }
+            | Rvalue::DateSetPart { zone, .. } => {
                 self.add(Need::DepChrono);
-            }
-            Rvalue::DateSetPart { .. } => {
-                self.add(Need::DepChrono);
+                if *zone == smelt_hir::DateZone::Local {
+                    self.add(Need::DateLocalTime);
+                }
             }
             Rvalue::UrlField { .. } => {
                 self.add(Need::DepUrl);
@@ -538,6 +541,10 @@ impl RuntimeDemand {
             // The operand's `Symbol` type already demands `Need::Symbol`.
             | Rvalue::SymbolDescription { .. }
             | Rvalue::SymbolUnique { .. }
+            | Rvalue::SymbolDescribed { .. }
+            | Rvalue::SymbolKeyFor { .. }
+            // The `Symbol` type of its destination demands `Need::Symbol`.
+            | Rvalue::SymbolFor { .. }
             | Rvalue::StringTrim { .. }
             | Rvalue::StringAffix { .. }
             | Rvalue::StringReplace { .. }

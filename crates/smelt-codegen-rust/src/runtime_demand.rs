@@ -90,6 +90,11 @@ declare_needs! {
     FunctionNames,
     /// `getTimezoneOffset()` override state.
     DateTimezoneOffset,
+    /// The process time zone's `LocalTime`/`UTC` conversions, for the
+    /// local-time `Date` operations (`smelt_date_local_offset`).
+    DateLocalTime,
+    /// The local-time `Date` string methods (`smelt_date_local_string`).
+    DateLocalString,
     /// The `Date` host class.
     Date,
     /// JavaScript `Math.round`.
@@ -377,6 +382,8 @@ const REQUIRES: &[(Need, &[Need])] = &[
     (Need::PrimSet, &[Need::ObjectIds]),
     (Need::DepRegress, &[Need::ObjectIds, Need::JsString]),
     (Need::Date, &[Need::ObjectIds, Need::HostOrigins]),
+    (Need::DateLocalTime, &[Need::DepChrono]),
+    (Need::DateLocalString, &[Need::DateLocalTime]),
     // These are emitted inside the carrier's block, or carry its values.
     (Need::IteratorResult, &[Need::Unknown]),
     (

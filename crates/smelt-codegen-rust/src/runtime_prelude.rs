@@ -298,6 +298,8 @@ fn need_of_flag(name: &str) -> Option<Need> {
         "date_now" => Need::DateNow,
         "function_names" => Need::FunctionNames,
         "date_timezone_offset" => Need::DateTimezoneOffset,
+        "date_local_time" => Need::DateLocalTime,
+        "date_local_string" => Need::DateLocalString,
         "date" => Need::Date,
         "math_round" => Need::MathRound,
         "math_extrema" => Need::MathExtrema,

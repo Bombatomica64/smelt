@@ -287,6 +287,17 @@ macro_rules! op_group_transcribed {
             /// function's `this` local lexically, exactly as the source does.
             ThisRead
                 => ("this".to_owned());
+            /// Require the current function's own `this` to be an object, or
+            /// throw JavaScript's `TypeError: <builtin> called on non-object`:
+            /// the receiver check a builtin static such as `Promise.resolve`
+            /// makes when its function object is called without the
+            /// namespace it lives on (`const r = Promise.resolve; r(1)`).
+            RequireObjectReceiver {
+                /// The builtin's name in the `TypeError` message
+                /// (`PromiseResolve`, `Promise.all`).
+                builtin: [String],
+            }
+                => (format!("require_object_receiver {builtin}"));
             /// Bind a receiver to a callable, yielding `Function.prototype.bind`'s value.
             ///
             /// The result is a callable that, when invoked, installs `receiver` as the
@@ -575,6 +586,33 @@ macro_rules! op_group_transcribed {
                 operand: one,
             }
                 => (format!("symbol_description {operand}"));
+            /// JavaScript `Symbol.for(key)` with a key known only at run time:
+            /// the registry symbol for that key. Registry symbols are interned
+            /// by key, so it is the symbol a literal `Symbol.for("<key>")`
+            /// folds to, and every evaluation with an equal key answers it.
+            SymbolFor {
+                /// String key to look up.
+                key: one,
+            }
+                => (format!("symbol_for {key}"));
+            /// JavaScript `Symbol(description)` with a description known only
+            /// at run time: the symbol of the call site `site` (a `symbol`
+            /// constant spelled without a description) carrying that
+            /// description. `SymbolUnique` over it makes each evaluation fresh.
+            SymbolDescribed {
+                /// String description of the new symbol.
+                description: one,
+                /// The call site's symbol constant.
+                site: one,
+            }
+                => (format!("symbol_described {description} {site}"));
+            /// JavaScript `Symbol.keyFor(symbol)`: the key a registry symbol
+            /// was made with, or `undefined` for any other symbol.
+            SymbolKeyFor {
+                /// Symbol operand to read.
+                operand: one,
+            }
+                => (format!("symbol_key_for {operand}"));
             /// Deep-copy an erased value graph with fresh identities, preserving host
             /// markers (`structuredClone(x)`; see the runtime `smelt_structured_clone`).
             StructuredClone {
@@ -1910,9 +1948,14 @@ macro_rules! op_group_transcribed {
             /// Restore the real JavaScript `Date.now()` clock.
             DateResetNow
                 => ("date_reset_now".to_owned());
-            /// Read the configured JavaScript `Date.prototype.getTimezoneOffset` value.
-            DateTimezoneOffset
-                => ("date_timezone_offset".to_owned());
+            /// JavaScript `date.getTimezoneOffset()`: minutes from local time to
+            /// UTC at the date's instant in the process time zone (`TZ`), or the
+            /// value a test spy configured (`DateSetTimezoneOffset`).
+            DateTimezoneOffset {
+                /// Timestamp in milliseconds.
+                timestamp_ms: one,
+            }
+                => (format!("date_timezone_offset {timestamp_ms}"));
             /// Configure the return value observed by `Date.prototype.getTimezoneOffset`.
             DateSetTimezoneOffset {
                 /// Offset from UTC in minutes.
@@ -2057,12 +2100,16 @@ macro_rules! op_group_transcribed {
                     hir: format!("date_to_iso {timestamp_ms}"),
                     mir: format!("date_to_iso_string {timestamp_ms}"),
                 );
-            /// Convert a Date timestamp to JavaScript `Date.prototype.toString()` output.
+            /// Convert a Date timestamp to the text of one of the local-time
+            /// string methods (`toString`, `toDateString`, `toTimeString` and
+            /// the `toLocale*String` family in the default `en-US` locale).
             DateToString {
+                /// Which method's text.
+                style: [$crate::DateStringStyle],
                 /// Timestamp in milliseconds.
                 timestamp_ms: one,
             }
-                => (format!("date_to_string {timestamp_ms}"));
+                => (format!("date_to_string{} {timestamp_ms}", style.op_suffix()));
             /// Convert a Date timestamp to `Date.prototype.toUTCString()` output, the
             /// HTTP-date form (`Sun, 24 Dec 2000 10:30:59 GMT`).
             DateToUtcString {
@@ -2070,36 +2117,45 @@ macro_rules! op_group_transcribed {
                 timestamp_ms: one,
             }
                 => (format!("date_to_utc_string {timestamp_ms}"));
-            /// Construct a timestamp in milliseconds from local Date constructor parts.
+            /// Construct a timestamp in milliseconds from Date constructor parts:
+            /// local time for `new Date(y, m, ..)`, UTC for `Date.UTC(..)`.
             DateFromParts {
+                /// The time zone the parts are read in.
+                zone: [$crate::DateZone],
                 /// Date constructor parts: year, month, date, hours, minutes, seconds, milliseconds.
                 parts: many,
             }
-                => (format!("date_from_parts [{}]", parts.join(", ")));
+                => (format!("date_from_parts{} [{}]", zone.op_suffix(), parts.join(", ")));
             /// Construct a timestamp in milliseconds from one JavaScript Date constructor value.
             DateFromValue {
                 /// Date constructor argument.
                 value: one,
             }
                 => (format!("date_from_value {value}"));
-            /// Read a local-time date component from a timestamp.
+            /// Read a date component from a timestamp, in local time
+            /// (`getHours`) or UTC (`getUTCHours`).
             DateGetPart {
                 /// Component to read.
                 part: [$crate::DatePart],
+                /// The time zone the component is read in.
+                zone: [$crate::DateZone],
                 /// Timestamp in milliseconds.
                 timestamp_ms: one,
             }
-                => (format!("date_get_{part:?} {timestamp_ms}"));
-            /// Return a timestamp with a local-time date component replaced.
+                => (format!("date_get_{part:?}{} {timestamp_ms}", zone.op_suffix()));
+            /// Return a timestamp with a date component replaced, in local time
+            /// (`setHours`) or UTC (`setUTCHours`).
             DateSetPart {
                 /// Component to replace.
                 part: [$crate::DatePart],
+                /// The time zone the component is replaced in.
+                zone: [$crate::DateZone],
                 /// Timestamp in milliseconds.
                 timestamp_ms: one,
                 /// Replacement values accepted by the corresponding JS setter.
                 values: many,
             }
-                => (format!("date_set_{part:?} {timestamp_ms}, [{}]", values.join(", ")));
+                => (format!("date_set_{part:?}{} {timestamp_ms}, [{}]", zone.op_suffix(), values.join(", ")));
             /// Extract a parsed URL field.
             UrlField {
                 /// URL field to extract.
