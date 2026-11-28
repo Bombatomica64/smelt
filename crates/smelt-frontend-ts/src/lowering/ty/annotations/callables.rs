@@ -87,12 +87,9 @@ impl ModuleBuilder<'_> {
     /// through the same erased protocol.
     fn narrowing_target(&mut self, target: smelt_hir::TypeId) -> smelt_hir::TypeId {
         match self.ctx.krate.types.get(target).cloned() {
-            Some(smelt_hir::Type::Optional(inner, absence)) => {
+            Some(Type::Optional(inner, absence)) => {
                 let inner = self.iterable_member_as_array(inner);
-                self.ctx
-                    .krate
-                    .types
-                    .intern(smelt_hir::Type::Optional(inner, absence))
+                self.ctx.krate.types.intern(Type::Optional(inner, absence))
             }
             _ => self.iterable_member_as_array(target),
         }

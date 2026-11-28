@@ -69,7 +69,7 @@ impl FunctionEmitter<'_> {
     /// Whether `function` is an `Iterable<T>`'s thunk, `() => Iterator<T>`: no
     /// parameters, answering a synchronous generator that returns and takes
     /// `undefined` (the frontend's `iterable_thunk_type`).
-    pub(super) fn is_iterable_thunk(&self, function: &smelt_hir::FunctionType) -> bool {
+    pub(super) fn is_iterable_thunk(&self, function: &FunctionType) -> bool {
         function.params.is_empty()
             && !function.is_async
             && matches!(

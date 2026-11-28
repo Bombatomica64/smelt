@@ -70,7 +70,7 @@ impl ModuleBuilder<'_> {
         else {
             return None;
         };
-        let undefined = |ty: TypeId| matches!(self.ctx.krate.types.get(ty), Some(Type::None));
+        let undefined = |of: TypeId| matches!(self.ctx.krate.types.get(of), Some(Type::None));
         (undefined(*return_ty) && undefined(*next_ty)).then_some(function.return_ty)
     }
 
@@ -126,9 +126,9 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Result<Option<ExprId>, SmeltError> {
         let value_ty = Self::expr_ty(body, value);
-        let iterator = |this: &mut Self, body: &mut Body, kind, item| {
+        let iterator = |this: &mut Self, arena: &mut Body, kind, item| {
             let ty = this.collection_iterator_type(item);
-            body.push_expr(Expr { kind, ty, span })
+            arena.push_expr(Expr { kind, ty, span })
         };
         Ok(match self.ctx.krate.types.get(value_ty).cloned() {
             Some(Type::Generator {
@@ -252,7 +252,7 @@ impl ModuleBuilder<'_> {
         // iteration; the erasure is the source's).
         let erased = matches!(self.ctx.krate.types.get(value_ty), Some(Type::Unknown));
         if erased || self.is_erased_record(value_ty) || self.type_mentions_unknown(iterator_ty) {
-            let source = if erased {
+            let erased_value = if erased {
                 value
             } else {
                 let unknown = self.unknown_type(NotNewErasure::ErasedUpstream);
@@ -263,7 +263,9 @@ impl ModuleBuilder<'_> {
                 })
             };
             return Ok(Some(body.push_expr(Expr {
-                kind: ExprKind::TypeAssert { value: source },
+                kind: ExprKind::TypeAssert {
+                    value: erased_value,
+                },
                 ty: hint,
                 span,
             })));
@@ -307,7 +309,9 @@ impl ModuleBuilder<'_> {
             }
             retyped
         };
-        thunk.blocks.first_mut().map(|root| root.tail = Some(fresh));
+        if let Some(root) = thunk.blocks.first_mut() {
+            root.tail = Some(fresh);
+        }
         let thunk_body = self.ctx.krate.push_body(thunk);
         let thunk_closure = adapter.push_expr(Expr {
             kind: ExprKind::Closure(ClosureExpr {
@@ -332,10 +336,9 @@ impl ModuleBuilder<'_> {
             ty: thunk_ty,
             span,
         });
-        adapter
-            .blocks
-            .first_mut()
-            .map(|root| root.tail = Some(thunk_closure));
+        if let Some(root) = adapter.blocks.first_mut() {
+            root.tail = Some(thunk_closure);
+        }
         let adapter_body = self.ctx.krate.push_body(adapter);
         let adapter_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
             params: vec![value_ty],
