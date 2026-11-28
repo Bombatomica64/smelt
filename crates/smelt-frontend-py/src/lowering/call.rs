@@ -780,7 +780,7 @@ impl ModuleBuilder<'_> {
             return Err(SmeltError::unsupported(span, "next() is supported on a generator"));
         };
         let default = default_ast.map(|default| self.expression_with_hint(default, body, Some(yield_ty))).transpose()?;
-        self.generator_resume_expression(generator, None, default, span, body).map(Some)
+        self.generator_resume_expression(generator, None, smelt_hir::GeneratorResumeKind::Next, default, span, body).map(Some)
     }
 
     /// `g.send(value)` on a generator: resume it with `value` as the result of
@@ -794,7 +794,8 @@ impl ModuleBuilder<'_> {
         let Expr::Attribute(attr) = call.func.as_ref() else {
             return Ok(None);
         };
-        if attr.attr.as_str() != "send" {
+        let method = attr.attr.as_str();
+        if !matches!(method, "send" | "throw" | "close") {
             return Ok(None);
         }
         let generator = self.expression(&attr.value, body)?;
@@ -802,14 +803,29 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         };
         let span = self.span(call.range());
-        let ([sent_ast], []) = (call.arguments.args.as_ref(), call.arguments.keywords.as_ref()) else {
-            return Err(SmeltError::unsupported(span, "generator.send() takes one value"));
-        };
-        let sent = self.expression_with_hint(sent_ast, body, Some(next_ty))?;
-        if Self::expr_ty(body, sent) != next_ty {
-            return Err(SmeltError::unsupported(span, "generator.send() needs a value of the generator's send type"));
+        match (method, call.arguments.args.as_ref(), call.arguments.keywords.as_ref()) {
+            ("send", [sent_ast], []) => {
+                // A value assignable to the send type is converted to it where
+                // it is sent (`int` into an `Optional[int]` channel).
+                let sent = self.expression_with_hint(sent_ast, body, Some(next_ty))?;
+                if !self.type_assignable_to(Self::expr_ty(body, sent), next_ty) {
+                    return Err(SmeltError::unsupported(span, "generator.send() needs a value of the generator's send type"));
+                }
+                self.generator_send_expression(generator, sent, span, body).map(Some)
+            }
+            ("throw", [thrown_ast], []) => {
+                let thrown = self.thrown_into_generator(thrown_ast, body)?;
+                self.generator_resume_expression(generator, Some(thrown), smelt_hir::GeneratorResumeKind::Throw, None, span, body)
+                    .map(Some)
+            }
+            ("close", [], []) => self.generator_close_expression(generator, span, body).map(Some),
+            ("send", ..) => Err(SmeltError::unsupported(span, "generator.send() takes one value")),
+            ("throw", ..) => Err(SmeltError::unsupported(
+                span,
+                "generator.throw() takes one exception (the three-argument form is deprecated)",
+            )),
+            _ => Err(SmeltError::unsupported(span, "generator.close() takes no arguments")),
         }
-        self.generator_resume_expression(generator, Some(sent), None, span, body).map(Some)
     }
 
     /// Lower `(lambda x, y: body)(a, b)`, a lambda called where it is written.

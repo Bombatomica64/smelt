@@ -103,9 +103,14 @@ impl FunctionEmitter<'_> {
         self.py_stdlib_class_of(ty) == Some(smelt_stdlib::StdlibClass::PyException)
     }
 
-    /// Whether `ty` is a Python exception's `args`, `SmeltPyExceptionArgs`.
+    /// Whether `ty` is a Python exception's `args` (`SmeltPyExceptionArgs`) or
+    /// a `StopIteration`'s `value` (`SmeltPyExceptionArg`): a value with no
+    /// static type that offers its `str` (its `Display`) and `repr` only.
     pub(super) fn is_py_exception_args_type(&self, ty: TypeId) -> bool {
-        self.py_stdlib_class_of(ty) == Some(smelt_stdlib::StdlibClass::PyExceptionArgs)
+        matches!(
+            self.py_stdlib_class_of(ty),
+            Some(smelt_stdlib::StdlibClass::PyExceptionArgs | smelt_stdlib::StdlibClass::PyExceptionValue)
+        )
     }
 
     /// The modeled stdlib class a class type `ty` names, if any.

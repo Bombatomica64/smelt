@@ -49,13 +49,20 @@ impl FunctionEmitter<'_> {
             if let Some(exception_local) = handler.exception_local {
                 let exception_name = self.local_name(exception_local)?;
                 let exception_decl = self.local_decl(exception_local)?;
-                let unknown_ty = self.type_id(Type::Unknown)?;
-                let exception_value = self.rendered_at_type(
-                    &RustExpr::path("smelt_error"),
-                    unknown_ty,
-                    exception_decl.ty,
-                    &self.render_scope(),
-                )?;
+                // The injected error binds as a caught one does: a Python
+                // handler recovers its `SmeltPyException`, any other the
+                // thrown payload, converted to the binding's type.
+                let exception_value = if self.is_py_exception_type(exception_decl.ty) {
+                    self.caught_error_value(exception_decl.ty, &RustExpr::path("smelt_error"))?
+                } else {
+                    let unknown_ty = self.type_id(Type::Unknown)?;
+                    self.rendered_at_type(
+                        &crate::thrown::thrown_value_expr(&RustExpr::path("smelt_error")),
+                        unknown_ty,
+                        exception_decl.ty,
+                        &self.render_scope(),
+                    )?
+                };
                 // The handler's binding shadows the function's local for the
                 // continuation the handler inlines, which may assign it
                 // again (the pending throw of a `try`/`finally` inside a
@@ -71,15 +78,9 @@ impl FunctionEmitter<'_> {
             declared.close();
             format!("{{ {catch_text} }}")
         } else if cleanup.is_some() {
-            format!(
-                "{{ {cleanup_text} smelt_panic_throw({}) }}",
-                crate::thrown::throw_expr(&RustExpr::path("smelt_error")).delimited()
-            )
+            format!("{{ {cleanup_text} smelt_panic_throw(smelt_error) }}")
         } else {
-            format!(
-                "smelt_panic_throw({})",
-                crate::thrown::throw_expr(&RustExpr::path("smelt_error")).delimited()
-            )
+            "smelt_panic_throw(smelt_error)".to_owned()
         };
         // A generator whose declared return type is erased (`unknown`)
         // pins every protocol channel to `SmeltUnknown` (see the
@@ -142,11 +143,20 @@ impl FunctionEmitter<'_> {
                 )
             }
             smelt_hir::GeneratorResumeKind::Throw => {
-                let thrown = if let Some(value) = value {
-                    let unknown_ty = self.type_id(Type::Unknown)?;
-                    self.value_at_type(value, unknown_ty)?
-                } else {
-                    self.carrier_expr(self.carrier()?, &RustExpr::undefined())
+                // The injected error is the error-channel box a throw of the
+                // value raises: a Python exception's own `into_error`, any
+                // other value through `smelt_throw`.
+                let thrown = match value {
+                    Some(value) if self.is_py_exception_type(self.operand_ty(value)?) => {
+                        self.operand_expr(value)?.postfix(".into_error()")
+                    }
+                    Some(value) => {
+                        let unknown_ty = self.type_id(Type::Unknown)?;
+                        crate::thrown::throw_expr(&self.value_at_type(value, unknown_ty)?)
+                    }
+                    None => crate::thrown::throw_expr(
+                        &self.carrier_expr(self.carrier()?, &RustExpr::undefined()),
+                    ),
                 };
                 format!(
                     "SmeltGeneratorCommand::Throw({thrown})",
@@ -398,14 +408,10 @@ impl FunctionEmitter<'_> {
         } else {
             "return smelt_value"
         };
-        // `SmeltGeneratorCommand::Throw` carries the thrown VALUE (a
-        // `SmeltUnknown`), not an error-channel box, so it enters the
-        // panic route through `smelt_throw` -- which is also what keeps
-        // the payload's class across the unwind.
-        let thrown_error = crate::thrown::throw_expr(&RustExpr::path("smelt_error"));
+        // `SmeltGeneratorCommand::Throw` carries the error-channel box, which
+        // enters the panic route as it is.
         let consume_outer_sent = format!(
-            "{{ let smelt_command = smelt_generator_input.borrow_mut().take().unwrap_or_else(|| SmeltGeneratorCommand::Next(Default::default())); match smelt_command {{ SmeltGeneratorCommand::Next(_) => {{}}, SmeltGeneratorCommand::Return(smelt_value) => {return_command}, SmeltGeneratorCommand::Throw(smelt_error) => smelt_panic_throw({thrown_error}) }} }}",
-            thrown_error = thrown_error.delimited()
+            "{{ let smelt_command = smelt_generator_input.borrow_mut().take().unwrap_or_else(|| SmeltGeneratorCommand::Next(Default::default())); match smelt_command {{ SmeltGeneratorCommand::Next(_) => {{}}, SmeltGeneratorCommand::Return(smelt_value) => {return_command}, SmeltGeneratorCommand::Throw(smelt_error) => smelt_panic_throw(smelt_error) }} }}"
         );
         match self.mir.types.get(generator_ty) {
             Some(Type::Generator {

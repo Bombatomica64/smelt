@@ -585,7 +585,11 @@ impl ModuleBuilder<'_> {
             Some(Type::Class { .. }) if self.class_text_method(ty, true).is_some() => true,
             Some(Type::Class { name, .. }) => matches!(
                 self.ctx.krate.symbols.get(*name),
-                Some(smelt_stdlib::PY_EXCEPTION_CLASS_NAME | smelt_stdlib::PY_EXCEPTION_ARGS_CLASS_NAME)
+                Some(
+                    smelt_stdlib::PY_EXCEPTION_CLASS_NAME
+                        | smelt_stdlib::PY_EXCEPTION_ARGS_CLASS_NAME
+                        | smelt_stdlib::PY_EXCEPTION_VALUE_CLASS_NAME
+                )
             ),
             _ => false,
         }
@@ -1016,11 +1020,15 @@ impl ModuleBuilder<'_> {
         }))
     }
 
-    /// Lower `e.attr` on an exception: `e.args`, the constructor arguments.
+    /// Lower `e.attr` on an exception: `e.args`, the constructor arguments,
+    /// and `e.value`, a `StopIteration`'s first argument or `None` (what an
+    /// exhausted generator returned).
     ///
     /// `BaseException.args` is `tuple[Any, ...]`, whose elements have no static
     /// type, so it is the runtime's `SmeltPyExceptionArgs`, a value whose
-    /// `str` and `repr` are those of the tuple and that offers nothing else.
+    /// `str` and `repr` are those of the tuple and that offers nothing else;
+    /// `StopIteration.value` is `Any`, the runtime's `SmeltPyExceptionArg`,
+    /// likewise text only. (`ty` refuses `.value` on another exception class.)
     fn exception_attribute_expr(
         &mut self,
         exception: smelt_hir::ExprId,
@@ -1028,10 +1036,15 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let span = self.span(attr.range);
+        if attr.attr.as_str() == "value" {
+            let name = self.intern_synthesized_name(smelt_stdlib::PY_EXCEPTION_VALUE_CLASS_NAME);
+            let ty = self.intern_type(Type::Class { name, args: vec![] });
+            return Ok(body.push_expr(HirExpr { kind: ExprKind::PyExceptionValue { exception }, ty, span }));
+        }
         if attr.attr.as_str() != "args" {
             return Err(SmeltError::unsupported(
                 span,
-                format!("exception attribute `{}` is not supported; only `args` is", attr.attr),
+                format!("exception attribute `{}` is not supported; only `args` and `value` are", attr.attr),
             ));
         }
         let name = self.intern_synthesized_name(smelt_stdlib::PY_EXCEPTION_ARGS_CLASS_NAME);

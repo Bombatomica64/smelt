@@ -136,6 +136,9 @@ impl FunctionEmitter<'_> {
                 cleanup,
             } => self.generator_yield_expr(value, unwind.as_ref(), cleanup.as_ref()),
             Rvalue::GeneratorDone { result } => self.generator_done_expr(result),
+            Rvalue::GeneratorStarted { generator } => {
+                Ok(self.operand_expr(generator)?.postfix(".is_started()"))
+            }
             Rvalue::GeneratorValue { result } => self.generator_value_expr(result, dest_ty),
             Rvalue::GeneratorYielded { value: yielded } => {
                 self.generator_yielded_expr(yielded, dest_ty)
@@ -208,6 +211,10 @@ impl FunctionEmitter<'_> {
             Rvalue::PyExceptionArgs { exception } => {
                 let exception_text = self.operand_expr(exception)?;
                 Ok(exception_text.postfix(".args()"))
+            }
+            Rvalue::PyExceptionValue { exception } => {
+                let exception_text = self.operand_expr(exception)?;
+                Ok(exception_text.postfix(".value()"))
             }
             Rvalue::PyExceptionCaughtBy { exception, classes, catches_unclassified } => {
                 self.py_exception_caught_by_expr(exception, classes, *catches_unclassified)

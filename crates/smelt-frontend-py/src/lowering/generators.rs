@@ -25,11 +25,17 @@
 // `list`, `sum`, `min`, `max` and `sorted`, which consume every element,
 // drain it (`ExprKind::GeneratorCollect`).
 //
-// Not modelled: `send` of a value other than `None` to a generator that has
-// not started (CPython raises `TypeError`; the shared runtime discards the
-// value, as JavaScript's `next(v)` does), `throw()`, `close()`, and reading
-// `StopIteration.value` from an `except` binding (the builtin exception
-// keeps only the Python text of its `args`).
+// - `g.throw(exc)`, raising `exc` at the suspended `yield` (or at the start of
+//   a just-started generator, which is then done) and answering what the
+//   generator yields next, as `next` does;
+// - `g.close()`, raising `GeneratorExit` there: the generator's `finally`
+//   blocks and `except GeneratorExit` handlers run, a `yield` after it is a
+//   `RuntimeError`, and `GeneratorExit` (or `StopIteration`) ends the call;
+// - `g.send(v)` of a value that may be other than `None` to a just-started
+//   generator raises `TypeError`, as CPython does;
+// - `except StopIteration as e: e.value` reads the generator's return value as
+//   its Python text (`StopIteration.value` is `Any`; see
+//   `exception_attribute_expr`).
 
 impl ModuleBuilder<'_> {
     /// `Iterator[Y]` / `Generator[Y, S, R]` (`Generator[Y]` and
@@ -210,11 +216,15 @@ impl ModuleBuilder<'_> {
     /// else: result = step's value
     /// result
     /// ```
+    ///
+    /// `kind` is the command the resume sends: `Next` for `next`/`send`,
+    /// `Throw` for `g.throw(exc)` (`sent` is then the exception).
     #[expect(clippy::too_many_arguments, reason = "one resumption, what it sends, its default and its lowering position")]
     fn generator_resume_expression(
         &mut self,
         generator: smelt_hir::ExprId,
         sent: Option<smelt_hir::ExprId>,
+        kind: smelt_hir::GeneratorResumeKind,
         default: Option<smelt_hir::ExprId>,
         span: Span,
         body: &mut Body,
@@ -233,7 +243,7 @@ impl ModuleBuilder<'_> {
         let step_ty = self.intern_type(Type::GeneratorResult { yield_ty, return_ty });
         let block = body.push_block(span);
         let next = body.push_expr(HirExpr {
-            kind: ExprKind::GeneratorNext { generator, value: sent, kind: smelt_hir::GeneratorResumeKind::Next },
+            kind: ExprKind::GeneratorNext { generator, value: sent, kind },
             ty: step_ty,
             span,
         });
@@ -277,6 +287,183 @@ impl ModuleBuilder<'_> {
         let block_index = usize::try_from(block.0).map_err(|error| SmeltError::unsupported(span, error.to_string()))?;
         body.blocks[block_index].tail = Some(read);
         Ok(body.push_expr(HirExpr { kind: ExprKind::Block(block), ty: yield_ty, span }))
+    }
+
+    /// `g.send(v)`: CPython refuses a value other than `None` to a
+    /// just-started generator with `TypeError`, leaving it unstarted, before
+    /// resuming it once.
+    ///
+    /// ```text
+    /// generator = g; value = v                   # evaluated once, in order
+    /// if not started(generator) and value is not None:
+    ///     raise TypeError("can't send non-None value to a just-started generator")
+    /// resume(generator, value)
+    /// ```
+    ///
+    /// The `value is not None` test is the static one when the send type
+    /// decides it: never for a `None` send type, always for one without
+    /// `None`, at run time for an optional one.
+    fn generator_send_expression(
+        &mut self,
+        generator: smelt_hir::ExprId,
+        sent: smelt_hir::ExprId,
+        span: Span,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let generator_ty = Self::expr_ty(body, generator);
+        let sent_ty = Self::expr_ty(body, sent);
+        let none_ty = self.intern_type(Type::None);
+        if sent_ty == none_ty {
+            return self.generator_resume_expression(generator, Some(sent), smelt_hir::GeneratorResumeKind::Next, None, span, body);
+        }
+        let bool_ty = self.intern_type(Type::Bool);
+        let block = body.push_block(span);
+        let handle = self.bind_synthetic(block, "__smelt_generator", generator, generator_ty, span, body);
+        let value = self.bind_synthetic(block, "__smelt_sent", sent, sent_ty, span, body);
+        let handle_read = body.push_expr(HirExpr { kind: ExprKind::Local(handle), ty: generator_ty, span });
+        let started = body.push_expr(HirExpr { kind: ExprKind::GeneratorStarted { generator: handle_read }, ty: bool_ty, span });
+        let mut refused = body.push_expr(HirExpr { kind: ExprKind::UnaryOp { op: UnaryOp::Not, operand: started }, ty: bool_ty, span });
+        if matches!(self.ctx.krate.types.get(sent_ty), Some(Type::Optional(..))) {
+            let value_read = body.push_expr(HirExpr { kind: ExprKind::Local(value), ty: sent_ty, span });
+            let none = body.push_expr(HirExpr { kind: ExprKind::Literal(Literal::None), ty: none_ty, span });
+            let present = self.compare_pair(CmpOp::IsNot, value_read, none, span, body)?;
+            refused = self.short_circuit(BinOp::And, refused, present, span, body);
+        }
+        let raise = body.push_block(span);
+        let error = self.builtin_exception_with_message("TypeError", "can't send non-None value to a just-started generator", span, body);
+        body.push_stmt_to_block(raise, HirStmt::Throw(error));
+        body.push_stmt_to_block(block, HirStmt::If { cond: refused, then_block: raise, else_block: None });
+        let handle_read = body.push_expr(HirExpr { kind: ExprKind::Local(handle), ty: generator_ty, span });
+        let value_read = body.push_expr(HirExpr { kind: ExprKind::Local(value), ty: sent_ty, span });
+        let resumed = self.generator_resume_expression(handle_read, Some(value_read), smelt_hir::GeneratorResumeKind::Next, None, span, body)?;
+        let yield_ty = Self::expr_ty(body, resumed);
+        Self::set_block_tail(block, resumed, span, body)?;
+        Ok(body.push_expr(HirExpr { kind: ExprKind::Block(block), ty: yield_ty, span }))
+    }
+
+    /// The exception `g.throw(exc)` raises in the generator: an exception
+    /// instance, or a class, which Python instantiates with no arguments.
+    fn thrown_into_generator(&mut self, thrown: &Expr, body: &mut Body) -> Result<smelt_hir::ExprId, SmeltError> {
+        let span = self.span(thrown.range());
+        let value = match thrown {
+            Expr::Name(name) if let Some(chain) = self.exception_class_chain(name.id.as_str()) => {
+                self.exception_new_expr(&chain, &[], span, body)?
+            }
+            other => self.expression(other, body)?,
+        };
+        self.raised_exception(value, span, body)
+            .ok_or_else(|| SmeltError::unsupported(span, "generator.throw() needs an exception class or instance"))
+    }
+
+    /// `g.close()`: raise `GeneratorExit` at the suspended `yield`, so the
+    /// generator's `finally` blocks and `except GeneratorExit` handlers run.
+    ///
+    /// ```text
+    /// try:
+    ///     step = throw(g, GeneratorExit())
+    ///     if step is not done: raise RuntimeError("generator ignored GeneratorExit")
+    /// except BaseException as e:
+    ///     if not isinstance(e, (GeneratorExit, StopIteration)): raise
+    /// None
+    /// ```
+    ///
+    /// A just-started or finished generator runs nothing: the runtime raises
+    /// the injected `GeneratorExit` at once (`SmeltGenerator::try_resume`),
+    /// or answers its completion.
+    fn generator_close_expression(
+        &mut self,
+        generator: smelt_hir::ExprId,
+        span: Span,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let generator_ty = Self::expr_ty(body, generator);
+        let Some(Type::Generator { is_async: false, yield_ty, return_ty, .. }) = self.ctx.krate.types.get(generator_ty).cloned() else {
+            return Err(SmeltError::unsupported(span, "internal error: expected a generator"));
+        };
+        let bool_ty = self.intern_type(Type::Bool);
+        let none_ty = self.intern_type(Type::None);
+        let step_ty = self.intern_type(Type::GeneratorResult { yield_ty, return_ty });
+        let exception_ty = self.py_exception_type();
+        let block = body.push_block(span);
+        let try_block = body.push_block(span);
+        let exit = self.builtin_exception_with_args("GeneratorExit", Vec::new(), span, body);
+        let next = body.push_expr(HirExpr {
+            kind: ExprKind::GeneratorNext { generator, value: Some(exit), kind: smelt_hir::GeneratorResumeKind::Throw },
+            ty: step_ty,
+            span,
+        });
+        let step = self.bind_synthetic(try_block, "__smelt_step", next, step_ty, span, body);
+        let step_read = body.push_expr(HirExpr { kind: ExprKind::Local(step), ty: step_ty, span });
+        let done = body.push_expr(HirExpr { kind: ExprKind::GeneratorDone { result: step_read }, ty: bool_ty, span });
+        let yielded = body.push_expr(HirExpr { kind: ExprKind::UnaryOp { op: UnaryOp::Not, operand: done }, ty: bool_ty, span });
+        let ignored = body.push_block(span);
+        let error = self.builtin_exception_with_message("RuntimeError", "generator ignored GeneratorExit", span, body);
+        body.push_stmt_to_block(ignored, HirStmt::Throw(error));
+        body.push_stmt_to_block(try_block, HirStmt::If { cond: yielded, then_block: ignored, else_block: None });
+        let caught = body.push_local(self.synthetic_local("__smelt_exception", exception_ty, false, span));
+        let catch_block = body.push_block(span);
+        let caught_read = body.push_expr(HirExpr { kind: ExprKind::Local(caught), ty: exception_ty, span });
+        let classes = ["GeneratorExit", "StopIteration"].into_iter().map(|class| self.intern_name(class)).collect();
+        let ends_close = body.push_expr(HirExpr {
+            kind: ExprKind::PyExceptionCaughtBy { exception: caught_read, classes, catches_unclassified: false },
+            ty: bool_ty,
+            span,
+        });
+        let propagates = body.push_expr(HirExpr { kind: ExprKind::UnaryOp { op: UnaryOp::Not, operand: ends_close }, ty: bool_ty, span });
+        let rethrow = body.push_block(span);
+        let rethrown = body.push_expr(HirExpr { kind: ExprKind::Local(caught), ty: exception_ty, span });
+        body.push_stmt_to_block(rethrow, HirStmt::Throw(rethrown));
+        body.push_stmt_to_block(catch_block, HirStmt::If { cond: propagates, then_block: rethrow, else_block: None });
+        body.push_stmt_to_block(
+            block,
+            HirStmt::TryCatch { body: try_block, catch_binding: Some(caught), catch_body: Some(catch_block), finally_body: None },
+        );
+        let none = body.push_expr(HirExpr { kind: ExprKind::Literal(Literal::None), ty: none_ty, span });
+        Self::set_block_tail(block, none, span, body)?;
+        Ok(body.push_expr(HirExpr { kind: ExprKind::Block(block), ty: none_ty, span }))
+    }
+
+    /// Bind `value` to a fresh synthetic local in `block`, returning it.
+    #[expect(clippy::too_many_arguments, reason = "one binding, its value, type and lowering position")]
+    fn bind_synthetic(
+        &mut self,
+        block: smelt_hir::BlockId,
+        name: &str,
+        value: smelt_hir::ExprId,
+        ty: TypeId,
+        span: Span,
+        body: &mut Body,
+    ) -> smelt_hir::LocalId {
+        let local = body.push_local(self.synthetic_local(name, ty, false, span));
+        let pat = body.push_pattern(HirPattern::Binding(local));
+        body.push_stmt_to_block(block, HirStmt::Let { pat, ty, value: Some(value) });
+        local
+    }
+
+    /// Make `tail` the value of `block`.
+    fn set_block_tail(block: smelt_hir::BlockId, tail: smelt_hir::ExprId, span: Span, body: &mut Body) -> Result<(), SmeltError> {
+        let index = usize::try_from(block.0).map_err(|error| SmeltError::unsupported(span, error.to_string()))?;
+        let Some(slot) = body.blocks.get_mut(index) else {
+            return Err(SmeltError::unsupported(span, "internal error: missing block"));
+        };
+        slot.tail = Some(tail);
+        Ok(())
+    }
+
+    /// A builtin exception `name` whose one argument is `message`.
+    fn builtin_exception_with_message(&mut self, name: &str, message: &str, span: Span, body: &mut Body) -> smelt_hir::ExprId {
+        let str_ty = self.intern_type(Type::PyStr);
+        let text = body.push_expr(HirExpr { kind: ExprKind::Literal(Literal::String(message.to_owned())), ty: str_ty, span });
+        self.builtin_exception_with_args(name, vec![text], span, body)
+    }
+
+    /// A builtin exception `name` built from `args` (each kept as its Python
+    /// text).
+    fn builtin_exception_with_args(&mut self, name: &str, args: Vec<smelt_hir::ExprId>, span: Span, body: &mut Body) -> smelt_hir::ExprId {
+        let chain = builtin_exception_chain(name).unwrap_or_default();
+        let classes = chain.iter().map(|class| self.intern_name(class)).collect();
+        let ty = self.py_exception_type();
+        body.push_expr(HirExpr { kind: ExprKind::PyExceptionNew { classes, args }, ty, span })
     }
 
     /// The list a generator drains to, when `value` is a generator: only for

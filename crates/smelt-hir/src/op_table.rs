@@ -238,6 +238,14 @@ macro_rules! op_group_transcribed {
                 result: one,
             }
                 => (format!("done {result}"));
+            /// Whether a synchronous generator's body has been entered: false
+            /// for a generator neither resumed nor completed yet (Python's
+            /// just-started generator, which refuses a non-`None` `send`).
+            GeneratorStarted {
+                /// Generator handle to inspect.
+                generator: one,
+            }
+                => (format!("started {generator}"));
             /// Extract the yielded or returned value from a generator resume result.
             GeneratorValue {
                 /// Resume result whose payload is extracted.
@@ -2762,6 +2770,13 @@ macro_rules! op_group_transcribed {
                 exception: one,
             }
                 => (format!("py_exception_args {exception}"));
+            /// `e.value` of a `StopIteration`: its first argument, or `None`,
+            /// as the runtime's `SmeltPyExceptionArg`.
+            PyExceptionValue {
+                /// The exception.
+                exception: one,
+            }
+                => (format!("py_exception_value {exception}"));
             /// Whether an `except` clause naming `classes` catches `exception`.
             PyExceptionCaughtBy {
                 /// The caught exception.

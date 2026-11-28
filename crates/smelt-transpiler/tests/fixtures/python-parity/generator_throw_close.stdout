@@ -1,0 +1,32 @@
+0
+10
+11
+caught bad
+-1
+0
+counter cleanup
+closed
+exhausted after close
+1
+worker closing
+worker finally
+worker done
+fresh closed without running
+runtime error: generator ignored GeneratorExit
+type error: can't send non-None value to a just-started generator
+0
+5
+12
+raised at start: KeyError('early')
+a generator thrown into at start is done
+worker finally
+propagated IndexError
+sum=6
+value: None None <None>
+'explicit' ('explicit',)
+a
+skipping after x
+after a
+b
+after b
+guarded closed

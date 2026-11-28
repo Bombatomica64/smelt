@@ -726,3 +726,15 @@ fn numeric_unions() -> TestResult {
 fn forward_references() -> TestResult {
     verify_python_parity("forward_references")
 }
+
+/// `g.throw(exc)` raises at the suspended `yield` (or ends a just-started
+/// generator), `g.close()` runs `finally` blocks and `except GeneratorExit`
+/// handlers and refuses a generator that yields again, `send()` of a
+/// non-`None` value to a just-started generator raises `TypeError`, and
+/// `except StopIteration as e` reads `e.value` (all refused before).
+/// Requirements: `CPython`'s output, every handler and `finally` print
+/// included, in order.
+#[test]
+fn generator_throw_close() -> TestResult {
+    verify_python_parity("generator_throw_close")
+}
