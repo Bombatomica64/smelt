@@ -766,7 +766,7 @@ fn narrowing_and_dispatch() -> TestResult {
 /// (ignored before), tuple assignment to existing names, attributes and items
 /// (`a, b = b, a + b` in a loop declared fresh names, so `fib` answered 1),
 /// an exception raised by a property setter (dropped), `a.copy() is a`
-/// (the copy was elided), `sum`'s `start` and CPython's compensated float
+/// (the copy was elided), `sum`'s `start` and `CPython`'s compensated float
 /// sum, and `isspace`/`isupper`/`islower`. Requirements: `CPython`'s output.
 #[test]
 fn sweep_semantics() -> TestResult {

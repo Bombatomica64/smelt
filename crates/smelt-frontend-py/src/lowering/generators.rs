@@ -289,7 +289,7 @@ impl ModuleBuilder<'_> {
         Ok(body.push_expr(HirExpr { kind: ExprKind::Block(block), ty: yield_ty, span }))
     }
 
-    /// `g.send(v)`: CPython refuses a value other than `None` to a
+    /// `g.send(v)`: `CPython` refuses a value other than `None` to a
     /// just-started generator with `TypeError`, leaving it unstarted, before
     /// resuming it once.
     ///
@@ -333,9 +333,9 @@ impl ModuleBuilder<'_> {
         let error = self.builtin_exception_with_message("TypeError", "can't send non-None value to a just-started generator", span, body);
         body.push_stmt_to_block(raise, HirStmt::Throw(error));
         body.push_stmt_to_block(block, HirStmt::If { cond: refused, then_block: raise, else_block: None });
-        let handle_read = body.push_expr(HirExpr { kind: ExprKind::Local(handle), ty: generator_ty, span });
+        let resumed_handle = body.push_expr(HirExpr { kind: ExprKind::Local(handle), ty: generator_ty, span });
         let value_read = body.push_expr(HirExpr { kind: ExprKind::Local(value), ty: sent_ty, span });
-        let resumed = self.generator_resume_expression(handle_read, Some(value_read), smelt_hir::GeneratorResumeKind::Next, None, span, body)?;
+        let resumed = self.generator_resume_expression(resumed_handle, Some(value_read), smelt_hir::GeneratorResumeKind::Next, None, span, body)?;
         let yield_ty = Self::expr_ty(body, resumed);
         Self::set_block_tail(block, resumed, span, body)?;
         Ok(body.push_expr(HirExpr { kind: ExprKind::Block(block), ty: yield_ty, span }))

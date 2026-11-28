@@ -212,7 +212,7 @@ pub(crate) struct ModuleBuilder<'ctx> {
     /// [`Self::deferred_bodies`] instead of lowered at once: set while pass 1
     /// declares the module's top-level functions and classes
     /// (`lowering/deferred_bodies.rs`).
-    defer_bodies: bool,
+    defer_bodies: BodyLowering,
     /// Declared functions and methods whose statements lower once every
     /// module-level declaration exists, in declaration order.
     deferred_bodies: Vec<DeferredBody>,
@@ -495,7 +495,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             exception_args_getters: HashMap::new(),
             handled_exceptions: Vec::new(),
             module_awaits: false,
-            defer_bodies: false,
+            defer_bodies: BodyLowering::Eager,
             deferred_bodies: Vec::new(),
         }
     }
@@ -575,11 +575,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
         // method's statements are queued and lowered below, once every
         // module-level class, function and signature exists, so a body may use
         // a definition written after it (`lowering/deferred_bodies.rs`).
-        self.defer_bodies = true;
+        self.defer_bodies = BodyLowering::Deferred;
         for (slot, stmt) in declared.iter_mut().zip(&module.body) {
             *slot = self.declare_module_stmt(stmt, module, &mut hir_module, &mut errors);
         }
-        self.defer_bodies = false;
+        self.defer_bodies = BodyLowering::Eager;
         self.register_module_namespace(&hir_module);
         self.lower_deferred_bodies(&mut errors);
 

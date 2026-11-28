@@ -443,9 +443,8 @@ impl ModuleBuilder<'_> {
         let ([op], [right]) = (compare.ops.as_ref(), compare.comparators()) else {
             return None;
         };
-        let tested = match (compare.first_operand(), right) {
-            (tested, Expr::NoneLiteral(_)) | (Expr::NoneLiteral(_), tested) => tested,
-            _ => return None,
+        let ((tested, Expr::NoneLiteral(_)) | (Expr::NoneLiteral(_), tested)) = (compare.first_operand(), right) else {
+            return None;
         };
         let (key, tested_ty) = match tested {
             Expr::Name(name) => {

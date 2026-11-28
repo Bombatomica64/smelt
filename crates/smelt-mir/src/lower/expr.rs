@@ -1067,21 +1067,26 @@ impl LoweringCtx<'_> {
         while let Some(class_name) = class
             && visited.insert(class_name)
         {
-            let class_item = self.krate.items.iter().find_map(|item| match item {
-                smelt_hir::Item::Class(class_item) if class_item.name == class_name => {
+            let class_item = self.krate.items.iter().find_map(|item| {
+                if let smelt_hir::Item::Class(class_item) = item
+                    && class_item.name == class_name
+                {
                     Some(class_item)
+                } else {
+                    None
                 }
-                _ => None,
             })?;
             if let Some(setter) = class_item.descriptors.iter().find_map(|descriptor| {
                 (descriptor.name == field && !descriptor.is_static)
                     .then_some(descriptor.setter)
                     .flatten()
             }) {
-                let returned = match self.krate.items.get(usize::try_from(setter.0).ok()?)? {
-                    smelt_hir::Item::Function(function) => function.return_ty,
-                    _ => return None,
+                let smelt_hir::Item::Function(setter_function) =
+                    self.krate.items.get(usize::try_from(setter.0).ok()?)?
+                else {
+                    return None;
                 };
+                let returned = setter_function.return_ty;
                 return self
                     .item_functions
                     .get(&setter)

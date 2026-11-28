@@ -30,6 +30,15 @@
 // specialization) stays eager, because its body reads aliases that only exist
 // while it is declared.
 
+/// When a function or method declared now lowers its statements.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BodyLowering {
+    /// At once, where it is declared.
+    Eager,
+    /// Queued, after every module-level declaration (pass 1).
+    Deferred,
+}
+
 /// A declared function or method whose statements are lowered after every
 /// module-level declaration (see the module comment).
 #[derive(Debug)]
@@ -74,7 +83,7 @@ impl ModuleBuilder<'_> {
         func: &StmtFunctionDef,
         fn_body: &mut Body,
     ) -> Result<Option<FnScope>, SmeltError> {
-        if self.defer_bodies {
+        if self.defer_bodies == BodyLowering::Deferred {
             return Ok(Some(std::mem::take(&mut self.scope)));
         }
         self.lower_function_statements(func, fn_body)?;
@@ -90,7 +99,7 @@ impl ModuleBuilder<'_> {
         scope: FnScope,
         definition: &str,
     ) {
-        let definition = definition
+        let top_level = definition
             .split_once('.')
             .map_or(definition, |(top, _)| top)
             .to_owned();
@@ -99,14 +108,14 @@ impl ModuleBuilder<'_> {
             body,
             scope,
             type_params: self.function_type_params.clone(),
-            definition,
+            definition: top_level,
         });
     }
 
     /// Run `lower` with body deferral off: what it declares lowers its body at
     /// once (see the module comment for when that is required).
     fn eagerly<T>(&mut self, lower: impl FnOnce(&mut Self) -> T) -> T {
-        let deferring = std::mem::replace(&mut self.defer_bodies, false);
+        let deferring = std::mem::replace(&mut self.defer_bodies, BodyLowering::Eager);
         let result = lower(self);
         self.defer_bodies = deferring;
         result
@@ -129,8 +138,8 @@ impl ModuleBuilder<'_> {
             let result = self.lower_function_statements(&job.func, &mut fn_body);
             self.scope = enclosing_scope;
             self.function_type_params = enclosing_params;
-            if let Some(slot) = self.ctx.krate.bodies.get_mut(index) {
-                *slot = fn_body;
+            if let Some(lowered) = self.ctx.krate.bodies.get_mut(index) {
+                *lowered = fn_body;
             }
             if let Err(err) = result {
                 self.failed_definitions.insert(job.definition);

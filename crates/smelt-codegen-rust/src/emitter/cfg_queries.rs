@@ -1,5 +1,7 @@
 //! Control-flow-graph reachability queries over a function's MIR blocks: whether a block can re-execute, sits under a repeating region, or can reach a target block.
 
+#[cfg(test)]
+use super::core::flow_successors;
 use super::core::terminator_successors;
 use super::*;
 
@@ -20,12 +22,10 @@ impl FunctionEmitter<'_> {
             return true;
         };
         visited.insert(block_id);
-        super::core::flow_successors(block)
-            .into_iter()
-            .any(|successor| {
-                successor == block_id
-                    || self.block_can_flow_to(successor, block_id, &mut visited.clone())
-            })
+        flow_successors(block).into_iter().any(|successor| {
+            successor == block_id
+                || self.block_can_flow_to(successor, block_id, &mut visited.clone())
+        })
     }
 
     /// [`Self::block_can_reach`] over [`super::core::flow_successors`]: the
@@ -43,8 +43,8 @@ impl FunctionEmitter<'_> {
         if !visited.insert(block_id) {
             return false;
         }
-        self.block(block_id).ok().is_some_and(|block| {
-            super::core::flow_successors(block)
+        self.block(block_id).is_ok_and(|block| {
+            flow_successors(block)
                 .into_iter()
                 .any(|next| self.block_can_flow_to(next, target, visited))
         })

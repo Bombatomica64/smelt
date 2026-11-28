@@ -251,8 +251,8 @@ impl ModuleBuilder<'_> {
                 Ok(())
             }
             Expr::Attribute(_) | Expr::Subscript(_) => {
-                let target = self.expression(element, body)?;
-                let target = Self::subscript_store_target(target, body);
+                let read = self.expression(element, body)?;
+                let target = Self::subscript_store_target(read, body);
                 body.push_stmt_to_block(block, HirStmt::Assign { target, value: item });
                 Ok(())
             }

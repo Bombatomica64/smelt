@@ -1140,7 +1140,7 @@ class A:
 /// Corrected expectation: the call used to target one alias per class,
 /// `__smelt$super$greet`, the base's `greet`. That alias is resolved on the
 /// class that RUNS the body, so the body of a `B.greet` inherited by a
-/// `C(B)` called `B.greet` itself again and recursed forever (CPython calls
+/// `C(B)` called `B.greet` itself again and recursed forever (`CPython` calls
 /// `A.greet`: the definition after `B` in `C`'s MRO). The call now names the
 /// definer, `__smelt$super$B$greet`, which every class running `B`'s bodies
 /// defines as the definition following `B` (`reserve_super_call_aliases`);

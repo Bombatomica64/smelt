@@ -150,13 +150,13 @@ impl ModuleBuilder<'_> {
         };
         let iterable = self.expression(&call.arguments.args[0], body)?;
         let mut list = self.order_free_iterable_as_list(iterable, self.span(call.arguments.args[0].range()), body);
-        if let Some(start_ast) = start_ast {
+        if let Some(start_expr) = start_ast {
             let list_ty = Self::expr_ty(body, list);
             let item_hint = self.list_element_type(list_ty);
-            let start = self.expression_with_hint(start_ast, body, item_hint)?;
+            let start = self.expression_with_hint(start_expr, body, item_hint)?;
             if Some(Self::expr_ty(body, start)) != item_hint {
                 return Err(SmeltError::unsupported(
-                    self.span(start_ast.range()),
+                    self.span(start_expr.range()),
                     "sum()'s start must have the list's element type",
                 ));
             }

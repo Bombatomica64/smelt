@@ -147,12 +147,12 @@ impl FunctionEmitter<'_> {
                 // value raises: a Python exception's own `into_error`, any
                 // other value through `smelt_throw`.
                 let thrown = match value {
-                    Some(value) if self.is_py_exception_type(self.operand_ty(value)?) => {
-                        self.operand_expr(value)?.postfix(".into_error()")
+                    Some(exception) if self.is_py_exception_type(self.operand_ty(exception)?) => {
+                        self.operand_expr(exception)?.postfix(".into_error()")
                     }
-                    Some(value) => {
+                    Some(payload) => {
                         let unknown_ty = self.type_id(Type::Unknown)?;
-                        crate::thrown::throw_expr(&self.value_at_type(value, unknown_ty)?)
+                        crate::thrown::throw_expr(&self.value_at_type(payload, unknown_ty)?)
                     }
                     None => crate::thrown::throw_expr(
                         &self.carrier_expr(self.carrier()?, &RustExpr::undefined()),

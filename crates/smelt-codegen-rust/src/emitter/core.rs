@@ -513,7 +513,7 @@ impl<'mir> FunctionEmitter<'mir> {
 /// successors, plus the handler and cleanup blocks of each `yield` inside a
 /// `try`, which run when the consumer throws into or returns from the
 /// generator and which the emitter inlines at the `yield` itself.
-pub(super) fn flow_successors(block: &smelt_mir::BasicBlock) -> Vec<smelt_mir::BlockId> {
+pub(super) fn flow_successors(block: &BasicBlock) -> Vec<smelt_mir::BlockId> {
     let mut successors = block
         .terminator
         .as_ref()

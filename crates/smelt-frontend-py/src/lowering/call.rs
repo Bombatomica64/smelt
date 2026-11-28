@@ -130,38 +130,26 @@ impl ModuleBuilder<'_> {
                 _ => return Err(SmeltError::unsupported(keyword_span, "print() takes `sep=`, `end=`, `file=` and a literal `flush=`")),
             }
         }
-        let literal = |this: &mut Self, text: &str, body: &mut Body| {
+        let str_literal = |this: &mut Self, text: &str, inner: &mut Body| {
             let ty = this.intern_type(Type::PyStr);
-            body.push_expr(HirExpr { kind: ExprKind::Literal(Literal::String(text.to_owned())), ty, span })
+            inner.push_expr(HirExpr { kind: ExprKind::Literal(Literal::String(text.to_owned())), ty, span })
         };
-        let concat = |lhs: smelt_hir::ExprId, rhs: smelt_hir::ExprId, body: &mut Body| {
-            body.push_expr(HirExpr { kind: ExprKind::BinOp { op: BinOp::Add, lhs, rhs }, ty: str_ty, span })
+        let concat = |lhs: smelt_hir::ExprId, rhs: smelt_hir::ExprId, inner: &mut Body| {
+            inner.push_expr(HirExpr { kind: ExprKind::BinOp { op: BinOp::Add, lhs, rhs }, ty: str_ty, span })
         };
         let mut text: Option<smelt_hir::ExprId> = None;
         for value in values {
             let value_span = Self::expr_span(body, value);
             let shown = self.python_text_expr(value, false, value_span, body)?;
-            text = Some(match text {
-                None => shown,
-                Some(previous) => {
-                    let separator = match sep {
-                        Some(sep) => sep,
-                        None => literal(self, " ", body),
-                    };
-                    let joined = concat(previous, separator, body);
-                    concat(joined, shown, body)
-                }
-            });
+            text = Some(text.map_or(shown, |previous| {
+                let separator = sep.unwrap_or_else(|| str_literal(self, " ", body));
+                let joined = concat(previous, separator, body);
+                concat(joined, shown, body)
+            }));
         }
-        let ending = match end {
-            Some(end) => end,
-            None => literal(self, "\n", body),
-        };
-        let text = match text {
-            Some(text) => concat(text, ending, body),
-            None => ending,
-        };
-        Ok(body.push_expr(HirExpr { kind: ExprKind::PyWrite { text, stderr }, ty: none_ty, span }))
+        let ending = end.unwrap_or_else(|| str_literal(self, "\n", body));
+        let written = text.map_or(ending, |joined| concat(joined, ending, body));
+        Ok(body.push_expr(HirExpr { kind: ExprKind::PyWrite { text: written, stderr }, ty: none_ty, span }))
     }
 
     /// The static type of `receiver`, read without lowering it, when its

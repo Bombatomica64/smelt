@@ -1999,7 +1999,7 @@ impl ModuleBuilder<'_> {
             let Stmt::ClassDef(class) = stmt else {
                 continue;
             };
-            let name = outer.map_or_else(|| class.name.to_string(), |outer| format!("{outer}.{}", class.name));
+            let name = outer.map_or_else(|| class.name.to_string(), |enclosing| format!("{enclosing}.{}", class.name));
             let mut calls = SuperCalls(HashSet::new());
             for member in &class.body {
                 if let Stmt::FunctionDef(func) = member {
@@ -2046,8 +2046,8 @@ impl ModuleBuilder<'_> {
             chain.push((ancestor_name, next));
         }
         let mut aliases = Vec::new();
-        for (definer, definer_base) in chain {
-            let Some(definer_base) = definer_base.and_then(|base| self.ctx.krate.symbols.source(base).map(ToOwned::to_owned)) else {
+        for (definer, definer_base_sym) in chain {
+            let Some(definer_base) = definer_base_sym.and_then(|base| self.ctx.krate.symbols.source(base).map(ToOwned::to_owned)) else {
                 continue;
             };
             let mut methods = self.super_called_methods.get(&definer).cloned().unwrap_or_default().into_iter().collect::<Vec<_>>();

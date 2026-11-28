@@ -213,9 +213,9 @@ impl FunctionEmitter<'_> {
                 Ok(exception_text.postfix(".args()"))
             }
             Rvalue::PyWrite { text, stderr } => {
-                let text = self.operand_expr(text)?;
+                let written = self.operand_expr(text)?;
                 let writer = if *stderr { "eprint" } else { "print" };
-                Ok(RustExpr::atom(format!("{{ {writer}!(\"{{}}\", {}); }}", text.delimited())))
+                Ok(RustExpr::atom(format!("{{ {writer}!(\"{{}}\", {}); }}", written.delimited())))
             }
             Rvalue::PyExceptionValue { exception } => {
                 let exception_text = self.operand_expr(exception)?;

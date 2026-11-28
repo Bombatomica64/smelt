@@ -1,6 +1,6 @@
 //! Local dataflow and mutability analysis: whether a MIR local needs a mutable Rust binding, its assignment/use ordering, and rvalue-level in-place mutation and mutable-borrow queries.
 
-use super::core::terminator_successors;
+use super::core::{flow_successors, terminator_successors};
 use super::*;
 use smelt_hir::FunctionType;
 
@@ -830,7 +830,7 @@ fn repeat_reachable_blocks(function: &MirFunction) -> HashSet<smelt_mir::BlockId
         .blocks
         .iter()
         .map(|block| {
-            super::core::flow_successors(block)
+            flow_successors(block)
                 .into_iter()
                 .filter_map(|successor| position.get(&successor).copied())
                 .collect()
