@@ -221,7 +221,8 @@ impl ModuleBuilder<'_> {
 
     /// Whether a `ty` type spelling names one of the builtin iterator classes
     /// (`enumerate[int]`, `zip[tuple[int, str]]`, `map[str]`, `filter[int]`,
-    /// `reversed[int]`) the program does not rebind. The calls that produce
+    /// `reversed[int]`, and `itertools`' `chain[int]`, `groupby[K, V]`, ...)
+    /// the program does not rebind. The calls that produce
     /// them lower to a list or to a lazy generator
     /// (`lowering/lazy_iteration.rs`), never to an instance of that class, so
     /// the spelling has no HIR type and a binding takes its value's type.
@@ -233,6 +234,18 @@ impl ModuleBuilder<'_> {
                 if let Expr::Name(name) = expr
                     && matches!(name.id.as_str(), "enumerate" | "zip" | "map" | "filter" | "reversed")
                     && !self.0.program_binds_name(name.id.as_str())
+                {
+                    self.1 = true;
+                }
+                // `itertools`' iterator classes (`chain[int]`, `groupby[str, int]`,
+                // a group's `_grouper[...]`) are lazy generators too
+                // (`lowering/stdlib_itertools.rs`): bound by `from itertools
+                // import`, or not bound at all after `import itertools`.
+                if let Expr::Name(name) = expr
+                    && let Some(class) = ITERTOOLS_ITERATOR_CLASSES.iter().find(|class| **class == name.id.as_str())
+                    && (*class == "_grouper"
+                        || !self.0.program_binds_name(class)
+                        || self.0.import_aliases.get(*class).is_some_and(|target| *target == format!("itertools.{class}")))
                 {
                     self.1 = true;
                 }

@@ -770,6 +770,10 @@ include!("lowering/match.rs");
 include!("lowering/generators.rs");
 // `any`, `all`, `enumerate` and `zip` resuming a generator object lazily.
 include!("lowering/lazy_iteration.rs");
+
+include!("lowering/source_templates.rs");
+
+include!("lowering/stdlib_itertools.rs");
 // Literal and base expression lowering helpers.
 include!("lowering/literals.rs");
 include!("lowering/call.rs");

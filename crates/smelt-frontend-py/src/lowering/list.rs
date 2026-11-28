@@ -25,6 +25,11 @@ struct ComprehensionLevel<'a> {
     iter: smelt_hir::ExprId,
     /// `if` guard expressions for this generator, in source order.
     ifs: &'a [Expr],
+    /// Whether `iter` is a generator object: the level resumes it once per
+    /// value (`pull_generator`) and binds `pat` to what it yields, as a `for`
+    /// statement over a generator does, where a container is iterated by the
+    /// loop itself.
+    generator: bool,
 }
 
 /// Shared context threaded through the comprehension loop builder: the
@@ -567,10 +572,12 @@ impl ModuleBuilder<'_> {
                 ));
             };
             let pat = self.binding_pattern_from_target(&generator.target, body, Some(item_ty))?;
+            let is_generator = matches!(self.ctx.krate.types.get(iter_ty), Some(Type::Generator { is_async: false, .. }));
             levels.push(ComprehensionLevel {
                 pat,
                 iter,
                 ifs: &generator.ifs,
+                generator: is_generator,
             });
         }
 
@@ -678,6 +685,20 @@ impl ModuleBuilder<'_> {
         // The loop body wraps the inner levels in this level's `if` guards,
         // applied in source order as nested `if` statements.
         let loop_body = body.push_block(build.span);
+        // A generator level: `handle = iter; while True: item = next(handle)
+        // or break; pat = item; ...`, each value produced when the loop asks.
+        let generator_handle = if level.generator {
+            let generator_ty = Self::expr_ty(body, level.iter);
+            let handle = body.push_local(self.synthetic_local("__smelt_generator", generator_ty, false, build.span));
+            let handle_pat = body.push_pattern(HirPattern::Binding(handle));
+            body.push_stmt_to_block(target_block, HirStmt::Let { pat: handle_pat, ty: generator_ty, value: Some(level.iter) });
+            let item = self.pull_generator(handle, generator_ty, HirStmt::Break, build.span, body, loop_body)?;
+            let item_ty = Self::expr_ty(body, item);
+            body.push_stmt_to_block(loop_body, HirStmt::Let { pat: level.pat, ty: item_ty, value: Some(item) });
+            true
+        } else {
+            false
+        };
         let mut innermost = loop_body;
         for condition in level.ifs {
             let cond = self.python_condition(condition, body)?;
@@ -693,6 +714,12 @@ impl ModuleBuilder<'_> {
             innermost = then_block;
         }
         self.emit_comprehension_levels(innermost, rest, build, body)?;
+        if generator_handle {
+            let bool_ty = self.intern_type(Type::Bool);
+            let forever = body.push_expr(HirExpr { kind: ExprKind::Literal(Literal::Bool(true)), ty: bool_ty, span: build.span });
+            body.push_stmt_to_block(target_block, HirStmt::While { cond: forever, body: loop_body });
+            return Ok(());
+        }
         body.push_stmt_to_block(
             target_block,
             HirStmt::For {

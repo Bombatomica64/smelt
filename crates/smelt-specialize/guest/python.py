@@ -194,7 +194,12 @@ class Serializer:
             }
 
         class_name = qualified_type_name(type(value))
-        fields = object_fields(value)
+        # A built-in iterator (a generator, an `itertools.chain`, a `groupby`
+        # group) is runtime iteration state, not attribute state: the frontend types
+        # it from the expression that made it. CPython's C iterator types
+        # expose their generic `__getattribute__` slot, which is not a
+        # runtime-dynamic attribute protocol, so they are not inspected.
+        fields = None if is_iterator_object(value) else object_fields(value)
         if fields is None:
             adapter_id = f"python.native-value:{class_name}"
             self.add_adapter(
@@ -246,6 +251,22 @@ def stable_key(value: object) -> tuple[str, str]:
         }
         return value_type, json.dumps(simple, sort_keys=True)
     return value_type, getattr(value, "__qualname__", getattr(value, "__name__", ""))
+
+
+def is_iterator_object(value: object) -> bool:
+    """Whether `value` is an iterator of a built-in type.
+
+    Built-in types are immutable (`Py_TPFLAGS_IMMUTABLETYPE`, set on every
+    static and stdlib extension type since 3.10); a class the program defines
+    is not, and keeps its fields serialized, iterator or not.
+    """
+    value_type = type(value)
+    immutable_type = 1 << 8  # Py_TPFLAGS_IMMUTABLETYPE
+    return (
+        bool(value_type.__flags__ & immutable_type)
+        and hasattr(value_type, "__next__")
+        and hasattr(value_type, "__iter__")
+    )
 
 
 def object_fields(value: object) -> dict[str, object] | None:

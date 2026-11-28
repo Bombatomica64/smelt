@@ -772,3 +772,14 @@ fn narrowing_and_dispatch() -> TestResult {
 fn sweep_semantics() -> TestResult {
     verify_python_parity("sweep_semantics")
 }
+
+/// `itertools` adapters are lazy and typed: `chain`, `islice` (pulling a
+/// shared source only as far as `CPython` does), infinite `count`/`cycle`/
+/// `repeat` ended by `islice`, `zip` or `break`, `accumulate` with and
+/// without `func`/`initial`, `product`, `permutations` and `combinations`
+/// yielding typed tuples, and `groupby` whose groups are invalidated when
+/// the outer iterator advances. Requirements: `CPython`'s output.
+#[test]
+fn itertools_basics() -> TestResult {
+    verify_python_parity("itertools_basics")
+}

@@ -316,6 +316,17 @@ impl FunctionEmitter<'_> {
                 ))
                 .delegating_with([&item_value]))
             }
+            // A Python default is only ever a placeholder no program reads
+            // (the seed of a `next()` before its exhaustion check, the
+            // fallback of a bounds-checked list read): an exhausted generator
+            // is a value of the type, as an empty list is. A TypeScript
+            // default can stand for an omitted argument, which is
+            // `undefined`, never an empty generator, so it stays a blocker.
+            Type::Generator { .. } if self.function.language == smelt_hir::Language::Python => {
+                Ok(RustExpr::atom(
+                    "SmeltGenerator::new(|_| Ok(SmeltGeneratorResult::Complete(Default::default())))",
+                ))
+            }
             Type::Generator { .. } => Err(EmitError::new("a generator value has no eager default")),
             Type::GeneratorResult { return_ty, .. } => Ok(RustExpr::atom(format!(
                 "SmeltGeneratorResult::Complete({})",

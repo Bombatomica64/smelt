@@ -310,6 +310,9 @@ impl ModuleBuilder<'_> {
         if let Some(expr) = self.asyncio_call_expression(call, body)? {
             return Ok(Some(expr));
         }
+        if let Some(expr) = self.itertools_call_expression(call, body)? {
+            return Ok(Some(expr));
+        }
         Ok(None)
     }
 

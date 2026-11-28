@@ -273,6 +273,21 @@ impl ModuleBuilder<'_> {
         span: Span,
         body: &mut Body,
     ) -> smelt_hir::ExprId {
+        let closure = self.adapter_closure(adapter, params, generator_ty, span, body);
+        body.push_expr(HirExpr { kind: ExprKind::ClosureCall { callee: closure, args }, ty: generator_ty, span })
+    }
+
+    /// The synthesized generator closure `adapter` as a value: a function of
+    /// `params` answering the generator of type `generator_ty`, capturing
+    /// nothing.
+    fn adapter_closure(
+        &mut self,
+        adapter: Body,
+        params: Vec<Param>,
+        generator_ty: TypeId,
+        span: Span,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
         let param_tys = params.iter().map(|param| param.ty).collect::<Vec<_>>();
         let body_id = self.ctx.krate.push_body(adapter);
         let closure_ty = self.intern_type(Type::Function(FunctionType {
@@ -284,7 +299,7 @@ impl ModuleBuilder<'_> {
             is_async: false,
             may_throw: false,
         }));
-        let closure = body.push_expr(HirExpr {
+        body.push_expr(HirExpr {
             kind: ExprKind::Closure(smelt_hir::ClosureExpr {
                 params,
                 rest: None,
@@ -300,7 +315,6 @@ impl ModuleBuilder<'_> {
             }),
             ty: closure_ty,
             span,
-        });
-        body.push_expr(HirExpr { kind: ExprKind::ClosureCall { callee: closure, args }, ty: generator_ty, span })
+        })
     }
 }

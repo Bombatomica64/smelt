@@ -355,12 +355,15 @@ impl FunctionEmitter<'_> {
             dest_ty,
             &self.render_scope(),
         )?;
+        // A return value with no rendering at the read's type (a `None`
+        // return read at a tuple holding a generator, which has no default to
+        // stand in for it) is the unreachable arm below.
         let returned = self.rendered_at_type(
             &RustExpr::path("smelt_value"),
             *return_ty,
             dest_ty,
             &self.render_scope(),
-        )?;
+        );
         // A step read at the type of one arm, when the other arm's value has
         // no conversion to it, is a read the frontend guarded by a `done`
         // test (Python's `next(g)` raises `StopIteration` on completion, a
@@ -373,10 +376,9 @@ impl FunctionEmitter<'_> {
         } else {
             unreachable.clone()
         };
-        let returned_arm = if self.converts_between(&returned, *return_ty, dest_ty)? {
-            returned
-        } else {
-            unreachable
+        let returned_arm = match returned {
+            Ok(returned) if self.converts_between(&returned, *return_ty, dest_ty)? => returned,
+            Ok(_) | Err(_) => unreachable,
         };
         Ok(RustExpr::atom(format!(
             "match {} {{ SmeltGeneratorResult::Yielded(smelt_value) => {yielded}, SmeltGeneratorResult::Complete(smelt_value) => {returned} }}",

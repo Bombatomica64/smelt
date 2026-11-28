@@ -569,6 +569,11 @@ impl FunctionEmitter<'_> {
                         .map(RustExpr::into_string)
                     })
                     .collect::<Option<Vec<_>>>()?;
+                // The empty tuple's repr is `()`; an empty `[]` array has no
+                // element type for `join` to infer.
+                if parts.is_empty() {
+                    return Some(RustExpr::chain("String::from(\"()\")"));
+                }
                 let trailing = if parts.len() == 1 { "," } else { "" };
                 RustExpr::chain(format!(
                     "format!(\"({{}}{trailing})\", [{}].join(\", \"))",
