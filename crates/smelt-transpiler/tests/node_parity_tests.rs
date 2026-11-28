@@ -1050,6 +1050,14 @@ fn namespace_reexports() -> TestResult {
     )
 }
 
+/// `import * as NS` used as a value is a typed struct of the module's value
+/// exports: passed as `typeof NS`, enumerated in sorted order, indexed by a
+/// literal-union key.
+#[test]
+fn namespace_value_struct() -> TestResult {
+    verify_node_parity_with("namespace_value_struct", &["shapes.ts", "ops.ts"])
+}
+
 /// A spread fills a rest parameter element by element through a function value.
 #[test]
 fn spread_into_rest() -> TestResult {

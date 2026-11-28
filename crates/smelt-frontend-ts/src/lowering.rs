@@ -16,6 +16,7 @@ mod hoisting;
 mod int32;
 mod js_text;
 mod literal_record_uses;
+mod namespace_value;
 mod narrowing;
 mod null_absent;
 mod open_array_hint;

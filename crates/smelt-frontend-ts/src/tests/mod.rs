@@ -391,6 +391,7 @@ mod lower_maps_generators_tests;
 mod lower_vitest_dates_tests;
 mod module_arrow_item_tests;
 mod module_globals_tests;
+mod namespace_value_tests;
 mod promise_resolution_tests;
 mod receiver_reuse_tests;
 mod source_facts_tests;

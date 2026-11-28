@@ -416,6 +416,13 @@ impl ModuleBuilder<'_> {
             // reading it as a value is the point where Smelt would otherwise
             // fabricate an erased no-op. `missing-stdlib` is the bucket, because
             // the gap is a host surface Smelt should grow.
+            // A module namespace used as a value is the struct of its
+            // exports (`lowering::namespace_value`).
+            if self.imports.is_namespace(name)
+                && let Some(expr) = self.namespace_value_expression(name, start, end, body)?
+            {
+                return Ok(expr);
+            }
             if let Some(blocker) = self.imports.unresolved_value_import(name) {
                 return Err(SmeltError::missing_stdlib(
                     self.span(start, end),

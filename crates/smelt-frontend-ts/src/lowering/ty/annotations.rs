@@ -491,6 +491,16 @@ impl ModuleBuilder<'_> {
         {
             return value_ty;
         }
+        // `typeof NS` of a module namespace is the struct its value is
+        // (`lowering::namespace_value`).
+        if let TSTypeQueryExprName::IdentifierReference(ident) = &query.expr_name
+            && let Ok(Some(namespace_ty)) = self.namespace_value_type(
+                ident.name.as_str(),
+                self.span(query.span.start, query.span.end),
+            )
+        {
+            return namespace_ty;
+        }
         if let TSTypeQueryExprName::IdentifierReference(ident) = &query.expr_name
             && let Some(item) = self.items.get(ident.name.as_str()).copied()
             && let Item::Function(function) = self.item_ref(item).clone()

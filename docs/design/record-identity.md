@@ -26,7 +26,7 @@ What is left of this after #503/#512/#524, measured with one probe per item (Nod
 |---|---|---|
 | class instance at an interface slot | `rename(p)` above | copy: write lost, `===` false |
 | typed list at an `unknown[]` slot | `fill(nums as unknown[])` writes `xs[0]`, `push` | copy: writes lost |
-| namespace object at a record slot | `const v: Shape = NS` (`import * as NS`) | not modelled: `NaN`, `[object Object]` |
+| namespace object at a record slot | `const v: Shape = NS` (`import * as NS`) | not modelled: `NaN`, `[object Object]` (now step 4, D2) |
 | host object at a record slot | `const v: HasLast = /a/g` | E0308 |
 | class with accessors at a record slot | `const v: HasV = objWithGetSetV` | E0308 |
 | function at an object-type slot | `const n: Named = hello` (`name`, `length`) | the type's default (`""`, `0`) (now step 5, C1) |
@@ -123,9 +123,20 @@ the object, never the view: the trait's erasure method hands out the concrete re
    of the typed list: 21.8 s with whole-buffer pulls only, 0.04 s with the element mirror (debug build).
 3. **Accessor-backed and host properties.** A view accessor answered by a getter/setter pair (a class `get v()`,
    `RegExp.lastIndex`) instead of a lent field, with the converting guards #524 introduced.
-4. **Namespace objects.** A module namespace as a value is a generated struct whose accessors read the module's
-   live bindings; a view of it implements the target's trait the same way; its write accessor throws
-   (`TypeError`, ES module namespaces are read-only).
+4. **Namespace objects** (decision D2, `docs/design/decisions-2026-11.md` §D; `lowering::namespace_value` in the
+   TypeScript frontend). `import * as NS` used as a value (passed on, `typeof NS`, `Object.keys(NS)`, `NS[k]`) is
+   a plain struct of the module's VALUE exports, built where it is used: one field per export, in the
+   namespace's key order (export names sorted), each typed by the export itself (a `const`'s type, a function
+   item's signature as a function pointer). It is named after the module (`ShapesNamespace` for
+   `import * as Shapes from "./shapes"`; a second module of that name with other exports adds a hash of its
+   fields). `NS.x` and `NS.f(..)` still resolve statically to the export and never build the struct.
+   * `Object.keys` of a namespace value is the constant list of its export names; `NS[k]` with a literal-union
+     `k` reads the struct's field by a typed match, as for any record.
+   * Exact because a `const`, a function and a `let` nothing reassigns never change. A module-level `let`/`var`
+     that is reassigned (`HirCtx::reassignable_globals`) would not reach a copy, so a namespace VALUE of a module
+     exporting one is refused with a diagnostic naming the binding; its member read `NS.counter` stays a live read.
+   * No thread-local state, no `Rc`, no `SmeltUnknown`. A namespace whose value exports include a class, a generic
+     function or a nested namespace keeps the previous erased placeholder (a known gap, §7).
 
 5. **Function identity and inspection** (the remaining small items).
    * A typed callable adapted to another function type (`void` seen as `unknown`, a generic
@@ -191,8 +202,9 @@ types; no value is erased by a conversion; the SmeltUnknown and typedness ratche
   (C1's documented limit); a CLASS type or a generic record a function converts into keeps the record's own
   identity; a record erased to `unknown` does not carry the token; a record built from a borrowed function
   parameter (`&dyn Fn`) is keyed by address with no `Weak` pin.
-* **Accessor-backed and host properties** (`get`/`set` class properties, `RegExp.lastIndex`) and
-  **namespace objects** (`import * as NS` as a value is not modelled at all) are steps 3 and 4.
+* **Accessor-backed and host properties** (`get`/`set` class properties, `RegExp.lastIndex`) are step 3.
+* **Namespace values** (step 4, D2): a namespace exporting a class, a generic function or a nested namespace
+  keeps the erased placeholder; an exported `enum` is not a struct field; `NS === NS` compares two copies.
 * **`unknown[]` export identity**: not attempted. The list link (step 2) keeps identity at no erased cost
   for conversions inside the program, but an export typed `unknown[]` is a different representation question.
 * **Finer per-item generic bounds**: not attempted.
