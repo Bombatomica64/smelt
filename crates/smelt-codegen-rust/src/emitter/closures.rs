@@ -886,7 +886,7 @@ impl FunctionEmitter<'_> {
                 // before the closure's last `return` leaves an explicit
                 // `return` in an arm and the `Ok` tail after it).
                 let async_value_annotation: Option<String> =
-                    if body_returns_early && !(closure.can_throw && !async_value_needs_await) {
+                    if body_returns_early && (!closure.can_throw || async_value_needs_await) {
                         // Explicit returns diverge from the inner block, so pin
                         // its otherwise-unconstrained binding for Rust inference.
                         // Reaching this branch already proves the wrapper is
