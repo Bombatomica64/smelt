@@ -435,6 +435,12 @@ impl FunctionEmitter<'_> {
                     source_ty,
                 )
             }
+            // A typed clone of a value that can hold a function: its
+            // `DataCloneError` propagates (`structured_clone`).
+            Rvalue::StructuredClone { operand, .. } => (
+                RenderedCall::propagating(self.typed_structured_clone_expr(operand, true)?),
+                self.operand_ty(operand)?,
+            ),
             Rvalue::NumericFormat {
                 method,
                 operand,

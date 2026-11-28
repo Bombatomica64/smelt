@@ -649,13 +649,25 @@ macro_rules! op_group_transcribed {
                 operand: one,
             }
                 => (format!("symbol_key_for {operand}"));
-            /// Deep-copy an erased value graph with fresh identities, preserving host
-            /// markers (`structuredClone(x)`; see the runtime `smelt_structured_clone`).
+            /// Deep-copy a value graph with fresh identities (`structuredClone(x)`).
+            /// An erased operand is copied by the runtime `smelt_structured_clone`,
+            /// which keeps host markers; a typed one through its type's
+            /// `SmeltStructuredClone` impl (`emitter::structured_clone`), keeping its
+            /// type and its shared references.
+            ///
+            /// A value that holds a function cannot be cloned (a `DataCloneError`),
+            /// so the op is fallible when the operand's type can hold one.
             StructuredClone {
-                /// Erased value operand to deep-clone.
+                /// Value operand to deep-clone.
                 operand: one @READ,
+                /// The operand is typed, not the erased carrier.
+                typed: [bool],
+                /// The operand's type can hold a function.
+                can_throw: [bool],
             }
-                => (format!("structured_clone {operand}"));
+                fallible(*can_throw)
+                call(format!("@structured_clone"))
+                => (format!("structured_clone {operand} typed={typed:?} throws={can_throw:?}"));
             /// Trim whitespace from a string value.
             StringTrim {
                 /// Which side of the string to trim.

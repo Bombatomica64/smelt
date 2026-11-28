@@ -2786,3 +2786,13 @@ fn async_function_callbacks() -> TestResult {
 fn keyof_indexed_access() -> TestResult {
     verify_node_parity("keyof_indexed_access")
 }
+
+/// `structuredClone` of a typed value is a deep copy at the value's own type:
+/// lists, records, maps, sets, dates and regular expressions are fresh
+/// objects, a reference shared inside the graph (or a cycle) stays shared in
+/// the copy, and a value holding a function throws `DataCloneError`. The
+/// typed value was passed through, so writes to the copy reached the source.
+#[test]
+fn structured_clone_typed() -> TestResult {
+    verify_node_parity("structured_clone_typed")
+}

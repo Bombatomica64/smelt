@@ -524,7 +524,14 @@ impl FunctionEmitter<'_> {
                 let symbol = self.operand_expr(operand)?;
                 Ok(symbol.postfix(".registry_key()"))
             }
-            Rvalue::StructuredClone { operand } => self.structured_clone_expr(operand),
+            Rvalue::StructuredClone {
+                operand,
+                typed: false,
+                ..
+            } => self.structured_clone_expr(operand),
+            Rvalue::StructuredClone {
+                operand, can_throw, ..
+            } => self.typed_structured_clone_expr(operand, *can_throw),
             Rvalue::StringTrim { side, operand } => self.string_trim_expr(*side, operand),
             Rvalue::StringAffix {
                 op,
