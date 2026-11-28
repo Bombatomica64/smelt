@@ -151,8 +151,9 @@ mod tests {
         // Reparented to init (or a subreaper) and reaped there; poll briefly.
         let gone = (0_u32..200).any(|_| {
             let read = std::fs::read_to_string(format!("/proc/{grandchild}/stat"));
-            let dead = read.map_or(true, |line| {
-                line.rsplit_once(')')
+            let dead = read.map_or(true, |stat_line| {
+                stat_line
+                    .rsplit_once(')')
                     .is_some_and(|(_, fields)| fields.trim_start().starts_with('Z'))
             });
             if !dead {

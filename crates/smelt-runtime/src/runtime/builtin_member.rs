@@ -148,9 +148,9 @@ fn smelt_builtin_flat_map(args: &[SmeltUnknown]) -> Result<SmeltUnknown, Box<dyn
     let mut result = Vec::with_capacity(values.len());
     let mut index = 0.0_f64;
     for item in values {
-        let mapped = mapper(vec![item, SmeltUnknown::Number(index), receiver.clone()])?;
+        let produced = mapper(vec![item, SmeltUnknown::Number(index), receiver.clone()])?;
         index += 1.0;
-        match mapped {
+        match produced {
             SmeltUnknown::Array(items) => result.extend(items.into_vec()),
             other => result.push(other),
         }
