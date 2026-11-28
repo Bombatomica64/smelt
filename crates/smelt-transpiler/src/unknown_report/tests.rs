@@ -714,6 +714,24 @@ fn erased_callable_narrowing_is_a_boundary() {
     );
 }
 
+/// An erased callable built as its carrier struct is the boundary
+/// `SmeltUnknown::Function` is, while a slot DECLARED as the carrier is
+/// avoidable storage: es-toolkit's `let capped: SmeltErasedFunction;` holds
+/// the result of an `any`-typed callee a typed signature could carry.
+#[test]
+fn erased_function_construction_is_a_boundary() {
+    let built = "    let _smelt_tmp_3 = { let smelt_value = SmeltErasedFunction { callback: { let smelt_callback = ::std::rc::Rc::new(|x: f64| x); ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| smelt_args[0].clone()) }, length: 1.0, object: None }; smelt_value };";
+    assert_eq!(classify_line(built, false), Category::LegitimateBoundary);
+    let stored = "    let capped: SmeltErasedFunction;";
+    assert_eq!(classify_line(stored, false), Category::AvoidableErasure);
+    assert_eq!(count_value_erasures(stored), 1);
+    // The overloaded callable-object slot keeps its existing boundary rule
+    // (`erased_callable_object_slot_is_a_boundary`): counting the carrier
+    // does not reclassify it.
+    let field = "    __smelt_call: SmeltErasedFunction,";
+    assert_eq!(classify_line(field, false), Category::LegitimateBoundary);
+}
+
 /// Counting is non-overlapping and handles repeats on one line.
 #[test]
 fn counts_occurrences_per_line() {
@@ -743,14 +761,27 @@ fn count_value_erasures_excludes_annotation_spellings() {
         1
     );
 
-    // A closure signature made fallible must not inflate versus the erased
-    // literal it replaced (which carried no `SmeltUnknown` spelling).
+    // A closure signature made fallible must not inflate: its
+    // `Result<SmeltUnknown, ..>` return annotation counts nothing.
+    //
+    // Old requirement: it counted the same as the erased-carrier spelling
+    // `let cb: SmeltErasedFunction = f;`, i.e. zero, because the scan counted
+    // `SmeltUnknown` tokens only. New requirement (2026-11, method change in
+    // `blocker-logs/smelt-unknown-report.md`): an erased callable is an
+    // erased value and counts once, so the comparison is against zero. The
+    // guarantee the assertion protects, that fallibility wrapping is
+    // count-neutral, is unchanged.
     assert_eq!(
         count_value_erasures(
             "    let cb: Rc<dyn Fn(SmeltList<i64>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = f;"
         ),
-        count_value_erasures("    let cb: SmeltErasedFunction = f;"),
+        0,
         "a fallible closure return annotation must be count-neutral"
+    );
+    assert_eq!(
+        count_value_erasures("    let cb: SmeltErasedFunction = f;"),
+        1,
+        "an erased callable is one erased value"
     );
 
     // A bare `-> SmeltUnknown` return still counts its value.

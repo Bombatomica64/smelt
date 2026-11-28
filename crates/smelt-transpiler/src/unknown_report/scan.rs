@@ -157,10 +157,27 @@ pub(super) fn count_occurrences(haystack: &str, needle: &str) -> usize {
 /// erased value it returns is already counted at its construction site, so these
 /// annotation spellings are stripped before counting. The strip is deterministic
 /// (exact spellings only) so the tally stays stable and diffable across runs.
+///
+/// # Erased callables
+///
+/// A value erased to the dedicated callable carrier `SmeltErasedFunction`
+/// (the Rust type of a TypeScript `any`-typed or `(...args: unknown[]) =>
+/// unknown` function value) is as erased as a `SmeltUnknown`: its parameter
+/// and return types are gone. Each `SmeltErasedFunction` token counts as one
+/// erased value, classified by the same line rules (its construction is the
+/// boundary `SmeltErasedFunction { callback: .. }`, its storage avoidable).
+/// Before 2026-11 the scan counted `SmeltUnknown` only, so those values were
+/// invisible to the ratchet (method change recorded in
+/// `blocker-logs/smelt-unknown-report.md`).
 pub(super) fn count_value_erasures(line: &str) -> usize {
     let normalized = strip_annotation_spellings(line);
     count_occurrences(&normalized, "SmeltUnknown")
+        .saturating_add(count_occurrences(&normalized, ERASED_FUNCTION))
 }
+
+/// The dedicated erased-callable carrier, counted with `SmeltUnknown`; see
+/// [`count_value_erasures`].
+const ERASED_FUNCTION: &str = "SmeltErasedFunction";
 
 /// Strip fallibility-wrapping type-annotation spellings from a line so their
 /// `SmeltUnknown` tokens are not counted as erased values. See

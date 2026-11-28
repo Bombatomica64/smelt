@@ -129,10 +129,10 @@ narrowing guards) or avoidable erasure (everything else). Methodology:
 <!-- results:unknown:begin -->
 | Corpus (baseline file) | Files | Runtime prelude | Legitimate boundary | Avoidable erasure | Gate |
 | --- | ---: | ---: | ---: | ---: | --- |
-| examples ([`smelt-unknown-baseline.json`](blocker-logs/smelt-unknown-baseline.json)) | 177 | 132058 | 6990 | 0 | blocking, must stay 0 |
-| es-toolkit ([`smelt-unknown-baseline-es-toolkit.json`](blocker-logs/smelt-unknown-baseline-es-toolkit.json)) | 744 | 2490 | 33938 | 12239 | blocking, may only fall |
-| remeda ([`smelt-unknown-baseline-remeda.json`](blocker-logs/smelt-unknown-baseline-remeda.json)) | 390 | 2186 | 45112 | 14903 | advisory |
-| hono ([`smelt-unknown-baseline-hono.json`](blocker-logs/smelt-unknown-baseline-hono.json)) | 76 | 2499 | 37698 | 8911 | advisory |
+| examples ([`smelt-unknown-baseline.json`](blocker-logs/smelt-unknown-baseline.json)) | 180 | 138235 | 7474 | 0 | blocking, must stay 0 |
+| es-toolkit ([`smelt-unknown-baseline-es-toolkit.json`](blocker-logs/smelt-unknown-baseline-es-toolkit.json)) | 744 | 2495 | 34167 | 12447 | blocking, may only fall |
+| remeda ([`smelt-unknown-baseline-remeda.json`](blocker-logs/smelt-unknown-baseline-remeda.json)) | 390 | 2191 | 45398 | 15150 | advisory |
+| hono ([`smelt-unknown-baseline-hono.json`](blocker-logs/smelt-unknown-baseline-hono.json)) | 76 | 2505 | 37828 | 8912 | advisory |
 <!-- results:unknown:end -->
 
 Every erasure site in the frontends names an `ErasureReason`
