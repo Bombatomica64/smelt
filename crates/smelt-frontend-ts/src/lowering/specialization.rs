@@ -521,8 +521,14 @@ impl ModuleBuilder<'_> {
             });
         }
         let class_name = self.static_class_receiver(&member.object)?;
-        let (field, own) =
-            self.class_static_field_named(&class_name, member.property.name.as_str())?;
+        let name = member.property.name.as_str();
+        let Some((field, own)) = self.class_static_field_named(&class_name, name) else {
+            let (setter, ty) = self.static_accessor(&class_name, name, "__smelt_set_")?;
+            let getter = self
+                .static_accessor(&class_name, name, "__smelt_get_")
+                .map(|(getter, _)| getter);
+            return Some(StaticWriteTarget::Accessor { getter, setter, ty });
+        };
         if !own || !field.mutable {
             return None;
         }
@@ -537,6 +543,42 @@ impl ModuleBuilder<'_> {
             item,
             ty: self.mutable_global_type(item)?,
         })
+    }
+
+    /// The static accessor half `prefix` (`__smelt_get_` or `__smelt_set_`)
+    /// of `name` on the class `class_name` or a class it extends, with the
+    /// accessor's value type (the getter's return, the setter's parameter).
+    ///
+    /// Requirements. Behaviour: `Class.name` runs the class's `static get
+    /// name()`, and `Class.name = v` (also `+=`, `++`) its `static set
+    /// name(v)`, as JavaScript does; they were refused. Type preservation:
+    /// the read has the getter's declared return type. A static accessor of
+    /// a base class read through a subclass runs with the declaring class as
+    /// `this`, where JavaScript passes the subclass; a getter that reads
+    /// `this` sees the base's statics.
+    pub(in crate::lowering) fn static_accessor(
+        &self,
+        class_name: &str,
+        name: &str,
+        prefix: &str,
+    ) -> Option<(smelt_hir::ItemId, smelt_hir::TypeId)> {
+        let class_item = self.classes.item(class_name)?;
+        let Item::Class(class) = self.item_ref(class_item) else {
+            return None;
+        };
+        let item = self.resolve_class_static_method(
+            &self.static_methods_through_chain(class),
+            &format!("{prefix}{name}"),
+        )?;
+        let Item::Function(function) = self.item_ref(item) else {
+            return None;
+        };
+        let ty = if prefix == "__smelt_set_" {
+            function.params.first()?.ty
+        } else {
+            function.return_ty
+        };
+        Some((item, ty))
     }
 
     /// The read of `field`, a static of a class: its getter for an inherited
@@ -674,7 +716,26 @@ impl ModuleBuilder<'_> {
         let Some((field, _own)) =
             self.class_static_field_named(&class_name, member.property.name.as_str())
         else {
-            return Ok(None);
+            // A static getter: the read calls it.
+            let Some((getter, ty)) =
+                self.static_accessor(&class_name, member.property.name.as_str(), "__smelt_get_")
+            else {
+                return Ok(None);
+            };
+            let span = self.span(member.span.start, member.span.end);
+            let callee = body.push_expr(Expr {
+                kind: ExprKind::Item(getter),
+                ty: self.item_expr_type(getter, span)?,
+                span,
+            });
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::Call {
+                    callee,
+                    args: Vec::new(),
+                },
+                ty,
+                span,
+            })));
         };
         let span = self.span(member.span.start, member.span.end);
         if let Some(read) = self.static_field_read(&field, span, body)? {
@@ -1043,6 +1104,17 @@ pub(in crate::lowering) enum StaticWriteTarget {
         /// The class's accessor pair.
         access: smelt_hir::InheritedStaticAccess,
         /// The static's type.
+        ty: smelt_hir::TypeId,
+    },
+    /// A static accessor pair (`static get x()` / `static set x(v)`), written
+    /// through its setter and read through its getter (see
+    /// [`ModuleBuilder::static_accessor`]).
+    Accessor {
+        /// The getter's static method, when the class declares one.
+        getter: Option<smelt_hir::ItemId>,
+        /// The setter's static method.
+        setter: smelt_hir::ItemId,
+        /// The accessor's value type.
         ty: smelt_hir::TypeId,
     },
     /// A static of the receiver class of the static method being lowered

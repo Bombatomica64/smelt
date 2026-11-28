@@ -62,6 +62,24 @@ impl ModuleBuilder<'_> {
                 span,
                 body,
             ),
+            // The setter returns nothing: a static accessor write used as a
+            // value (`a = (C.x = v)`) reads `undefined`.
+            StaticWriteTarget::Accessor { setter, .. } => {
+                let callee = body.push_expr(Expr {
+                    kind: ExprKind::Item(setter),
+                    ty: self.item_expr_type(setter, span)?,
+                    span,
+                });
+                let none_ty = self.ctx.krate.types.intern(smelt_hir::Type::None);
+                body.push_expr(Expr {
+                    kind: ExprKind::Call {
+                        callee,
+                        args: vec![value],
+                    },
+                    ty: none_ty,
+                    span,
+                })
+            }
             StaticWriteTarget::Inherited {
                 access,
                 ty: static_ty,
@@ -111,6 +129,30 @@ impl ModuleBuilder<'_> {
                 ),
                 ty,
             ),
+            StaticWriteTarget::Accessor { getter, ty, .. } => {
+                let Some(getter) = getter else {
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "a static accessor without a getter is read here",
+                    ));
+                };
+                let callee = body.push_expr(Expr {
+                    kind: ExprKind::Item(getter),
+                    ty: self.item_expr_type(getter, span)?,
+                    span,
+                });
+                (
+                    body.push_expr(Expr {
+                        kind: ExprKind::Call {
+                            callee,
+                            args: Vec::new(),
+                        },
+                        ty,
+                        span,
+                    }),
+                    ty,
+                )
+            }
             StaticWriteTarget::Inherited { access, ty } => {
                 let callee = body.push_expr(Expr {
                     kind: ExprKind::Item(access.getter),
@@ -210,6 +252,7 @@ impl ModuleBuilder<'_> {
         };
         let span = self.span(update.span.start, update.span.end);
         let (StaticWriteTarget::Global { ty: cell_ty, .. }
+        | StaticWriteTarget::Accessor { ty: cell_ty, .. }
         | StaticWriteTarget::Inherited { ty: cell_ty, .. }
         | StaticWriteTarget::Receiver { ty: cell_ty, .. }) = target;
         let op = match update.operator {

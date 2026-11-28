@@ -51,15 +51,31 @@ impl ModuleBuilder<'_> {
                     .unwrap_or_else(|| {
                         self.erase_with(ErasureReason::MissingAnnotation, binding.name.as_str())
                     });
-                if annotated_ty.is_some()
-                    && typed_value.is_some()
+                // `const x: never = value` is an exhaustiveness check: TypeScript
+                // accepted it only because it proved `value` has no possible
+                // type left, so control never reaches it. The initializer is
+                // evaluated (it may itself diverge, `fail()`), then the binding
+                // diverges, as Rust's `unreachable!()` would; `x` is declared
+                // without a value, and every read of it is dead code.
+                let typed_value = if annotated_ty.is_some()
                     && matches!(self.ctx.krate.types.get(ty), Some(Type::Never))
+                    && let Some(initializer) = typed_value
                 {
-                    return Err(SmeltError::unsupported(
-                        self.span(binding.span.start, binding.span.end),
-                        "variable annotation `never` requires a diverging initializer",
-                    ));
-                }
+                    body.push_stmt_to_block(block, Stmt::Expr(initializer));
+                    let string_ty = self.ctx.krate.types.intern(Type::String);
+                    let message = body.push_expr(Expr {
+                        kind: ExprKind::Literal(Literal::String(format!(
+                            "unreachable: the `never` binding `{}` was reached",
+                            binding.name.as_str()
+                        ))),
+                        ty: string_ty,
+                        span: self.span(binding.span.start, binding.span.end),
+                    });
+                    body.push_stmt_to_block(block, Stmt::Throw(message));
+                    None
+                } else {
+                    typed_value
+                };
                 let name = binding.name.as_str();
                 let symbol = self.intern_source_name(name);
                 let local = body.push_local(LocalDecl {

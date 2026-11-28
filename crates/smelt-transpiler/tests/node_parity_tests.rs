@@ -2796,3 +2796,18 @@ fn keyof_indexed_access() -> TestResult {
 fn structured_clone_typed() -> TestResult {
     verify_node_parity("structured_clone_typed")
 }
+
+/// A `static get`/`static set` pair runs on `Class.name` reads and on
+/// `Class.name = v`, `+=` and `++` writes. Static accessors were refused.
+#[test]
+fn static_accessors() -> TestResult {
+    verify_node_parity("static_accessors")
+}
+
+/// `const x: never = value` in an exhaustive `switch` default or after an
+/// exhaustive `if` chain is accepted: the binding is unreachable and diverges.
+/// It was refused for every initializer.
+#[test]
+fn never_exhaustiveness() -> TestResult {
+    verify_node_parity("never_exhaustiveness")
+}
