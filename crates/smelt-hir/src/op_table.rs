@@ -295,17 +295,15 @@ macro_rules! op_group_transcribed {
             /// function's `this` local lexically, exactly as the source does.
             ThisRead
                 => ("this".to_owned());
-            /// Require the current function's own `this` to be an object, or
-            /// throw JavaScript's `TypeError: <builtin> called on non-object`:
-            /// the receiver check a builtin static such as `Promise.resolve`
-            /// makes when its function object is called without the
-            /// namespace it lives on (`const r = Promise.resolve; r(1)`).
-            RequireObjectReceiver {
+            /// Check the current receiver before a Promise static creates a
+            /// capability. Primitive receivers, non-constructors and constructors
+            /// that fail to provide the resolving functions throw a `TypeError`.
+            RequirePromiseReceiver {
                 /// The builtin's name in the `TypeError` message
                 /// (`PromiseResolve`, `Promise.all`).
                 builtin: [String],
             }
-                => (format!("require_object_receiver {builtin}"));
+                => (format!("require_promise_receiver {builtin}"));
             /// Bind a receiver to a callable, yielding `Function.prototype.bind`'s value.
             ///
             /// The result is a callable that, when invoked, installs `receiver` as the

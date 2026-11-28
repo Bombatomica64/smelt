@@ -686,15 +686,7 @@ impl FunctionEmitter<'_> {
             }
             Some(Type::Function(_)) => {
                 let erased = self.erase_function_operand(operand)?;
-                // A typed inline `function` expression is marked as a
-                // constructor where it is erased (see `closure_value_expr`).
-                if self.operand_is_inline_function_expression(operand)? {
-                    return Ok(RustExpr::atom(format!(
-                        "{{ let smelt_value = {erased}; if let SmeltUnknown::Function(smelt_function) = &smelt_value {{ smelt_mark_constructor(smelt_function); }} smelt_value }}",
-                        erased = erased.delimited()
-                    )));
-                }
-                Ok(erased)
+                self.mark_erased_inline_constructor(operand, erased)
             }
             // A generated union erases through `into_smelt_unknown()`, which
             // takes `self` BY VALUE. Every other consuming arm of this match

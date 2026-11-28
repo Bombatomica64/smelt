@@ -151,8 +151,7 @@ fn smelt_json_property(replacer: &SmeltJsonReplacer, holder: &SmeltUnknown, key:
     if let SmeltUnknown::Object(object) = &value {
 // @smelt:if date
         if let Some(SmeltUnknown::Number(time)) = object.get("__smelt_date") {
-            let date = SmeltDate::new(time);
-            value = if time.is_finite() { SmeltUnknown::String(date.to_iso_string().as_str().into()) } else { SmeltUnknown::Null };
+            value = if time.is_finite() { SmeltUnknown::String(value.to_iso_string().as_str().into()) } else { SmeltUnknown::Null };
         } else if let Some(SmeltUnknown::Function(to_json)) = object.get("toJSON").or_else(|| object.get("__smelt_proto:toJSON")).or_else(|| object.get("__smelt_method:toJSON")) {
 // @smelt:else
 //=         if let Some(SmeltUnknown::Function(to_json)) = object.get("toJSON").or_else(|| object.get("__smelt_proto:toJSON")).or_else(|| object.get("__smelt_method:toJSON")) {

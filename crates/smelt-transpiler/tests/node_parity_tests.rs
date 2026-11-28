@@ -44,9 +44,9 @@ fn verify_node_parity_with(name: &str, modules: &[&str]) -> TestResult {
 /// each zone the golden `<name>.<zone>.stdout` (`/` spelled `_`) is checked
 /// against Node and against the generated program, both run with `TZ` set to
 /// the zone. For programs whose output is local time.
-fn verify_node_parity_in_zones(name: &str, zones: &[&str]) -> TestResult {
+fn verify_node_parity_in_zones(name: &str, modules: &[&str], zones: &[&str]) -> TestResult {
     let fixtures = workspace_root()?.join("crates/smelt-transpiler/tests/fixtures/node-parity");
-    let (files, project) = build_fixture(name, &[])?;
+    let (files, project) = build_fixture(name, modules)?;
     let borrowed: Vec<(&str, &str)> = files
         .iter()
         .map(|(file, text)| (file.as_str(), text.as_str()))
@@ -117,7 +117,7 @@ fn run_in_zone(project: &TempProject, label: &str, zone: &str, expected: &str) -
     ensure_eq(
         &stdout.as_str(),
         &expected,
-        format!("{label}: generated Rust stdout"),
+        format!("{label}: generated Rust stdout\n--- actual\n{stdout}--- expected\n{expected}"),
     )
 }
 
@@ -2663,6 +2663,18 @@ fn promise_static_receiver() -> TestResult {
 fn date_local_tz() -> TestResult {
     verify_node_parity_in_zones(
         "date_local_tz",
+        &[],
         &["America/New_York", "Asia/Kolkata", "Australia/Sydney"],
+    )
+}
+
+/// Zoned dates retain their instant and use the explicit zone for local
+/// fields, mutation and formatting in both erased and typed Date paths.
+#[test]
+fn date_timezone_context() -> TestResult {
+    verify_node_parity_in_zones(
+        "date_timezone_context",
+        &["package.json"],
+        &["America/New_York", "Asia/Kolkata"],
     )
 }

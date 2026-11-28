@@ -58,13 +58,13 @@ impl FunctionEmitter<'_> {
     /// that needs it (see [`Self::blocks_need_enclosing_this`]).
     #[expect(
         clippy::wildcard_enum_match_arm,
-        reason = "single-shape recogniser: only `ThisRead`, `RequireObjectReceiver`, `BindOwnThis` and an arrow `Closure` read the frame's `this`; every other rvalue reads only its operands"
+        reason = "single-shape recogniser: only `ThisRead`, `RequirePromiseReceiver`, `BindOwnThis` and an arrow `Closure` read the frame's `this`; every other rvalue reads only its operands"
     )]
     fn rvalue_needs_enclosing_this(&self, value: &Rvalue, depth: usize) -> bool {
         const MAX_DEPTH: usize = 64;
         match value {
             Rvalue::ThisRead
-            | Rvalue::RequireObjectReceiver { .. }
+            | Rvalue::RequirePromiseReceiver { .. }
             | Rvalue::BindOwnThis { .. } => true,
             Rvalue::Closure { id, .. } if depth < MAX_DEPTH => {
                 self.mir_closure(*id).is_ok_and(|closure| {

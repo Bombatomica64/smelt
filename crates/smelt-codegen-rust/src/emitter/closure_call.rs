@@ -116,6 +116,8 @@ impl FunctionEmitter<'_> {
                     &RustExpr::path("smelt_bound_receiver").cloned_value(),
                     receiver_ty,
                 )?;
+                let erased_receiver =
+                    self.mark_erased_inline_constructor(typed_operand, lazy_erase)?;
                 (
                     format!(
                         "let smelt_bound_receiver = {}.clone();",
@@ -123,7 +125,7 @@ impl FunctionEmitter<'_> {
                     ),
                     format!(
                         "smelt_push_this_lazy({{ let smelt_bound_receiver = smelt_bound_receiver.clone(); ::std::rc::Rc::new(move || {lazy_erase}) }})",
-                        lazy_erase = lazy_erase.delimited()
+                        lazy_erase = erased_receiver.delimited()
                     ),
                 )
             } else {

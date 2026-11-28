@@ -1,6 +1,14 @@
 resolve true PromiseResolve called on non-object
 reject true PromiseReject called on non-object
 all true Promise.all called on non-object
+resolve object true #<Object> is not a constructor
+reject object true #<Object> is not a constructor
+all object true #<Object> is not a constructor
+resolve primitive true PromiseResolve called on non-object
+resolve empty constructor true Promise resolve or reject function is not callable
+apply object true #<Object> is not a constructor
+bind object true #<Object> is not a constructor
 5
+8
 6,7
 rejected

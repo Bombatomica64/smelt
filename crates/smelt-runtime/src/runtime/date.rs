@@ -31,7 +31,7 @@
 /// for an Invalid Date).
 //~ Cloning aliases the same date.
 #[derive(Clone)]
-pub struct SmeltDate { id: usize, time: ::std::rc::Rc<::std::cell::Cell<f64>> }
+pub struct SmeltDate { id: usize, time: ::std::rc::Rc<::std::cell::Cell<f64>> /*@if date_timezone_context*/, zone: Option<chrono_tz::Tz> /*@end*/}
 
 //~ Structural equality over the time value is what `expect(a).toEqual(b)`
 //~ observes on two dates; `===` compares `id()` (see `binary_ops`).
@@ -46,7 +46,13 @@ impl Default for SmeltDate { fn default() -> Self { Self::new(f64::NAN) } }
 #[allow(dead_code)]
 impl SmeltDate {
     //~ A fresh date holding `time_ms` (any non-finite value is an Invalid Date).
-    pub fn new(time_ms: f64) -> Self { Self { id: smelt_next_object_id(), time: ::std::rc::Rc::new(::std::cell::Cell::new(Self::clip(time_ms))) } }
+    pub fn new(time_ms: f64) -> Self { Self { id: smelt_next_object_id(), time: ::std::rc::Rc::new(::std::cell::Cell::new(Self::clip(time_ms))) /*@if date_timezone_context*/, zone: None /*@end*/} }
+// @smelt:if date_timezone_context
+    //~ A fresh date whose local fields use the given time zone.
+    fn with_zone(time_ms: f64, zone: chrono_tz::Tz) -> Self { Self { zone: Some(zone), ..Self::new(time_ms) } }
+    //~ Its explicit local time zone, if it has one.
+    const fn zone(&self) -> Option<chrono_tz::Tz> { self.zone }
+// @smelt:end
     //~ `TimeClip`: a non-finite or out-of-range time value is `NaN`.
     fn clip(time_ms: f64) -> f64 { if time_ms.is_finite() && time_ms.abs() <= 8.64e15 && time_ms != i64::MIN as f64 { time_ms.trunc() + 0.0 } else { f64::NAN } }
     //~ `getTime()` / `valueOf()`: the time value.
@@ -58,7 +64,7 @@ impl SmeltDate {
     //~ by every erased view of it.
     pub fn id(&self) -> usize { self.id }
     //~ `toISOString()`, `Invalid Date` for an invalid time value.
-    pub fn to_iso_string(&self) -> String { let time_ms = self.get_time(); if time_ms.is_finite() { chrono::DateTime::<chrono::Utc>::from_timestamp_millis(time_ms as i64).map(|date| date.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)).unwrap_or_else(|| "Invalid Date".to_owned()) } else { "Invalid Date".to_owned() } }
+    pub fn to_iso_string(&self) -> String { let time_ms = self.get_time(); /*@if date_timezone_context*/if let Some(zone) = self.zone() { return smelt_date_context_iso(time_ms, zone); } /*@end*/ if time_ms.is_finite() { chrono::DateTime::<chrono::Utc>::from_timestamp_millis(time_ms as i64).map(|date| date.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)).unwrap_or_else(|| "Invalid Date".to_owned()) } else { "Invalid Date".to_owned() } }
 }
 
 //~ Emit `DateLike`, the trait a `D extends Date` parameter lifts to
@@ -88,6 +94,15 @@ impl DateLike for SmeltDate { fn smelt_date(&self) -> SmeltDate { self.clone() }
 impl IntoSmeltUnknown for SmeltDate {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         let smelt_host_origin = self.clone();
+// @smelt:if date_timezone_context
+        if let Some(zone) = self.zone() {
+            let object = SmeltObject::with_id(self.id, Vec::from([
+                ("__smelt_date".to_owned(), SmeltUnknown::Number(self.get_time())),
+                ("__smelt_timezone".to_owned(), SmeltUnknown::String(zone.name().into())),
+            ]));
+            return smelt_with_host_origin(SmeltUnknown::Object(object), smelt_host_origin);
+        }
+// @smelt:end
         smelt_with_host_origin(SmeltUnknown::Object(SmeltObject::with_id(self.id, Vec::from([("__smelt_date".to_owned(), SmeltUnknown::Number(self.get_time()))]))), smelt_host_origin)
     }
 }
@@ -98,6 +113,9 @@ impl SmeltFromUnknown for SmeltDate {
     fn smelt_from_unknown(value: SmeltUnknown) -> Self {
         if let Some(origin) = smelt_restore_host_origin::<Self>(&value) { return origin; }
         let time_ms = match &value { SmeltUnknown::Number(time_ms) => *time_ms, SmeltUnknown::Object(map) => match map.get("__smelt_date") { Some(SmeltUnknown::Number(time_ms)) => time_ms, _ => f64::NAN }, SmeltUnknown::String(text) => chrono::DateTime::parse_from_rfc3339(&text.to_string_lossy()).map(|date| date.timestamp_millis() as f64).unwrap_or(f64::NAN), _ => f64::NAN };
+// @smelt:if date_timezone_context
+        if let Some(zone) = smelt_unknown_date_zone(&value) { return Self::with_zone(time_ms, zone); }
+// @smelt:end
         Self::new(time_ms)
     }
 }
@@ -117,14 +135,50 @@ impl SmeltFromUnknown for SmeltDate {
 // @smelt:item smelt_date_local_offset when date_local_time
 /// The local time zone's offset from UTC, in seconds, at the time value `t`
 /// (`LocalTZA(t, true)`); `None` past chrono's range.
-fn smelt_date_local_offset(t: i64) -> Option<i32> { use chrono::Offset as _; chrono::DateTime::<chrono::Utc>::from_timestamp_millis(t).map(|utc| utc.with_timezone(&chrono::Local).offset().fix().local_minus_utc()) }
+fn smelt_date_local_offset(t: i64) -> Option<i32> { smelt_date_offset_in(t, &chrono::Local) }
+/// The offset at a UTC instant in the selected zone.
+fn smelt_date_offset_in(t: i64, zone: &impl chrono::TimeZone) -> Option<i32> { use chrono::Offset as _; chrono::DateTime::<chrono::Utc>::from_timestamp_millis(t).map(|utc| zone.offset_from_utc_datetime(&utc.naive_utc()).fix().local_minus_utc()) }
 //~ A wall-clock time the zone skips (the spring-forward gap) is read with the
 //~ offset in effect before the transition, and one it repeats (the fall-back
 //~ hour) as its earlier instant, the larger offset, as the specification
 //~ (and Node) do.
 /// The offset, in seconds, that `UTC(t)` subtracts from the local time value
 /// `t` (whose UTC fields are the wall-clock time); `None` past chrono's range.
-fn smelt_date_utc_offset_for_local(t: i64) -> Option<i32> { use chrono::{Offset as _, TimeZone as _}; let naive = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(t)?.naive_utc(); match chrono::Local.from_local_datetime(&naive) { chrono::LocalResult::Single(local) => Some(local.offset().fix().local_minus_utc()), chrono::LocalResult::Ambiguous(first, second) => Some(first.offset().fix().local_minus_utc().max(second.offset().fix().local_minus_utc())), chrono::LocalResult::None => naive.checked_sub_signed(chrono::TimeDelta::days(1)).map(|before| chrono::Local.offset_from_utc_datetime(&before).fix().local_minus_utc()) } }
+fn smelt_date_utc_offset_for_local(t: i64) -> Option<i32> { smelt_date_wall_offset_in(t, &chrono::Local) }
+/// The offset used to interpret wall-clock fields in the selected zone.
+fn smelt_date_wall_offset_in(t: i64, zone: &impl chrono::TimeZone) -> Option<i32> { use chrono::Offset as _; let naive = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(t)?.naive_utc(); match zone.offset_from_local_datetime(&naive) { chrono::LocalResult::Single(local) => Some(local.fix().local_minus_utc()), chrono::LocalResult::Ambiguous(first, second) => Some(first.fix().local_minus_utc().max(second.fix().local_minus_utc())), chrono::LocalResult::None => naive.checked_sub_signed(chrono::TimeDelta::days(1)).map(|before| zone.offset_from_utc_datetime(&before).fix().local_minus_utc()) } }
+// @smelt:item-end
+
+// @smelt:item smelt_unknown_date_zone when date_timezone_context
+/// Read the zone at the existing Date erasure boundary.
+fn smelt_unknown_date_zone(value: &SmeltUnknown) -> Option<chrono_tz::Tz> {
+    if let Some(date) = smelt_restore_host_origin::<SmeltDate>(value) { return date.zone(); }
+    let SmeltUnknown::Object(object) = value else { return None; };
+    let SmeltUnknown::String(zone) = object.get("__smelt_timezone")? else { return None; };
+    zone.to_string_lossy().parse().ok()
+}
+
+/// The offset for an instant, using the date's zone when it has one.
+fn smelt_date_context_offset(t: i64, zone: Option<chrono_tz::Tz>) -> Option<i32> {
+    zone.map_or_else(|| smelt_date_local_offset(t), |zone| smelt_date_offset_in(t, &zone))
+}
+
+/// The offset for wall-clock fields, using the date's zone when it has one.
+fn smelt_date_context_wall_offset(t: i64, zone: Option<chrono_tz::Tz>) -> Option<i32> {
+    zone.map_or_else(|| smelt_date_utc_offset_for_local(t), |zone| smelt_date_wall_offset_in(t, &zone))
+}
+
+/// Convert a finite JavaScript Date time value to integral epoch milliseconds.
+#[expect(clippy::cast_possible_truncation, reason = "Date time values are clipped to integral milliseconds; non-finite inputs are invalid")]
+fn smelt_date_epoch_ms(time: f64) -> Option<i64> {
+    time.is_finite().then_some(time as i64)
+}
+
+/// Format an instant in the date's zone, retaining even a zero UTC offset.
+fn smelt_date_context_iso(t: f64, zone: chrono_tz::Tz) -> String {
+    let utc = smelt_date_epoch_ms(t).and_then(chrono::DateTime::<chrono::Utc>::from_timestamp_millis);
+    utc.map_or_else(|| "Invalid Date".to_owned(), |date| date.with_timezone(&zone).to_rfc3339_opts(chrono::SecondsFormat::Millis, false))
+}
 // @smelt:item-end
 
 // The local-time string methods: `toString`, `toDateString`, `toTimeString`,
@@ -142,8 +196,54 @@ fn smelt_date_zone_names(zone: &str) -> Option<(&'static str, &'static str)> { m
 /// The long name of the process time zone at instant `utc`, whose offset is
 /// `offset` seconds: its daylight name when that exceeds the smaller of the
 /// year's January and July offsets, its standard name otherwise.
-fn smelt_date_zone_long_name(utc: chrono::DateTime<chrono::Utc>, offset: i32) -> String { use chrono::Datelike as _; let probe = |month: u32| chrono::NaiveDate::from_ymd_opt(utc.year(), month, 1).and_then(|day| day.and_hms_opt(0, 0, 0)).and_then(|naive| smelt_date_local_offset(naive.and_utc().timestamp_millis())).unwrap_or(offset); let standard = probe(1).min(probe(7)); smelt_date_zone_names(&smelt_date_zone_id()).map_or_else(|| { let minutes = offset / 60; format!("GMT{}{:02}:{:02}", if minutes < 0 { '-' } else { '+' }, minutes.unsigned_abs() / 60, minutes.unsigned_abs() % 60) }, |(standard_name, daylight_name)| (if offset > standard { daylight_name } else { standard_name }).to_owned()) }
+fn smelt_date_zone_long_name(utc: chrono::DateTime<chrono::Utc>, offset: i32, zone_id: &str, offset_at: &impl Fn(i64) -> Option<i32>) -> String { use chrono::Datelike as _; let probe = |month: u32| chrono::NaiveDate::from_ymd_opt(utc.year(), month, 1).and_then(|day| day.and_hms_opt(0, 0, 0)).and_then(|naive| offset_at(naive.and_utc().timestamp_millis())).unwrap_or(offset); let standard = probe(1).min(probe(7)); smelt_date_zone_names(zone_id).map_or_else(|| { let minutes = offset / 60; format!("GMT{}{:02}:{:02}", if minutes < 0 { '-' } else { '+' }, minutes.unsigned_abs() / 60, minutes.unsigned_abs() % 60) }, |(standard_name, daylight_name)| (if offset > standard { daylight_name } else { standard_name }).to_owned()) }
 /// The text of local-time string method `style` (`full`, `date`, `time`,
 /// `locale`, `locale_date`, `locale_time`) for the finite time value `t`.
-fn smelt_date_local_string(t: i64, style: &str) -> String { use chrono::{Datelike as _, Timelike as _}; let Some(utc) = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(t) else { return "Invalid Date".to_owned(); }; let offset = smelt_date_local_offset(t).unwrap_or(0); let Some(local) = utc.naive_utc().checked_add_signed(chrono::TimeDelta::seconds(i64::from(offset))) else { return "Invalid Date".to_owned(); }; let minutes = offset / 60; let zone = || format!("GMT{}{:02}{:02} ({})", if minutes < 0 { '-' } else { '+' }, minutes.unsigned_abs() / 60, minutes.unsigned_abs() % 60, smelt_date_zone_long_name(utc, offset)); let date = local.format("%a %b %d %Y").to_string(); let time = local.format("%H:%M:%S").to_string(); let locale_date = format!("{}/{}/{}", local.month(), local.day(), local.year()); let hour12 = match local.hour() % 12 { 0 => 12, hour => hour }; let locale_time = format!("{hour12}:{:02}:{:02} {}", local.minute(), local.second(), if local.hour() < 12 { "AM" } else { "PM" }); match style { "date" => date, "time" => format!("{time} {}", zone()), "locale" => format!("{locale_date}, {locale_time}"), "locale_date" => locale_date, "locale_time" => locale_time, _ => format!("{date} {time} {}", zone()) } }
+fn smelt_date_local_string(t: i64, style: &str) -> String { smelt_date_string_in(t, style, smelt_date_zone_id, smelt_date_local_offset) }
+// @smelt:if date_timezone_context
+/// Format local date fields in the date's zone, or in the process zone.
+fn smelt_date_context_string(t: i64, style: &str, zone: Option<chrono_tz::Tz>) -> String {
+    zone.map_or_else(
+        || smelt_date_local_string(t, style),
+        |zone| smelt_date_string_in(t, style, || zone.name().to_owned(), |t| smelt_date_offset_in(t, &zone)),
+    )
+}
+// @smelt:end
+// @smelt:if date_timezone_context
+/// Format an erased Date time value with its runtime zone.
+fn smelt_date_context_string_value(time: f64, style: &str, zone: Option<chrono_tz::Tz>) -> String {
+    smelt_date_epoch_ms(time).map_or_else(|| "Invalid Date".to_owned(), |instant| smelt_date_context_string(instant, style, zone))
+}
+
+/// The string fallback when an erased zoned Date has no method override.
+fn smelt_erased_zoned_date_to_string(object: &SmeltObject) -> Option<String> {
+    let SmeltUnknown::Number(time) = object.get("__smelt_date")? else { return None; };
+    let zone = smelt_unknown_date_zone(&SmeltUnknown::Object(object.clone()))?;
+    Some(smelt_date_context_string_value(time, "full", Some(zone)))
+}
+
+/// Resolve string methods and valueOf at the Date erasure boundary.
+fn smelt_zoned_date_method(object: &SmeltObject, name: &str) -> Option<SmeltUnknown> {
+    let style = match name {
+        "toString" => Some("full"),
+        "toDateString" => Some("date"),
+        "toTimeString" => Some("time"),
+        "toLocaleString" => Some("locale"),
+        "toLocaleDateString" => Some("locale_date"),
+        "toLocaleTimeString" => Some("locale_time"),
+        "valueOf" => None,
+        _ => return None,
+    };
+    if !object.contains_key("__smelt_date") || !object.contains_key("__smelt_timezone") { return None; }
+    let date = SmeltUnknown::Object(object.clone());
+    Some(SmeltUnknown::Function(::std::rc::Rc::new(move |_| {
+        let time = smelt_unknown_date_value(&date);
+        let Some(style) = style else { return Ok(SmeltUnknown::Number(time)); };
+        let text = smelt_date_context_string_value(time, style, smelt_unknown_date_zone(&date));
+        Ok(SmeltUnknown::String(text.into()))
+    })))
+}
+// @smelt:end
+/// The common date formatter, parameterized by the time zone's name and offsets.
+fn smelt_date_string_in(t: i64, style: &str, zone_id: impl FnOnce() -> String, offset_at: impl Fn(i64) -> Option<i32>) -> String { use chrono::{Datelike as _, Timelike as _}; let Some(utc) = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(t) else { return "Invalid Date".to_owned(); }; let offset = offset_at(t).unwrap_or(0); let Some(local) = utc.naive_utc().checked_add_signed(chrono::TimeDelta::seconds(i64::from(offset))) else { return "Invalid Date".to_owned(); }; let minutes = offset / 60; let zone = || format!("GMT{}{:02}{:02} ({})", if minutes < 0 { '-' } else { '+' }, minutes.unsigned_abs() / 60, minutes.unsigned_abs() % 60, smelt_date_zone_long_name(utc, offset, &zone_id(), &offset_at)); let date = local.format("%a %b %d %Y").to_string(); let time = local.format("%H:%M:%S").to_string(); let locale_date = format!("{}/{}/{}", local.month(), local.day(), local.year()); let hour12 = match local.hour() % 12 { 0 => 12, hour => hour }; let locale_time = format!("{hour12}:{:02}:{:02} {}", local.minute(), local.second(), if local.hour() < 12 { "AM" } else { "PM" }); match style { "date" => date, "time" => format!("{time} {}", zone()), "locale" => format!("{locale_date}, {locale_time}"), "locale_date" => locale_date, "locale_time" => locale_time, _ => format!("{date} {time} {}", zone()) } }
 // @smelt:item-end

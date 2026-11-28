@@ -148,6 +148,63 @@ impl FunctionEmitter<'_> {
         ))))
     }
 
+    /// Build a context that creates a fresh zoned Date at the input's instant.
+    pub(super) fn date_timezone_context_expr(
+        &self,
+        timezone: &Operand,
+    ) -> Result<RustExpr, EmitError> {
+        let zone = self.host_utf8_text(self.operand_expr(timezone)?);
+        let value = self
+            .date_timestamp_value(&RustExpr::path("smelt_value"), self.type_id(Type::Unknown)?)?;
+        Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
+            "{{ let smelt_timezone: chrono_tz::Tz = {zone}.parse().expect(\"invalid IANA time zone\"); ::std::rc::Rc::new(move |smelt_value: &SmeltUnknown| -> SmeltUnknown {{ SmeltDate::with_zone(({value}) as f64, smelt_timezone).into_smelt_unknown() }}) }}",
+            zone = zone.delimited(),
+            value = value.delimited()
+        ))))
+    }
+
+    /// Render the explicit time zone of a date receiver where zoned dates exist.
+    fn date_context_zone_expr(&self, date: &Operand) -> Result<Option<RustExpr>, EmitError> {
+        if !self.context.demand().has(Need::DateTimezoneContext) {
+            return Ok(None);
+        }
+        let ty = self.operand_ty(date)?;
+        let value = self.operand_expr(date)?;
+        if let Some(handle) = self.date_handle_expr(&value, ty) {
+            return Ok(Some(handle.postfix(".zone()")));
+        }
+        let erased = if self.concrete_union_members(ty).is_some() {
+            self.erase_rendered(&value, ty)?
+        } else if self.has_dynamic_shape(ty) {
+            value
+        } else {
+            return Ok(None);
+        };
+        Ok(Some(RustExpr::chain(format!(
+            "smelt_unknown_date_zone(&{erased})",
+            erased = erased.tight()
+        ))))
+    }
+
+    /// Format the offset of the receiver in minutes from local time to UTC.
+    /// A test spy's configured offset takes precedence.
+    pub(super) fn date_timezone_offset_expr(&self, date: &Operand) -> Result<RustExpr, EmitError> {
+        let timestamp = self.date_timestamp_expr(date)?;
+        let offset = self.date_context_zone_expr(date)?.map_or_else(
+            || "smelt_date_local_offset(smelt_timestamp_ms as i64)".to_owned(),
+            |zone| {
+                format!(
+                    "smelt_date_context_offset(smelt_timestamp_ms as i64, {zone})",
+                    zone = zone.delimited()
+                )
+            },
+        );
+        Ok(RustExpr::chain(format!(
+            "SMELT_DATE_TIMEZONE_OFFSET.with(::std::cell::Cell::get).unwrap_or_else(|| {{ let smelt_timestamp_ms = ({timestamp}) as f64; if smelt_timestamp_ms.is_finite() {{ {offset}.map_or(f64::NAN, |smelt_offset| 0.0 - (smelt_offset / 60) as f64) }} else {{ f64::NAN }} }})",
+            timestamp = timestamp.delimited()
+        )))
+    }
+
     /// Converts a timestamp in milliseconds to an RFC 3339 timestamp string.
     pub(super) fn date_to_iso_string_expr(
         &self,
@@ -194,8 +251,17 @@ impl FunctionEmitter<'_> {
             smelt_hir::DateStringStyle::LocaleDate => "locale_date",
             smelt_hir::DateStringStyle::LocaleTime => "locale_time",
         };
+        let format_date = self.date_context_zone_expr(timestamp_ms)?.map_or_else(
+            || format!("smelt_date_local_string(smelt_timestamp_ms as i64, {style_key:?})"),
+            |zone| {
+                format!(
+                    "smelt_date_context_string(smelt_timestamp_ms as i64, {style_key:?}, {zone})",
+                    zone = zone.delimited()
+                )
+            },
+        );
         Ok(RustExpr::atom(format!(
-            "{{ let smelt_timestamp_ms = ({timestamp_text}) as f64; if smelt_timestamp_ms.is_finite() {{ smelt_date_local_string(smelt_timestamp_ms as i64, {style_key:?}) }} else {{ \"Invalid Date\".to_owned() }} }}",
+            "{{ let smelt_timestamp_ms = ({timestamp_text}) as f64; if smelt_timestamp_ms.is_finite() {{ {format_date} }} else {{ \"Invalid Date\".to_owned() }} }}",
             timestamp_text = timestamp_text.delimited()
         )))
     }
@@ -391,7 +457,7 @@ impl FunctionEmitter<'_> {
         ));
         Ok(match zone {
             smelt_hir::DateZone::Utc => utc_parts,
-            smelt_hir::DateZone::Local => utc_from_local_ms(&utc_parts),
+            smelt_hir::DateZone::Local => utc_from_local_ms(&utc_parts, None),
         })
     }
 
@@ -404,7 +470,15 @@ impl FunctionEmitter<'_> {
         zone: smelt_hir::DateZone,
         timestamp_ms: &Operand,
     ) -> Result<RustExpr, EmitError> {
-        let timestamp_text = self.date_zone_input(zone, self.date_timestamp_expr(timestamp_ms)?);
+        let timestamp = self.date_timestamp_expr(timestamp_ms)?;
+        let context = match zone {
+            smelt_hir::DateZone::Utc => None,
+            smelt_hir::DateZone::Local => self.date_context_zone_expr(timestamp_ms)?,
+        };
+        let timestamp_text = match zone {
+            smelt_hir::DateZone::Utc => timestamp,
+            smelt_hir::DateZone::Local => local_time(&timestamp, context.as_ref()),
+        };
         let (trait_use, accessor) = match part {
             smelt_hir::DatePart::FullYear => ("chrono::Datelike as _", "smelt_date.year() as f64"),
             smelt_hir::DatePart::Month => ("chrono::Datelike as _", "smelt_date.month0() as f64"),
@@ -440,7 +514,16 @@ impl FunctionEmitter<'_> {
         if values.is_empty() {
             return Err(EmitError::new("Date setter requires at least one value"));
         }
-        let timestamp_text = self.date_zone_input(zone, self.date_timestamp_expr(timestamp_ms)?);
+        let timestamp = self.date_timestamp_expr(timestamp_ms)?;
+        let context = match zone {
+            smelt_hir::DateZone::Utc => None,
+            smelt_hir::DateZone::Local => self.date_context_zone_expr(timestamp_ms)?,
+        };
+        let zone_local = context.as_ref().map(|_| RustExpr::path("smelt_zone"));
+        let timestamp_text = match zone {
+            smelt_hir::DateZone::Utc => timestamp,
+            smelt_hir::DateZone::Local => local_time(&timestamp, zone_local.as_ref()),
+        };
         let value_texts = values
             .iter()
             .map(|value| self.date_timestamp_expr(value))
@@ -554,19 +637,18 @@ impl FunctionEmitter<'_> {
             "{{ use chrono::{{Datelike as _, Timelike as _}}; let smelt_timestamp_ms = ({timestamp_text}) as f64; if smelt_timestamp_ms.is_finite() && {values_are_finite} {{ chrono::DateTime::<chrono::Utc>::from_timestamp_millis(smelt_timestamp_ms as i64).and_then(|smelt_date| {update}).map(|smelt_date| smelt_date.timestamp_millis()).unwrap_or(i64::MIN) }} else {{ i64::MIN }} }}",
             timestamp_text = timestamp_text.delimited()
         ));
-        Ok(match zone {
+        let new_instant = match zone {
             smelt_hir::DateZone::Utc => updated,
-            smelt_hir::DateZone::Local => utc_from_local_ms(&updated),
+            smelt_hir::DateZone::Local => utc_from_local_ms(&updated, zone_local.as_ref()),
+        };
+        Ok(match context {
+            Some(zone_expr) => RustExpr::atom(format!(
+                "{{ let smelt_zone = {context}; {updated} }}",
+                context = zone_expr.delimited(),
+                updated = new_instant.delimited()
+            )),
+            None => new_instant,
         })
-    }
-
-    /// The time value a date template reads its UTC fields from: the
-    /// timestamp itself in UTC, `LocalTime(t)` in local time.
-    fn date_zone_input(&self, zone: smelt_hir::DateZone, timestamp_text: RustExpr) -> RustExpr {
-        match zone {
-            smelt_hir::DateZone::Utc => timestamp_text,
-            smelt_hir::DateZone::Local => local_time(&timestamp_text),
-        }
     }
 
     /// Converts a parsed URL field access to Rust text using the `url` crate.
@@ -632,9 +714,18 @@ impl FunctionEmitter<'_> {
 /// `LocalTime(t)` of the time value `timestamp_text` (any numeric Rust type):
 /// `t` plus the process zone's offset at `t` (`smelt_date_local_offset`), an
 /// `f64` that is `NaN` for a non-finite or out-of-range `t`.
-pub(super) fn local_time(timestamp_text: &RustExpr) -> RustExpr {
+fn local_time(timestamp_text: &RustExpr, explicit_zone: Option<&RustExpr>) -> RustExpr {
+    let offset = explicit_zone.map_or_else(
+        || "smelt_date_local_offset(smelt_local_t as i64)".to_owned(),
+        |zone| {
+            format!(
+                "smelt_date_context_offset(smelt_local_t as i64, {zone})",
+                zone = zone.delimited()
+            )
+        },
+    );
     RustExpr::atom(format!(
-        "{{ let smelt_local_t = ({timestamp_text}) as f64; if smelt_local_t.is_finite() {{ smelt_date_local_offset(smelt_local_t as i64).map_or(f64::NAN, |smelt_offset| smelt_local_t + f64::from(smelt_offset) * 1000.0) }} else {{ f64::NAN }} }}",
+        "{{ let smelt_local_t = ({timestamp_text}) as f64; if smelt_local_t.is_finite() {{ {offset}.map_or(f64::NAN, |smelt_offset| smelt_local_t + f64::from(smelt_offset) * 1000.0) }} else {{ f64::NAN }} }}",
         timestamp_text = timestamp_text.delimited()
     ))
 }
@@ -643,9 +734,18 @@ pub(super) fn local_time(timestamp_text: &RustExpr) -> RustExpr {
 /// stands for `NaN` (the date templates' result form): `t` minus the offset
 /// the process zone gives that wall-clock time
 /// (`smelt_date_utc_offset_for_local`).
-fn utc_from_local_ms(local_text: &RustExpr) -> RustExpr {
+fn utc_from_local_ms(local_text: &RustExpr, explicit_zone: Option<&RustExpr>) -> RustExpr {
+    let offset = explicit_zone.map_or_else(
+        || "smelt_date_utc_offset_for_local(smelt_local_ms)".to_owned(),
+        |zone| {
+            format!(
+                "smelt_date_context_wall_offset(smelt_local_ms, {zone})",
+                zone = zone.delimited()
+            )
+        },
+    );
     RustExpr::atom(format!(
-        "{{ let smelt_local_ms: i64 = {local_text}; if smelt_local_ms == i64::MIN {{ i64::MIN }} else {{ smelt_date_utc_offset_for_local(smelt_local_ms).map_or(i64::MIN, |smelt_offset| smelt_local_ms - i64::from(smelt_offset) * 1000) }} }}",
+        "{{ let smelt_local_ms: i64 = {local_text}; if smelt_local_ms == i64::MIN {{ i64::MIN }} else {{ {offset}.map_or(i64::MIN, |smelt_offset| smelt_local_ms - i64::from(smelt_offset) * 1000) }} }}",
         local_text = local_text.delimited()
     ))
 }

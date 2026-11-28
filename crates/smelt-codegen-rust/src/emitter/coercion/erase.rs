@@ -115,6 +115,21 @@ impl FunctionEmitter<'_> {
         )))
     }
 
+    /// Preserve constructibility when erasing an inline function expression.
+    pub(in crate::emitter) fn mark_erased_inline_constructor(
+        &self,
+        operand: &Operand,
+        erased: RustExpr,
+    ) -> Result<RustExpr, EmitError> {
+        if !self.operand_is_inline_function_expression(operand)? {
+            return Ok(erased);
+        }
+        Ok(RustExpr::atom(format!(
+            "{{ let smelt_value = {erased}; if let SmeltUnknown::Function(smelt_function) = &smelt_value {{ smelt_mark_constructor(smelt_function); }} smelt_value }}",
+            erased = erased.delimited()
+        )))
+    }
+
     /// Whether `operand` is an inline `function` expression's closure (its own
     /// `this`), as opposed to an arrow or a function item's value wrapper.
     pub(super) fn operand_is_inline_function_expression(

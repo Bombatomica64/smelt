@@ -122,8 +122,8 @@ impl FunctionEmitter<'_> {
             // innermost active call installed, so the read is a runtime channel
             // read rather than a local. See `Rvalue::BindThis` for the install.
             Rvalue::ThisRead => Ok(RustExpr::chain(self.this_read_text())),
-            Rvalue::RequireObjectReceiver { builtin } => Ok(RustExpr::chain(format!(
-                "smelt_require_object_receiver(&{this}, {builtin:?})",
+            Rvalue::RequirePromiseReceiver { builtin } => Ok(RustExpr::chain(format!(
+                "smelt_require_promise_receiver(&{this}, {builtin:?})",
                 this = self.this_read_text()
             ))),
             Rvalue::BindThis { callee, receiver } => {
@@ -158,9 +158,11 @@ impl FunctionEmitter<'_> {
             Rvalue::OptionalField { receiver, field } => {
                 self.optional_field_expr_for_dest(receiver, *field, dest_ty)
             }
-            Rvalue::OptionalIndex { receiver, index, from_end } => {
-                self.optional_index_expr(receiver, index, *from_end, dest_ty)
-            }
+            Rvalue::OptionalIndex {
+                receiver,
+                index,
+                from_end,
+            } => self.optional_index_expr(receiver, index, *from_end, dest_ty),
             Rvalue::OptionalMethod {
                 receiver,
                 method,
@@ -182,21 +184,20 @@ impl FunctionEmitter<'_> {
                 bound,
                 field,
             } => self.bound_field_expr(receiver, *bound, *field, dest_ty),
-            Rvalue::AbortSignalOp { op, args } => {
-                self.abort_signal_op_expr(*op, args, dest_ty)
-            }
+            Rvalue::AbortSignalOp { op, args } => self.abort_signal_op_expr(*op, args, dest_ty),
             Rvalue::CryptoOp { op, args } => self.crypto_op_expr(*op, args, dest_ty),
             Rvalue::HostModuleCall { op, args } => self.host_module_rvalue_expr(*op, args),
             // The ONE global object: every reference is a handle on the same
             // shared record (see `runtime/object_model.rs`).
-            Rvalue::GlobalObject => Ok(RustExpr::atom(format!("{}()", crate::thrown::GLOBAL_OBJECT_FN))),
+            Rvalue::GlobalObject => Ok(RustExpr::atom(format!(
+                "{}()",
+                crate::thrown::GLOBAL_OBJECT_FN
+            ))),
             Rvalue::FormDataNew => Ok(RustExpr::atom("SmeltFormData::new()")),
             Rvalue::FormDataOp { op, form, args } => {
                 self.form_data_op_expr(*op, form, args, dest_ty)
             }
-            Rvalue::UrlSearchParamsNew { init } => {
-                self.url_search_params_new_expr(init.as_ref())
-            }
+            Rvalue::UrlSearchParamsNew { init } => self.url_search_params_new_expr(init.as_ref()),
             Rvalue::UrlSearchParamsOp { op, params, args } => {
                 self.url_search_params_op_expr(*op, params, args, dest_ty)
             }
@@ -205,9 +206,10 @@ impl FunctionEmitter<'_> {
             Rvalue::PyExceptionNew { classes, args } => self.py_exception_new_expr(classes, args),
             Rvalue::PyStr { value: text_of } => self.py_text_expr(text_of, "py_str"),
             Rvalue::PyRepr { value: text_of } => self.py_text_expr(text_of, "py_repr"),
-            Rvalue::PyJsonDumps { value: json_value, indent } => {
-                self.py_json_dumps_expr(json_value, indent.as_ref())
-            }
+            Rvalue::PyJsonDumps {
+                value: json_value,
+                indent,
+            } => self.py_json_dumps_expr(json_value, indent.as_ref()),
             Rvalue::PyExceptionArgs { exception } => {
                 let exception_text = self.operand_expr(exception)?;
                 Ok(exception_text.postfix(".args()"))
@@ -215,15 +217,20 @@ impl FunctionEmitter<'_> {
             Rvalue::PyWrite { text, stderr } => {
                 let written = self.operand_expr(text)?;
                 let writer = if *stderr { "eprint" } else { "print" };
-                Ok(RustExpr::atom(format!("{{ {writer}!(\"{{}}\", {}); }}", written.delimited())))
+                Ok(RustExpr::atom(format!(
+                    "{{ {writer}!(\"{{}}\", {}); }}",
+                    written.delimited()
+                )))
             }
             Rvalue::PyExceptionValue { exception } => {
                 let exception_text = self.operand_expr(exception)?;
                 Ok(exception_text.postfix(".value()"))
             }
-            Rvalue::PyExceptionCaughtBy { exception, classes, catches_unclassified } => {
-                self.py_exception_caught_by_expr(exception, classes, *catches_unclassified)
-            }
+            Rvalue::PyExceptionCaughtBy {
+                exception,
+                classes,
+                catches_unclassified,
+            } => self.py_exception_caught_by_expr(exception, classes, *catches_unclassified),
             Rvalue::PyExceptionArgsNew { args } => self.py_exception_args_new_expr(args),
             Rvalue::PyExceptionFromInstance { instance } => {
                 self.py_exception_from_instance_expr(instance)
@@ -233,7 +240,11 @@ impl FunctionEmitter<'_> {
             }
             Rvalue::PyExceptionDefaultText { instance, repr } => {
                 let instance_text = self.operand_borrow_expr(instance)?;
-                let method = if *repr { "py_default_repr" } else { "py_default_str" };
+                let method = if *repr {
+                    "py_default_repr"
+                } else {
+                    "py_default_str"
+                };
                 Ok(instance_text.postfix(format!(".{method}()")))
             }
             // Lowering gives each of these a call terminator (`fallible_op`).
@@ -281,7 +292,9 @@ impl FunctionEmitter<'_> {
             }
             // A real read: a server must see its environment (`PORT`). The
             // profile's one fixed variable, `TZ`, never reaches here.
-            Rvalue::ProcessEnvRead { name } => Ok(RustExpr::loose(format!("::std::env::var({name:?}).ok()"))),
+            Rvalue::ProcessEnvRead { name } => {
+                Ok(RustExpr::loose(format!("::std::env::var({name:?}).ok()")))
+            }
             Rvalue::ProcessArgv => Ok(self.process_argv_expr()),
             Rvalue::EventEmitterNew => Ok(RustExpr::atom("SmeltEventEmitter::new()")),
             Rvalue::SqliteOpen { path } => self.sqlite_open_expr(path),
@@ -324,9 +337,7 @@ impl FunctionEmitter<'_> {
             } if let Some(target) = self.json_body_decode_target(dest_ty) => {
                 self.json_body_decode_expr(request, args, target)
             }
-            Rvalue::RequestOp { op, request, args } => {
-                self.request_op_expr(*op, request, args)
-            }
+            Rvalue::RequestOp { op, request, args } => self.request_op_expr(*op, request, args),
             Rvalue::ResponseNew {
                 body,
                 status,
@@ -345,9 +356,7 @@ impl FunctionEmitter<'_> {
             } if let Some(target) = self.json_body_decode_target(dest_ty) => {
                 self.json_body_decode_expr(response, args, target)
             }
-            Rvalue::ResponseOp { op, response, args } => {
-                self.response_op_expr(*op, response, args)
-            }
+            Rvalue::ResponseOp { op, response, args } => self.response_op_expr(*op, response, args),
             Rvalue::HeadersNew { init } => self.headers_new_expr(init.as_ref()),
             Rvalue::HeadersOp { op, headers, args } => {
                 self.headers_op_expr(*op, headers, args, dest_ty)
@@ -368,13 +377,12 @@ impl FunctionEmitter<'_> {
                 args,
                 ..
             } => self.static_dispatch_value(*class, *member, args, dest_ty),
-            Rvalue::InstanceOfValue { value, target } => {
-                self.instance_of_value(value, target)
-            }
+            Rvalue::InstanceOfValue { value, target } => self.instance_of_value(value, target),
             Rvalue::Construct { callee, args } => self.construct_expr(callee, args, dest_ty),
-            Rvalue::ConstructLike { value: constructed, args } => {
-                self.construct_like_expr(constructed, args, dest_ty)
-            }
+            Rvalue::ConstructLike {
+                value: constructed,
+                args,
+            } => self.construct_like_expr(constructed, args, dest_ty),
             Rvalue::UnknownIs {
                 value: unknown_value,
                 kind,
@@ -382,15 +390,16 @@ impl FunctionEmitter<'_> {
             Rvalue::TypeofValue {
                 value: unknown_value,
             } => self.typeof_value(unknown_value),
-            Rvalue::UnionArmTest { value: tested, arms } => self.union_arm_test_expr(tested, arms),
+            Rvalue::UnionArmTest {
+                value: tested,
+                arms,
+            } => self.union_arm_test_expr(tested, arms),
             Rvalue::PrototypeSentinel {
                 value: unknown_value,
                 own_slot_shadows,
             } => self.prototype_sentinel_expr(unknown_value, *own_slot_shadows),
             Rvalue::BoxPrimitive { value } => self.box_primitive_expr(value),
-            Rvalue::ObjectFromPrototype { prototype } => {
-                self.object_from_prototype_expr(prototype)
-            }
+            Rvalue::ObjectFromPrototype { prototype } => self.object_from_prototype_expr(prototype),
             Rvalue::DefineProperties {
                 target,
                 descriptors,
@@ -400,7 +409,10 @@ impl FunctionEmitter<'_> {
                 // Lowered as an effect with no value: the source reads the
                 // target again for the call's result.
                 if dest_ty == self.none_ty {
-                    Ok(RustExpr::atom(format!("{{ let _ = {}; }}", call.delimited())))
+                    Ok(RustExpr::atom(format!(
+                        "{{ let _ = {}; }}",
+                        call.delimited()
+                    )))
                 } else {
                     Ok(call)
                 }
@@ -410,7 +422,9 @@ impl FunctionEmitter<'_> {
                 target,
             } => self.unknown_cast_expr(unknown_value, *target, dest_ty),
             Rvalue::Struct { class, fields } => self.struct_literal_expr(*class, fields, dest_ty),
-            Rvalue::ExternalClassInstance { class, args } => self.external_class_instance_at_dest_expr(*class, args, dest_ty),
+            Rvalue::ExternalClassInstance { class, args } => {
+                self.external_class_instance_at_dest_expr(*class, args, dest_ty)
+            }
             Rvalue::Len { operand } => self.len_expr(operand, dest_ty),
             Rvalue::FunctionName { operand } => self.function_name_expr(operand, dest_ty),
             Rvalue::NumericAbs { operand } => self.numeric_abs_expr(operand),
@@ -439,8 +453,12 @@ impl FunctionEmitter<'_> {
                 self.primitive_cast_expr(*op, operand, dest_ty)
             }
             Rvalue::StringCase { op, operand } => self.string_case_expr(*op, operand, dest_ty),
-            Rvalue::StringIsWellFormed { operand } => self.string_well_formed_expr(operand, false, dest_ty),
-            Rvalue::StringToWellFormed { operand } => self.string_well_formed_expr(operand, true, dest_ty),
+            Rvalue::StringIsWellFormed { operand } => {
+                self.string_well_formed_expr(operand, false, dest_ty)
+            }
+            Rvalue::StringToWellFormed { operand } => {
+                self.string_well_formed_expr(operand, true, dest_ty)
+            }
             Rvalue::StringNormalize { form, operand } => self.string_normalize_expr(*form, operand),
             Rvalue::UriTranscode { op, operand } => self.uri_transcode_expr(*op, operand),
             Rvalue::StringLocaleCompare { left, right } => {
@@ -451,7 +469,10 @@ impl FunctionEmitter<'_> {
             // optional string is.
             Rvalue::SymbolUnique { base } => {
                 let base_text = self.operand_expr(base)?;
-                Ok(RustExpr::chain(format!("SmeltSymbol::unique({base_text})", base_text = base_text.delimited())))
+                Ok(RustExpr::chain(format!(
+                    "SmeltSymbol::unique({base_text})",
+                    base_text = base_text.delimited()
+                )))
             }
             Rvalue::SymbolDescription { operand } => {
                 let symbol = self.operand_expr(operand)?;
@@ -461,12 +482,18 @@ impl FunctionEmitter<'_> {
             // `Symbol.for(key)` folds to, built here from the run-time key.
             Rvalue::SymbolFor { key } => {
                 let key_text = self.operand_expr(key)?;
-                Ok(RustExpr::chain(format!("SmeltSymbol::registered(&{key_text})", key_text = key_text.delimited())))
+                Ok(RustExpr::chain(format!(
+                    "SmeltSymbol::registered(&{key_text})",
+                    key_text = key_text.delimited()
+                )))
             }
             Rvalue::SymbolDescribed { description, site } => {
                 let description_text = self.operand_expr(description)?;
                 let site_text = self.operand_expr(site)?;
-                Ok(site_text.postfix(format!(".described(&{description_text})", description_text = description_text.delimited())))
+                Ok(site_text.postfix(format!(
+                    ".described(&{description_text})",
+                    description_text = description_text.delimited()
+                )))
             }
             // `Option<JsString>`, the optional string the op is typed as.
             Rvalue::SymbolKeyFor { operand } => {
@@ -527,9 +554,7 @@ impl FunctionEmitter<'_> {
             Rvalue::RegexFind { pattern, haystack } => {
                 self.regex_find_expr(pattern, haystack, dest_ty)
             }
-            Rvalue::RegexExec { regex, haystack } => {
-                self.regex_exec_expr(regex, haystack, dest_ty)
-            }
+            Rvalue::RegexExec { regex, haystack } => self.regex_exec_expr(regex, haystack, dest_ty),
             Rvalue::RegexTest { regex, haystack } => self.regex_test_expr(regex, haystack),
             Rvalue::RegexMatchAll { regex, haystack } => {
                 self.regex_match_all_expr(regex, haystack, dest_ty)
@@ -583,7 +608,9 @@ impl FunctionEmitter<'_> {
                 self.set_binary_expr(*op, left, right, dest_ty)
             }
             Rvalue::SetProjection { op, set } => self.set_projection_expr(*op, set, dest_ty),
-            Rvalue::ListConcat { left, right } => self.list_concat_at_dest_expr(left, right, dest_ty),
+            Rvalue::ListConcat { left, right } => {
+                self.list_concat_at_dest_expr(left, right, dest_ty)
+            }
             Rvalue::ListRepeat { list, count } => self.list_repeat_expr(list, count),
             Rvalue::PyStrCall { op, args } => self.py_str_call_expr(*op, args),
             Rvalue::PyNumericCall { op, args } => self.py_numeric_value_expr(*op, args),
@@ -595,12 +622,20 @@ impl FunctionEmitter<'_> {
                 from_index,
             } => self.list_search_at_dest_expr(*op, list, item, from_index.as_ref(), dest_ty),
             Rvalue::Closure { id, .. } => self.closure_value_expr(*id, dest_ty),
-            Rvalue::ClosureCall { callee, args } => self.closure_call_rvalue_expr(callee, args, dest_ty),
-            Rvalue::ClosureCallSpread { callee, args } => self.closure_call_spread_expr(callee, args, dest_ty),
-            Rvalue::ClosureCallRest { callee, items } => self.closure_call_rest_expr(callee, items, dest_ty),
-            Rvalue::ErasedFunctionMethodCall { receiver, method, args } => {
-                self.erased_function_method_call_expr(receiver, *method, args, dest_ty)
+            Rvalue::ClosureCall { callee, args } => {
+                self.closure_call_rvalue_expr(callee, args, dest_ty)
             }
+            Rvalue::ClosureCallSpread { callee, args } => {
+                self.closure_call_spread_expr(callee, args, dest_ty)
+            }
+            Rvalue::ClosureCallRest { callee, items } => {
+                self.closure_call_rest_expr(callee, items, dest_ty)
+            }
+            Rvalue::ErasedFunctionMethodCall {
+                receiver,
+                method,
+                args,
+            } => self.erased_function_method_call_expr(receiver, *method, args, dest_ty),
             Rvalue::ListCallback { op, list, callback } => {
                 self.list_callback_expr(*op, list, callback, dest_ty)
             }
@@ -769,23 +804,19 @@ impl FunctionEmitter<'_> {
             } => self.json_stringify_expr(json_value, replacer.as_ref(), dest_ty),
             Rvalue::HttpGetText { url } => self.http_get_expr(url),
             Rvalue::GlobalGet { global } => self.global_get_expr(*global),
-            Rvalue::GlobalSet { global, value: stored } => {
-                self.global_set_expr(*global, stored, dest_ty)
-            }
+            Rvalue::GlobalSet {
+                global,
+                value: stored,
+            } => self.global_set_expr(*global, stored, dest_ty),
             Rvalue::DateNow => self.date_now_expr(dest_ty),
             Rvalue::DateSetNow { timestamp } => self.date_set_now_expr(timestamp, dest_ty),
             Rvalue::DateResetNow => self.date_reset_now_expr(dest_ty),
-            // A test spy's configured value, else the process time zone's
-            // offset at the date's instant, in minutes from local time to UTC
-            // (`0.0 -` keeps UTC's `0` positive).
             Rvalue::DateTimezoneOffset { timestamp_ms } => {
-                let timestamp_text = self.date_timestamp_expr(timestamp_ms)?;
-                Ok(RustExpr::chain(format!(
-                    "SMELT_DATE_TIMEZONE_OFFSET.with(::std::cell::Cell::get).unwrap_or_else(|| {{ let smelt_timestamp_ms = ({timestamp_text}) as f64; if smelt_timestamp_ms.is_finite() {{ smelt_date_local_offset(smelt_timestamp_ms as i64).map_or(f64::NAN, |smelt_offset| 0.0 - f64::from(smelt_offset) / 60.0) }} else {{ f64::NAN }} }})",
-                    timestamp_text = timestamp_text.delimited()
-                )))
+                self.date_timezone_offset_expr(timestamp_ms)
             }
-            Rvalue::DateSetTimezoneOffset { offset } => self.date_set_timezone_offset_expr(offset, dest_ty),
+            Rvalue::DateSetTimezoneOffset { offset } => {
+                self.date_set_timezone_offset_expr(offset, dest_ty)
+            }
             Rvalue::DateResetTimezoneOffset => self.date_reset_timezone_offset_expr(dest_ty),
             Rvalue::TestRuntimeCheck { check, args } => self.test_runtime_check_expr(check, args),
             Rvalue::FastCheckNamespace => {
@@ -793,25 +824,36 @@ impl FunctionEmitter<'_> {
                 let namespace = RustExpr::chain("smelt_fast_check_namespace()");
                 self.rendered_at_type(&namespace, unknown_ty, dest_ty, &self.render_scope())
             }
-            Rvalue::FastCheckRun { .. } => {
-                Err(EmitError::new("a property run is a fallible call terminator"))
+            Rvalue::FastCheckRun { .. } => Err(EmitError::new(
+                "a property run is a fallible call terminator",
+            )),
+            Rvalue::VitestMockFn { implementation } => {
+                self.vitest_mock_fn_expr(implementation.as_ref())
             }
-            Rvalue::VitestMockFn { implementation } => self.vitest_mock_fn_expr(implementation.as_ref()),
-            Rvalue::VitestMockCalledTimes { mock, count } => self.vitest_mock_called_times_expr(mock, count),
-            Rvalue::VitestMockCalledWith { mock, args, last } => self.vitest_mock_called_with_expr(mock, args, *last),
+            Rvalue::VitestMockCalledTimes { mock, count } => {
+                self.vitest_mock_called_times_expr(mock, count)
+            }
+            Rvalue::VitestMockCalledWith { mock, args, last } => {
+                self.vitest_mock_called_with_expr(mock, args, *last)
+            }
             Rvalue::VitestRestoreAllMocks => {
                 Ok(RustExpr::chain("smelt_vitest_restore_all_mocks()"))
             }
             Rvalue::VitestSpyOn { target, name } => self.vitest_spy_on_expr(target, name),
-            Rvalue::VitestAsymmetricEqual { actual, expected, strict } => self.vitest_asymmetric_equal_expr(actual, expected, *strict),
-            Rvalue::VitestMockLastResolvedWith { mock, expected } => self.vitest_mock_last_resolved_with_expr(mock, expected),
-            Rvalue::DateTimezoneContext { timezone } => Ok(RustExpr::atom(self.carrier_format(self.carrier()?, format_args!(
-                "{{ let smelt_timezone_name = {}; let smelt_timezone: chrono_tz::Tz = smelt_timezone_name.parse().expect(\"invalid IANA time zone\"); ::std::rc::Rc::new(move |smelt_value: SmeltUnknown| -> SmeltUnknown {{ let smelt_timestamp_ms = match smelt_value {{ SmeltUnknown::Number(smelt_value) => smelt_value, SmeltUnknown::Object(smelt_value) => match smelt_value.get(\"{SMELT_DATE}\") {{ Some(SmeltUnknown::Number(smelt_value)) => smelt_value, _ => f64::NAN }}, SmeltUnknown::String(smelt_value) => {{ let smelt_value = smelt_value.to_string_lossy(); chrono::DateTime::parse_from_rfc3339(&smelt_value).map(|smelt_date| smelt_date.timestamp_millis() as f64).unwrap_or_else(|_| smelt_value.parse::<f64>().unwrap_or(f64::NAN)) }}, SmeltUnknown::Bool(smelt_value) => if smelt_value {{ 1.0 }} else {{ 0.0 }}, {}SmeltUnknown::Null | SmeltUnknown::Undefined | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_) => f64::NAN }}; let smelt_local_timestamp_ms = if smelt_timestamp_ms.is_finite() {{ chrono::DateTime::<chrono::Utc>::from_timestamp_millis(smelt_timestamp_ms as i64).map_or(f64::NAN, |smelt_date| smelt_date.with_timezone(&smelt_timezone).naive_local().and_utc().timestamp_millis() as f64) }} else {{ f64::NAN }}; SmeltUnknown::Object(SmeltObject::new(Vec::from([(\"{SMELT_DATE}\".to_owned(), SmeltUnknown::Number(smelt_local_timestamp_ms)), (\"{SMELT_TIMEZONE}\".to_owned(), SmeltUnknown::String(smelt_timezone_name.clone().into()))]))) }}) }}",
-                self.host_utf8_text(self.operand_expr(timezone)?).delimited(),
-                self.bigint_unknown_arm("SmeltUnknown::BigInt(value) => smelt_bigint_to_number(&value),")
-            )))),
+            Rvalue::VitestAsymmetricEqual {
+                actual,
+                expected,
+                strict,
+            } => self.vitest_asymmetric_equal_expr(actual, expected, *strict),
+            Rvalue::VitestMockLastResolvedWith { mock, expected } => {
+                self.vitest_mock_last_resolved_with_expr(mock, expected)
+            }
+            Rvalue::DateTimezoneContext { timezone } => self.date_timezone_context_expr(timezone),
             Rvalue::DateToIsoString { timestamp_ms } => self.date_to_iso_string_expr(timestamp_ms),
-            Rvalue::DateToString { style, timestamp_ms } => self.date_to_string_expr(*style, timestamp_ms),
+            Rvalue::DateToString {
+                style,
+                timestamp_ms,
+            } => self.date_to_string_expr(*style, timestamp_ms),
             Rvalue::DateToUtcString { timestamp_ms } => self.date_to_utc_string_expr(timestamp_ms),
             Rvalue::JsonIndent { text, space } => self.json_indent_expr(text, space),
             Rvalue::DateFromParts { zone, parts } => {
@@ -852,7 +894,10 @@ impl FunctionEmitter<'_> {
             Rvalue::BuiltinNamespace { name } => self.builtin_namespace_expr(name, dest_ty),
             Rvalue::UnmodeledImport => {
                 let unknown_ty = self.type_id(Type::Unknown)?;
-                let stub = self.carrier_expr(self.carrier()?, &RustExpr::chain("smelt_unmodeled_import()"));
+                let stub = self.carrier_expr(
+                    self.carrier()?,
+                    &RustExpr::chain("smelt_unmodeled_import()"),
+                );
                 self.rendered_at_type(&stub, unknown_ty, dest_ty, &self.render_scope())
             }
             Rvalue::ArgumentsObject { fixed, rest } => {
