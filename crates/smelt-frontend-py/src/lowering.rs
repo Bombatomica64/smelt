@@ -539,14 +539,14 @@ impl<'ctx> ModuleBuilder<'ctx> {
     /// `as_entry` (its `__name__` then reads `"__main__"`).
     pub(crate) fn module(
         &mut self,
-        module: &ModModule,
+        parsed: &ModModule,
         as_entry: bool,
     ) -> Result<ModuleId, Vec<SmeltError>> {
         self.is_entry = as_entry;
         // `@lru_cache` / `@cache` functions are rewritten before anything is
         // declared (`lowering/functools.rs`).
-        let memoized = self.memoized_module(module)?;
-        let module = memoized.as_ref().unwrap_or(module);
+        let memoized = self.memoized_module(parsed)?;
+        let module = memoized.as_ref().unwrap_or(parsed);
         let source = SourceFile {
             path: self.path.clone(),
             language: Language::Python,

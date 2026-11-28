@@ -25,7 +25,7 @@
 const FUNCTOOLS_PARTIAL: &str = "functools.partial";
 /// The fully qualified name of `functools.reduce`.
 const FUNCTOOLS_REDUCE: &str = "functools.reduce";
-/// CPython's `lru_cache` default `maxsize`, used by a bare `@lru_cache` and
+/// `CPython`'s `lru_cache` default `maxsize`, used by a bare `@lru_cache` and
 /// by `@lru_cache()`.
 const LRU_CACHE_DEFAULT_MAXSIZE: u64 = 128;
 
@@ -36,7 +36,7 @@ enum MemoBound {
     Unbounded,
     /// `@lru_cache(maxsize=n)` with `n > 0`: least recently used eviction.
     Lru(u64),
-    /// `maxsize <= 0`: CPython calls straight through and caches nothing.
+    /// `maxsize <= 0`: `CPython` calls straight through and caches nothing.
     Disabled,
 }
 
@@ -189,7 +189,7 @@ impl ModuleBuilder<'_> {
                 continue;
             };
             match self.memo_decorator(func).and_then(|bound| {
-                bound.map(|bound| self.memoized_function(func, bound)).transpose()
+                bound.map(|stated| self.memoized_function(func, stated)).transpose()
             }) {
                 Ok(Some(replacement)) => {
                     stmts.extend(replacement);
@@ -205,9 +205,9 @@ impl ModuleBuilder<'_> {
         if !rewritten {
             return Ok(None);
         }
-        let mut module = module.clone();
-        module.body = stmts.into_iter().collect();
-        Ok(Some(module))
+        let mut rewritten_module = module.clone();
+        rewritten_module.body = stmts.into_iter().collect();
+        Ok(Some(rewritten_module))
     }
 
     /// The memoizing decorator on a module-level function, if it has one.
@@ -254,7 +254,7 @@ impl ModuleBuilder<'_> {
                     ));
                 }
                 (false, None) => MemoBound::Lru(LRU_CACHE_DEFAULT_MAXSIZE),
-                (false, Some(call)) => Self::lru_cache_bound(call, span)?,
+                (false, Some(arguments)) => Self::lru_cache_bound(arguments, span)?,
             };
             if found.is_some() {
                 return Err(SmeltError::unsupported(span, "a function memoized twice is not supported"));
@@ -296,10 +296,10 @@ impl ModuleBuilder<'_> {
                 }
             }
         }
-        let Some(maxsize) = maxsize else {
+        let Some(stated) = maxsize else {
             return Ok(MemoBound::Lru(LRU_CACHE_DEFAULT_MAXSIZE));
         };
-        match maxsize {
+        match stated {
             Expr::NoneLiteral(_) => Ok(MemoBound::Unbounded),
             Expr::NumberLiteral(number) => match &number.value {
                 Number::Int(int) => Ok(int.as_u64().map_or(MemoBound::Disabled, |size| {
@@ -334,11 +334,11 @@ impl ModuleBuilder<'_> {
     /// ```
     ///
     /// Behaviour: the body runs once per distinct argument tuple (until it
-    /// is evicted), exactly when CPython's `lru_cache` runs it. A recursive
+    /// is evicted), exactly when `CPython`'s `lru_cache` runs it. A recursive
     /// call in the body names `f`, the wrapper, so it is memoized too; a
     /// key a recursive call inserted while the body ran is overwritten with
     /// the equal value the unbounded cache computes, and kept as is by the
-    /// bounded one (CPython's `bounded_lru_cache_wrapper` does the same).
+    /// bounded one (`CPython`'s `bounded_lru_cache_wrapper` does the same).
     /// With a bound the dict's insertion order is the recency order: a hit
     /// moves its entry to the end, and a miss on a full cache evicts the
     /// first, least recently used, entry before inserting.
@@ -535,8 +535,8 @@ impl ModuleBuilder<'_> {
                 "reduce() iterates a list or a generator here; convert the iterable with list(...)",
             ));
         };
-        let initial = initial.map(|initial| self.expression(initial, body)).transpose()?;
-        let acc_ty = initial.map_or(item_ty, |initial| Self::expr_ty(body, initial));
+        let seed = initial.map(|value| self.expression(value, body)).transpose()?;
+        let acc_ty = seed.map_or(item_ty, |value| Self::expr_ty(body, value));
         let callback = self.python_callback_argument(function, &[acc_ty, item_ty], body)?;
         if callback.return_ty != acc_ty {
             return Err(SmeltError::unsupported(
@@ -548,9 +548,9 @@ impl ModuleBuilder<'_> {
                 ),
             ));
         }
-        if initial.is_some() {
+        if seed.is_some() {
             return Ok(Some(body.push_expr(HirExpr {
-                kind: ExprKind::ListReduce { list, initial, callback: callback.expr, from_right: false },
+                kind: ExprKind::ListReduce { list, initial: seed, callback: callback.expr, from_right: false },
                 ty: acc_ty,
                 span,
             })));
@@ -660,28 +660,27 @@ impl ModuleBuilder<'_> {
         }
         // Unique within the body: no two partials share a hidden name.
         let slot = body.locals.len();
-        let hidden = |this: &mut Self, body: &mut Body, label: String, value: &Expr| -> Result<String, SmeltError> {
-            let lowered = this.expression(value, body)?;
-            let ty = Self::expr_ty(body, lowered);
+        let hidden = |this: &mut Self, arena: &mut Body, label: String, value: &Expr| -> Result<String, SmeltError> {
+            let lowered = this.expression(value, arena)?;
+            let ty = Self::expr_ty(arena, lowered);
             let hidden_name = format!("__smelt_partial_{slot}_{label}");
             // Named as the closures capturing it name it (`closure_captures`).
             let symbol = this.intern_name(&hidden_name);
-            let local = body.push_local(LocalDecl { name: Some(symbol), ty, mutable: false, span });
-            let pat = body.push_pattern(HirPattern::Binding(local));
-            body.push_stmt_to_block(block, HirStmt::Let { pat, ty, value: Some(lowered) });
+            let local = arena.push_local(LocalDecl { name: Some(symbol), ty, mutable: false, span });
+            let pat = arena.push_pattern(HirPattern::Binding(local));
+            arena.push_stmt_to_block(block, HirStmt::Let { pat, ty, value: Some(lowered) });
             this.scope.locals.insert(hidden_name.clone(), local);
             Ok(hidden_name)
         };
-        let callee = match self.direct_partial_callee(func) {
-            Some(callee) => callee,
-            None => {
-                let stored = hidden(self, body, "func".to_owned(), func)?;
-                let ty = self.scope.locals.get(&stored).map(|local| Self::local_ty(body, *local));
-                if !ty.is_some_and(|ty| matches!(self.ctx.krate.types.get(ty), Some(Type::Function(_)))) {
-                    return Err(SmeltError::unsupported(self.span(func.range()), "partial() needs a callable"));
-                }
-                stored
+        let callee = if let Some(named) = self.direct_partial_callee(func) {
+            named
+        } else {
+            let stored = hidden(self, body, "func".to_owned(), func)?;
+            let stored_ty = self.scope.locals.get(&stored).map(|local| Self::local_ty(body, *local));
+            if !stored_ty.is_some_and(|ty| matches!(self.ctx.krate.types.get(ty), Some(Type::Function(_)))) {
+                return Err(SmeltError::unsupported(self.span(func.range()), "partial() needs a callable"));
             }
+            stored
         };
         let mut positional = Vec::with_capacity(args.len());
         for (index, arg) in args.iter().enumerate() {
@@ -720,7 +719,7 @@ impl ModuleBuilder<'_> {
 
     /// What `callee` (a [`PartialBinding::callee`]) calls, for the signature
     /// of a value closure over it.
-    fn partial_target(&mut self, callee: &str, body: &Body) -> Option<PartialTarget> {
+    fn partial_target(&self, callee: &str, body: &Body) -> Option<PartialTarget> {
         let value_local = match self.scope.partials.get(callee) {
             Some(binding) => Some(binding.value?),
             None => self.scope.locals.get(callee).copied(),
@@ -771,7 +770,7 @@ impl ModuleBuilder<'_> {
     /// callable called with keywords has no parameter names here, and a
     /// generic callee's parameter types are only solved per call.
     fn partial_value_lambda(
-        &mut self,
+        &self,
         binding: &PartialBinding,
         body: &Body,
         range: TextRange,
@@ -882,17 +881,20 @@ impl ModuleBuilder<'_> {
         }
         let range = call.func.range();
         let mut synthesized = call.clone();
-        synthesized.func = Box::new(name_expr(&binding.callee, range));
-        let mut args: Vec<Expr> = binding.positional.iter().map(|hidden| name_expr(hidden, range)).collect();
-        args.extend(call.arguments.args.iter().cloned());
-        synthesized.arguments.args = args.into_iter().collect();
+        *synthesized.func = name_expr(&binding.callee, range);
+        synthesized.arguments.args = binding
+            .positional
+            .iter()
+            .map(|hidden| name_expr(hidden, range))
+            .chain(call.arguments.args.iter().cloned())
+            .collect();
         let passed: HashSet<&str> = call
             .arguments
             .keywords
             .iter()
             .filter_map(|keyword| keyword.arg.as_ref().map(ruff_python_ast::Identifier::as_str))
             .collect();
-        let mut keywords: Vec<ruff_python_ast::Keyword> = binding
+        synthesized.arguments.keywords = binding
             .keywords
             .iter()
             .filter(|(keyword, _)| !passed.contains(keyword.as_str()))
@@ -902,9 +904,8 @@ impl ModuleBuilder<'_> {
                 arg: Some(ruff_python_ast::Identifier::new(keyword.as_str(), range)),
                 value: name_expr(hidden, range),
             })
+            .chain(call.arguments.keywords.iter().cloned())
             .collect();
-        keywords.extend(call.arguments.keywords.iter().cloned());
-        synthesized.arguments.keywords = keywords.into_iter().collect();
         self.call_expression_with_hint(&synthesized, body, type_hint).map(Some)
     }
 }

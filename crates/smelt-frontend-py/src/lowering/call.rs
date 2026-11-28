@@ -1112,8 +1112,8 @@ impl ModuleBuilder<'_> {
             if let ExprKind::Item(item) = body.exprs[index].kind
                 && matches!(self.item_ref(item), Item::Function(_))
             {
-                let span = Self::expr_span(body, *arg);
-                *arg = self.function_item_closure(item, *arg, span, body)?;
+                let item_span = Self::expr_span(body, *arg);
+                *arg = self.function_item_closure(item, *arg, item_span, body)?;
             }
         }
         if let Some(meta) = signature.vararg {
