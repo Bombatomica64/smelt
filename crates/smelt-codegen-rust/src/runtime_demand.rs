@@ -93,6 +93,8 @@ declare_needs! {
     /// The process time zone's `LocalTime`/`UTC` conversions, for the
     /// local-time `Date` operations (`smelt_date_local_offset`).
     DateLocalTime,
+    /// A Date with an explicit IANA time zone.
+    DateTimezoneContext,
     /// The local-time `Date` string methods (`smelt_date_local_string`).
     DateLocalString,
     /// The `Date` host class.
@@ -241,6 +243,8 @@ declare_needs! {
     ThisChannel,
     /// A read of that channel.
     ThisRead,
+    /// Receiver validation for a Promise static read as a callable.
+    PromiseReceiver,
     /// JavaScript `[[Construct]]` through a function value.
     Construct,
     /// `instanceof` through a function value.
@@ -347,7 +351,6 @@ const REQUIRES: &[(Need, &[Need])] = &[
             Need::PanicRoute,
             Need::DepRegress,
             Need::DepChrono,
-            Need::DepChronoTz,
             Need::DepTokio,
             // The erased string payload is a `JsString`.
             Need::JsString,
@@ -384,6 +387,15 @@ const REQUIRES: &[(Need, &[Need])] = &[
     (Need::Date, &[Need::ObjectIds, Need::HostOrigins]),
     (Need::DateLocalTime, &[Need::DepChrono]),
     (Need::DateLocalString, &[Need::DateLocalTime]),
+    (
+        Need::DateTimezoneContext,
+        &[
+            Need::Date,
+            Need::DateLocalString,
+            Need::DepChronoTz,
+            Need::Unknown,
+        ],
+    ),
     // These are emitted inside the carrier's block, or carry its values.
     (Need::IteratorResult, &[Need::Unknown]),
     (
@@ -404,6 +416,7 @@ const REQUIRES: &[(Need, &[Need])] = &[
     ),
     (Need::ThisChannel, &[Need::Unknown]),
     (Need::ThisRead, &[Need::ThisChannel]),
+    (Need::PromiseReceiver, &[Need::Construct]),
     (Need::Construct, &[Need::Unknown, Need::ThisChannel]),
     (Need::InstanceOfValue, &[Need::Unknown]),
     (Need::ClassValue, &[Need::Unknown]),

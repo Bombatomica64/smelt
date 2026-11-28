@@ -74,6 +74,9 @@ test("NaN equality", () => {
     assert!(!source.contains("== f64::NAN"), "{source}");
 }
 
+/// Old requirement: preserve NaN while shifting the timestamp to local time.
+/// New requirement: the typed Date clips the input without shifting it.
+/// `@date-fns/tz` 1.4.1 reports NaN for an invalid input's `getTime()`.
 #[test]
 fn emits_timezone_context_that_preserves_nan_values() {
     let source = source_for(
@@ -83,11 +86,9 @@ const context = tz("Asia/Singapore");
 "#,
     );
 
-    assert!(
-        source.contains("if smelt_timestamp_ms.is_finite()"),
-        "{source}"
-    );
-    assert!(source.contains("else { f64::NAN }"), "{source}");
+    assert!(source.contains("SmeltDate::with_zone("), "{source}");
+    assert!(source.contains("Self::new(time_ms)"), "{source}");
+    assert!(source.contains("Self::clip(time_ms)"), "{source}");
 }
 
 #[test]

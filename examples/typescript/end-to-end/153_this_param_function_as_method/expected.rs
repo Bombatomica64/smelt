@@ -2876,7 +2876,7 @@ fn smelt_abort_method(object: SmeltObject, method: &str) -> SmeltUnknown { let m
 
 /// The synthesized host method a member read resolves to, if the object
 /// carries a host marker and has no OWN member of that name.
-fn smelt_host_method(object: &SmeltObject, name: &str) -> Option<SmeltUnknown> { if object.contains_key(name) { return None; } if (object.contains_key("__smelt_abortcontroller") || object.contains_key("__smelt_abortsignal")) && matches!(name, "abort" | "addEventListener" | "removeEventListener" | "dispatchEvent" | "throwIfAborted") { return Some(smelt_abort_method(object.clone(), name)); } if object.contains_key("__smelt_regexp") && matches!(name, "test" | "exec" | "toString") { return Some(smelt_erased_regexp_method(object.clone(), name)); } None }
+fn smelt_host_method(object: &SmeltObject, name: &str) -> Option<SmeltUnknown> { if object.contains_key(name) { return None; }  if (object.contains_key("__smelt_abortcontroller") || object.contains_key("__smelt_abortsignal")) && matches!(name, "abort" | "addEventListener" | "removeEventListener" | "dispatchEvent" | "throwIfAborted") { return Some(smelt_abort_method(object.clone(), name)); } if object.contains_key("__smelt_regexp") && matches!(name, "test" | "exec" | "toString") { return Some(smelt_erased_regexp_method(object.clone(), name)); } None }
 
 /// A live, single-pass erased iterator over `step`.
 fn smelt_erased_live_iterator(step: impl FnMut() -> Option<SmeltUnknown> + 'static) -> SmeltUnknown {
@@ -3743,9 +3743,6 @@ fn smelt_throw_not_a_record(expected: &str, value: &SmeltUnknown) -> ! { let rec
 /// member read (see `smelt_get_unknown_field`).
 fn smelt_unmodeled_import() -> SmeltUnknown { SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_unmodeled".to_owned(), SmeltUnknown::Bool(true)), ("__smelt_call".to_owned(), SmeltUnknown::Function(::std::rc::Rc::new(|_smelt_args: Vec<SmeltUnknown>| Ok(smelt_unmodeled_import()))))]))) }
 
-/// Throw JavaScript's `TypeError: <builtin> called on non-object` unless the
-/// receiver a builtin static was called with is an object.
-fn smelt_require_object_receiver(receiver: &SmeltUnknown, builtin: &str) { if !matches!(receiver, SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_)) { smelt_throw_builtin_error("TypeError", format!("{builtin} called on non-object")) } }
 /// Read a property off an erased JavaScript array (`arr.k` / `arr[k]`).
 fn smelt_get_array_field(values: &SmeltArray, field: &(impl SmeltHostText + ?Sized)) -> SmeltUnknown { let field = field.host_text(); let field: &str = &field;
     if field == "length" { return SmeltUnknown::Number(values.len() as f64); }
@@ -3912,23 +3909,11 @@ impl SmeltUnknown {
     }
     pub fn get_day(&self) -> f64 {
         let timestamp_ms = match self { Self::Number(value) => *value, Self::Object(value) => match value.get("__smelt_date") { Some(Self::Number(value)) => value, _ => return f64::NAN }, _ => return f64::NAN };
+        if !timestamp_ms.is_finite() { return f64::NAN; }
         let days_since_epoch = (timestamp_ms / 86_400_000.0).floor() as i64;
         ((days_since_epoch + 4).rem_euclid(7)) as f64
     }
     pub fn to_iso_string(&self) -> String {
-        if let Self::Object(value) = self {
-            if let (Some(Self::Number(timestamp_ms)), Some(Self::String(timezone_name))) = (value.get("__smelt_date"), value.get("__smelt_timezone")) {
-                if let (Some(mut local), Ok(timezone)) = (chrono::DateTime::<chrono::Utc>::from_timestamp_millis(timestamp_ms as i64).map(|date| date.naive_utc()), timezone_name.to_string_lossy().parse::<chrono_tz::Tz>()) {
-                    loop {
-                        match chrono::TimeZone::from_local_datetime(&timezone, &local) {
-                            chrono::LocalResult::Single(date) => return date.to_rfc3339_opts(chrono::SecondsFormat::Millis, false),
-                            chrono::LocalResult::Ambiguous(first, _) => return first.to_rfc3339_opts(chrono::SecondsFormat::Millis, false),
-                            chrono::LocalResult::None => local += chrono::Duration::minutes(1),
-                        }
-                    }
-                }
-            }
-        }
         let timestamp_ms = match self {
             Self::Number(value) => *value,
             Self::Object(value) => match value.get("__smelt_date") { Some(Self::Number(value)) => value, _ => f64::NAN },

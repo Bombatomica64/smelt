@@ -17,8 +17,12 @@ impl RuntimeDemand {
             Rvalue::FunctionName { .. } => {
                 self.add(Need::FunctionNames);
             }
-            Rvalue::ThisRead | Rvalue::RequireObjectReceiver { .. } => {
+            Rvalue::ThisRead => {
                 self.add(Need::ThisRead);
+            }
+            Rvalue::RequirePromiseReceiver { .. } => {
+                self.add(Need::ThisRead);
+                self.add(Need::PromiseReceiver);
             }
             Rvalue::BindThis { .. }
             | Rvalue::BindOwnThis { .. }
@@ -291,8 +295,7 @@ impl RuntimeDemand {
                 self.add(Need::VitestMock);
             }
             Rvalue::DateTimezoneContext { .. } => {
-                self.add(Need::DepChronoTz);
-                self.add(Need::DepChrono);
+                self.add(Need::DateTimezoneContext);
             }
             Rvalue::DateToIsoString { .. } => {
                 self.add(Need::DepChrono);

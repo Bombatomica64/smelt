@@ -91,7 +91,7 @@ fn smelt_unbox_primitive(value: SmeltUnknown) -> SmeltUnknown { match value { Sm
 /// Read `valueOf` off an erased receiver: its own override or the prototype's unbound method.
 fn smelt_value_of_method(receiver: SmeltUnknown) -> SmeltUnknown {
     match receiver {
-        SmeltUnknown::Object(map) => { if let own @ SmeltUnknown::Function(_) = smelt_get_object_field(&map, "valueOf") { return own; } }
+        SmeltUnknown::Object(map) => { if let own @ SmeltUnknown::Function(_) = smelt_get_object_field(&map, "valueOf") { return own; } /*@if date_timezone_context*/if let Some(date_method) = smelt_zoned_date_method(&map, "valueOf") { return date_method; } /*@end*/}
         number @ SmeltUnknown::Number(_) => { if let Some(method) = smelt_unbound_prototype_method(SmeltPrototypeFamily::Number, &number, "valueOf") { return method; } }
 // @smelt:if !this_channel
 //=         other => { let unboxed = smelt_unbox_primitive(other); return SmeltUnknown::Function(::std::rc::Rc::new(move |_args: Vec<SmeltUnknown>| Ok(unboxed.clone()))); }

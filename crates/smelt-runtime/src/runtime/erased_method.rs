@@ -124,6 +124,9 @@ fn smelt_erased_to_js_string(value: &SmeltUnknown) -> JsString {
 fn smelt_erased_object_to_string(object: &SmeltObject) -> String {
     let method = object.get("toString").or_else(|| object.get("__smelt_proto:toString")).or_else(|| object.get("__smelt_method:toString"));
     let Some(SmeltUnknown::Function(to_string)) = method else {
+// @smelt:if date_timezone_context
+        if let Some(text) = smelt_erased_zoned_date_to_string(object) { return text; }
+// @smelt:end
         return "[object Object]".to_owned();
     };
 // @smelt:if this_channel
@@ -528,13 +531,44 @@ fn smelt_unmodeled_import() -> SmeltUnknown { SmeltUnknown::Object(SmeltObject::
 
 // @smelt:item-end
 
-// The receiver check of a builtin static read as a value (`Promise.resolve`).
-// @smelt:item smelt_require_object_receiver when this_read
-/// Throw JavaScript's `TypeError: <builtin> called on non-object` unless the
-/// receiver a builtin static was called with is an object.
-//~
-//~ `Promise.resolve`, `Promise.reject` and `Promise.all` read `this` as the
-//~ constructor to build with; called without a receiver (`const r =
-//~ Promise.resolve; r(1)`) it is `undefined`, which V8 rejects in these words.
-fn smelt_require_object_receiver(receiver: &SmeltUnknown, builtin: &str) { if !matches!(receiver, SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_)) { smelt_throw_builtin_error("TypeError", format!("{builtin} called on non-object")) } }
+// @smelt:item smelt_require_promise_receiver when promise_receiver
+/// Enforce the object and capability-constructor checks of a Promise static.
+fn smelt_require_promise_receiver(receiver: &SmeltUnknown, builtin: &str) {
+    if !matches!(receiver, SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) | SmeltUnknown::Promise(_)) {
+        smelt_throw_builtin_error("TypeError", format!("{builtin} called on non-object"));
+    }
+    // The native Promise does not need to go through the erased constructor:
+    // the statically selected async operation supplies its resolving functions.
+    if receiver.js_strict_eq(&smelt_builtin_namespace("Promise")) { return; }
+    let constructible = smelt_callable_of(receiver).is_some_and(|function| {
+        smelt_canonical_function_identity(&function).0.constructor.get()
+            || matches!(receiver, SmeltUnknown::Object(object) if object.contains_key("__smelt_class_value"))
+    });
+    if !constructible {
+        let name = match receiver {
+            SmeltUnknown::Array(_) => "[object Array]".to_owned(),
+            SmeltUnknown::Promise(_) => "#<Promise>".to_owned(),
+            SmeltUnknown::Function(function) => {
+                let name = smelt_function_value_property(function, "name");
+                smelt_erased_to_js_string(&name).to_string()
+            }
+            _ => "#<Object>".to_owned(),
+        };
+        smelt_throw_builtin_error("TypeError", format!("{name} is not a constructor"));
+    }
+    // Run a constructible receiver with the executor just as
+    // NewPromiseCapability does. Merely being constructible is insufficient.
+    let capability_installed = ::std::rc::Rc::new(::std::cell::Cell::new(false));
+    let installed = capability_installed.clone();
+    let executor = SmeltUnknown::Function(::std::rc::Rc::new(move |args| {
+        let valid = args.first().and_then(smelt_callable_of).is_some()
+            && args.get(1).and_then(smelt_callable_of).is_some();
+        installed.set(valid);
+        Ok(SmeltUnknown::Undefined)
+    }));
+    smelt_construct(receiver.clone(), vec![executor]);
+    if !capability_installed.get() {
+        smelt_throw_builtin_error("TypeError", "Promise resolve or reject function is not callable".to_owned());
+    }
+}
 // @smelt:item-end

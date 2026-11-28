@@ -1588,11 +1588,11 @@ pub enum DatePart {
 /// The time zone a `Date` component is read or written in.
 ///
 /// JavaScript's local-time methods (`getHours`, `setDate`, `new Date(y, m)`)
-/// work in the process time zone (`TZ`), the `UTC` ones (`getUTCHours`,
-/// `Date.UTC`) in UTC.
+/// work in the Date's time zone, or in the process time zone (`TZ`) by default.
+/// The UTC methods (`getUTCHours`, `Date.UTC`) always use UTC.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DateZone {
-    /// The process's local time zone.
+    /// The receiver's local zone, or the process zone by default.
     Local,
     /// Coordinated Universal Time.
     Utc,

@@ -58,7 +58,7 @@ impl ModuleBuilder<'_> {
                     span,
                     outer_body,
                     |this, body, [first]| {
-                        this.require_object_receiver("PromiseResolve", span, body);
+                        this.require_promise_receiver("PromiseResolve", span, body);
                         let duration = this.zero_duration(span, body);
                         body.push_expr(Expr {
                             kind: ExprKind::AsyncOp {
@@ -82,7 +82,7 @@ impl ModuleBuilder<'_> {
                     span,
                     outer_body,
                     |this, body, [first]| {
-                        this.require_object_receiver("PromiseReject", span, body);
+                        this.require_promise_receiver("PromiseReject", span, body);
                         let duration = this.zero_duration(span, body);
                         body.push_expr(Expr {
                             kind: ExprKind::AsyncOp {
@@ -111,7 +111,7 @@ impl ModuleBuilder<'_> {
                     span,
                     outer_body,
                     |this, body, [first]| {
-                        this.require_object_receiver("Promise.all", span, body);
+                        this.require_promise_receiver("Promise.all", span, body);
                         let futures = body.push_expr(Expr {
                             kind: ExprKind::UnknownCast {
                                 value: first,
@@ -244,15 +244,12 @@ impl ModuleBuilder<'_> {
         }
     }
 
-    /// Push the check that the closure was called with an object receiver
-    /// (`RequireObjectReceiver`): the `Promise` statics build with their
-    /// `this`, so a call through a copy that supplies none throws Node's
-    /// `TypeError: <builtin> called on non-object`, while `.call(Promise, ..)`
-    /// and `.bind(Promise)` pass.
-    fn require_object_receiver(&mut self, builtin: &str, span: Span, body: &mut Body) {
+    /// Check the receiver at invocation time. All receiver-binding forms
+    /// invoke this same closure, including a detached call with no receiver.
+    fn require_promise_receiver(&mut self, builtin: &str, span: Span, body: &mut Body) {
         let none = self.ctx.krate.types.intern(Type::None);
         let check = body.push_expr(Expr {
-            kind: ExprKind::RequireObjectReceiver {
+            kind: ExprKind::RequirePromiseReceiver {
                 builtin: builtin.to_owned(),
             },
             ty: none,

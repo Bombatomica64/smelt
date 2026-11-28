@@ -122,24 +122,20 @@ impl SmeltUnknown {
     //~ Return a JavaScript-like weekday for erased Date-compatible numeric timestamps.
     pub fn get_day(&self) -> f64 {
         let timestamp_ms = match self { Self::Number(value) => *value, Self::Object(value) => match value.get("__smelt_date") { Some(Self::Number(value)) => value, _ => return f64::NAN }, _ => return f64::NAN };
+// @smelt:if date_timezone_context
+        let timestamp_ms = smelt_date_epoch_ms(timestamp_ms)
+            .and_then(|instant| smelt_date_context_offset(instant, smelt_unknown_date_zone(self)))
+            .map_or(f64::NAN, |offset| f64::from(offset).mul_add(1000.0, timestamp_ms));
+// @smelt:end
+        if !timestamp_ms.is_finite() { return f64::NAN; }
         let days_since_epoch = (timestamp_ms / 86_400_000.0).floor() as i64;
         ((days_since_epoch + 4).rem_euclid(7)) as f64
     }
     //~ Return JavaScript Date.toISOString output for erased Date-compatible values.
     pub fn to_iso_string(&self) -> String {
-        if let Self::Object(value) = self {
-            if let (Some(Self::Number(timestamp_ms)), Some(Self::String(timezone_name))) = (value.get("__smelt_date"), value.get("__smelt_timezone")) {
-                if let (Some(mut local), Ok(timezone)) = (chrono::DateTime::<chrono::Utc>::from_timestamp_millis(timestamp_ms as i64).map(|date| date.naive_utc()), timezone_name.to_string_lossy().parse::<chrono_tz::Tz>()) {
-                    loop {
-                        match chrono::TimeZone::from_local_datetime(&timezone, &local) {
-                            chrono::LocalResult::Single(date) => return date.to_rfc3339_opts(chrono::SecondsFormat::Millis, false),
-                            chrono::LocalResult::Ambiguous(first, _) => return first.to_rfc3339_opts(chrono::SecondsFormat::Millis, false),
-                            chrono::LocalResult::None => local += chrono::Duration::minutes(1),
-                        }
-                    }
-                }
-            }
-        }
+// @smelt:if date_timezone_context
+        if let Some(zone) = smelt_unknown_date_zone(self) { return smelt_date_context_iso(smelt_unknown_date_value(self), zone); }
+// @smelt:end
         let timestamp_ms = match self {
             Self::Number(value) => *value,
             Self::Object(value) => match value.get("__smelt_date") { Some(Self::Number(value)) => value, _ => f64::NAN },

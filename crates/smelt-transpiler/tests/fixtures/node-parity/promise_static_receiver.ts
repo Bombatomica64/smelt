@@ -8,6 +8,13 @@ const unbound: Array<[string, () => unknown]> = [
   ["resolve", () => resolve(1)],
   ["reject", () => reject(new Error("no"))],
   ["all", () => all([1, 2])],
+  ["resolve object", () => Promise.resolve.call({}, 1)],
+  ["reject object", () => Promise.reject.call({}, 1)],
+  ["all object", () => Promise.all.call({}, [])],
+  ["resolve primitive", () => Promise.resolve.call(1, 1)],
+  ["resolve empty constructor", () => Promise.resolve.call(function () {}, 1)],
+  ["apply object", () => resolve.apply({}, [1])],
+  ["bind object", () => all.bind({})([])],
 ];
 for (const [name, call] of unbound) {
   try {
@@ -19,6 +26,7 @@ for (const [name, call] of unbound) {
 }
 async function main(): Promise<void> {
   console.log(await resolve.call(Promise, 5));
+  console.log(await resolve.apply(Promise, [8]));
   const bound = all.bind(Promise);
   console.log((await bound([6, Promise.resolve(7)])).join(","));
   try {

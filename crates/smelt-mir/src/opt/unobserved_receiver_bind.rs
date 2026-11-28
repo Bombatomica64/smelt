@@ -158,7 +158,7 @@ fn program_reads_this(mir: &Mir) -> bool {
                 statement.value(),
                 Some(
                     Rvalue::ThisRead
-                        | Rvalue::RequireObjectReceiver { .. }
+                        | Rvalue::RequirePromiseReceiver { .. }
                         | Rvalue::BindOwnThis { .. }
                 )
             )
