@@ -484,9 +484,12 @@ fn rebound_host_classes(krate: &smelt_hir::Crate) -> HashSet<smelt_hir::Symbol> 
         .bodies
         .iter()
         .flat_map(|body| body.exprs.iter())
-        .filter_map(|expr| match &expr.kind {
-            smelt_hir::ExprKind::HostGlobalWrite { class, .. } => Some(*class),
-            _ => None,
+        .filter_map(|expr| {
+            if let smelt_hir::ExprKind::HostGlobalWrite { class, .. } = &expr.kind {
+                Some(*class)
+            } else {
+                None
+            }
         })
         .collect()
 }

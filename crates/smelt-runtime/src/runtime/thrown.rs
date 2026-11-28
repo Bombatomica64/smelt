@@ -444,16 +444,17 @@ fn smelt_data_view_set_bigint_throwing(view: &SmeltDataView, kind: SmeltTypedArr
 // `NaN` is 0, a fraction truncates, a negative is rejected.
 // @smelt:item smelt_typed_array_view_throwing when typed_array_view_checked
 /// A typed-array view over `buffer`, or the `RangeError` JavaScript throws for its window.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "`ToIndex` converts a checked, integral, non-negative JavaScript number to an index")]
 fn smelt_typed_array_view_throwing(kind: SmeltTypedArrayKind, buffer: &SmeltArrayBuffer, byte_offset: f64, length: Option<f64>) -> Result<SmeltTypedArray, Box<dyn ::std::error::Error>> {
     let range_error = |message: String| smelt_throw(SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_error".to_owned(), SmeltUnknown::String("RangeError".into())), ("message".to_owned(), SmeltUnknown::String(message.into())), ("stack".to_owned(), SmeltUnknown::Undefined), ("cause".to_owned(), SmeltUnknown::Undefined)]))));
-    let to_index = |value: f64| -> Option<usize> { let integer = if value.is_nan() { 0.0 } else { value.trunc() }; if integer < 0.0 || integer > 9007199254740991.0 { None } else { Some(integer as usize) } };
+    let to_index = |value: f64| -> Option<usize> { let integer = if value.is_nan() { 0.0 } else { value.trunc() }; if integer < 0.0 || integer > 9_007_199_254_740_991.0 { None } else { Some(integer as usize) } };
     let (name, width) = (kind.class_name(), kind.byte_width());
     let buffer_length = buffer.storage().borrow().len();
     let Some(offset) = to_index(byte_offset) else { return Err(range_error(format!("Start offset {byte_offset} is outside the bounds of the buffer"))); };
-    if offset % width != 0 { return Err(range_error(format!("start offset of {name} should be a multiple of {width}"))); }
+    if !offset.is_multiple_of(width) { return Err(range_error(format!("start offset of {name} should be a multiple of {width}"))); }
     let length = match length {
         None => {
-            if buffer_length % width != 0 { return Err(range_error(format!("byte length of {name} should be a multiple of {width}"))); }
+            if !buffer_length.is_multiple_of(width) { return Err(range_error(format!("byte length of {name} should be a multiple of {width}"))); }
             if offset > buffer_length { return Err(range_error(format!("Start offset {offset} is outside the bounds of the buffer"))); }
             (buffer_length - offset) / width
         }

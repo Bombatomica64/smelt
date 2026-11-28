@@ -65,8 +65,8 @@ mod linux {
     }
 
     /// Sends `sig` to `pid`, ignoring a process that is already gone.
-    fn signal(pid: i32, sig: Signal) {
-        if let Some(pid) = Pid::from_raw(pid) {
+    fn signal(raw: i32, sig: Signal) {
+        if let Some(pid) = Pid::from_raw(raw) {
             // An error means the process already exited: nothing to signal.
             let _already_gone = kill_process(pid, sig);
         }
@@ -100,6 +100,7 @@ mod linux {
 }
 
 #[cfg(all(test, target_os = "linux"))]
+#[expect(clippy::expect_used, reason = "a test fails fast on process setup")]
 mod tests {
     use std::{
         process::{Command, Stdio},
@@ -112,8 +113,8 @@ mod tests {
     /// spaces and parentheses.
     #[test]
     fn parent_pid_survives_odd_command_names() {
-        assert_eq!(parent_of("42 (a) b (c)) S 7 42 42 0"), Some(7));
-        assert_eq!(parent_of("42 (sh) R 1 42"), Some(1));
+        assert_eq!(parent_of("42 (a) b (c)) S 7 42 42 0"), Some(7_i32));
+        assert_eq!(parent_of("42 (sh) R 1 42"), Some(1_i32));
         assert_eq!(parent_of("garbage"), None);
     }
 
@@ -148,11 +149,11 @@ mod tests {
             "the inherited pipe stayed open: the grandchild survived"
         );
         // Reparented to init (or a subreaper) and reaped there; poll briefly.
-        let gone = (0..200).any(|_| {
-            let stat = std::fs::read_to_string(format!("/proc/{grandchild}/stat"));
-            let dead = stat.map_or(true, |stat| {
-                stat.rsplit_once(')')
-                    .is_some_and(|(_, rest)| rest.trim_start().starts_with('Z'))
+        let gone = (0_u32..200).any(|_| {
+            let read = std::fs::read_to_string(format!("/proc/{grandchild}/stat"));
+            let dead = read.map_or(true, |line| {
+                line.rsplit_once(')')
+                    .is_some_and(|(_, fields)| fields.trim_start().starts_with('Z'))
             });
             if !dead {
                 std::thread::sleep(Duration::from_millis(10));

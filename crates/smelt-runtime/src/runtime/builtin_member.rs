@@ -100,7 +100,7 @@ fn smelt_builtin_relative_index(value: &SmeltUnknown, len: usize, default: usize
 //~ entry plus its arm and nothing else. A member that runs a callback
 //~ (`flatMap`) propagates the callback's throw.
 fn smelt_builtin_member_apply(key: &str, args: Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn ::std::error::Error>> {
-    if key == "Array.prototype.flatMap" { return smelt_builtin_flat_map(args); }
+    if key == "Array.prototype.flatMap" { return smelt_builtin_flat_map(&args); }
     let receiver = args.first().map_or(SmeltUnknown::Undefined, Clone::clone);
     let first = args.get(1).map_or(SmeltUnknown::Undefined, Clone::clone);
     let second = args.get(2).map_or(SmeltUnknown::Undefined, Clone::clone);
@@ -141,13 +141,16 @@ fn smelt_builtin_member_apply(key: &str, args: Vec<SmeltUnknown>) -> Result<Smel
 //~ JavaScript does; a receiver that is not an array answers `undefined`
 //~ like the other array members here. An erased callable has no `this`
 //~ channel, so `thisArg` cannot reach it.
-fn smelt_builtin_flat_map(args: Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn ::std::error::Error>> {
+fn smelt_builtin_flat_map(args: &[SmeltUnknown]) -> Result<SmeltUnknown, Box<dyn ::std::error::Error>> {
     let receiver = args.first().map_or(SmeltUnknown::Undefined, Clone::clone);
     let Some(values) = smelt_builtin_receiver_elements(&receiver) else { return Ok(SmeltUnknown::Undefined); };
     let Some(SmeltUnknown::Function(mapper)) = args.get(1) else { return Err(smelt_prototype_type_error("flatMap mapper function is not callable".to_owned())); };
     let mut result = Vec::with_capacity(values.len());
-    for (index, item) in values.into_iter().enumerate() {
-        match mapper(vec![item, SmeltUnknown::Number(index as f64), receiver.clone()])? {
+    let mut index = 0.0_f64;
+    for item in values {
+        let mapped = mapper(vec![item, SmeltUnknown::Number(index), receiver.clone()])?;
+        index += 1.0;
+        match mapped {
             SmeltUnknown::Array(items) => result.extend(items.into_vec()),
             other => result.push(other),
         }

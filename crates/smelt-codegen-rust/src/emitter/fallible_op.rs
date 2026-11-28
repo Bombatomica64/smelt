@@ -464,10 +464,10 @@ impl FunctionEmitter<'_> {
             ),
             Rvalue::TypedArrayNew {
                 class_name,
-                args,
+                args: view_args,
                 checked: true,
             } => (
-                self.typed_array_view_call(class_name, args)?,
+                self.typed_array_view_call(class_name, view_args)?,
                 dest_ty.ok_or_else(|| {
                     EmitError::new("internal: a typed-array view needs its destination type")
                 })?,
