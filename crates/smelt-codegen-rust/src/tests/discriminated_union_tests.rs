@@ -97,6 +97,12 @@ fn union_projection_converts_same_record_at_other_arguments() {
     ));
     let user = emitted_function_body(&source, "fn use_(");
     assert!(!user.contains("unreachable!"), "{user}");
+    // The positive half: the erased-generic arm is rebuilt as the caller's
+    // `LazyNext`, field by field, rather than dropped.
+    assert!(
+        user.contains("LazyNext { done:"),
+        "the `LazyNext` arm converts to the caller's instantiation: {user}"
+    );
 }
 
 /// A tuple's `.length` is its arity.

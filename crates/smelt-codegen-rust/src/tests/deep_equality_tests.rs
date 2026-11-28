@@ -163,6 +163,12 @@ fn a_type_argument_without_an_impl_keeps_the_handles_equality() {
     ));
     let test = rust_fn(&source, "test_mixed");
     assert!(!test.contains("smelt_deep_eq"), "{test}");
+    // The positive half: the matcher still compares, through `PartialEq`. A
+    // `toEqual` dropped or folded to `true` also has no `smelt_deep_eq`.
+    assert!(
+        test.contains(" != "),
+        "the handles' own equality decides: {test}"
+    );
 }
 
 /// Rule: a callable record compares by identity, as JavaScript compares

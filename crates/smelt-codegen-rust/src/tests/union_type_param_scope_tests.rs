@@ -91,24 +91,26 @@ fn union_use_site_erases_a_parameter_its_item_does_not_declare() {
 /// judged against a scope that declares `R` and not `T`.
 #[test]
 fn union_member_fields_erase_at_the_member_type_arguments() {
+    // The check reads the `Many<R>` arm of the union's `IntoSmeltUnknown`
+    // impl, where the field is erased. It used to slice the text up to the end
+    // of the FIRST impl after the enum (its `Clone`), which holds no erasure,
+    // so the negative assertion below could not fail.
     let source = source_for(FIXTURE);
-    let outcome = union_declaration(&source, "M2(Many<R>)");
-    let outcome = outcome
-        .get(
-            ..outcome
-                .find("\nimpl")
-                .and_then(|first| {
-                    outcome
-                        .get(first..)
-                        .and_then(|rest| rest.find("\n}\n"))
-                        .map(|end| first + end)
-                })
-                .unwrap_or(outcome.len()),
-        )
-        .unwrap_or(outcome);
+    let declaration = union_declaration(&source, "M2(Many<R>)");
+    let erasure = declaration
+        .split_once("IntoSmeltUnknown for ")
+        .map_or("", |(_, rest)| rest);
+    let many_arm = erasure
+        .lines()
+        .find(|line| line.trim_start().starts_with("Self::M2(value)"))
+        .unwrap_or_default();
     assert!(
-        !outcome.contains(crate::ERASED_GENERIC_ARRAY_ALIAS_FN),
-        "`Many<R>.next` is a `SmeltList<R>` in the enum's scope: {outcome}"
+        many_arm.contains("(\"next\".to_owned()"),
+        "the `Many<R>` erasure arm writes its `next` field: {erasure}"
+    );
+    assert!(
+        !many_arm.contains(crate::ERASED_GENERIC_ARRAY_ALIAS_FN),
+        "`Many<R>.next` is a `SmeltList<R>` in the enum's scope: {many_arm}"
     );
 }
 
