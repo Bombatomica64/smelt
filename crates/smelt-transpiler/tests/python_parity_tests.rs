@@ -715,3 +715,14 @@ fn generator_protocol() -> TestResult {
 fn numeric_unions() -> TestResult {
     verify_python_parity("numeric_unions")
 }
+
+/// A function or method body constructs, annotates, calls and reads the
+/// members of classes and functions written after it (refused before: bodies
+/// lowered in source order), mutual recursion between module functions, and
+/// string annotations spelling an expression (`"Entry | None"`). Requirements:
+/// `CPython`'s output, with every forward-referenced value at its concrete
+/// class type.
+#[test]
+fn forward_references() -> TestResult {
+    verify_python_parity("forward_references")
+}

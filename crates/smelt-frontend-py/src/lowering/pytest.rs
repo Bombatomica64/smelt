@@ -192,7 +192,7 @@ impl ModuleBuilder<'_> {
         // exit -- including a failed parameter annotation -- so nothing of this
         // function leaks into the items and module statements lowered after it.
         let generator_scope = generator.map(|(_, scope)| scope);
-        let (fn_body, params, variadics) = self.with_fn_scope(FnKind::of(func.is_async), |this| {
+        let (fn_body, params, variadics, deferred) = self.with_fn_scope(FnKind::of(func.is_async), |this| {
             let mut fn_body = Body::new(None, func_span);
             this.scope.generator = generator_scope;
             if generator_scope.is_some() {
@@ -370,23 +370,18 @@ impl ModuleBuilder<'_> {
                 variadics.kwarg = Some(KwArgParam { index, value_ty });
             }
 
-            // Lower the body statements.
+            // Lower the body statements, or queue them while pass 1 declares
+            // the module (`lowering/deferred_bodies.rs`).
             let param_names = func.parameters.iter().map(|param| param.name().as_str()).collect::<Vec<_>>();
             this.scope.single_binding = Self::single_binding_names(&param_names, &func.body);
-            let body_error = func
-                .body
-                .iter()
-                .find_map(|stmt| this.statement(stmt, &mut fn_body).err());
-            if func.is_async {
-                fn_body.finish_async();
-            }
-            if let Some(err) = body_error {
-                return Err(err);
-            }
-            Ok((fn_body, params, variadics))
+            let deferred = this.lower_or_defer_statements(func, &mut fn_body)?;
+            Ok((fn_body, params, variadics, deferred))
         })?;
 
         let body_id = self.ctx.krate.push_body(fn_body);
+        if let Some(scope) = deferred {
+            self.defer_body(func, body_id, scope, name_str);
+        }
         // The parameters a caller may leave out are the ones with a default;
         // a declaration stub of this function marks them optional.
         let required_params = func

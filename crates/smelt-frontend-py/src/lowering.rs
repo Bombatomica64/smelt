@@ -204,6 +204,14 @@ pub(crate) struct ModuleBuilder<'ctx> {
     handled_exceptions: Vec<smelt_hir::LocalId>,
     /// Whether the module body awaits (`asyncio.run`), which makes it async.
     module_awaits: bool,
+    /// Whether a function or method declared now has its body queued in
+    /// [`Self::deferred_bodies`] instead of lowered at once: set while pass 1
+    /// declares the module's top-level functions and classes
+    /// (`lowering/deferred_bodies.rs`).
+    defer_bodies: bool,
+    /// Declared functions and methods whose statements lower once every
+    /// module-level declaration exists, in declaration order.
+    deferred_bodies: Vec<DeferredBody>,
 }
 
 /// What kind of body the lowering cursor is in.
@@ -477,6 +485,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
             exception_args_getters: HashMap::new(),
             handled_exceptions: Vec::new(),
             module_awaits: false,
+            defer_bodies: false,
+            deferred_bodies: Vec::new(),
         }
     }
 
@@ -550,10 +560,17 @@ impl<'ctx> ModuleBuilder<'ctx> {
         // write them as module globals.
         self.declare_module_variables(module, &mut hir_module);
         let mut declared = vec![false; module.body.len()];
+        // Pass 1 declares signatures only: each top-level function's and
+        // method's statements are queued and lowered below, once every
+        // module-level class, function and signature exists, so a body may use
+        // a definition written after it (`lowering/deferred_bodies.rs`).
+        self.defer_bodies = true;
         for (slot, stmt) in declared.iter_mut().zip(&module.body) {
             *slot = self.declare_module_stmt(stmt, module, &mut hir_module, &mut errors);
         }
+        self.defer_bodies = false;
         self.register_module_namespace(&hir_module);
+        self.lower_deferred_bodies(&mut errors);
 
         // Pass 2 — lower the remaining module-level statements into the
         // module body.
@@ -721,6 +738,8 @@ include!("lowering/type_name.rs");
 include!("lowering/class_init.rs");
 // Function signature and pytest parametrization helpers.
 include!("lowering/function.rs");
+// Function and method bodies lowered after every module-level declaration.
+include!("lowering/deferred_bodies.rs");
 // Pytest-specific lowering helpers.
 include!("lowering/pytest.rs");
 // Type annotation lowering helpers.

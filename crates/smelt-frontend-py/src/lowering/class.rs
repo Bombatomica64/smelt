@@ -2116,7 +2116,7 @@ impl ModuleBuilder<'_> {
             declared_return_ty
         };
         // A fresh function scope, restored on every exit (see `with_fn_scope`).
-        let (fn_body, params) = self.with_fn_scope(FnKind::of(func.is_async), |this| {
+        let (fn_body, params, deferred) = self.with_fn_scope(FnKind::of(func.is_async), |this| {
             let mut fn_body = Body::new(None, span);
             let mut params: Vec<Param> = Vec::new();
 
@@ -2213,16 +2213,14 @@ impl ModuleBuilder<'_> {
             }
             let param_names = func.parameters.iter().map(|param| param.name().as_str()).collect::<Vec<_>>();
             this.scope.single_binding = Self::single_binding_names(&param_names, &func.body);
-            for stmt in &func.body {
-                this.statement(stmt, &mut fn_body)?;
-            }
-            if func.is_async {
-                fn_body.finish_async();
-            }
-            Ok((fn_body, params))
+            let deferred = this.lower_or_defer_statements(func, &mut fn_body)?;
+            Ok((fn_body, params, deferred))
         })?;
 
         let body_id = self.ctx.krate.push_body(fn_body);
+        if let Some(scope) = deferred {
+            self.defer_body(func, body_id, scope, class_name_str);
+        }
 
         // A `@classmethod` lowers to a receiver-free associated function, the
         // same owner a `@staticmethod` uses. Python binds its implicit `cls` to
