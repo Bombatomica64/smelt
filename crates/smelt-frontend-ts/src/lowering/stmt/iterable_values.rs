@@ -73,6 +73,27 @@ impl ModuleBuilder<'_> {
         (undefined(*return_ty) && undefined(*next_ty)).then_some(function.return_ty)
     }
 
+    /// `member` as a member of a union with an array arm
+    /// (`ArrayLike<T> | Iterable<T>`) or of an intersection
+    /// (`P & Iterable<P>`): an iterable thunk reads as the array `T[]`, the
+    /// representation `Iterable<T>` had before it became lazy, so the union
+    /// collapses to its array arm and the intersection keeps its shape. A
+    /// value converted for such a slot is drained into the array there (no
+    /// laziness); a union of an array with a function value, or an
+    /// intersection with one, would otherwise have no concrete
+    /// representation and erase. Any other member is returned unchanged.
+    pub(in crate::lowering) fn iterable_member_as_array(&mut self, member: TypeId) -> TypeId {
+        match self
+            .iterable_thunk_iterator(member)
+            .map(|iterator| self.ctx.krate.types.get(iterator).cloned())
+        {
+            Some(Some(Type::Generator { yield_ty, .. })) => {
+                self.ctx.krate.types.intern(Type::List(yield_ty))
+            }
+            _ => member,
+        }
+    }
+
     /// The type hint a value for a slot typed `hint` is lowered with: `T[]`
     /// for an `Iterable<T>` slot, so a literal takes its element types from
     /// `T` (`[["a", 1]]` as `[string, number][]`) before

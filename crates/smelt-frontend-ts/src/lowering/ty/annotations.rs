@@ -231,6 +231,17 @@ impl ModuleBuilder<'_> {
                     }
                     members.push(member_ty);
                 }
+                // `ArrayLike<T> | Iterable<T>`: beside an array arm an iterable
+                // keeps the array representation (module `iterable_values`).
+                if members
+                    .iter()
+                    .any(|member| matches!(self.ctx.krate.types.get(*member), Some(Type::List(_))))
+                {
+                    members = members
+                        .into_iter()
+                        .map(|member| self.iterable_member_as_array(member))
+                        .collect();
+                }
                 Ok(
                     self.union_of_member_types_with_absence(
                         &members,
@@ -266,7 +277,10 @@ impl ModuleBuilder<'_> {
                         continue;
                     }
                     let member_fields = self.type_fields_from_ts(member);
+                    // `pattern & Iterable<pattern>`: an intersection reads an
+                    // iterable member as the array it was (module `iterable_values`).
                     let member_ty = self.ts_type_to_hir(member)?;
+                    let member_ty = self.iterable_member_as_array(member_ty);
                     let member_fields = member_fields.unwrap_or_default();
                     unreadable_object_member |= member_fields.is_empty()
                         && !matches!(self.ctx.krate.types.get(member_ty), Some(Type::Function(_)));
