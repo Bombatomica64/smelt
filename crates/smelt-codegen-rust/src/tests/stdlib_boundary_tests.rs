@@ -35,6 +35,12 @@ export function isJson(value: string): boolean {
     );
 
     let body = emitted_function_body(&source, "fn is_json");
+    // The positive half: the parse's error arm exists and answers `false`. A
+    // dropped `try`, or an `isJson` folded to `true`, also has no panic text.
+    assert!(
+        body.contains("Ok(Err(") && body.contains("return false;"),
+        "the caught parse error must reach the `catch` arm's `false`:\n{body}"
+    );
     assert!(
         !body.contains("JSON parse failed"),
         "a caught `JSON.parse` must not be an infallible panic:\n{body}"

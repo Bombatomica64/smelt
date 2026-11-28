@@ -418,6 +418,14 @@ class CiPin(unittest.TestCase):
 class CiGates(unittest.TestCase):
     """`check_ci_gates.py`."""
 
+    def test_examples_avoidable_erasure_must_be_zero(self):
+        clean = {"category_totals": {"legitimate-boundary": 3, "runtime-prelude": 9}}
+        self.assertEqual(check_ci_gates.examples_erasure_violations(clean), [])
+        zero = {"category_totals": {"avoidable-erasure": 0}}
+        self.assertEqual(check_ci_gates.examples_erasure_violations(zero), [])
+        risen = {"category_totals": {"avoidable-erasure": 2}}
+        self.assertEqual(len(check_ci_gates.examples_erasure_violations(risen)), 1)
+
     def test_the_good_workflow_passes(self):
         self.assertEqual(check_ci_gates.workflow_violations("ci.yml", GOOD_CI), [])
 

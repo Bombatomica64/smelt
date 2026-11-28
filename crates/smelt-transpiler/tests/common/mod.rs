@@ -740,6 +740,35 @@ pub(crate) fn example_dir(name: &str) -> TestResult<PathBuf> {
         .join(name))
 }
 
+/// Every end-to-end example of `language` (`typescript`, `python`): each
+/// directory of `examples/<language>/end-to-end` holding `input`, sorted.
+///
+/// A directory scan rather than a hand-kept list, so an example added without
+/// a list entry cannot go unverified (CI's sharding already scans the same
+/// directory). An empty scan is an error: a moved corpus must not pass as
+/// "every example matched".
+pub(crate) fn example_names(language: &str, input: &str) -> TestResult<Vec<String>> {
+    let root = workspace_root()?
+        .join("examples")
+        .join(language)
+        .join("end-to-end");
+    let mut names = Vec::new();
+    for entry in fs::read_dir(&root)? {
+        let path = entry?.path();
+        if path.join(input).is_file()
+            && let Some(name) = path.file_name().and_then(|name| name.to_str())
+        {
+            names.push(name.to_owned());
+        }
+    }
+    names.sort();
+    ensure(
+        !names.is_empty(),
+        format!("no `{input}` example under {}", root.display()),
+    )?;
+    Ok(names)
+}
+
 /// Fails the test when `condition` is false.
 pub(crate) fn ensure(condition: bool, message: impl Into<String>) -> TestResult {
     if condition {
@@ -972,8 +1001,18 @@ const EXAMPLE_ONLY_VAR: &str = "SMELT_EXAMPLE_ONLY";
 const EXAMPLE_PROJECT_PLACEHOLDER: &str = "<example>";
 
 /// Whether this run rewrites the generated-Rust goldens instead of asserting.
+///
+/// Only the exact value `1` blesses (what `scripts/regen-example-rust.sh`
+/// exports): `=0`, an empty value or a stray shell-profile export must not turn
+/// the golden comparison into a rewrite that always passes. Under CI it never
+/// blesses, and says so instead of silently comparing.
 fn update_example_rust() -> bool {
-    std::env::var_os(UPDATE_EXAMPLE_RUST_VAR).is_some()
+    let requested = std::env::var(UPDATE_EXAMPLE_RUST_VAR).is_ok_and(|value| value == "1");
+    assert!(
+        !(requested && std::env::var_os("CI").is_some()),
+        "{UPDATE_EXAMPLE_RUST_VAR}=1 rewrites the goldens it should verify; it is refused under CI"
+    );
+    requested
 }
 
 /// Whether `name` is one of the examples this run was narrowed to.

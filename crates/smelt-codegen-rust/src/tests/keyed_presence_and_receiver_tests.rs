@@ -184,6 +184,26 @@ console.log(first({ a: [1] }, 'a'));
         .next()
         .unwrap_or_default();
     assert!(first.contains(": bool = true;"), "{first}");
+    // The erased half the name promises: over `unknown` the guard is a real
+    // runtime truthiness test, never folded.
+    let erased = source_for(
+        r"
+function first(shapes: Record<string, unknown>, key: string): number {
+  const shape = shapes[key];
+  if (shape) {
+    return 1;
+  }
+  return -1;
+}
+console.log(first({ a: [1] }, 'a'));
+",
+    );
+    let erased_first = emitted_function_body(&erased, "fn first(");
+    assert!(!erased_first.contains(": bool = true;"), "{erased_first}");
+    assert!(
+        erased_first.contains("SmeltUnknown::Null | SmeltUnknown::Undefined => false"),
+        "an erased value keeps its runtime truthiness test: {erased_first}"
+    );
 }
 
 /// An `if` without `else` whose arm is a loop keeps the statements after the
@@ -374,6 +394,13 @@ export function startsWithSlash(parts: string[]): boolean {
   return parts[0][0] === '/';
 }
 ",
+    );
+    // The positive half: both reads go through the total accessors. Plain
+    // `[i]` indexing or an `.unwrap()` would panic without the spelled text.
+    let program = program_part(&source);
+    assert!(
+        program.contains(".get(") && program.contains(".char_at("),
+        "the element and character reads must use the total accessors: {program}"
     );
     assert!(
         !program_part(&source).contains("expect(\"index out of bounds\")"),

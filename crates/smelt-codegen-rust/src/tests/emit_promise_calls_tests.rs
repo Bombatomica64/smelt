@@ -513,6 +513,12 @@ fn no_profile_sets_panic_abort_while_the_panic_route_exists() {
                 &EmitOptions::default().with_release_profile(release_profile),
             );
 
+            // The positive control: an empty or truncated manifest also
+            // "mentions no panic", so first prove this is a real one.
+            assert!(
+                manifest.contains("[package]") && manifest.contains("[dependencies]"),
+                "not a generated manifest:\n{manifest}"
+            );
             assert!(
                 !manifest.contains("panic"),
                 "emitted manifest must not mention a panic strategy:\n{manifest}"

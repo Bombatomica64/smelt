@@ -6,8 +6,8 @@ use std::fs;
 
 use common::{
     SharedDepsCrate, TempProject, TestResult, cargo_run_manifest, cargo_run_shared, ensure,
-    ensure_eq, ensure_node_agrees, example_dir, example_is_selected, smelt, smelt_shared,
-    utf8_path, verify_end_to_end_example, verify_python_end_to_end_example,
+    ensure_eq, ensure_node_agrees, example_dir, example_is_selected, example_names, smelt,
+    smelt_shared, utf8_path, verify_end_to_end_example, verify_python_end_to_end_example,
 };
 
 #[test]
@@ -1335,195 +1335,6 @@ clone-strategy = "aggressive"
     Ok(())
 }
 
-/// Every TypeScript end-to-end example the golden suite checks.
-///
-/// A list rather than a directory scan: an example is only checked once it
-/// is named here, so adding a fixture directory without its entry silently
-/// checks nothing. Kept out of the test body so the list can grow without
-/// pushing the function past the line limit.
-const END_TO_END_EXAMPLES: &[&str] = &[
-    "01_number",
-    "02_string",
-    "03_boolean",
-    "04_null",
-    "05_alias",
-    "06_array_literal",
-    "07_tuple_literal",
-    "08_record_literal",
-    "09_index_access",
-    "100_elided_type_parameters",
-    "101_arrow_const_infers_its_return",
-    "102_body_locals_are_body_scoped",
-    "103_exclude_over_a_literal_union",
-    "104_erased_callback_returns_a_host_class",
-    "105_union_instanceof_through_arm_tags",
-    "106_host_value_at_a_record_type",
-    "107_never_branch_at_a_string_return",
-    "108_headers_init_at_a_headers_slot",
-    "109_nested_function_declaration_hoists",
-    "10_unary_logical",
-    "110_captured_callback_handle_is_cloned",
-    "112_recursive_binding_keeps_its_type",
-    "115_transitive_closure_captures",
-    "116_generator_array_from",
-    "117_forward_exported_arrow",
-    "118_concise_callback_call_args",
-    "119_arrow_param_default",
-    "120_forward_arrow_after_class",
-    "121_callback_into_union_function_arm",
-    "122_loop_inside_branch_inside_loop",
-    "123_string_from_codes_and_search",
-    "124_optional_argument_and_receiver",
-    "125_module_const_state_and_record_union",
-    "126_optional_presence_through_assertion",
-    "127_nested_closure_shared_write",
-    "128_match_array_groups",
-    "129_keyed_presence_and_throw_sentinel",
-    "130_this_bound_field_write_through",
-    "131_reduce_right_and_declared_const_shapes",
-    "132_user_methods_named_like_array_builtins",
-    "133_presence_rules",
-    "134_absence_and_host_boundaries",
-    "140_user_type_guard_narrowing",
-    "11_console_log_expressions",
-    "12_while_sum",
-    "13_for_of_sum",
-    "142_module_global_reads_see_module_values",
-    "143_module_arrows_are_items",
-    "151_derived_constructor_runs_on_instance",
-    "152_callable_interface_fields",
-    "153_this_param_function_as_method",
-    "154_getter_receivers_in_closures",
-    "155_erased_instance_identity",
-    "156_runtime_shape_behind_static_types",
-    "157_node_path_hash_and_runtime_regexp",
-    "158_joins_absence_and_host_reads",
-    "159_spread_join_tuple_return_finally",
-    "160_function_item_typed_identity",
-    "162_alias_names_generic_class",
-    "165_void_operand_runs",
-    "166_closure_stored_on_its_receiver",
-    "167_proven_integer_counters",
-    "168_bun_int32_slots",
-    "169_json_typed_entry_decode",
-    "170_bigint_arbitrary_precision",
-    "171_module_const_with_async_callback",
-    "172_checker_evaluated_annotation_types",
-    "173_url_object",
-    "174_union_narrowing_exits_and_writes",
-    "175_rest_arrow_into_fixed_arity_slot",
-    "176_rest_methods_spreads_and_null_absence",
-    "177_tuple_rest_parameters",
-    "178_object_aliases_and_erased_symbol_reads",
-    "179_inherited_members_of_generic_bases",
-    "180_virtual_slots_partial_records_typed_spreads",
-    "181_crypto_hmac_json_space_finally",
-    "183_self_construction_types_its_arguments",
-    "184_nested_prime_race_headers_body",
-    "185_break_continue_run_finally",
-    "186_nested_body_statement_sinks",
-    "187_postfix_update_observed_in_initializer",
-    "188_nested_function_parameter_defaults",
-    "189_rust_reserved_keyword_identifiers",
-    "190_type_parameter_scope_ends_with_its_class",
-    "191_checker_typed_array_literals_and_generic_calls",
-    "192_lifted_caller_forwards_mutable_list",
-    "193_array_constrained_type_parameters",
-    "194_structural_record_names_keep_source_keys",
-    "195_closure_return_from_the_checker",
-    "196_record_value_at_a_record_parameter",
-    "197_object_literal_takes_its_checker_record",
-    "198_record_shared_as_a_typed_dictionary",
-    "199_record_shared_as_a_structural_subset",
-    "200_record_shared_at_a_type_parameter",
-    "201_primitive_bounded_type_parameter",
-    "202_inspected_type_parameter_stays_generic",
-    "203_record_viewed_as_another_record_type",
-    "14_c_for_loop",
-    "15_break_continue",
-    "16_switch_break_no_fallthrough",
-    "17_mutating_array",
-    "18_class_fields",
-    "19_constructor",
-    "20_method_call",
-    "21_this_field",
-    "22_mutating_method",
-    "23_interface_shape",
-    "24_interface_method_signature",
-    "25_private_protected_metadata",
-    "26_interface_inheritance_optional_computed",
-    "27_optional_chains",
-    "28_regex_match_result",
-    "29_callable_object",
-    "30_nullish_union_join",
-    "31_headers_fetch_type",
-    "32_url_search_params",
-    "33_console_optional_value",
-    "34_optional_field_interface_literal",
-    "35_top_level_await",
-    "36_floating_promise_drained",
-    "38_interface_literal_key_spellings",
-    "39_module_scope_reassignment",
-    "40_computed_method_over_known_members",
-    "41_symbol_keyed_class_members",
-    "42_module_arrow_shared_capture",
-    "43_await_value_or_promise_union",
-    "44_node_http_echo",
-    "45_text_codec",
-    "46_blob_file",
-    "47_module_const_host_value",
-    "48_form_data",
-    "49_sibling_method_call",
-    "50_union_arm_narrowing",
-    "51_web_crypto",
-    "53_top_level_try_tail",
-    "54_regex_test_predicate",
-    "55_headers_init_union",
-    "56_union_member_read",
-    "57_reassigned_method",
-    "58_absent_value_stringify",
-    "59_ambient_response_init",
-    "60_response_body_handle",
-    "61_tuple_spread_arguments",
-    "63_generic_init_union_arm",
-    "64_error_subclass_optional_message",
-    "65_typeof_keyof_alias_union",
-    "66_json_stringify_shapes",
-    "67_compound_bitwise_assignment",
-    "68_switch_continue_in_loop",
-    "69_asserted_callback_name",
-    "70_set_from_iterable",
-    "71_const_arrow_literal_hint",
-    "72_form_data_for_each",
-    "73_set_insertion_order",
-    "74_typed_array_views",
-    "75_callback_block_return_type",
-    "76_base64_globals",
-    "77_body_init_buffer_source",
-    "78_request_input_forms",
-    "79_logical_assignment_store",
-    "80_optional_chain_union_and_throw",
-    "81_receiver_capture_in_callback",
-    "82_data_view_shared_buffer",
-    "83_class_expression_binding",
-    "84_same_named_methods_across_classes",
-    "85_promise_continuations",
-    "86_literal_into_union_arm",
-    "87_number_to_string",
-    "88_data_view_range_error",
-    "89_derived_default_constructor",
-    "90_type_parameter_defaults",
-    "91_union_string_concat",
-    "92_request_init_members",
-    "93_nullish_assign_and_optional_receiver",
-    "94_throwing_getter_in_callback",
-    "95_union_value_dispatch",
-    "96_union_read_is_not_a_move",
-    "97_generic_class_default_bounds",
-    "98_async_iife_return_channel",
-    "99_substituted_parameter_keeps_its_abi",
-];
-
 /// The generated-Rust goldens cover EVERY emitted file, not just `main.rs`.
 ///
 /// A program whose lowering splits into modules has its user code in
@@ -1537,7 +1348,8 @@ const END_TO_END_EXAMPLES: &[&str] = &[
 #[test]
 fn end_to_end_rust_goldens_cover_every_generated_file() -> TestResult {
     let mut split = Vec::new();
-    for name in END_TO_END_EXAMPLES {
+    let names = example_names("typescript", "input.ts")?;
+    for name in &names {
         let golden = fs::read_to_string(example_dir(name)?.join("expected.rs"))?;
         ensure(
             !golden.starts_with("// ==== "),
@@ -1566,7 +1378,7 @@ fn end_to_end_rust_goldens_cover_every_generated_file() -> TestResult {
 
 #[test]
 fn end_to_end_examples_match_expected_outputs() -> TestResult {
-    for name in END_TO_END_EXAMPLES {
+    for name in &example_names("typescript", "input.ts")? {
         // `example_is_selected` is unset in a normal run, so this verifies the
         // whole corpus; the regeneration script uses it to narrow a rewrite to
         // the fixtures it was asked for.
@@ -1589,19 +1401,7 @@ fn end_to_end_examples_match_expected_outputs() -> TestResult {
 /// no generated-Rust golden for this corpus.
 #[test]
 fn python_end_to_end_examples_match_expected_outputs() -> TestResult {
-    for name in [
-        "01_number",
-        "02_string",
-        "03_boolean",
-        "04_none",
-        "05_while_sum",
-        "06_function",
-        "07_if_else",
-        "08_match",
-        "09_break_continue_finally",
-        "10_protocol",
-        "11_numbers_and_module_state",
-    ] {
+    for name in &example_names("python", "input.py")? {
         verify_python_end_to_end_example(name)?;
     }
 

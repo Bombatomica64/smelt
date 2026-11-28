@@ -6,6 +6,7 @@ here before. Exits 1 and lists every violation.
 """
 
 import glob
+import json
 import os
 import pathlib
 import re
@@ -153,6 +154,21 @@ def test_source_violations(path, text):
     return found
 
 
+def examples_erasure_violations(baseline):
+    """The examples' avoidable erasure is a hard zero, not a ratchet.
+
+    `--fail-on-regression` compares a scan with the baseline file the same PR
+    carries, so a rise committed together with a re-snapshot would pass it.
+    `CLAUDE.md` makes the examples row a hard invariant: the committed baseline
+    itself must hold no avoidable erasure.
+    """
+    avoidable = baseline.get("category_totals", {}).get("avoidable-erasure", 0)
+    if avoidable:
+        return [f"blocker-logs/smelt-unknown-baseline.json: the examples hold {avoidable} avoidable "
+                "erasure(s); the examples invariant is 0, so fix the source instead of re-snapshotting"]
+    return []
+
+
 def main():
     """Check the repository the script lives in; return the exit status."""
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -173,6 +189,9 @@ def main():
             continue
         with open(path, encoding="utf-8") as handle:
             violations += test_source_violations(os.path.relpath(path, root), handle.read())
+    with open(os.path.join(root, "blocker-logs/smelt-unknown-baseline.json"),
+              encoding="utf-8") as handle:
+        violations += examples_erasure_violations(json.load(handle))
     violations += ci_affected_packages.uncovered_reads(pathlib.Path(root))
     for name in readme_results.stale_tables(root):
         violations.append(f"README.md: the `{name}` results table differs from its pins and "
