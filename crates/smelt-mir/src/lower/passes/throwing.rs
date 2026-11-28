@@ -54,6 +54,12 @@ type FamilyTable = std::collections::BTreeMap<(u32, u32), Family>;
 /// to the infallible override (`emitter::call`, `inherited_self_call`).
 fn override_families(mir: &Mir) -> Vec<Family> {
     let root_of = |class: &crate::MirClass| {
+        // A multiple-inheritance hierarchy has no single root: one override
+        // family per method name spans all of them (a conservative merge of
+        // separate hierarchies, which can only add `can_throw`).
+        if mir.in_multiple_inheritance_hierarchy(class.name) {
+            return Symbol(u32::MAX);
+        }
         let mut current = class;
         let mut seen = std::collections::HashSet::from([current.name]);
         while let Some(base) = current
@@ -370,19 +376,25 @@ fn optional_method_can_throw(
 /// (the same as a direct call on an interface value), so they add nothing.
 fn bound_method_can_throw(bound: Symbol, method: Symbol, facts: &CrateThrowFacts) -> bool {
     let class_named = |name: Symbol| facts.classes.iter().find(|class| class.name == name);
-    let reaches_bound = |class: &crate::MirClass| {
-        let mut current = Some(class);
-        let mut steps = 0usize;
-        while let Some(candidate) = current
-            && steps <= facts.classes.len()
-        {
-            if candidate.name == bound || candidate.implements.contains(&bound) {
-                return true;
+    // Every class `class` derives from, itself first, through any base.
+    let ancestry = |class: &crate::MirClass| {
+        let mut found: Vec<Symbol> = Vec::new();
+        let mut pending = vec![class.name];
+        while let Some(name) = pending.pop() {
+            if found.contains(&name) || found.len() > facts.classes.len() {
+                continue;
             }
-            current = candidate.base.and_then(class_named);
-            steps = steps.saturating_add(1);
+            found.push(name);
+            if let Some(candidate) = class_named(name) {
+                pending.extend(candidate.program_bases());
+            }
         }
-        false
+        found
+    };
+    let reaches_bound = |class: &crate::MirClass| {
+        ancestry(class).into_iter().filter_map(class_named).any(|candidate| {
+            candidate.name == bound || candidate.implements.contains(&bound)
+        })
     };
     let declares_throwing = |class: &crate::MirClass| {
         class.methods.iter().any(|func| {
@@ -396,20 +408,7 @@ fn bound_method_can_throw(bound: Symbol, method: Symbol, facts: &CrateThrowFacts
         .classes
         .iter()
         .filter(|class| reaches_bound(class))
-        .any(|class| {
-            let mut current = Some(class);
-            let mut steps = 0usize;
-            while let Some(candidate) = current
-                && steps <= facts.classes.len()
-            {
-                if declares_throwing(candidate) {
-                    return true;
-                }
-                current = candidate.base.and_then(class_named);
-                steps = steps.saturating_add(1);
-            }
-            false
-        })
+        .any(|class| ancestry(class).into_iter().filter_map(class_named).any(declares_throwing))
 }
 
 /// Returns whether a terminator can leave through an uncaught exception path.

@@ -772,3 +772,17 @@ fn narrowing_and_dispatch() -> TestResult {
 fn sweep_semantics() -> TestResult {
     verify_python_parity("sweep_semantics")
 }
+
+/// Multiple inheritance (`docs/design/python-multiple-inheritance.md`, refused
+/// before): mixins before and after a base, a diamond whose shared base's
+/// `__init__` runs once through cooperative `super().__init__()`, `super()`
+/// method chains in C3 order (`D(B, A)` and `C(A, B)` over one root), explicit
+/// `Base.__init__(self, ..)`, properties and `__repr__` from a base, an
+/// exception raised by a mixin's method reached through the other base's
+/// handle, and one object behind every base view: writes through one view are
+/// read through another, `is` holds, and `isinstance` answers for every class
+/// of the MRO. Requirements: `CPython`'s output.
+#[test]
+fn multiple_inheritance() -> TestResult {
+    verify_python_parity("multiple_inheritance")
+}

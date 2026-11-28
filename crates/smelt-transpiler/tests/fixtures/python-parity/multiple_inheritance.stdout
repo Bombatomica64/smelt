@@ -1,0 +1,41 @@
+rex says woof WOOF! WOOF!
+r2 says mixin MIXIN! MIXIN!
+rex says woof True
+r2 says mixin True
+a says ... False
+WOOF! True
+MIXIN! True
+Bottom.__init__ start
+Left.__init__ start
+Right.__init__ start
+Base.__init__
+Right.__init__ end
+Left.__init__ end
+Bottom.__init__ end
+Left Bottom>Left>Right>Base 1 2 20
+11 ['left', 'right']
+True 11 11
+Left.__init__ start
+Base.__init__
+Left.__init__ end
+Right.__init__ start
+Base.__init__
+Right.__init__ end
+Left Left>Base True False False
+Base Right>Base False True False
+Left Bottom>Left>Right>Base True True True
+named x 2 Item(x, 2)
+named solo False
+<tagged 1,2> <tagged 1,2> 1 [<tagged 1,2>, <3,4>]
+[3, 2, 1]
+SQUARE 9.0 SQUARE red thing red
+SQUARE blue thing 9.0
+C C>A>B>Root
+D B>A>Root
+E E>C>A>B>Root
+A A>Root
+B B>Root
+['C>A>B>Root', 'B>A>Root', 'E>C>A>B>Root']
+True False True
+rejected negative: -3 [1, 2]
+ok

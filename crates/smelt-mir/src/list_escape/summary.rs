@@ -426,10 +426,14 @@ fn static_callees(blocks: &[BasicBlock]) -> Vec<usize> {
 /// runs. Rather than model overriding, every method of every class that either
 /// has a base or is used as a base is excluded from summary-based refinement.
 fn overridable_methods(mir: &Mir) -> HashSet<usize> {
-    let bases: HashSet<_> = mir.classes.iter().filter_map(|class| class.base).collect();
+    let bases: HashSet<_> = mir
+        .classes
+        .iter()
+        .flat_map(crate::MirClass::program_bases)
+        .collect();
     let mut out = HashSet::new();
     for class in &mir.classes {
-        if class.base.is_none() && !bases.contains(&class.name) {
+        if class.program_bases().is_empty() && !bases.contains(&class.name) {
             continue;
         }
         for method in class.methods.iter().chain(class.static_methods.iter()) {

@@ -102,29 +102,9 @@ fn member_less_abstract_classes(mir: &Mir) -> HashMap<Symbol, Vec<Symbol>> {
     replacements
 }
 
-/// Whether `class` (transitively) extends `ancestor`.
+/// Whether `class` (transitively) extends `ancestor`, through any base.
 fn descends_from(mir: &Mir, class: Symbol, ancestor: Symbol) -> bool {
-    let mut current = mir
-        .classes
-        .iter()
-        .find(|candidate| candidate.name == class)
-        .and_then(|found| found.base);
-    let mut steps = 0_usize;
-    while let Some(base) = current {
-        if base == ancestor {
-            return true;
-        }
-        steps = steps.saturating_add(1);
-        if steps > mir.classes.len() {
-            return false;
-        }
-        current = mir
-            .classes
-            .iter()
-            .find(|candidate| candidate.name == base)
-            .and_then(|found| found.base);
-    }
-    false
+    class != ancestor && mir.class_derives_from(class, ancestor)
 }
 
 /// `ty` with every member-less abstract class replaced by its descendants'

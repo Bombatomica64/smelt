@@ -377,18 +377,20 @@ impl FunctionEmitter<'_> {
                 return Some((class, descriptor));
             }
         }
-        let base = class.base?;
-        let base_ty = self
-            .mir
-            .types
-            .all()
-            .iter()
-            .position(|candidate| {
-                matches!(candidate, Type::Class { name: candidate_name, .. } if *candidate_name == base)
-            })
-            .and_then(|index| u32::try_from(index).ok())
-            .map(TypeId)?;
-        self.descriptor_for_field(base_ty, field)
+        // The bases in order (the base chain under single inheritance).
+        class.program_bases().into_iter().find_map(|base| {
+            let base_ty = self
+                .mir
+                .types
+                .all()
+                .iter()
+                .position(|candidate| {
+                    matches!(candidate, Type::Class { name: candidate_name, .. } if *candidate_name == base)
+                })
+                .and_then(|index| u32::try_from(index).ok())
+                .map(TypeId)?;
+            self.descriptor_for_field(base_ty, field)
+        })
     }
 
     /// Constructs concrete static descriptor state as a Rust value.

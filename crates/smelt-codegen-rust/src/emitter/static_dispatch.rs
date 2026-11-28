@@ -77,11 +77,7 @@ impl FunctionEmitter<'_> {
     /// the nearest ancestor's.
     fn implementing_static_method(&self, class: Symbol, method: Symbol) -> Option<&MirFunction> {
         let method_name = self.symbol_source_name(method).ok()?;
-        let mut current = Some(class);
-        let mut seen = HashSet::new();
-        while let Some(name) = current
-            && seen.insert(name)
-        {
+        for name in self.mir.class_mro(class) {
             let found = crate::classes::find_class(self.mir, name)?;
             for id in &found.static_methods {
                 let function = self.function_by_id(*id)?;
@@ -91,7 +87,6 @@ impl FunctionEmitter<'_> {
                     return Some(function);
                 }
             }
-            current = found.base;
         }
         None
     }
@@ -105,12 +100,9 @@ impl FunctionEmitter<'_> {
         field: Symbol,
     ) -> Result<Option<StaticFieldAccess>, EmitError> {
         let key = self.symbol_source_name(field)?.to_owned();
-        let mut current = Some(class);
         let mut own = true;
-        let mut seen = HashSet::new();
-        while let Some(name) = current
-            && seen.insert(name)
-        {
+        // Along the MRO (the base chain under single inheritance).
+        for name in self.mir.class_mro(class) {
             let Some(found) = crate::classes::find_class(self.mir, name) else {
                 break;
             };
@@ -153,7 +145,6 @@ impl FunctionEmitter<'_> {
                 }));
             }
             own = false;
-            current = found.base;
         }
         Ok(None)
     }
