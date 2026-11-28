@@ -602,8 +602,21 @@ impl Drop for QuietPanics {
 pub(crate) fn lower_to_optimized_mir(
     krate: &smelt_hir::Crate,
 ) -> Result<smelt_mir::Mir, Box<dyn std::error::Error>> {
-    smelt_mir::compile_observed(krate, timing::report)
-        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()).into())
+    lower_to_emittable_mir(krate).map(|(mir, _)| mir)
+}
+
+/// [`lower_to_optimized_mir`], also returning the `explicit-any` erasures of
+/// the implicit type parameters settled back to the erased carrier
+/// (`smelt_codegen_rust::settle_implicit_generics`). Every consumer of the
+/// optimized MIR reads it settled, so the generated crate and the typedness
+/// measurement see the same program.
+pub(crate) fn lower_to_emittable_mir(
+    krate: &smelt_hir::Crate,
+) -> Result<(smelt_mir::Mir, Vec<smelt_hir::ErasureRecord>), Box<dyn std::error::Error>> {
+    let mut mir = smelt_mir::compile_observed(krate, timing::report)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()))?;
+    let settled = smelt_codegen_rust::settle_implicit_generics(&mut mir);
+    Ok((mir, settled))
 }
 
 /// Whether panic messages are currently silenced on this thread.

@@ -3,8 +3,8 @@
   "files_scanned": 744,
   "total": 49109,
   "category_totals": {
-    "avoidable-erasure": 12447,
-    "legitimate-boundary": 34167,
+    "avoidable-erasure": 12396,
+    "legitimate-boundary": 34218,
     "runtime-prelude": 2495
   },
   "shapes": [
@@ -1872,14 +1872,14 @@
     },
     {
       "category": "legitimate-boundary",
-      "shape": "let _smelt_tmp_N: SmeltUnknown = assign_in_with_impl(object.clone(), sources.borrow().get(i).cloned().unwrap_or_else(|| SmeltUnknown::Undefined), { let smelt_optional_source = get_value_to_assign.clone(); if smelt_unknown_is_nullish(&smelt_optional_source) { None } else { Some({ let smelt_source_value = smelt_optional_source.clone(); let smelt_function = match smelt_source_value.clone() { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"S\") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None }; if let Some(smelt_function) = smelt_function { let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function); let smelt_callback: ::std::rc::Rc<dyn Fn(&SmeltUnknown, &SmeltUnknown, JsString, &SmeltUnknown, &SmeltUnknown) -> SmeltUnknown> = if let Some(smelt_original) = smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(&SmeltUnknown, &SmeltUnknown, JsString, &SmeltUnknown, &SmeltUnknown) -> SmeltUnknown>>(&smelt_function) { if matches!(smelt_source_value, SmeltUnknown::Object(_)) { ::std::rc::Rc::new(move |smelt_argN: &SmeltUnknown, smelt_argN: &SmeltUnknown, smelt_argN: JsString, smelt_argN: &SmeltUnknown, smelt_argN: &SmeltUnknown| (smelt_original)(smelt_argN, smelt_argN, smelt_argN, smelt_argN, smelt_argN)) } else { smelt_original } } else { ::std::rc::Rc::new(move |smelt_argN: &SmeltUnknown, smelt_argN: &SmeltUnknown, smelt_argN: JsString, smelt_argN: &SmeltUnknown, smelt_argN: &SmeltUnknown| -> SmeltUnknown { let smelt_result = (smelt_function)({ let mut smelt_call_args = Vec::new(); smelt_call_args.push(smelt_argN.clone()); smelt_call_args.push(smelt_argN.clone()); smelt_call_args.push(SmeltUnknown::String(smelt_argN.into())); smelt_call_args.push(smelt_argN.clone()); smelt_call_args.push(smelt_argN.clone()); smelt_call_args }).unwrap_or_else(|smelt_error| smelt_panic_throw(smelt_error)); smelt_result }) }; smelt_register_callable_object(&smelt_callback, smelt_source_value); smelt_link_function_identity_key(&smelt_callback, smelt_origin_identity); smelt_callback } else { { let smelt_default_callback: ::std::rc::Rc<dyn Fn(&SmeltUnknown, &SmeltUnknown, JsString, &SmeltUnknown, &SmeltUnknown) -> SmeltUnknown> = ::std::rc::Rc::new(move |smelt_argN: &SmeltUnknown, smelt_argN: &SmeltUnknown, smelt_argN: JsString, smelt_argN: &SmeltUnknown, smelt_argN: &SmeltUnknown| -> SmeltUnknown { smelt_value_not_callable() }); smelt_default_callback } } }) } });",
+      "shape": "let _smelt_tmp_N: SmeltUnknown = assign_in_with_impl((object.clone()).into_smelt_unknown(), sources.borrow().get(i).cloned().unwrap_or_else(|| SmeltUnknown::Undefined), { let smelt_optional_source = get_value_to_assign.clone(); if smelt_unknown_is_nullish(&smelt_optional_source) { None } else { Some({ let smelt_source_value = smelt_optional_source.clone(); let smelt_function = match smelt_source_value.clone() { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"S\") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None }; if let Some(smelt_function) = smelt_function { let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function); let smelt_callback: ::std::rc::Rc<dyn Fn(&SmeltUnknown, &SmeltUnknown, JsString, &SmeltUnknown, &SmeltUnknown) -> SmeltUnknown> = if let Some(smelt_original) = smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(&SmeltUnknown, &SmeltUnknown, JsString, &SmeltUnknown, &SmeltUnknown) -> SmeltUnknown>>(&smelt_function) { if matches!(smelt_source_value, SmeltUnknown::Object(_)) { ::std::rc::Rc::new(move |smelt_argN: &SmeltUnknown, smelt_argN: &SmeltUnknown, smelt_argN: JsString, smelt_argN: &SmeltUnknown, smelt_argN: &SmeltUnknown| (smelt_original)(smelt_argN, smelt_argN, smelt_argN, smelt_argN, smelt_argN)) } else { smelt_original } } else { ::std::rc::Rc::new(move |smelt_argN: &SmeltUnknown, smelt_argN: &SmeltUnknown, smelt_argN: JsString, smelt_argN: &SmeltUnknown, smelt_argN: &SmeltUnknown| -> SmeltUnknown { let smelt_result = (smelt_function)({ let mut smelt_call_args = Vec::new(); smelt_call_args.push(smelt_argN.clone()); smelt_call_args.push(smelt_argN.clone()); smelt_call_args.push(SmeltUnknown::String(smelt_argN.into())); smelt_call_args.push(smelt_argN.clone()); smelt_call_args.push(smelt_argN.clone()); smelt_call_args }).unwrap_or_else(|smelt_error| smelt_panic_throw(smelt_error)); smelt_result }) }; smelt_register_callable_object(&smelt_callback, smelt_source_value); smelt_link_function_identity_key(&smelt_callback, smelt_origin_identity); smelt_callback } else { { let smelt_default_callback: ::std::rc::Rc<dyn Fn(&SmeltUnknown, &SmeltUnknown, JsString, &SmeltUnknown, &SmeltUnknown) -> SmeltUnknown> = ::std::rc::Rc::new(move |smelt_argN: &SmeltUnknown, smelt_argN: &SmeltUnknown, smelt_argN: JsString, smelt_argN: &SmeltUnknown, smelt_argN: &SmeltUnknown| -> SmeltUnknown { smelt_value_not_callable() }); smelt_default_callback } } }) } });",
       "occurrences": 36,
       "files": 1,
       "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/assignInWith.rs:27"
     },
     {
       "category": "legitimate-boundary",
-      "shape": "let _smelt_tmp_N: SmeltUnknown = assign_with_impl(object.clone(), sources.borrow().get(i).cloned().unwrap_or_else(|| SmeltUnknown::Undefined), { let smelt_optional_source = get_value_to_assign.clone(); if smelt_unknown_is_nullish(&smelt_optional_source) { None } else { Some({ let smelt_source_value = smelt_optional_source.clone(); let smelt_function = match smelt_source_value.clone() { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"S\") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None }; if let Some(smelt_function) = smelt_function { let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function); let smelt_callback: ::std::rc::Rc<dyn Fn(&SmeltUnknown, &SmeltUnknown, JsString, &SmeltUnknown, &SmeltUnknown) -> SmeltUnknown> = if let Some(smelt_original) = smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(&SmeltUnknown, &SmeltUnknown, JsString, &SmeltUnknown, &SmeltUnknown) -> SmeltUnknown>>(&smelt_function) { if matches!(smelt_source_value, SmeltUnknown::Object(_)) { ::std::rc::Rc::new(move |smelt_argN: &SmeltUnknown, smelt_argN: &SmeltUnknown, smelt_argN: JsString, smelt_argN: &SmeltUnknown, smelt_argN: &SmeltUnknown| (smelt_original)(smelt_argN, smelt_argN, smelt_argN, smelt_argN, smelt_argN)) } else { smelt_original } } else { ::std::rc::Rc::new(move |smelt_argN: &SmeltUnknown, smelt_argN: &SmeltUnknown, smelt_argN: JsString, smelt_argN: &SmeltUnknown, smelt_argN: &SmeltUnknown| -> SmeltUnknown { let smelt_result = (smelt_function)({ let mut smelt_call_args = Vec::new(); smelt_call_args.push(smelt_argN.clone()); smelt_call_args.push(smelt_argN.clone()); smelt_call_args.push(SmeltUnknown::String(smelt_argN.into())); smelt_call_args.push(smelt_argN.clone()); smelt_call_args.push(smelt_argN.clone()); smelt_call_args }).unwrap_or_else(|smelt_error| smelt_panic_throw(smelt_error)); smelt_result }) }; smelt_register_callable_object(&smelt_callback, smelt_source_value); smelt_link_function_identity_key(&smelt_callback, smelt_origin_identity); smelt_callback } else { { let smelt_default_callback: ::std::rc::Rc<dyn Fn(&SmeltUnknown, &SmeltUnknown, JsString, &SmeltUnknown, &SmeltUnknown) -> SmeltUnknown> = ::std::rc::Rc::new(move |smelt_argN: &SmeltUnknown, smelt_argN: &SmeltUnknown, smelt_argN: JsString, smelt_argN: &SmeltUnknown, smelt_argN: &SmeltUnknown| -> SmeltUnknown { smelt_value_not_callable() }); smelt_default_callback } } }) } });",
+      "shape": "let _smelt_tmp_N: SmeltUnknown = assign_with_impl((object.clone()).into_smelt_unknown(), sources.borrow().get(i).cloned().unwrap_or_else(|| SmeltUnknown::Undefined), { let smelt_optional_source = get_value_to_assign.clone(); if smelt_unknown_is_nullish(&smelt_optional_source) { None } else { Some({ let smelt_source_value = smelt_optional_source.clone(); let smelt_function = match smelt_source_value.clone() { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"S\") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None }; if let Some(smelt_function) = smelt_function { let smelt_origin_identity = smelt_canonical_function_identity(&smelt_function); let smelt_callback: ::std::rc::Rc<dyn Fn(&SmeltUnknown, &SmeltUnknown, JsString, &SmeltUnknown, &SmeltUnknown) -> SmeltUnknown> = if let Some(smelt_original) = smelt_restore_function_origin::<::std::rc::Rc<dyn Fn(&SmeltUnknown, &SmeltUnknown, JsString, &SmeltUnknown, &SmeltUnknown) -> SmeltUnknown>>(&smelt_function) { if matches!(smelt_source_value, SmeltUnknown::Object(_)) { ::std::rc::Rc::new(move |smelt_argN: &SmeltUnknown, smelt_argN: &SmeltUnknown, smelt_argN: JsString, smelt_argN: &SmeltUnknown, smelt_argN: &SmeltUnknown| (smelt_original)(smelt_argN, smelt_argN, smelt_argN, smelt_argN, smelt_argN)) } else { smelt_original } } else { ::std::rc::Rc::new(move |smelt_argN: &SmeltUnknown, smelt_argN: &SmeltUnknown, smelt_argN: JsString, smelt_argN: &SmeltUnknown, smelt_argN: &SmeltUnknown| -> SmeltUnknown { let smelt_result = (smelt_function)({ let mut smelt_call_args = Vec::new(); smelt_call_args.push(smelt_argN.clone()); smelt_call_args.push(smelt_argN.clone()); smelt_call_args.push(SmeltUnknown::String(smelt_argN.into())); smelt_call_args.push(smelt_argN.clone()); smelt_call_args.push(smelt_argN.clone()); smelt_call_args }).unwrap_or_else(|smelt_error| smelt_panic_throw(smelt_error)); smelt_result }) }; smelt_register_callable_object(&smelt_callback, smelt_source_value); smelt_link_function_identity_key(&smelt_callback, smelt_origin_identity); smelt_callback } else { { let smelt_default_callback: ::std::rc::Rc<dyn Fn(&SmeltUnknown, &SmeltUnknown, JsString, &SmeltUnknown, &SmeltUnknown) -> SmeltUnknown> = ::std::rc::Rc::new(move |smelt_argN: &SmeltUnknown, smelt_argN: &SmeltUnknown, smelt_argN: JsString, smelt_argN: &SmeltUnknown, smelt_argN: &SmeltUnknown| -> SmeltUnknown { smelt_value_not_callable() }); smelt_default_callback } } }) } });",
       "occurrences": 36,
       "files": 1,
       "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/assignWith.rs:27"
@@ -9698,13 +9698,6 @@
     },
     {
       "category": "legitimate-boundary",
-      "shape": "let _smelt_tmp_N: bool = match &value.clone() { SmeltUnknown::Function(_) => true, SmeltUnknown::Object(smelt_object) => smelt_object.contains_key(\"S\"), _ => false };",
-      "occurrences": 6,
-      "files": 3,
-      "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/isFunction.rs:9"
-    },
-    {
-      "category": "legitimate-boundary",
       "shape": "let func: SmeltUnknown = smelt_vitest_mock_new(Some(SmeltUnknown::Function({ let smelt_source_fn = _smelt_tmp_N.clone(); let smelt_callback = smelt_source_fn.clone(); let smelt_erased_fn: ::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>> = if let Some(SmeltUnknown::Function(smelt_narrowed_fn)) = smelt_lookup_callable_object(&smelt_source_fn) { smelt_narrowed_fn } else { ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Number((smelt_callback)() as fN))) }; smelt_link_function_identity(&smelt_erased_fn, &smelt_source_fn); smelt_register_function_length(&smelt_erased_fn, N.N); smelt_erased_fn })));",
       "occurrences": 6,
       "files": 1,
@@ -10213,13 +10206,6 @@
       "occurrences": 6,
       "files": 1,
       "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/isMatchWith.rs:29"
-    },
-    {
-      "category": "avoidable-erasure",
-      "shape": "let _smelt_tmp_N: bool = matches!(value.clone(), SmeltUnknown::Null);",
-      "occurrences": 6,
-      "files": 6,
-      "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/compareValues_1.rs:10"
     },
     {
       "category": "avoidable-erasure",
@@ -11123,13 +11109,6 @@
       "occurrences": 5,
       "files": 4,
       "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/cloneWith.rs:18"
-    },
-    {
-      "category": "avoidable-erasure",
-      "shape": "_smelt_tmp_N = matches!(value.clone(), SmeltUnknown::Undefined);",
-      "occurrences": 5,
-      "files": 5,
-      "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/assignValue.rs:42"
     },
     {
       "category": "avoidable-erasure",
@@ -12470,6 +12449,20 @@
     },
     {
       "category": "legitimate-boundary",
+      "shape": "let _smelt_tmp_N: bool = match &value.clone() { SmeltUnknown::Function(_) => true, SmeltUnknown::Object(smelt_object) => smelt_object.contains_key(\"S\"), _ => false };",
+      "occurrences": 4,
+      "files": 2,
+      "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/isFunction_1.rs:9"
+    },
+    {
+      "category": "legitimate-boundary",
+      "shape": "let _smelt_tmp_N: bool = matches!((value.clone()).into_smelt_unknown(), SmeltUnknown::Null);",
+      "occurrences": 4,
+      "files": 4,
+      "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/compareValues_1.rs:10"
+    },
+    {
+      "category": "legitimate-boundary",
       "shape": "let _smelt_tmp_N: bool = object.clone().as_ref().is_some_and(|smelt_value| match &smelt_value { SmeltUnknown::Object(smelt_object) => !smelt_object.contains_key(\"S\"), SmeltUnknown::Array(_) | SmeltUnknown::Null | SmeltUnknown::Promise(_) => true, _ => false });",
       "occurrences": 4,
       "files": 1,
@@ -13023,6 +13016,13 @@
     },
     {
       "category": "avoidable-erasure",
+      "shape": "_smelt_tmp_N = matches!(value.clone(), SmeltUnknown::Undefined);",
+      "occurrences": 4,
+      "files": 4,
+      "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/assignValue.rs:42"
+    },
+    {
+      "category": "avoidable-erasure",
       "shape": "_smelt_tmp_N = par.call(Into::<SmeltList<_>>::into(SmeltList::from({ let smelt_list_items: Vec<SmeltUnknown> = vec![SmeltUnknown::String(\"S\".into())]; smelt_list_items })));",
       "occurrences": 4,
       "files": 2,
@@ -13569,13 +13569,6 @@
     },
     {
       "category": "avoidable-erasure",
-      "shape": "let _smelt_tmp_N: bool = matches!(value.clone(), SmeltUnknown::Undefined);",
-      "occurrences": 4,
-      "files": 4,
-      "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/isPrimitive.rs:15"
-    },
-    {
-      "category": "avoidable-erasure",
       "shape": "let _smelt_tmp_N: fN = to_integer(SmeltUnknown::Number(_smelt_tmp_N as fN));",
       "occurrences": 4,
       "files": 4,
@@ -13937,13 +13930,6 @@
       "occurrences": 4,
       "files": 1,
       "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/bindKey.rs:7"
-    },
-    {
-      "category": "avoidable-erasure",
-      "shape": "pub(crate) fn compare_values_N(a: SmeltUnknown, b: SmeltUnknown, order: JsString) -> fN {",
-      "occurrences": 4,
-      "files": 2,
-      "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/compareValues.rs:35"
     },
     {
       "category": "avoidable-erasure",
@@ -15606,6 +15592,34 @@
     },
     {
       "category": "legitimate-boundary",
+      "shape": "pub(crate) fn assign_N<AnyN: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'C'",
+      "occurrences": 3,
+      "files": 1,
+      "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/assign.rs:7"
+    },
+    {
+      "category": "legitimate-boundary",
+      "shape": "pub(crate) fn assign_in<AnyN: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'C'",
+      "occurrences": 3,
+      "files": 1,
+      "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/assignIn.rs:7"
+    },
+    {
+      "category": "legitimate-boundary",
+      "shape": "pub(crate) fn assign_in_with<AnyN: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'C'",
+      "occurrences": 3,
+      "files": 1,
+      "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/assignInWith.rs:7"
+    },
+    {
+      "category": "legitimate-boundary",
+      "shape": "pub(crate) fn assign_with<AnyN: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'C'",
+      "occurrences": 3,
+      "files": 1,
+      "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/assignWith.rs:7"
+    },
+    {
+      "category": "legitimate-boundary",
       "shape": "pub(crate) fn at_N<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'C'",
       "occurrences": 3,
       "files": 2,
@@ -15641,6 +15655,13 @@
     },
     {
       "category": "legitimate-boundary",
+      "shape": "pub(crate) fn get_with_path<AnyN: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'C'",
+      "occurrences": 3,
+      "files": 1,
+      "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/get.rs:200"
+    },
+    {
+      "category": "legitimate-boundary",
       "shape": "pub(crate) fn intersection_by_N<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'C'static, FN: Fn(SmeltUnionN<T, U>) -> SmeltUnknown + ?Sized>(first_arr: SmeltList<T>, second_arr: SmeltList<U>, mapper: &FN) -> SmeltList<T> {",
       "occurrences": 3,
       "files": 1,
@@ -15652,6 +15673,27 @@
       "occurrences": 3,
       "files": 1,
       "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/mapAsync.rs:7"
+    },
+    {
+      "category": "legitimate-boundary",
+      "shape": "pub(crate) fn pad_N<AnyN: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'C'",
+      "occurrences": 3,
+      "files": 1,
+      "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/pad.rs:7"
+    },
+    {
+      "category": "legitimate-boundary",
+      "shape": "pub(crate) fn repeat_N<AnyN: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'C'",
+      "occurrences": 3,
+      "files": 1,
+      "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/repeat.rs:7"
+    },
+    {
+      "category": "legitimate-boundary",
+      "shape": "pub(crate) fn split_N<AnyN: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'C'",
+      "occurrences": 3,
+      "files": 1,
+      "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/split.rs:7"
     },
     {
       "category": "legitimate-boundary",
@@ -16908,13 +16950,6 @@
     },
     {
       "category": "avoidable-erasure",
-      "shape": "pub(crate) fn assign_N(object: SmeltUnknown, sources: SmeltList<SmeltUnknown>) -> SmeltUnknown {",
-      "occurrences": 3,
-      "files": 1,
-      "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/assign.rs:7"
-    },
-    {
-      "category": "avoidable-erasure",
       "shape": "pub(crate) fn assign_impl(mut object: SmeltUnknown, source: SmeltUnknown) -> SmeltUnknown {",
       "occurrences": 3,
       "files": 1,
@@ -16922,31 +16957,10 @@
     },
     {
       "category": "avoidable-erasure",
-      "shape": "pub(crate) fn assign_in(object: SmeltUnknown, sources: SmeltList<SmeltUnknown>) -> SmeltUnknown {",
-      "occurrences": 3,
-      "files": 1,
-      "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/assignIn.rs:7"
-    },
-    {
-      "category": "avoidable-erasure",
       "shape": "pub(crate) fn assign_in_impl(mut object: SmeltUnknown, source: SmeltUnknown) -> SmeltUnknown {",
       "occurrences": 3,
       "files": 1,
       "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/assignIn.rs:22"
-    },
-    {
-      "category": "avoidable-erasure",
-      "shape": "pub(crate) fn assign_in_with(object: SmeltUnknown, mut sources: &mut SmeltList<SmeltUnknown>) -> SmeltUnknown {",
-      "occurrences": 3,
-      "files": 1,
-      "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/assignInWith.rs:7"
-    },
-    {
-      "category": "avoidable-erasure",
-      "shape": "pub(crate) fn assign_with(object: SmeltUnknown, mut sources: &mut SmeltList<SmeltUnknown>) -> SmeltUnknown {",
-      "occurrences": 3,
-      "files": 1,
-      "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/assignWith.rs:7"
     },
     {
       "category": "avoidable-erasure",
@@ -17080,13 +17094,6 @@
       "occurrences": 3,
       "files": 1,
       "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/get.rs:7"
-    },
-    {
-      "category": "avoidable-erasure",
-      "shape": "pub(crate) fn get_with_path(object: SmeltUnknown, path: SmeltList<SmeltUnionN>, default_value: Option<SmeltUnknown>) -> SmeltUnknown {",
-      "occurrences": 3,
-      "files": 1,
-      "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/get.rs:200"
     },
     {
       "category": "avoidable-erasure",
@@ -17265,13 +17272,6 @@
     },
     {
       "category": "avoidable-erasure",
-      "shape": "pub(crate) fn pad_N(str: SmeltUnknown, length: Option<SmeltUnknown>, chars: Option<SmeltUnknown>) -> JsString {",
-      "occurrences": 3,
-      "files": 1,
-      "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/pad.rs:7"
-    },
-    {
-      "category": "avoidable-erasure",
       "shape": "pub(crate) fn pick_N(obj: SmeltUnknown, keys: SmeltList<SmeltUnknown>) -> SmeltUnknown {",
       "occurrences": 3,
       "files": 1,
@@ -17318,13 +17318,6 @@
       "occurrences": 3,
       "files": 1,
       "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/remove.rs:7"
-    },
-    {
-      "category": "avoidable-erasure",
-      "shape": "pub(crate) fn repeat_N(str: SmeltUnknown, mut n: Option<SmeltUnknown>, guard: Option<SmeltUnknown>) -> JsString {",
-      "occurrences": 3,
-      "files": 1,
-      "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/repeat.rs:7"
     },
     {
       "category": "avoidable-erasure",
@@ -17381,13 +17374,6 @@
       "occurrences": 3,
       "files": 1,
       "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/sortedLastIndexBy.rs:7"
-    },
-    {
-      "category": "avoidable-erasure",
-      "shape": "pub(crate) fn split_N(string: SmeltUnknown, separator: Option<SmeltUnknown>, limit: Option<SmeltUnknown>) -> SmeltList<JsString> {",
-      "occurrences": 3,
-      "files": 1,
-      "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/split.rs:7"
     },
     {
       "category": "avoidable-erasure",
@@ -20338,6 +20324,20 @@
     },
     {
       "category": "legitimate-boundary",
+      "shape": "let _smelt_tmp_N: SmeltUnknown = assign_impl((object.clone()).into_smelt_unknown(), sources.borrow().get(i).cloned().unwrap_or_else(|| SmeltUnknown::Undefined));",
+      "occurrences": 2,
+      "files": 1,
+      "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/assign.rs:16"
+    },
+    {
+      "category": "legitimate-boundary",
+      "shape": "let _smelt_tmp_N: SmeltUnknown = assign_in_impl((object.clone()).into_smelt_unknown(), sources.borrow().get(i).cloned().unwrap_or_else(|| SmeltUnknown::Undefined));",
+      "occurrences": 2,
+      "files": 1,
+      "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/assignIn.rs:16"
+    },
+    {
+      "category": "legitimate-boundary",
       "shape": "let _smelt_tmp_N: SmeltUnknown = closure_arg_N.clone().map_or(SmeltUnknown::Undefined, |smelt_value| smelt_value.into_smelt_unknown());",
       "occurrences": 2,
       "files": 1,
@@ -20562,6 +20562,20 @@
     },
     {
       "category": "legitimate-boundary",
+      "shape": "let _smelt_tmp_N: bool = match &(value.clone()).into_smelt_unknown() { SmeltUnknown::Function(_) => true, SmeltUnknown::Object(smelt_object) => smelt_object.contains_key(\"S\"), _ => false };",
+      "occurrences": 2,
+      "files": 1,
+      "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/isFunction.rs:9"
+    },
+    {
+      "category": "legitimate-boundary",
+      "shape": "let _smelt_tmp_N: bool = matches!((value.clone()).into_smelt_unknown(), SmeltUnknown::Undefined);",
+      "occurrences": 2,
+      "files": 2,
+      "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/toLength.rs:10"
+    },
+    {
+      "category": "legitimate-boundary",
       "shape": "let _smelt_tmp_N: bool = matches!(value.clone(), SmeltUnknown::Symbol(_));",
       "occurrences": 2,
       "files": 2,
@@ -20674,6 +20688,13 @@
     },
     {
       "category": "legitimate-boundary",
+      "shape": "pub(crate) fn compare_values_N<AnyN: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'C'static>(a: AnyN, b: AnyN, order: JsString) -> fN {",
+      "occurrences": 2,
+      "files": 1,
+      "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/compareValues_1.rs:68"
+    },
+    {
+      "category": "legitimate-boundary",
       "shape": "pub(crate) fn count_by_N<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'C'",
       "occurrences": 2,
       "files": 1,
@@ -20741,6 +20762,20 @@
       "occurrences": 2,
       "files": 2,
       "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/last.rs:7"
+    },
+    {
+      "category": "legitimate-boundary",
+      "shape": "pub(crate) fn merge_N<AnyN: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'C'",
+      "occurrences": 2,
+      "files": 1,
+      "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/merge_1.rs:7"
+    },
+    {
+      "category": "legitimate-boundary",
+      "shape": "pub(crate) fn merge_with_N<AnyN: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'C'",
+      "occurrences": 2,
+      "files": 1,
+      "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/mergeWith_1.rs:7"
     },
     {
       "category": "legitimate-boundary",
@@ -22641,20 +22676,6 @@
     },
     {
       "category": "avoidable-erasure",
-      "shape": "let _smelt_tmp_N: SmeltUnknown = assign_impl(object.clone(), sources.borrow().get(i).cloned().unwrap_or_else(|| SmeltUnknown::Undefined));",
-      "occurrences": 2,
-      "files": 1,
-      "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/assign.rs:16"
-    },
-    {
-      "category": "avoidable-erasure",
-      "shape": "let _smelt_tmp_N: SmeltUnknown = assign_in_impl(object.clone(), sources.borrow().get(i).cloned().unwrap_or_else(|| SmeltUnknown::Undefined));",
-      "occurrences": 2,
-      "files": 1,
-      "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/assignIn.rs:16"
-    },
-    {
-      "category": "avoidable-erasure",
       "shape": "let _smelt_tmp_N: SmeltUnknown = attempt_N(&mut { let _smelt_adapted_callback = _smelt_tmp_N.clone(); move || SmeltUnknown::Number((_smelt_adapted_callback)() as fN) });",
       "occurrences": 2,
       "files": 1,
@@ -23324,6 +23345,20 @@
       "occurrences": 2,
       "files": 1,
       "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/omit_1.rs:27"
+    },
+    {
+      "category": "avoidable-erasure",
+      "shape": "let _smelt_tmp_N: bool = matches!(value.clone(), SmeltUnknown::Null);",
+      "occurrences": 2,
+      "files": 2,
+      "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/isPrimitive.rs:14"
+    },
+    {
+      "category": "avoidable-erasure",
+      "shape": "let _smelt_tmp_N: bool = matches!(value.clone(), SmeltUnknown::Undefined);",
+      "occurrences": 2,
+      "files": 2,
+      "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/isPrimitive.rs:15"
     },
     {
       "category": "avoidable-erasure",
@@ -24342,6 +24377,13 @@
     },
     {
       "category": "avoidable-erasure",
+      "shape": "pub(crate) fn compare_values_N(a: SmeltUnknown, b: SmeltUnknown, order: JsString) -> fN {",
+      "occurrences": 2,
+      "files": 1,
+      "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/compareValues.rs:35"
+    },
+    {
+      "category": "avoidable-erasure",
       "shape": "pub(crate) fn concat_N(values: SmeltList<SmeltUnknown>) -> SmeltList<SmeltUnknown> {",
       "occurrences": 2,
       "files": 1,
@@ -24608,13 +24650,6 @@
     },
     {
       "category": "avoidable-erasure",
-      "shape": "pub(crate) fn is_cloneable_object_N(object: SmeltUnknown) -> bool {",
-      "occurrences": 2,
-      "files": 2,
-      "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/cloneDeepWith_1.rs:634"
-    },
-    {
-      "category": "avoidable-erasure",
       "shape": "pub(crate) fn is_equal(a: SmeltUnknown, b: SmeltUnknown) -> Result<bool, Box<dyn std::error::Error>> {",
       "occurrences": 2,
       "files": 1,
@@ -24626,20 +24661,6 @@
       "occurrences": 2,
       "files": 1,
       "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/isEqualsSameValueZero.rs:7"
-    },
-    {
-      "category": "avoidable-erasure",
-      "shape": "pub(crate) fn is_error_N(value: SmeltUnknown) -> bool {",
-      "occurrences": 2,
-      "files": 2,
-      "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/isError.rs:7"
-    },
-    {
-      "category": "avoidable-erasure",
-      "shape": "pub(crate) fn is_function_N(value: SmeltUnknown) -> bool {",
-      "occurrences": 2,
-      "files": 2,
-      "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/isFunction.rs:7"
     },
     {
       "category": "avoidable-erasure",
@@ -24682,13 +24703,6 @@
       "occurrences": 2,
       "files": 2,
       "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/isTypedArray.rs:7"
-    },
-    {
-      "category": "avoidable-erasure",
-      "shape": "pub(crate) fn is_undefined_N(x: SmeltUnknown) -> bool {",
-      "occurrences": 2,
-      "files": 2,
-      "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/isUndefined.rs:7"
     },
     {
       "category": "avoidable-erasure",
@@ -24773,20 +24787,6 @@
       "occurrences": 2,
       "files": 1,
       "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/memoize_1.rs:7"
-    },
-    {
-      "category": "avoidable-erasure",
-      "shape": "pub(crate) fn merge_N(object: SmeltUnknown, sources: SmeltList<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>> {",
-      "occurrences": 2,
-      "files": 1,
-      "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/merge_1.rs:7"
-    },
-    {
-      "category": "avoidable-erasure",
-      "shape": "pub(crate) fn merge_with_N(object: SmeltUnknown, other_args: SmeltList<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>> {",
-      "occurrences": 2,
-      "files": 1,
-      "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/mergeWith_1.rs:7"
     },
     {
       "category": "avoidable-erasure",
@@ -30425,6 +30425,13 @@
     },
     {
       "category": "legitimate-boundary",
+      "shape": "_smelt_tmp_N = matches!((value.clone()).into_smelt_unknown(), SmeltUnknown::Undefined);",
+      "occurrences": 1,
+      "files": 1,
+      "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/compareValues_1.rs:14"
+    },
+    {
+      "category": "legitimate-boundary",
       "shape": "_smelt_tmp_N = matches!(cloned_error.clone(), SmeltUnknown::Object(smelt_value) if smelt_value.contains_key(\"S\") || smelt_value.contains_key(\"S\"));",
       "occurrences": 1,
       "files": 1,
@@ -32378,6 +32385,13 @@
     },
     {
       "category": "legitimate-boundary",
+      "shape": "let _smelt_tmp_N: bool = is_iteratee_call((str.clone()).into_smelt_unknown(), n.clone().map_or(SmeltUnknown::Undefined, |smelt_value| smelt_value), _smelt_tmp_N);",
+      "occurrences": 1,
+      "files": 1,
+      "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/repeat.rs:21"
+    },
+    {
+      "category": "legitimate-boundary",
       "shape": "let _smelt_tmp_N: bool = is_json_array(SmeltList::clone(&_smelt_tmp_N).into_live_smelt_unknown_with(|smelt_value| smelt_value.clone().map_or(SmeltUnknown::Null, |smelt_value| smelt_value.into_smelt_unknown())));",
       "occurrences": 1,
       "files": 1,
@@ -32543,6 +32557,13 @@
       "occurrences": 1,
       "files": 1,
       "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/isBuffer_spec.rs:86"
+    },
+    {
+      "category": "legitimate-boundary",
+      "shape": "let mut result: SmeltUnknown = (object.clone()).into_smelt_unknown();",
+      "occurrences": 1,
+      "files": 1,
+      "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/mergeWith_1.rs:19"
     },
     {
       "category": "legitimate-boundary",
@@ -32749,10 +32770,38 @@
     },
     {
       "category": "legitimate-boundary",
+      "shape": "pub(crate) fn is_cloneable_object_N<AnyN: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'C'",
+      "occurrences": 1,
+      "files": 1,
+      "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/clone_1.rs:304"
+    },
+    {
+      "category": "legitimate-boundary",
+      "shape": "pub(crate) fn is_error_N<AnyN: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'C'",
+      "occurrences": 1,
+      "files": 1,
+      "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/isError.rs:7"
+    },
+    {
+      "category": "legitimate-boundary",
+      "shape": "pub(crate) fn is_function_N<AnyN: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'C'",
+      "occurrences": 1,
+      "files": 1,
+      "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/isFunction.rs:7"
+    },
+    {
+      "category": "legitimate-boundary",
       "shape": "pub(crate) fn is_not_nil<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'C'",
       "occurrences": 1,
       "files": 1,
       "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/isNotNil.rs:7"
+    },
+    {
+      "category": "legitimate-boundary",
+      "shape": "pub(crate) fn is_null_N<AnyN: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'C'",
+      "occurrences": 1,
+      "files": 1,
+      "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/isNull.rs:7"
     },
     {
       "category": "legitimate-boundary",
@@ -32767,6 +32816,13 @@
       "occurrences": 1,
       "files": 1,
       "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/isSubsetWith.rs:7"
+    },
+    {
+      "category": "legitimate-boundary",
+      "shape": "pub(crate) fn is_undefined_N<AnyN: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'C'",
+      "occurrences": 1,
+      "files": 1,
+      "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/isUndefined.rs:7"
     },
     {
       "category": "legitimate-boundary",
@@ -32802,6 +32858,13 @@
       "occurrences": 1,
       "files": 1,
       "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/nth.rs:7"
+    },
+    {
+      "category": "legitimate-boundary",
+      "shape": "pub(crate) fn nullish_rank<AnyN: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'C'",
+      "occurrences": 1,
+      "files": 1,
+      "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/compareValues_1.rs:7"
     },
     {
       "category": "legitimate-boundary",
@@ -32893,6 +32956,20 @@
       "occurrences": 1,
       "files": 1,
       "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/toArray_1.rs:7"
+    },
+    {
+      "category": "legitimate-boundary",
+      "shape": "pub(crate) fn to_length<AnyN: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'C'",
+      "occurrences": 1,
+      "files": 1,
+      "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/toLength.rs:7"
+    },
+    {
+      "category": "legitimate-boundary",
+      "shape": "pub(crate) fn to_safe_integer<AnyN: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'C'",
+      "occurrences": 1,
+      "files": 1,
+      "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/toSafeInteger.rs:7"
     },
     {
       "category": "legitimate-boundary",
@@ -35822,13 +35899,6 @@
     },
     {
       "category": "avoidable-erasure",
-      "shape": "let _smelt_tmp_N: bool = is_iteratee_call(str.clone(), n.clone().map_or(SmeltUnknown::Undefined, |smelt_value| smelt_value), _smelt_tmp_N);",
-      "occurrences": 1,
-      "files": 1,
-      "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/repeat.rs:21"
-    },
-    {
-      "category": "avoidable-erasure",
       "shape": "let _smelt_tmp_N: bool = is_json(SmeltUnknown::Array(_smelt_tmp_N.into()));",
       "occurrences": 1,
       "files": 1,
@@ -37656,13 +37726,6 @@
     },
     {
       "category": "avoidable-erasure",
-      "shape": "let mut result: SmeltUnknown = object.clone();",
-      "occurrences": 1,
-      "files": 1,
-      "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/mergeWith_1.rs:19"
-    },
-    {
-      "category": "avoidable-erasure",
       "shape": "let mut result_N: SmeltList<SmeltUnknown>;",
       "occurrences": 1,
       "files": 1,
@@ -38643,6 +38706,13 @@
     },
     {
       "category": "avoidable-erasure",
+      "shape": "pub(crate) fn is_cloneable_object_N(object: SmeltUnknown) -> bool {",
+      "occurrences": 1,
+      "files": 1,
+      "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/cloneDeepWith_1.rs:634"
+    },
+    {
+      "category": "avoidable-erasure",
       "shape": "pub(crate) fn is_date_N(value: Option<SmeltUnknown>) -> bool {",
       "occurrences": 1,
       "files": 1,
@@ -38678,6 +38748,13 @@
     },
     {
       "category": "avoidable-erasure",
+      "shape": "pub(crate) fn is_error_N(value: SmeltUnknown) -> bool {",
+      "occurrences": 1,
+      "files": 1,
+      "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/isError_1.rs:7"
+    },
+    {
+      "category": "avoidable-erasure",
       "shape": "pub(crate) fn is_file(x: SmeltUnknown) -> bool {",
       "occurrences": 1,
       "files": 1,
@@ -38689,6 +38766,13 @@
       "occurrences": 1,
       "files": 1,
       "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/isFinite.rs:7"
+    },
+    {
+      "category": "avoidable-erasure",
+      "shape": "pub(crate) fn is_function_N(value: SmeltUnknown) -> bool {",
+      "occurrences": 1,
+      "files": 1,
+      "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/isFunction_1.rs:7"
     },
     {
       "category": "avoidable-erasure",
@@ -38759,13 +38843,6 @@
       "occurrences": 1,
       "files": 1,
       "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/isNative.rs:7"
-    },
-    {
-      "category": "avoidable-erasure",
-      "shape": "pub(crate) fn is_null_N(value: SmeltUnknown) -> bool {",
-      "occurrences": 1,
-      "files": 1,
-      "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/isNull.rs:7"
     },
     {
       "category": "avoidable-erasure",
@@ -38888,6 +38965,13 @@
     },
     {
       "category": "avoidable-erasure",
+      "shape": "pub(crate) fn is_undefined_N(x: SmeltUnknown) -> bool {",
+      "occurrences": 1,
+      "files": 1,
+      "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/isUndefined_1.rs:7"
+    },
+    {
+      "category": "avoidable-erasure",
       "shape": "pub(crate) fn is_weak_map_N(value: Option<SmeltUnknown>) -> bool {",
       "occurrences": 1,
       "files": 1,
@@ -38983,13 +39067,6 @@
       "occurrences": 1,
       "files": 1,
       "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/nthArg.rs:7"
-    },
-    {
-      "category": "avoidable-erasure",
-      "shape": "pub(crate) fn nullish_rank(value: SmeltUnknown) -> fN {",
-      "occurrences": 1,
-      "files": 1,
-      "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/compareValues_1.rs:7"
     },
     {
       "category": "avoidable-erasure",
@@ -39126,13 +39203,6 @@
     },
     {
       "category": "avoidable-erasure",
-      "shape": "pub(crate) fn to_length(value: SmeltUnknown) -> fN {",
-      "occurrences": 1,
-      "files": 1,
-      "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/toLength.rs:7"
-    },
-    {
-      "category": "avoidable-erasure",
       "shape": "pub(crate) fn to_number(value: SmeltUnknown) -> fN {",
       "occurrences": 1,
       "files": 1,
@@ -39144,13 +39214,6 @@
       "occurrences": 1,
       "files": 1,
       "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/toPath.rs:7"
-    },
-    {
-      "category": "avoidable-erasure",
-      "shape": "pub(crate) fn to_safe_integer(value: SmeltUnknown) -> fN {",
-      "occurrences": 1,
-      "files": 1,
-      "example": "/home/lorenzo/scratch/smelt/erasure/corpora/es-toolkit-new-out/src/toSafeInteger.rs:7"
     },
     {
       "category": "avoidable-erasure",
@@ -39791,13 +39854,13 @@
     }
   ],
   "erasure": {
-    "records": 4233,
-    "avoidable": 3574,
+    "records": 4213,
+    "avoidable": 3554,
     "by_reason": [
       {
         "reason": "explicit-any",
         "class": "avoidable",
-        "count": 1213
+        "count": 1193
       },
       {
         "reason": "erased-generic",
@@ -39885,7 +39948,7 @@
         "count": 7
       }
     ],
-    "avoidable_lines_total": 2793,
+    "avoidable_lines_total": 2785,
     "avoidable_lines": [
       {
         "file": "src/array/xorBy.ts",
@@ -40022,7 +40085,8 @@
         "file": "src/compat/array/pullAllBy.ts",
         "line": 121,
         "reason": "explicit-any",
-        "count": 4
+        "count": 4,
+        "detail": "Any0 of pull_all_by: the body does more than pass the value along"
       },
       {
         "file": "src/compat/function/ary.ts",
@@ -40082,19 +40146,22 @@
         "file": "src/compat/object/defaultsDeep.ts",
         "line": 36,
         "reason": "explicit-any",
-        "count": 4
+        "count": 4,
+        "detail": "Any0 of defaults_deep_recursive: the body does more than pass the value along"
       },
       {
         "file": "src/compat/object/defaultsDeep.ts",
         "line": 55,
         "reason": "explicit-any",
-        "count": 4
+        "count": 4,
+        "detail": "Any0 of handle_missing_property: the body does more than pass the value along"
       },
       {
         "file": "src/compat/object/defaultsDeep.ts",
         "line": 70,
         "reason": "explicit-any",
-        "count": 4
+        "count": 4,
+        "detail": "Any0 of handle_existing_property: the body does more than pass the value along"
       },
       {
         "file": "src/compat/object/defaultsDeep.ts",
@@ -40552,27 +40619,17 @@
       },
       {
         "file": "src/compat/object/assign.ts",
-        "line": 134,
-        "reason": "explicit-any",
-        "count": 3
-      },
-      {
-        "file": "src/compat/object/assign.ts",
         "line": 142,
         "reason": "explicit-any",
-        "count": 3
-      },
-      {
-        "file": "src/compat/object/assignIn.ts",
-        "line": 135,
-        "reason": "explicit-any",
-        "count": 3
+        "count": 3,
+        "detail": "Any0 of assign_impl: the body does more than pass the value along"
       },
       {
         "file": "src/compat/object/assignIn.ts",
         "line": 143,
         "reason": "explicit-any",
-        "count": 3
+        "count": 3,
+        "detail": "Any0 of assign_in_impl: the body does more than pass the value along"
       },
       {
         "file": "src/compat/object/assignInWith.ts",
@@ -40581,20 +40638,8 @@
         "count": 3
       },
       {
-        "file": "src/compat/object/assignInWith.ts",
-        "line": 174,
-        "reason": "explicit-any",
-        "count": 3
-      },
-      {
         "file": "src/compat/object/assignWith.ts",
         "line": 5,
-        "reason": "explicit-any",
-        "count": 3
-      },
-      {
-        "file": "src/compat/object/assignWith.ts",
-        "line": 174,
         "reason": "explicit-any",
         "count": 3
       },
@@ -40602,7 +40647,8 @@
         "file": "src/compat/object/cloneWith.ts",
         "line": 107,
         "reason": "explicit-any",
-        "count": 3
+        "count": 3,
+        "detail": "Any0 of clone_with: the body does more than pass the value along"
       },
       {
         "file": "src/compat/object/defaults.ts",
@@ -40614,7 +40660,8 @@
         "file": "src/compat/object/defaultsDeep.ts",
         "line": 23,
         "reason": "explicit-any",
-        "count": 3
+        "count": 3,
+        "detail": "Any0 of defaults_deep: the body does more than pass the value along"
       },
       {
         "file": "src/compat/object/get.ts",
@@ -40638,13 +40685,8 @@
         "file": "src/compat/object/get.ts",
         "line": 455,
         "reason": "explicit-any",
-        "count": 3
-      },
-      {
-        "file": "src/compat/object/get.ts",
-        "line": 518,
-        "reason": "explicit-any",
-        "count": 3
+        "count": 3,
+        "detail": "Any0 of get: the body does more than pass the value along"
       },
       {
         "file": "src/compat/object/mapKeys.ts",
@@ -40657,13 +40699,15 @@
         "file": "src/compat/object/mapKeys.ts",
         "line": 56,
         "reason": "explicit-any",
-        "count": 3
+        "count": 3,
+        "detail": "Any0 of map_keys: the body does more than pass the value along"
       },
       {
         "file": "src/compat/object/mapValues.ts",
         "line": 170,
         "reason": "explicit-any",
-        "count": 3
+        "count": 3,
+        "detail": "Any0 of map_values: the body does more than pass the value along"
       },
       {
         "file": "src/compat/object/merge.ts",
@@ -40672,20 +40716,8 @@
         "count": 3
       },
       {
-        "file": "src/compat/object/merge.ts",
-        "line": 128,
-        "reason": "explicit-any",
-        "count": 3
-      },
-      {
         "file": "src/compat/object/mergeWith.ts",
         "line": 162,
-        "reason": "explicit-any",
-        "count": 3
-      },
-      {
-        "file": "src/compat/object/mergeWith.ts",
-        "line": 210,
         "reason": "explicit-any",
         "count": 3
       },
@@ -40717,12 +40749,6 @@
         "count": 3
       },
       {
-        "file": "src/compat/predicate/isFunction.ts",
-        "line": 14,
-        "reason": "explicit-any",
-        "count": 3
-      },
-      {
         "file": "src/compat/predicate/isMap.ts",
         "line": 21,
         "reason": "explicit-any",
@@ -40732,37 +40758,22 @@
         "file": "src/compat/predicate/isNative.ts",
         "line": 32,
         "reason": "explicit-any",
-        "count": 3
-      },
-      {
-        "file": "src/compat/string/pad.ts",
-        "line": 38,
-        "reason": "explicit-any",
-        "count": 3
-      },
-      {
-        "file": "src/compat/string/repeat.ts",
-        "line": 36,
-        "reason": "explicit-any",
-        "count": 3
-      },
-      {
-        "file": "src/compat/string/split.ts",
-        "line": 39,
-        "reason": "explicit-any",
-        "count": 3
+        "count": 3,
+        "detail": "Any0 of is_native: the body does more than pass the value along"
       },
       {
         "file": "src/compat/string/trim.ts",
         "line": 31,
         "reason": "explicit-any",
-        "count": 3
+        "count": 3,
+        "detail": "Any0 of trim: the body does more than pass the value along"
       },
       {
         "file": "src/compat/util/invoke.ts",
         "line": 26,
         "reason": "explicit-any",
-        "count": 3
+        "count": 3,
+        "detail": "Any0 of invoke: the body does more than pass the value along"
       },
       {
         "file": "src/compat/util/method.ts",
@@ -40851,7 +40862,8 @@
         "file": "src/predicate/isFunction.ts",
         "line": 14,
         "reason": "explicit-any",
-        "count": 3
+        "count": 3,
+        "detail": "Any0 of is_function: a caller passes a function, a future or a nullish value"
       },
       {
         "file": "src/predicate/isPlainObject.spec.ts",
@@ -40892,19 +40904,15 @@
         "file": "src/_internal/compareValues.ts",
         "line": 12,
         "reason": "explicit-any",
-        "count": 2
-      },
-      {
-        "file": "src/_internal/compareValues.ts",
-        "line": 37,
-        "reason": "explicit-any",
-        "count": 2
+        "count": 2,
+        "detail": "Any0 of compare_ascending: the body does more than pass the value along"
       },
       {
         "file": "src/_internal/isEqualsSameValueZero.ts",
         "line": 14,
         "reason": "explicit-any",
-        "count": 2
+        "count": 2,
+        "detail": "Any0 of is_equals_same_value_zero: the body does more than pass the value along"
       },
       {
         "file": "src/array/at.ts",
@@ -41190,6 +41198,85 @@
         "reason": "erased-generic",
         "count": 2,
         "detail": "T of callee reduce_async: unbound at this caller"
+      },
+      {
+        "file": "src/array/reduceAsync.ts",
+        "line": 83,
+        "reason": "erased-generic",
+        "count": 2,
+        "detail": "T of reduce_async: the body-cleanliness trial demoted the function"
+      },
+      {
+        "file": "src/array/uniqBy.ts",
+        "line": 29,
+        "reason": "erased-generic",
+        "count": 2,
+        "detail": "T of uniq_by: the body-cleanliness trial demoted the function"
+      },
+      {
+        "file": "src/array/zipObject.ts",
+        "line": 31,
+        "reason": "erased-generic",
+        "count": 2,
+        "detail": "P of zip_object: bounded parameter without a liftable bound trait"
+      },
+      {
+        "file": "src/compat/_internal/IsWritable.d.ts",
+        "line": 3,
+        "reason": "type-level",
+        "count": 2
+      },
+      {
+        "file": "src/compat/_internal/assignValue.ts",
+        "line": 3,
+        "reason": "explicit-any",
+        "count": 2
+      },
+      {
+        "file": "src/compat/_internal/falsey.ts",
+        "line": 2,
+        "reason": "dynamic-operator",
+        "count": 2,
+        "detail": "array hole"
+      },
+      {
+        "file": "src/compat/_internal/setToEntries.ts",
+        "line": 1,
+        "reason": "explicit-any",
+        "count": 2
+      },
+      {
+        "file": "src/compat/array/countBy.ts",
+        "line": 28,
+        "reason": "explicit-any",
+        "count": 2,
+        "detail": "Any0 of count_by: the body does more than pass the value along"
+      },
+      {
+        "file": "src/compat/array/countBy.ts",
+        "line": 34,
+        "reason": "explicit-any",
+        "count": 2
+      },
+      {
+        "file": "src/compat/array/dropRightWhile.ts",
+        "line": 69,
+        "reason": "erased-generic",
+        "count": 2,
+        "detail": "T of drop_right_while: a callback position the renderer cannot express"
+      },
+      {
+        "file": "src/compat/array/dropWhile.ts",
+        "line": 41,
+        "reason": "erased-union",
+        "count": 2,
+        "detail": "union of 2 arms"
+      },
+      {
+        "file": "src/compat/array/every.ts",
+        "line": 111,
+        "reason": "explicit-any",
+        "count": 2
       }
     ]
   }

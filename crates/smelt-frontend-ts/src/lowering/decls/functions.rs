@@ -144,7 +144,7 @@ impl ModuleBuilder<'_> {
         // of erasing `T` to `SmeltUnknown`. The scope is popped on every exit
         // path of the signature and body lowering; the lowered `TypeParamDef`s
         // survive on the item.
-        let (type_params, assertion_return, predicate_return, declared_return_ty, lowered) = self
+        let (mut type_params, assertion_return, predicate_return, declared_return_ty, lowered) = self
             .with_function_type_parameter_scope(function.type_parameters.as_deref(), crate::lowering::ty::element_params::FunctionSignature::of_function(function), |this, type_params| {
             let assertion_return = match function
                 .return_type
@@ -424,15 +424,19 @@ impl ModuleBuilder<'_> {
                 // Any `fn.prop = value` write this body collected must have been rebuilt
                 // into a callable-interface struct by now; a leftover is a dropped write.
                 this.report_unconsumed_callable_props(&mut errors);
-                Ok((body, params, rest, required_params, errors))
+                let rebuilt_params = arguments_forwarding.is_some();
+                Ok((body, params, rest, required_params, errors, rebuilt_params))
             });
             Ok((type_params, assertion_return, predicate_return, declared_return_ty, lowered))
         })?;
-        let (body, params, rest, required_params, errors) = lowered?;
+        let (body, params, rest, required_params, errors, rebuilt_params) = lowered?;
 
         if let Some(error) = errors.into_iter().next() {
             return Err(error);
         }
+        let implicit =
+            self.implicit_any_type_params(function, &type_params, &params, rebuilt_params);
+        type_params.extend(implicit);
 
         let mut return_ty = if function.generator && declared_return_ty.is_none() {
             self.inferred_generator_type(&body, function.r#async, function)

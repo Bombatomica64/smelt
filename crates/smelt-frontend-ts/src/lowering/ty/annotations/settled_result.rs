@@ -69,6 +69,7 @@ impl ModuleBuilder<'_> {
                 constraint: None,
                 default: None,
                 span,
+                implicit_param: None,
             }];
             self.register_settled_interface(name, FULFILLED, type_params, fields, decode_facts);
         }

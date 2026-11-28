@@ -14,6 +14,7 @@ mod enums;
 pub(in crate::lowering) mod evaluation_statics;
 mod function_expressions;
 mod functions;
+mod implicit_any;
 mod inferred_types;
 mod inherited_statics;
 mod super_call;

@@ -101,7 +101,7 @@ pub(crate) fn build_rust_crate_with_erasure(
     timing::measure("stubs.emit", || {
         stubs::emit_type_declarations(&krate, &modules)
     })?;
-    let mir = lowering::lower_to_optimized_mir(&krate)?;
+    let (mir, settled_erasures) = lowering::lower_to_emittable_mir(&krate)?;
     let manifest_dir = manifest_path.parent().unwrap_or_else(|| Path::new("."));
     // Measured before emitting: a failure here must not leave a fresh crate
     // beside the previous build's typedness sidecar.
@@ -124,6 +124,8 @@ pub(crate) fn build_rust_crate_with_erasure(
                 .with_dependencies(config.rust_dependencies()),
         )
     })?;
+    let mut backend_erasures = backend_erasures;
+    backend_erasures.extend(settled_erasures);
     let erasures = erasure::resolve(&krate, &sources, &backend_erasures, manifest_dir, settings);
     erasure::write_sidecar(&output_dir, &erasures)?;
     typedness_report::write_report_if_changed(
