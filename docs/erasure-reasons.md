@@ -28,7 +28,7 @@ Records live in `smelt_hir::Crate::erasures` (frontends) and are returned by
 | Reason | Class | Decided where | Meaning |
 | --- | --- | --- | --- |
 | `source-unknown` | legitimate | TS annotations | the source says `unknown` |
-| `explicit-any` | avoidable | TS annotations, `as any` | the author opted out with `any`; also the parameters of functions defined in an object literal cast `as any`, which callers reach only through `any` (`unchecked_params`); also an unannotated closure's return the checker infers as `any` from a body returning an `any` value (`checker_function_returns_any`) |
+| `explicit-any` | avoidable | TS annotations, `as any` | the author opted out with `any`; also the parameters of functions defined in an object literal cast `as any`, which callers reach only through `any` (`unchecked_params`); also an unannotated closure's return the checker infers as `any` from a body returning an `any` value (`checker_function_returns_any`); a module function's plain `x: any` parameter is an implicit type parameter where the body only passes it along, and is recorded (by the backend, detail `AnyN of f: ..`) only where it stays erased (`docs/design/any-as-generic.md`) |
 | `unfilled-generic` | avoidable | TS generics | a type argument is unfilled or defaults to `any` |
 | `type-level` | avoidable | TS annotations | conditional/indexed/mapped types, intersections, mixed-arity function unions Smelt does not evaluate |
 | `unmodeled-type` | avoidable | TS | `symbol`, callable-object surfaces |

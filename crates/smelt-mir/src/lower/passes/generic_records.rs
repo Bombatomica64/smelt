@@ -223,6 +223,7 @@ mod tests {
                 constraint: None,
                 default: None,
                 span: Span::new(smelt_hir::FileId(0), 0, 0),
+                implicit_param: None,
             }],
             extends: Vec::new(),
             fields: vec![MirField {

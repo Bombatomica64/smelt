@@ -536,6 +536,7 @@ impl ModuleBuilder<'_> {
                 constraint: None,
                 default: None,
                 span,
+                implicit_param: None,
             })
             .collect()
     }

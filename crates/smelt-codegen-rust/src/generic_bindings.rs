@@ -911,6 +911,7 @@ mod tests {
                     constraint: None,
                     default: None,
                     span: span(),
+                    implicit_param: None,
                 })
                 .collect(),
             origin: HirOrigin::Body(smelt_hir::BodyId(id)),

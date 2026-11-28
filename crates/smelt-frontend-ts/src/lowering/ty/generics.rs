@@ -88,6 +88,7 @@ impl ModuleBuilder<'_> {
                     constraint,
                     default,
                     span: self.span(param.span.start, param.span.end),
+                    implicit_param: None,
                 });
             }
             Ok(())

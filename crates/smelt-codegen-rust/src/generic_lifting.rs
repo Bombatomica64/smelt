@@ -121,7 +121,7 @@ pub(crate) fn function_emits_rust_generics(
 /// as an inspection. Unlisted variants therefore fall through to "inspects",
 /// which is the safe direction: a new `Rvalue` cannot silently start erasing a
 /// lifted type parameter.
-fn type_param_only_moved(mir: &Mir, function: &MirFunction, name: Symbol) -> bool {
+pub(crate) fn type_param_only_moved(mir: &Mir, function: &MirFunction, name: Symbol) -> bool {
     let mut seen: HashSet<u32> = HashSet::new();
     body_only_moves(mir, &function.locals, &function.blocks, name, &mut seen)
 }
@@ -919,7 +919,7 @@ pub(crate) fn type_params_stay_opaque(mir: &Mir, function: &MirFunction) -> bool
 ///
 /// Emitting the bound instead of refusing the lift would not help: the error is
 /// at the *instantiation*, where the concrete type genuinely lacks the impl.
-fn type_param_used_as_map_key(mir: &Mir, function: &MirFunction, name: Symbol) -> bool {
+pub(crate) fn type_param_used_as_map_key(mir: &Mir, function: &MirFunction, name: Symbol) -> bool {
     function
         .locals
         .iter()
@@ -1475,6 +1475,16 @@ fn called_with_erased_type_param_argument(mir: &Mir, function: &MirFunction) -> 
         .iter()
         .map(|param| param.name)
         .collect();
+    // An implicit parameter (`x: any`, `docs/design/any-as-generic.md`) bound
+    // to the erased carrier at a call site is what the source said: that
+    // caller passes an `any`, and Rust infers `SmeltUnknown` for it. It never
+    // demotes the function.
+    let implicit: HashSet<Symbol> = function
+        .type_params
+        .iter()
+        .filter(|param| param.implicit_param.is_some())
+        .map(|param| param.name)
+        .collect();
     let bare_type_param_positions: Vec<usize> = function
         .params
         .iter()
@@ -1484,7 +1494,7 @@ fn called_with_erased_type_param_argument(mir: &Mir, function: &MirFunction) -> 
                 .locals
                 .get(id_index(param.0, "local index does not fit usize").ok()?)?
                 .ty;
-            matches!(mir.types.get(ty), Some(Type::TypeParam { name }) if own_params.contains(name))
+            matches!(mir.types.get(ty), Some(Type::TypeParam { name }) if own_params.contains(name) && !implicit.contains(name))
                 .then_some(index)
         })
         .collect();

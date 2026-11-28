@@ -49,11 +49,61 @@ fn assert_not_recorded(source: &str, reason: ErasureReason) -> Result<(), String
 }
 
 /// `any` and `unknown` annotations are distinct reasons, at the annotation.
+///
+/// Corrected expectation (`docs/design/any-as-generic.md`): the fixture's
+/// `a: any` was a plain `any` parameter, which is now an implicit type
+/// parameter whose record the backend makes only where it stays erased (see
+/// `plain_any_parameter_declares_an_implicit_type_parameter`). The split this
+/// test pins is unchanged, so it now erases `any` where the frontend still
+/// decides it: the element of `any[]`, at the same column.
 #[test]
 fn any_and_unknown_annotations_are_split() -> Result<(), String> {
-    let source = ts!("function f(a: any, b: unknown): void {\n  console.log(a, b);\n}\nf(1, 2);\n");
+    let source =
+        ts!("function f(a: any[], b: unknown): void {\n  console.log(a, b);\n}\nf([1], 2);\n");
     assert_recorded(source, ErasureReason::ExplicitAny, 1, 15)?;
-    assert_recorded(source, ErasureReason::SourceUnknown, 1, 23)
+    assert_recorded(source, ErasureReason::SourceUnknown, 1, 25)
+}
+
+/// A module function's plain `x: any` parameter declares an implicit type
+/// parameter spanning the annotation, keeps its erased local, and leaves no
+/// frontend `explicit-any` record: the backend decides whether it lifts and
+/// records it where it does not (`docs/design/any-as-generic.md`). An
+/// optional `any` is no candidate and keeps its record.
+#[test]
+fn plain_any_parameter_declares_an_implicit_type_parameter() -> Result<(), String> {
+    let source = ts!("function f(a: any, b?: any): void {\n  console.log(a, b);\n}\nf(1, 2);\n");
+    let found = records(source)?;
+    ensure!(
+        found
+            .iter()
+            .filter(|(reason, ..)| *reason == ErasureReason::ExplicitAny)
+            .all(|(_, line, column, _)| (*line, *column) == (1, 24)),
+        "expected only the optional `any` recorded, got {found:?}"
+    );
+    assert_recorded(source, ErasureReason::ExplicitAny, 1, 24)?;
+    let mut ctx = HirCtx::new();
+    lower_ok(source, &mut ctx)?;
+    let function = ctx
+        .krate
+        .items
+        .iter()
+        .find_map(|item| match item {
+            Item::Function(function) if ctx.krate.symbols.get(function.name) == Some("f") => {
+                Some(function)
+            }
+            _ => None,
+        })
+        .ok_or("no function `f`")?;
+    let implicit: Vec<_> = function
+        .type_params
+        .iter()
+        .filter_map(|param| param.implicit_param.map(|index| (index, param.span.start)))
+        .collect();
+    ensure!(
+        implicit == vec![(0, 14)],
+        "implicit parameters: {implicit:?}"
+    );
+    Ok(())
 }
 
 /// `object` is an open layout, not an opt-out.

@@ -276,11 +276,14 @@ fn run_pipeline(ts_source: &str, py_source: &str, inputs: Inputs) -> Result<Stri
     };
 
     // ── MIR lowering, optimize, validate ────────────────────────────
-    let mir = smelt_mir::compile(&krate).map_err(|error| match error {
+    let mut mir = smelt_mir::compile(&krate).map_err(|error| match error {
         smelt_mir::CompileError::Lower(errors) => Failure::debug(Stage::MirLowering, errors),
         smelt_mir::CompileError::Validation(errors) => Failure::debug(Stage::MirValidate, errors),
         other => Failure::messages(FailurePoint::Stage(Stage::MirLowering), [format!("{other}")]),
     })?;
+    // `x: any` parameters the body only passes along stay generic; the rest
+    // return to the erased carrier (`docs/design/any-as-generic.md`).
+    let _ = smelt_codegen_rust::settle_implicit_generics(&mut mir);
 
     // ── Rust codegen ────────────────────────────────────────────────
     smelt_codegen_rust::emit_source(&mir).map_err(|error| {

@@ -94,6 +94,7 @@ pub(crate) mod generic_elision;
 pub(crate) mod generic_inspection;
 pub(crate) mod generic_lifting;
 pub(crate) mod globals;
+mod implicit_generics;
 pub(crate) mod lazy_view;
 pub(crate) mod list_links;
 mod module_map;
@@ -132,6 +133,7 @@ pub use emitter::typedness::{KindCounts, Typedness, TypednessCounts, TypednessMe
 pub use erased_list_alias::{ERASED_GENERIC_ARRAY_ALIAS_FN, ERASED_GENERIC_LIST_ALIAS_FN};
 pub use error::EmitError;
 pub(crate) use error::{compact_index, id_index};
+pub use implicit_generics::settle_implicit_generics;
 pub use names::reserved::is_rust_keyword;
 pub use options::{
     CrateKind, EmitOptions, GeneratedAllocator, PackageMetadata, ReleaseProfile, RustEdition,
@@ -143,7 +145,7 @@ pub use options::{
 /// per source file. Uses the emitter's own type rendering so it matches the
 /// generated crate; see `emitter::typedness`.
 pub fn measure_typedness(mir: &Mir) -> Result<TypednessMeasurement, EmitError> {
-    emitter::typedness::measure(mir)
+    emitter::typedness::measure(&implicit_generics::settled(mir))
 }
 
 /// Tests for the code generator.

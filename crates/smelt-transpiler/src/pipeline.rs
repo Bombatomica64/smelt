@@ -101,7 +101,7 @@ pub(crate) fn build_rust_crate_with_erasure(
     timing::measure("stubs.emit", || {
         stubs::emit_type_declarations(&krate, &modules)
     })?;
-    let mir = lowering::lower_to_optimized_mir(&krate)?;
+    let (mir, settled_erasures) = lowering::lower_to_emittable_mir(&krate)?;
     let manifest_dir = manifest_path.parent().unwrap_or_else(|| Path::new("."));
     // Measured before emitting: a failure here must not leave a fresh crate
     // beside the previous build's typedness sidecar.
@@ -110,7 +110,7 @@ pub(crate) fn build_rust_crate_with_erasure(
     );
     let output_dir = resolve_manifest_path(manifest_dir, config.output_target());
     let crate_name = config.generated_crate_name();
-    let backend_erasures = timing::measure("rust.emit_crate", || {
+    let mut backend_erasures = timing::measure("rust.emit_crate", || {
         smelt_codegen_rust::emit_crate_with_modules_reporting(
             &mir,
             &krate,
@@ -124,6 +124,7 @@ pub(crate) fn build_rust_crate_with_erasure(
                 .with_dependencies(config.rust_dependencies()),
         )
     })?;
+    backend_erasures.extend(settled_erasures);
     let erasures = erasure::resolve(&krate, &sources, &backend_erasures, manifest_dir, settings);
     erasure::write_sidecar(&output_dir, &erasures)?;
     typedness_report::write_report_if_changed(
@@ -170,7 +171,7 @@ pub(crate) fn check_manifest(
     let erasures = erasure::resolve(
         &lowered.krate,
         &lowered.sources,
-        &[],
+        &unsettled_implicit_any(&lowered.krate),
         manifest_dir,
         settings,
     );
@@ -179,6 +180,29 @@ pub(crate) fn check_manifest(
         return Err(erasure::denied_error(denied));
     }
     Ok(())
+}
+
+/// The `explicit-any` record of every implicit type parameter in `krate`
+/// (`docs/design/any-as-generic.md`). `check` runs no backend, so it cannot
+/// tell which of them `build` lifts; it reports each as the `any` its
+/// annotation wrote, with the record the frontend retracted.
+fn unsettled_implicit_any(krate: &smelt_hir::Crate) -> Vec<smelt_hir::ErasureRecord> {
+    krate
+        .items
+        .iter()
+        .filter_map(|item| {
+            if let smelt_hir::Item::Function(function) = item {
+                Some(function)
+            } else {
+                None
+            }
+        })
+        .flat_map(|function| &function.type_params)
+        .filter(|param| param.implicit_param.is_some())
+        .map(|param| {
+            smelt_hir::ErasureRecord::new(smelt_hir::ErasureReason::ExplicitAny, param.span, "")
+        })
+        .collect()
 }
 
 /// The generated crate's `[package]` metadata, from `[project]` and `[rust]`.

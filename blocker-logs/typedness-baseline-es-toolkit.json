@@ -3,8 +3,8 @@
   "total": {
     "values": {
       "concrete": 14408,
-      "generic": 370,
-      "erased": 6889
+      "generic": 390,
+      "erased": 6869
     },
     "reads": {
       "concrete": 366,
@@ -72,8 +72,8 @@
     "src/_internal/compareValues.ts": {
       "values": {
         "concrete": 18,
-        "generic": 0,
-        "erased": 5
+        "generic": 3,
+        "erased": 2
       },
       "reads": {
         "concrete": 0,
@@ -5886,8 +5886,8 @@
     "src/compat/object/assign.ts": {
       "values": {
         "concrete": 13,
-        "generic": 0,
-        "erased": 5
+        "generic": 1,
+        "erased": 4
       },
       "reads": {
         "concrete": 1,
@@ -5903,8 +5903,8 @@
     "src/compat/object/assignIn.ts": {
       "values": {
         "concrete": 13,
-        "generic": 0,
-        "erased": 5
+        "generic": 1,
+        "erased": 4
       },
       "reads": {
         "concrete": 1,
@@ -5920,8 +5920,8 @@
     "src/compat/object/assignInWith.ts": {
       "values": {
         "concrete": 16,
-        "generic": 0,
-        "erased": 12
+        "generic": 1,
+        "erased": 11
       },
       "reads": {
         "concrete": 1,
@@ -5937,8 +5937,8 @@
     "src/compat/object/assignWith.ts": {
       "values": {
         "concrete": 16,
-        "generic": 0,
-        "erased": 12
+        "generic": 1,
+        "erased": 11
       },
       "reads": {
         "concrete": 1,
@@ -5971,8 +5971,8 @@
     "src/compat/object/clone.ts": {
       "values": {
         "concrete": 79,
-        "generic": 0,
-        "erased": 77
+        "generic": 1,
+        "erased": 76
       },
       "reads": {
         "concrete": 8,
@@ -6277,8 +6277,8 @@
     "src/compat/object/get.ts": {
       "values": {
         "concrete": 40,
-        "generic": 0,
-        "erased": 14
+        "generic": 1,
+        "erased": 13
       },
       "reads": {
         "concrete": 1,
@@ -6430,8 +6430,8 @@
     "src/compat/object/merge.ts": {
       "values": {
         "concrete": 2,
-        "generic": 0,
-        "erased": 5
+        "generic": 1,
+        "erased": 4
       },
       "reads": {
         "concrete": 0,
@@ -6447,8 +6447,8 @@
     "src/compat/object/mergeWith.ts": {
       "values": {
         "concrete": 61,
-        "generic": 0,
-        "erased": 51
+        "generic": 1,
+        "erased": 50
       },
       "reads": {
         "concrete": 0,
@@ -6991,8 +6991,8 @@
     "src/compat/predicate/isError.ts": {
       "values": {
         "concrete": 2,
-        "generic": 0,
-        "erased": 1
+        "generic": 1,
+        "erased": 0
       },
       "reads": {
         "concrete": 0,
@@ -7025,8 +7025,8 @@
     "src/compat/predicate/isFunction.ts": {
       "values": {
         "concrete": 1,
-        "generic": 0,
-        "erased": 1
+        "generic": 1,
+        "erased": 0
       },
       "reads": {
         "concrete": 0,
@@ -7178,8 +7178,8 @@
     "src/compat/predicate/isNull.ts": {
       "values": {
         "concrete": 1,
-        "generic": 0,
-        "erased": 1
+        "generic": 1,
+        "erased": 0
       },
       "reads": {
         "concrete": 0,
@@ -7365,8 +7365,8 @@
     "src/compat/predicate/isUndefined.ts": {
       "values": {
         "concrete": 1,
-        "generic": 0,
-        "erased": 1
+        "generic": 1,
+        "erased": 0
       },
       "reads": {
         "concrete": 0,
@@ -7603,8 +7603,8 @@
     "src/compat/string/pad.ts": {
       "values": {
         "concrete": 2,
-        "generic": 0,
-        "erased": 3
+        "generic": 1,
+        "erased": 2
       },
       "reads": {
         "concrete": 0,
@@ -7654,8 +7654,8 @@
     "src/compat/string/repeat.ts": {
       "values": {
         "concrete": 9,
-        "generic": 0,
-        "erased": 7
+        "generic": 1,
+        "erased": 6
       },
       "reads": {
         "concrete": 0,
@@ -7705,8 +7705,8 @@
     "src/compat/string/split.ts": {
       "values": {
         "concrete": 3,
-        "generic": 0,
-        "erased": 3
+        "generic": 1,
+        "erased": 2
       },
       "reads": {
         "concrete": 0,
@@ -8419,8 +8419,8 @@
     "src/compat/util/toLength.ts": {
       "values": {
         "concrete": 5,
-        "generic": 0,
-        "erased": 1
+        "generic": 1,
+        "erased": 0
       },
       "reads": {
         "concrete": 0,
@@ -8487,8 +8487,8 @@
     "src/compat/util/toSafeInteger.ts": {
       "values": {
         "concrete": 6,
-        "generic": 0,
-        "erased": 1
+        "generic": 1,
+        "erased": 0
       },
       "reads": {
         "concrete": 0,

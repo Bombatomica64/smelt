@@ -337,8 +337,17 @@ pub struct TypeParamDef {
     pub constraint: Option<TypeId>,
     /// Optional default type argument.
     pub default: Option<TypeId>,
-    /// Source location of the type parameter.
+    /// Source location of the type parameter. For an implicit parameter, the
+    /// span of the `any` annotation it replaces.
     pub span: Span,
+    /// For a parameter the frontend synthesized rather than the source
+    /// declared: the index of the function parameter annotated `any` it
+    /// stands for (`docs/design/any-as-generic.md`). That parameter's local
+    /// stays erased through MIR lowering; codegen retypes it to this
+    /// parameter only where the body passes the value along without
+    /// inspecting it, and drops this entry everywhere else.
+    #[serde(default)]
+    pub implicit_param: Option<usize>,
 }
 
 /// A field in a class or interface.

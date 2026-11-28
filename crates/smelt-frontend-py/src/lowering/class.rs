@@ -1789,6 +1789,7 @@ impl ModuleBuilder<'_> {
                     constraint: None,
                     default: None,
                     span: self.span(item.range()),
+                    implicit_param: None,
                 });
             }
         }

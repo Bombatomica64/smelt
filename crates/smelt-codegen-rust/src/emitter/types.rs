@@ -635,6 +635,16 @@ impl FunctionEmitter<'_> {
                 Ok(rendered)
             }
             Resolved::Erased => {
+                // This function's implicit parameter (`x: any`) that does not
+                // lift is the `any` its annotation wrote: recorded there, under
+                // the frontend's reason (`docs/design/any-as-generic.md`).
+                if let Some(implicit) = self.function.type_params.iter().find(|type_param| {
+                    type_param.name == name && type_param.implicit_param.is_some()
+                }) {
+                    let detail = self.erased_generic_detail(name, substitution);
+                    self.note_erasure_at(ErasureReason::ExplicitAny, implicit.span, detail);
+                    return Ok(RustType::erased());
+                }
                 let detail = self.erased_generic_detail(name, substitution);
                 self.note_backend_erasure(ErasureReason::ErasedGeneric, detail);
                 Ok(RustType::erased())

@@ -400,6 +400,7 @@ impl ModuleBuilder<'_> {
                 constraint: None,
                 default: None,
                 span: func_span,
+                implicit_param: None,
             })
             .collect();
         let item = Item::Function(Function {

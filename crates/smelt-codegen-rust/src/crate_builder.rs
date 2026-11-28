@@ -46,9 +46,13 @@ pub fn emit_source_with_allocator(
     mir: &Mir,
     allocator: GeneratedAllocator,
 ) -> Result<String, EmitError> {
-    let source = emit_root(mir, allocator, Vec::new(), |_function, _context| {
-        FreeFunctionHome::Root
-    })?
+    let settled_mir = crate::implicit_generics::settled(mir);
+    let source = emit_root(
+        &settled_mir,
+        allocator,
+        Vec::new(),
+        |_function, _context| FreeFunctionHome::Root,
+    )?
     .source();
     assert_runtime_symbols_defined([source.as_str()])?;
     Ok(source)

@@ -53,6 +53,16 @@ impl FunctionEmitter<'_> {
             .push(ErasureRecord::new(reason, span, detail));
     }
 
+    /// Record an erasure the backend decided for `reason` at an explicit
+    /// `span` (an implicit type parameter's `any` annotation).
+    pub(super) fn note_erasure_at(&self, reason: ErasureReason, span: Span, detail: String) {
+        self.context
+            .minted
+            .backend_erasures
+            .borrow_mut()
+            .push(ErasureRecord::new(reason, span, detail));
+    }
+
     /// The span a backend erasure in this function is attributed to: the
     /// entry block's span (the function body), or a zero span in the first
     /// file when the function has no blocks.

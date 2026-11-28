@@ -426,3 +426,88 @@ console.log(isGiven<string>(), isGiven(0), isGiven(''), isGiven(box));
         "optional_type_parameter_is_inspected_through_its_erased_copy",
     )
 }
+
+/// The program of [`any_parameter_passed_along_is_an_implicit_generic`].
+const ANY_PARAMETERS_SOURCE: &str = r#"function sink(x: any, label: string): string {
+  return label + String(x);
+}
+function forward(x: any, label: string): string {
+  return sink(x, label);
+}
+function variadic(target: any, ...rest: any[]): number {
+  console.log(sink(target, "v"));
+  return rest.length;
+}
+function holder<T>(v: T, w: any): T[] {
+  const out: T[] = [v];
+  console.log(w == null);
+  return out;
+}
+function rebind(x: any): string {
+  x = sink(x, "r");
+  return sink(x, "again");
+}
+function isNothing(x: any): boolean {
+  return x === undefined;
+}
+export function main(): void {
+  const n = 5;
+  console.log(forward(n, "a"));
+  console.log(forward("s", "b"));
+  const xs = [1, 2];
+  console.log(holder(n, xs).length);
+  console.log(variadic(n, 1, 2));
+  console.log(rebind(7));
+  console.log(isNothing(undefined), isNothing(null), isNothing(3));
+}
+main();
+"#;
+
+/// Rule: an `any` parameter the body only passes along is an implicit type
+/// parameter (`docs/design/any-as-generic.md`,
+/// `smelt_codegen_rust::settle_implicit_generics`).
+///
+/// Behaviour: the program prints Node's output, including `null` and
+/// `undefined` kept apart and an `any` reassigned or inspected in the body.
+/// Type preservation:
+/// - `forward` (hands `x` to an erased callee), `holder` (beside a declared
+///   `T`, asks only `w == null`) and `variadic` (a rest list beside it) take
+///   `x` as a Rust generic, and their callers pass `5`, `"s"` and `[1, 2]`
+///   at their own types, not through the erased carrier;
+/// - `sink` (`String(x)` reads the value) and `rebind` (reassigns `x`) keep
+///   `SmeltUnknown`;
+/// - `isNothing` keeps `SmeltUnknown`: a caller passes `undefined`, and a
+///   generic `()` would lose `undefined` against `null`.
+#[test]
+fn any_parameter_passed_along_is_an_implicit_generic() -> TestResult {
+    let source = ANY_PARAMETERS_SOURCE;
+    let expected = "a5\nbs\nfalse\n1\nv5\n2\nagainr7\ntrue false false\n";
+    let (generated, stdout) = build_and_run("any_parameter_passed_along", source)?;
+    let bounds = "Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static";
+    for signature in [
+        format!("pub(crate) fn forward<Any0: {bounds}>(x: Any0, label: JsString) -> JsString {{"),
+        format!(
+            "pub(crate) fn holder<T: {bounds}, Any0: {bounds}>(v: T, w: Any0) -> SmeltList<T> {{"
+        ),
+        format!(
+            "pub(crate) fn variadic<Any0: {bounds}>(target: Any0, rest: SmeltList<SmeltUnknown>) -> f64 {{"
+        ),
+        "pub(crate) fn sink(x: SmeltUnknown, label: JsString) -> JsString {".to_owned(),
+        "pub(crate) fn rebind(mut x: SmeltUnknown) -> JsString {".to_owned(),
+        "pub(crate) fn is_nothing(x: SmeltUnknown) -> bool {".to_owned(),
+        "forward(n, JsString::from(\"a\"))".to_owned(),
+        "holder(n, xs)".to_owned(),
+    ] {
+        ensure(
+            generated.contains(&signature),
+            format!("missing `{signature}` in:\n{generated}"),
+        )?;
+    }
+    ensure_eq(&stdout, &expected.to_owned(), "unexpected stdout")?;
+    ensure_node_agrees(
+        &[("main.ts", source)],
+        "main.ts",
+        expected,
+        "any_parameter_passed_along_is_an_implicit_generic",
+    )
+}
