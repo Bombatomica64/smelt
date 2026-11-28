@@ -738,3 +738,13 @@ fn forward_references() -> TestResult {
 fn generator_throw_close() -> TestResult {
     verify_python_parity("generator_throw_close")
 }
+
+/// `super()` chains through three and four levels of single inheritance,
+/// from overriding and from inherited bodies, `super().__str__()` included
+/// (a three-level chain recursed forever before: an inherited body's
+/// `super()` alias resolved to itself). Requirements: `CPython`'s output,
+/// each call reaching the definition after its own class in the MRO.
+#[test]
+fn super_chains() -> TestResult {
+    verify_python_parity("super_chains")
+}

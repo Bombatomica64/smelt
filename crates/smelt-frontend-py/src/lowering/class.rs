@@ -529,6 +529,9 @@ impl ModuleBuilder<'_> {
             let aliases = self.reserve_super_method_aliases(base_sym, class_name_str, class_sym)?;
             hir_module.items.extend(aliases.iter().copied());
             method_ids.extend(aliases);
+            let definer_aliases = self.reserve_super_call_aliases(base_sym, class_name_str, class_sym);
+            hir_module.items.extend(definer_aliases.iter().copied());
+            method_ids.extend(definer_aliases);
         }
         let mut enum_members = HashMap::new();
         let mut abstract_methods = Vec::new();
@@ -1954,6 +1957,103 @@ impl ModuleBuilder<'_> {
             aliases.push(alias_id);
         }
         Ok(aliases)
+    }
+
+    /// Record, for every class in `stmts` (qualified by `outer`), the methods
+    /// its bodies call as `super().name(...)` (`super().__init__` is a
+    /// statement of its own, `super_init_statement`).
+    fn collect_super_called_methods(&mut self, stmts: &[Stmt], outer: Option<&str>) {
+        /// Collects the method names of `super().name(...)` calls.
+        struct SuperCalls(HashSet<String>);
+        impl<'a> ruff_python_ast::visitor::Visitor<'a> for SuperCalls {
+            fn visit_expr(&mut self, expr: &'a Expr) {
+                if let Expr::Call(call) = expr
+                    && let Some(method) = ModuleBuilder::super_receiver_method(call)
+                    && method != "__init__"
+                {
+                    self.0.insert(method.to_owned());
+                }
+                ruff_python_ast::visitor::walk_expr(self, expr);
+            }
+        }
+        for stmt in stmts {
+            let Stmt::ClassDef(class) = stmt else {
+                continue;
+            };
+            let name = outer.map_or_else(|| class.name.to_string(), |outer| format!("{outer}.{}", class.name));
+            let mut calls = SuperCalls(HashSet::new());
+            for member in &class.body {
+                if let Stmt::FunctionDef(func) = member {
+                    ruff_python_ast::visitor::Visitor::visit_body(&mut calls, &func.body);
+                }
+            }
+            if !calls.0.is_empty() {
+                self.super_called_methods.insert(name.clone(), calls.0);
+            }
+            self.collect_super_called_methods(&class.body, Some(&name));
+        }
+    }
+
+    /// The name of the alias through which a body of class `definer` calls
+    /// `super().method(...)`: `__smelt$super$<definer>$<method>`.
+    fn super_call_alias_name(definer: &str, method: &str) -> String {
+        format!("__smelt$super${}${method}", definer.replace('.', "$"))
+    }
+
+    /// Give class `class_name` (base `base_sym`) the definer aliases the
+    /// `super()` calls of every body it runs need.
+    ///
+    /// `super().f()` in a method of class `D` calls the `f` the class after
+    /// `D` in the instance's MRO defines. Smelt emits an inherited method's
+    /// body on each class that inherits it (`self` is the inheriting class),
+    /// so the call cannot name one fixed method: in
+    /// `class B(A): def f(self): return super().f()` run on a `C(B)`
+    /// instance, `self.<alias>` is resolved on `C`. Each body of `D` therefore
+    /// calls `D`'s own alias, `__smelt$super$D$f`, and every class `C` whose
+    /// MRO contains `D` (`D` itself included) defines that alias as the
+    /// definition of `f` that follows `D` in `C`'s MRO: under single
+    /// inheritance, the nearest definition in `D`'s base chain. (A single
+    /// alias per class, `__smelt$super$f`, resolved to `B.f` itself on `C`
+    /// and recursed forever.)
+    fn reserve_super_call_aliases(&mut self, base_sym: Symbol, class_name: &str, class_sym: Symbol) -> Vec<ItemId> {
+        // The class's MRO under single inheritance: itself, then its bases.
+        let mut chain = vec![(class_name.to_owned(), Some(base_sym))];
+        let mut next = Some(base_sym);
+        while let Some(ancestor) = next {
+            let Some(ancestor_name) = self.ctx.krate.symbols.source(ancestor).map(ToOwned::to_owned) else {
+                break;
+            };
+            next = self.class_base_symbol(ancestor);
+            chain.push((ancestor_name, next));
+        }
+        let mut aliases = Vec::new();
+        for (definer, definer_base) in chain {
+            let Some(definer_base) = definer_base.and_then(|base| self.ctx.krate.symbols.source(base).map(ToOwned::to_owned)) else {
+                continue;
+            };
+            let mut methods = self.super_called_methods.get(&definer).cloned().unwrap_or_default().into_iter().collect::<Vec<_>>();
+            methods.sort();
+            for method in methods {
+                let Some(target) = self.class_method_item_by_name(&definer_base, &method) else {
+                    continue;
+                };
+                let Item::Function(function) = self.item_ref(target) else {
+                    continue;
+                };
+                let mut alias = function.clone();
+                let alias_name = Self::super_call_alias_name(&definer, &method);
+                let alias_sym = self.intern_synthesized_name(&alias_name);
+                alias.name = alias_sym;
+                alias.owner = match alias.owner {
+                    FunctionOwner::ClassStaticMethod { .. } => FunctionOwner::ClassStaticMethod { class: class_sym, method: alias_sym },
+                    _ => FunctionOwner::ClassMethod { class: class_sym, method: alias_sym },
+                };
+                let alias_id = self.ctx.krate.push_item(Item::Function(alias));
+                self.class_methods.entry(class_name.to_owned()).or_default().insert(alias_name, alias_id);
+                aliases.push(alias_id);
+            }
+        }
+        aliases
     }
 
     /// Classify the typed Python `__add__` operator protocol for backend trait emission.

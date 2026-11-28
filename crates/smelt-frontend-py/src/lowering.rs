@@ -152,6 +152,10 @@ pub(crate) struct ModuleBuilder<'ctx> {
     class_attribute_stores: HashSet<(String, String)>,
     /// Every name a class of this module lists as a base.
     subclassed_names: HashSet<String>,
+    /// For each class of this module (by qualified name), the methods its own
+    /// bodies call through `super()`, each of which every class inheriting
+    /// those bodies needs a definer alias for (`reserve_super_call_aliases`).
+    super_called_methods: HashMap<String, HashSet<String>>,
     /// Each class of this module with the names of its bases, in source order.
     module_class_bases: Vec<(String, Vec<String>)>,
     /// The names the module body binds exactly once (`single_binding_names`).
@@ -466,6 +470,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             class_fields: HashMap::new(),
             class_attribute_stores: HashSet::new(),
             subclassed_names: HashSet::new(),
+            super_called_methods: HashMap::new(),
             module_class_bases: Vec::new(),
             module_single_binding: HashSet::new(),
             unlowered_class_bases: HashMap::new(),
@@ -550,6 +555,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         self.module_single_binding = Self::single_binding_names(&[], &module.body);
         self.collect_exception_classes(module);
         self.collect_class_attribute_stores(module);
+        self.collect_super_called_methods(&module.body, None);
 
         // Pass 1 — collect top-level function/class declarations so later
         // statements can reference them in calls. Each statement pass 1 takes

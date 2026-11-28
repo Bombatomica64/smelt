@@ -147,7 +147,12 @@ impl ModuleBuilder<'_> {
             .iter()
             .map(|arg| self.expression(arg, body))
             .collect::<Result<Vec<_>, _>>()?;
-        let alias = self.intern_synthesized_name(&format!("__smelt$super${method}"));
+        // The enclosing class's definer alias (`reserve_super_call_aliases`),
+        // resolved on whichever class runs this body.
+        let Some(definer) = self.ctx.krate.symbols.source(class_sym).map(ToOwned::to_owned) else {
+            return Err(SmeltError::unsupported(span, "super() class is not resolvable"));
+        };
+        let alias = self.intern_synthesized_name(&Self::super_call_alias_name(&definer, method));
         Ok(body.push_expr(HirExpr {
             kind: ExprKind::Method {
                 receiver,
