@@ -256,6 +256,7 @@ impl FunctionEmitter<'_> {
             | Rvalue::PythonStepSlice { .. }
             | Rvalue::PyJsonLoads { .. }
             | Rvalue::PythonSliceDelete { .. }
+            | Rvalue::PythonSliceAssign { .. }
             | Rvalue::PythonListExtrema { .. }
             | Rvalue::ListIndex { .. }
             | Rvalue::ErasedPatternCall { .. }

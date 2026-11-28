@@ -453,6 +453,32 @@ impl LoweringCtx<'_> {
                 self.write_back_mutation_receiver(writeback)?;
                 deleted
             }
+            // `xs[a:b:c] = items`: a fallible in-place mutation, as `del` is.
+            ExprKind::PythonSliceAssign {
+                list,
+                start,
+                end,
+                step,
+                items,
+            } => {
+                let (list_operand, writeback) = self.lower_mutation_receiver(*list)?;
+                let start_operand = start.map(|bound| self.lower_expr(bound)).transpose()?;
+                let end_operand = end.map(|bound| self.lower_expr(bound)).transpose()?;
+                let step_operand = step.map(|bound| self.lower_expr(bound)).transpose()?;
+                let items_operand = self.lower_expr(*items)?;
+                let assigned = self.finish_op(
+                    &expr,
+                    Rvalue::PythonSliceAssign {
+                        list: list_operand,
+                        start: start_operand,
+                        end: end_operand,
+                        step: step_operand,
+                        items: items_operand,
+                    },
+                )?;
+                self.write_back_mutation_receiver(writeback)?;
+                assigned
+            }
             ExprKind::ListRemove { list, item } => {
                 let (list_operand, writeback) = self.lower_mutation_receiver(*list)?;
                 let item_operand = self.lower_expr(*item)?;

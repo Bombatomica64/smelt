@@ -772,3 +772,24 @@ fn narrowing_and_dispatch() -> TestResult {
 fn sweep_semantics() -> TestResult {
     verify_python_parity("sweep_semantics")
 }
+
+/// `match` class patterns (refused before): keyword and positional
+/// sub-patterns (`__match_args__`, a dataclass's fields), nested class
+/// patterns and captures, `|` and `as` inside them, guards seeing the
+/// captures, a union subject, and a base-typed subject matched by subclass
+/// (a checked downcast of the same object). Requirements: `CPython`'s output.
+#[test]
+fn match_class_patterns() -> TestResult {
+    verify_python_parity("match_class_patterns")
+}
+
+/// Slice assignment (refused before): a contiguous slice resized, an extended
+/// slice assigned position by position, a `ValueError` for a size mismatch
+/// or a zero step, the right side evaluated before the target and copied
+/// before the list is mutated (`words[1:3] = words`); `zip` with one or three
+/// iterables (refused before); `min`/`max` with `default=` (refused before),
+/// including a default of another type. Requirements: `CPython`'s output.
+#[test]
+fn sweep_builtins() -> TestResult {
+    verify_python_parity("sweep_builtins")
+}

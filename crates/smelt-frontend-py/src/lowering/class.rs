@@ -603,7 +603,30 @@ impl ModuleBuilder<'_> {
                 // machinery. It declares no class variable: Smelt derives both
                 // from the class's own lowered shape, exactly as `__all__` is
                 // skipped at module level.
-                Stmt::Assign(assign) if is_class_metadata_assignment(assign) => {}
+                Stmt::Assign(assign) if is_class_metadata_assignment(assign) => {
+                    if let [Expr::Name(target)] = assign.targets.as_slice()
+                        && target.id.as_str() == "__match_args__"
+                    {
+                        let names = match assign.value.as_ref() {
+                            Expr::Tuple(tuple) => tuple
+                                .elts
+                                .iter()
+                                .map(|elt| match elt {
+                                    Expr::StringLiteral(name) => Some(name.value.to_str().to_owned()),
+                                    _ => None,
+                                })
+                                .collect::<Option<Vec<_>>>(),
+                            _ => None,
+                        }
+                        .ok_or_else(|| {
+                            SmeltError::unsupported(
+                                self.span(assign.range),
+                                "`__match_args__` must be a tuple of attribute-name strings",
+                            )
+                        })?;
+                        self.class_match_args.insert(class_sym, names);
+                    }
+                }
                 // A bare `NAME = <literal>` in a non-enum class body declares a
                 // class variable, already lowered by `class_variables` above.
                 Stmt::Assign(_) if !is_int_enum => {}

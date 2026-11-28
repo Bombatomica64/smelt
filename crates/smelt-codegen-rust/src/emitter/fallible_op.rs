@@ -349,6 +349,39 @@ impl FunctionEmitter<'_> {
         )))
     }
 
+    /// Renders Python's `xs[start:end:step] = items`
+    /// (`smelt_py_slice_assign`): the replacement items are copied out of their
+    /// list before the target is borrowed, so `xs[1:2] = xs` reads `xs` as it
+    /// was.
+    fn python_slice_assign_expr(
+        &self,
+        list: &Operand,
+        start: Option<&Operand>,
+        end: Option<&Operand>,
+        step: Option<&Operand>,
+        items: &Operand,
+    ) -> Result<RustExpr, EmitError> {
+        let bound = |slot: Option<&Operand>| -> Result<String, EmitError> {
+            Ok(match slot {
+                Some(bound_operand) => format!(
+                    "Some({} as i64)",
+                    self.operand_expr(bound_operand)?.as_cast_operand()
+                ),
+                None => "None".to_owned(),
+            })
+        };
+        let list_text = self.operand_borrow_expr(list)?;
+        let items_text = self.operand_borrow_expr(items)?;
+        Ok(RustExpr::atom(format!(
+            "{{ let smelt_items = {items_text}.borrow().clone(); smelt_py_slice_assign(&mut {list_text}.borrow_mut(), {start}, {end}, {step}, smelt_items) }}",
+            items_text = items_text.tight(),
+            list_text = list_text.tight(),
+            start = bound(start)?,
+            end = bound(end)?,
+            step = bound(step)?,
+        )))
+    }
+
     /// Renders Python's `xs[start:end:step]` on a list or a string: the
     /// elements (code points) at the positions `smelt_py_slice_positions`
     /// picks.
@@ -542,6 +575,22 @@ impl FunctionEmitter<'_> {
                     start.as_ref(),
                     end.as_ref(),
                     step.as_ref(),
+                )?),
+                self.type_id(Type::None)?,
+            ),
+            Rvalue::PythonSliceAssign {
+                list,
+                start,
+                end,
+                step,
+                items,
+            } => (
+                RenderedCall::propagating(self.python_slice_assign_expr(
+                    list,
+                    start.as_ref(),
+                    end.as_ref(),
+                    step.as_ref(),
+                    items,
                 )?),
                 self.type_id(Type::None)?,
             ),

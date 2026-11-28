@@ -76,6 +76,14 @@ enum InstanceAnswer {
     Subclass(Symbol),
 }
 
+/// What an instance test answers (`ModuleBuilder::instance_test`).
+enum InstanceTest {
+    /// The static type decides.
+    Constant(bool),
+    /// The run-time test.
+    Dynamic(smelt_hir::ExprId),
+}
+
 impl ModuleBuilder<'_> {
     /// The names `func`'s body binds exactly once, counting its parameters as
     /// bindings: the locals an `isinstance` narrowing may name. Every store
@@ -190,14 +198,40 @@ impl ModuleBuilder<'_> {
         };
         let targets = self.instance_targets(target_ast, span)?;
         let value = self.expression(value_ast, body)?;
+        let bool_ty = self.intern_type(Type::Bool);
+        match self.instance_test(value, &targets, span, body)? {
+            InstanceTest::Dynamic(test) => Ok(test),
+            InstanceTest::Constant(constant) => {
+                // The static type decides; the operand is still evaluated first.
+                let block = body.push_block(span);
+                body.push_stmt_to_block(block, HirStmt::Expr(value));
+                let literal = body.push_expr(HirExpr { kind: ExprKind::Literal(Literal::Bool(constant)), ty: bool_ty, span });
+                let block_idx = usize::try_from(block.0).map_err(|error| SmeltError::unsupported(span, error.to_string()))?;
+                body.blocks[block_idx].tail = Some(literal);
+                Ok(body.push_expr(HirExpr { kind: ExprKind::Block(block), ty: bool_ty, span }))
+            }
+        }
+    }
+
+    /// Whether `value` is an instance of one of `targets`: a constant when its
+    /// static type decides, else the run-time test (`InstanceOf` for a class
+    /// value that may be a subclass instance, `UnionArmTest` for a union).
+    /// `value` is consumed by a dynamic test and not used by a constant one.
+    fn instance_test(
+        &mut self,
+        value: smelt_hir::ExprId,
+        targets: &[InstanceTarget],
+        span: Span,
+        body: &mut Body,
+    ) -> Result<InstanceTest, SmeltError> {
         let value_ty = Self::expr_ty(body, value);
         let bool_ty = self.intern_type(Type::Bool);
         let members = self.flattened_members(value_ty);
-        self.record_unlowered_ancestry(&members, &targets);
+        self.record_unlowered_ancestry(&members, targets);
         let mut passing = Vec::new();
         let mut subclass = None;
         for &member in &members {
-            match self.instance_answer(member, &targets) {
+            match self.instance_answer(member, targets) {
                 InstanceAnswer::Always => passing.push(member),
                 InstanceAnswer::Never => {}
                 InstanceAnswer::Subclass(class) => subclass = Some(class),
@@ -211,39 +245,29 @@ impl ModuleBuilder<'_> {
                     "isinstance() of a union member whose subclass is the target is not supported",
                 ));
             }
-            return Ok(body.push_expr(HirExpr { kind: ExprKind::InstanceOf { value, class }, ty: bool_ty, span }));
+            return Ok(InstanceTest::Dynamic(body.push_expr(HirExpr { kind: ExprKind::InstanceOf { value, class }, ty: bool_ty, span })));
         }
-        let answer = if passing.len() == members.len() {
-            Some(true)
-        } else if passing.is_empty() {
-            Some(false)
-        } else {
-            None
-        };
-        let Some(constant) = answer else {
-            // A union with a `None` member is erased today (no concrete enum
-            // holds it), so no member test can be typed on it.
-            let none_member = matches!(self.ctx.krate.types.get(value_ty), Some(Type::Union(items))
-                if items.iter().any(|item| matches!(self.ctx.krate.types.get(*item), Some(Type::None))));
-            if none_member {
-                return Err(SmeltError::unsupported(
-                    span,
-                    "isinstance() on a union with a `None` member is not supported (such a union is erased)",
-                ));
-            }
-            return Ok(body.push_expr(HirExpr {
-                kind: ExprKind::UnionArmTest { value, arms: passing },
-                ty: bool_ty,
+        if passing.len() == members.len() {
+            return Ok(InstanceTest::Constant(true));
+        }
+        if passing.is_empty() {
+            return Ok(InstanceTest::Constant(false));
+        }
+        // A union with a `None` member is erased today (no concrete enum
+        // holds it), so no member test can be typed on it.
+        let none_member = matches!(self.ctx.krate.types.get(value_ty), Some(Type::Union(items))
+            if items.iter().any(|item| matches!(self.ctx.krate.types.get(*item), Some(Type::None))));
+        if none_member {
+            return Err(SmeltError::unsupported(
                 span,
-            }));
-        };
-        // The static type decides; the operand is still evaluated first.
-        let block = body.push_block(span);
-        body.push_stmt_to_block(block, HirStmt::Expr(value));
-        let literal = body.push_expr(HirExpr { kind: ExprKind::Literal(Literal::Bool(constant)), ty: bool_ty, span });
-        let block_idx = usize::try_from(block.0).map_err(|error| SmeltError::unsupported(span, error.to_string()))?;
-        body.blocks[block_idx].tail = Some(literal);
-        Ok(body.push_expr(HirExpr { kind: ExprKind::Block(block), ty: bool_ty, span }))
+                "isinstance() on a union with a `None` member is not supported (such a union is erased)",
+            ));
+        }
+        Ok(InstanceTest::Dynamic(body.push_expr(HirExpr {
+            kind: ExprKind::UnionArmTest { value, arms: passing },
+            ty: bool_ty,
+            span,
+        })))
     }
 
     /// The types `isinstance`'s second argument names.

@@ -531,11 +531,14 @@ impl ModuleBuilder<'_> {
         if name.id.as_str() != "zip" {
             return Ok(None);
         }
-        if call.arguments.args.len() != 2 || !call.arguments.keywords.is_empty() {
+        if call.arguments.args.is_empty() || !call.arguments.keywords.is_empty() {
             return Err(SmeltError::unsupported(
                 self.span(call.range()),
-                "zip() currently supports exactly two iterable arguments",
+                "zip() needs at least one iterable argument and no keyword (`strict=`)",
             ));
+        }
+        if call.arguments.args.len() != 2 {
+            return self.zip_n_call_expression(call, body).map(Some);
         }
         let raw_left = self.expression(&call.arguments.args[0], body)?;
         let raw_right = self.expression(&call.arguments.args[1], body)?;
@@ -574,6 +577,81 @@ impl ModuleBuilder<'_> {
             ty,
             span: self.span(call.range()),
         })))
+    }
+
+    /// `zip(a)` and `zip(a, b, c, ..)`: the tuples of the operands' items
+    /// position by position, as many as the shortest operand has, materialized
+    /// as `zip(a, b)` is.
+    ///
+    /// Built from the pairwise zip (`ExprKind::ListZip`): the operands are
+    /// zipped left to right into nested pairs, `((a, b), c)`, and one loop
+    /// flattens each into `(a, b, c)`. Every operand is evaluated once, in
+    /// source order, and the shortest decides the length, as in `CPython`. A
+    /// generator operand is refused (materializing it would pull items
+    /// `CPython`'s lazy zip never pulls).
+    fn zip_n_call_expression(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let span = self.span(call.range());
+        let mut lists = Vec::with_capacity(call.arguments.args.len());
+        let mut item_tys = Vec::with_capacity(call.arguments.args.len());
+        for arg in &call.arguments.args {
+            let raw = self.expression(arg, body)?;
+            if matches!(self.ctx.krate.types.get(Self::expr_ty(body, raw)), Some(Type::Generator { .. })) {
+                return Err(SmeltError::unsupported(
+                    self.span(arg.range()),
+                    "zip() of a generator takes exactly two operands",
+                ));
+            }
+            let list = self.iterable_as_list(raw, body);
+            let Some(Type::List(item_ty)) = self.ctx.krate.types.get(Self::expr_ty(body, list)).cloned() else {
+                return Err(SmeltError::unsupported(self.span(arg.range()), "zip() argument must be a list, set, dict or str"));
+            };
+            lists.push(list);
+            item_tys.push(item_ty);
+        }
+        let none_ty = self.intern_type(Type::None);
+        let tuple_ty = self.intern_type(Type::Tuple(item_tys.clone()));
+        let list_ty = self.intern_type(Type::List(tuple_ty));
+        let outer = body.push_block(span);
+        let acc_local = body.push_local(self.synthetic_local("__smelt_zip_acc", list_ty, true, span));
+        let acc_pat = body.push_pattern(HirPattern::Binding(acc_local));
+        let empty = body.push_expr(HirExpr { kind: ExprKind::ListLit(Vec::new()), ty: list_ty, span });
+        body.push_stmt_to_block(outer, HirStmt::Let { pat: acc_pat, ty: list_ty, value: Some(empty) });
+        // The nested pairs and the pattern taking them apart.
+        let mut item_locals = Vec::with_capacity(lists.len());
+        let mut zipped = lists[0];
+        let mut zipped_item_ty = item_tys[0];
+        let first_local = body.push_local(self.synthetic_local("__smelt_zip_item", item_tys[0], false, span));
+        item_locals.push(first_local);
+        let mut pattern = body.push_pattern(HirPattern::Binding(first_local));
+        for (list, item_ty) in lists.iter().zip(&item_tys).skip(1) {
+            let pair_ty = self.intern_type(Type::Tuple(vec![zipped_item_ty, *item_ty]));
+            let pairs_ty = self.intern_type(Type::List(pair_ty));
+            zipped = body.push_expr(HirExpr { kind: ExprKind::ListZip { left: zipped, right: *list }, ty: pairs_ty, span });
+            zipped_item_ty = pair_ty;
+            let local = body.push_local(self.synthetic_local("__smelt_zip_item", *item_ty, false, span));
+            item_locals.push(local);
+            let binding = body.push_pattern(HirPattern::Binding(local));
+            pattern = body.push_pattern(HirPattern::Tuple(vec![pattern, binding]));
+        }
+        let loop_body = body.push_block(span);
+        let items = item_locals
+            .iter()
+            .zip(&item_tys)
+            .map(|(local, ty)| body.push_expr(HirExpr { kind: ExprKind::Local(*local), ty: *ty, span }))
+            .collect::<Vec<_>>();
+        let tuple = body.push_expr(HirExpr { kind: ExprKind::TupleLit(items), ty: tuple_ty, span });
+        let acc = body.push_expr(HirExpr { kind: ExprKind::Local(acc_local), ty: list_ty, span });
+        let push = body.push_expr(HirExpr { kind: ExprKind::ListPush { list: acc, item: tuple }, ty: none_ty, span });
+        body.push_stmt_to_block(loop_body, HirStmt::Expr(push));
+        body.push_stmt_to_block(outer, HirStmt::For { pat: pattern, iter: zipped, body: loop_body });
+        let tail = body.push_expr(HirExpr { kind: ExprKind::Local(acc_local), ty: list_ty, span });
+        let outer_idx = usize::try_from(outer.0).map_err(|error| SmeltError::unsupported(span, error.to_string()))?;
+        body.blocks[outer_idx].tail = Some(tail);
+        Ok(body.push_expr(HirExpr { kind: ExprKind::Block(outer), ty: list_ty, span }))
     }
 
     /// Lower Python `range(...)` as a materialized `list[int]`.

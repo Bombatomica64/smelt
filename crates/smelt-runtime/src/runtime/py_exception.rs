@@ -231,6 +231,33 @@ fn smelt_py_slice_positions(len: usize, start: Option<i64>, end: Option<i64>, st
     Ok(positions)
 }
 
+//~ `xs[start:end:step] = items` (`CPython`'s list slice assignment): with no
+//~ step or a step of 1 the slice `slice.indices` picks is replaced (the list
+//~ may grow or shrink); with another step each picked position takes one
+//~ item, and a length mismatch raises `ValueError` before anything changes.
+#[allow(dead_code)]
+fn smelt_py_slice_assign<T>(list: &mut Vec<T>, start: Option<i64>, end: Option<i64>, step: Option<i64>, items: Vec<T>) -> Result<(), Box<dyn ::std::error::Error>> {
+    let step = step.unwrap_or(1);
+    if step == 1 {
+        let len = i64::try_from(list.len()).unwrap_or(i64::MAX);
+        let clamp = |bound: i64| if bound < 0 { (bound + len).max(0) } else { bound.min(len) };
+        let from = start.map_or(0, clamp);
+        let to = end.map_or(len, clamp).max(from);
+        let (from, to) = (usize::try_from(from).unwrap_or(0), usize::try_from(to).unwrap_or(0));
+        list.splice(from..to, items);
+        return Ok(());
+    }
+    let positions = smelt_py_slice_positions(list.len(), start, end, step)?;
+    if positions.len() != items.len() {
+        let message = format!("attempt to assign sequence of size {} to extended slice of size {}", items.len(), positions.len());
+        return Err(SmeltPyException::new(&["ValueError", "Exception", "BaseException"], vec![SmeltPyException::arg(&message)]).into_error());
+    }
+    for (position, item) in positions.into_iter().zip(items) {
+        list[position] = item;
+    }
+    Ok(())
+}
+
 impl ::std::fmt::Display for SmeltPyException {
     //~ `str(e)`: nothing for no argument, the argument's `str` for one (its
     //~ `repr` for a `KeyError`, whose `__str__` says so), the arguments'

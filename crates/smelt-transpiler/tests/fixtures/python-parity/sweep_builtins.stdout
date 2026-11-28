@@ -1,0 +1,20 @@
+[0, 10, 20, 30, 3, 4, 5, 6, 7]
+[-1, 10, -2, 30, -3, 4, -4, 6, -5]
+[-1, 10, -2, 30, -3, 4, -4, 99]
+[-1, 10, -2, 30, -3, 4, -4, 99, 7, 8]
+[-1, 10, 55, -2, 30, -3, 4, -4, 99, 7, 8]
+[-1, 4, 55, -2, 3, -3, 4, 2, 99, 7, 1]
+[-1, 4]
+[0, 1, 4, 9] True
+ValueError: attempt to assign sequence of size 3 to extended slice of size 2
+ValueError: slice step cannot be zero
+['a', 'a', 'b', 'c', 'd', 'd']
+[(1, 'one', True), (2, 'two', False), (3, 'three', True)]
+[(1,), (2,), (3,), (4,)]
+1 one True
+2 two False
+3 three True
+[3, 6, 9, 12]
+-1 9 7
+None fig
+cccc 0

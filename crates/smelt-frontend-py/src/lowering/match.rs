@@ -61,7 +61,9 @@ impl ModuleBuilder<'_> {
             case.guard.is_some()
                 || matches!(
                     &case.pattern,
-                    RuffPattern::MatchOr(_) | RuffPattern::MatchAs(PatternMatchAs { name: Some(_), .. })
+                    RuffPattern::MatchOr(_)
+                        | RuffPattern::MatchAs(PatternMatchAs { name: Some(_), .. })
+                        | RuffPattern::MatchClass(_)
                 )
         });
         if guarded {
@@ -168,26 +170,23 @@ impl ModuleBuilder<'_> {
         let matched_pat = body.push_pattern(HirPattern::Binding(matched));
         let unmatched = body.push_expr(HirExpr { kind: ExprKind::Literal(Literal::Bool(false)), ty: bool_ty, span });
         body.push_stmt_to_block(block, HirStmt::Let { pat: matched_pat, ty: bool_ty, value: Some(unmatched) });
+        let whole = PatternSubject { local: subject, local_ty: subject_ty, steps: Vec::new() };
         for case in &match_stmt.cases {
             let case_span = self.span(case.range);
-            let (pattern, capture) = match &case.pattern {
-                RuffPattern::MatchAs(PatternMatchAs { pattern, name, .. }) => (pattern.as_deref(), name.as_ref()),
-                other => (Some(other), None),
-            };
-            let test = pattern.map(|inner| self.match_pattern_test(inner, subject, subject_ty, body)).transpose()?;
+            let compiled = self.compile_pattern(&case.pattern, &whole, body)?;
             let matched_read = body.push_expr(HirExpr { kind: ExprKind::Local(matched), ty: bool_ty, span: case_span });
             let not_matched = body.push_expr(HirExpr {
                 kind: ExprKind::UnaryOp { op: UnaryOp::Not, operand: matched_read },
                 ty: bool_ty,
                 span: case_span,
             });
-            let cond = test.map_or(not_matched, |pattern_test| {
+            let cond = compiled.test.map_or(not_matched, |pattern_test| {
                 self.short_circuit(BinOp::And, not_matched, pattern_test, case_span, body)
             });
             let case_block = body.push_block(case_span);
-            if let Some(name) = capture {
-                let read = body.push_expr(HirExpr { kind: ExprKind::Local(subject), ty: subject_ty, span: case_span });
-                self.bind_match_capture(name.as_str(), read, subject_ty, self.span(name.range), body, (block, case_block));
+            for (name, name_span, captured) in &compiled.captures {
+                let read = self.pattern_subject_read(captured, *name_span, body);
+                self.bind_match_capture(name, read, captured.ty(), *name_span, body, (block, case_block));
             }
             let run_block = body.push_block(case_span);
             let flag_target = body.push_expr(HirExpr { kind: ExprKind::Local(matched), ty: bool_ty, span: case_span });
@@ -210,48 +209,179 @@ impl ModuleBuilder<'_> {
         Ok(())
     }
 
-    /// Whether the match subject (the local `subject`) matches `pattern`: a
-    /// literal compares with `==`, `None`/`True`/`False` with `is`, an `or`
-    /// pattern matches when any alternative does. A pattern that binds or
-    /// destructures is refused.
-    fn match_pattern_test(
+    /// Compile `pattern`, matched against `subject`, into its test (`None`
+    /// when it always matches) and the captures it binds, in source order.
+    ///
+    /// A class pattern `C(p0, k=pk)` tests `isinstance(subject, C)` first,
+    /// then each sub-pattern against an attribute of the subject read as a
+    /// `C` (positional sub-patterns name the attributes `C.__match_args__`
+    /// lists, a dataclass's fields by default), all short-circuited in source
+    /// order as `CPython` tries them. Literals, singletons, captures,
+    /// wildcards, `as` and `|` (without captures) nest anywhere.
+    fn compile_pattern(
         &mut self,
         pattern: &RuffPattern,
-        subject: smelt_hir::LocalId,
-        subject_ty: TypeId,
+        subject: &PatternSubject,
         body: &mut Body,
-    ) -> Result<smelt_hir::ExprId, SmeltError> {
+    ) -> Result<CompiledPattern, SmeltError> {
         let span = self.span(pattern.range());
-        let read = body.push_expr(HirExpr { kind: ExprKind::Local(subject), ty: subject_ty, span });
         match pattern {
+            RuffPattern::MatchAs(PatternMatchAs { pattern: inner, name, .. }) => {
+                let mut compiled = match inner.as_deref() {
+                    Some(inner) => self.compile_pattern(inner, subject, body)?,
+                    None => CompiledPattern { test: None, captures: Vec::new() },
+                };
+                if let Some(name) = name {
+                    compiled.captures.push((name.as_str().to_owned(), self.span(name.range), subject.clone()));
+                }
+                Ok(compiled)
+            }
+            RuffPattern::MatchOr(alternatives) => {
+                let mut tests = Vec::with_capacity(alternatives.patterns.len());
+                for alternative in &alternatives.patterns {
+                    let compiled = self.compile_pattern(alternative, subject, body)?;
+                    if !compiled.captures.is_empty() {
+                        return Err(SmeltError::unsupported(span, "an `|` pattern that binds names is not supported"));
+                    }
+                    let Some(test) = compiled.test else {
+                        return Ok(CompiledPattern { test: None, captures: Vec::new() });
+                    };
+                    tests.push(test);
+                }
+                let test = tests.into_iter().reduce(|either, next| self.short_circuit(BinOp::Or, either, next, span, body));
+                Ok(CompiledPattern { test, captures: Vec::new() })
+            }
+            RuffPattern::MatchClass(class_pattern) => self.compile_class_pattern(class_pattern, subject, body),
             RuffPattern::MatchValue(value) => {
+                let read = self.pattern_subject_read(subject, span, body);
                 let expected = self.expression(&value.value, body)?;
-                self.compare_pair(CmpOp::Eq, read, expected, span, body)
+                let test = self.compare_pair(CmpOp::Eq, read, expected, span, body)?;
+                Ok(CompiledPattern { test: Some(test), captures: Vec::new() })
             }
             RuffPattern::MatchSingleton(singleton) => {
+                let read = self.pattern_subject_read(subject, span, body);
                 let (literal, ty) = match singleton.value {
                     Singleton::None => (Literal::None, self.intern_type(Type::None)),
                     Singleton::True => (Literal::Bool(true), self.intern_type(Type::Bool)),
                     Singleton::False => (Literal::Bool(false), self.intern_type(Type::Bool)),
                 };
                 let expected = body.push_expr(HirExpr { kind: ExprKind::Literal(literal), ty, span });
-                self.compare_pair(CmpOp::Is, read, expected, span, body)
+                let test = self.compare_pair(CmpOp::Is, read, expected, span, body)?;
+                Ok(CompiledPattern { test: Some(test), captures: Vec::new() })
             }
-            RuffPattern::MatchOr(alternatives) => {
-                let mut tests = Vec::with_capacity(alternatives.patterns.len());
-                for alternative in &alternatives.patterns {
-                    tests.push(self.match_pattern_test(alternative, subject, subject_ty, body)?);
-                }
-                tests
-                    .into_iter()
-                    .reduce(|either, next| self.short_circuit(BinOp::Or, either, next, span, body))
-                    .ok_or_else(|| SmeltError::unsupported(span, "an `or` pattern needs alternatives"))
-            }
-            _ => Err(SmeltError::unsupported(
-                span,
-                "only literal, `None`/`True`/`False`, capture, wildcard and `|` match patterns are supported",
-            )),
+            RuffPattern::MatchSequence(_) | RuffPattern::MatchMapping(_) | RuffPattern::MatchStar(_) => Err(
+                SmeltError::unsupported(span, "sequence, mapping and star match patterns are not supported"),
+            ),
         }
+    }
+
+    /// The class pattern `C(..)` against `subject` (see [`Self::compile_pattern`]).
+    fn compile_class_pattern(
+        &mut self,
+        class_pattern: &ruff_python_ast::PatternMatchClass,
+        subject: &PatternSubject,
+        body: &mut Body,
+    ) -> Result<CompiledPattern, SmeltError> {
+        let span = self.span(class_pattern.range);
+        let class_name = match class_pattern.cls.as_ref() {
+            Expr::Name(name) => name.id.as_str().to_owned(),
+            other => self.nested_class_path(other).ok_or_else(|| {
+                SmeltError::unsupported(span, "a class pattern must name a class")
+            })?,
+        };
+        let class_sym = match self.items.get(&class_name).map(|item| self.item_ref(*item)) {
+            Some(Item::Class(class)) => class.name,
+            _ => return Err(SmeltError::unsupported(span, format!("class pattern `{class_name}` does not name a class of the program"))),
+        };
+        let class_ty = self.intern_type(Type::Class { name: class_sym, args: Vec::new() });
+        let read = self.pattern_subject_read(subject, span, body);
+        let mut tests = Vec::new();
+        match self.instance_test(read, &[InstanceTarget::Class(class_sym)], span, body)? {
+            InstanceTest::Constant(true) => {}
+            InstanceTest::Constant(false) => {
+                let bool_ty = self.intern_type(Type::Bool);
+                tests.push(body.push_expr(HirExpr { kind: ExprKind::Literal(Literal::Bool(false)), ty: bool_ty, span }));
+            }
+            InstanceTest::Dynamic(test) => tests.push(test),
+        }
+        let mut narrowed = subject.clone();
+        if subject.ty() != class_ty {
+            narrowed.steps.push(SubjectStep::Cast(class_ty));
+        }
+        let positional = &class_pattern.arguments.patterns;
+        let match_args = if positional.is_empty() { Vec::new() } else { self.class_match_args(class_sym) };
+        if positional.len() > match_args.len() {
+            return Err(SmeltError::unsupported(
+                span,
+                format!("`{class_name}()` accepts {} positional sub-patterns ({} given)", match_args.len(), positional.len()),
+            ));
+        }
+        let mut attributes: Vec<(String, &RuffPattern)> =
+            match_args.into_iter().zip(positional.iter()).collect();
+        attributes.extend(
+            class_pattern.arguments.keywords.iter().map(|keyword| (keyword.attr.as_str().to_owned(), &keyword.pattern)),
+        );
+        let mut captures = Vec::new();
+        for (attribute, sub_pattern) in attributes {
+            let field = self.intern_name(&attribute);
+            let field_ty = self.field_type(class_ty, field).map_err(|_| {
+                SmeltError::unsupported(span, format!("class pattern: `{class_name}` has no attribute `{attribute}`"))
+            })?;
+            let mut attribute_subject = narrowed.clone();
+            attribute_subject.steps.push(SubjectStep::Field(field, field_ty));
+            let compiled = self.compile_pattern(sub_pattern, &attribute_subject, body)?;
+            tests.extend(compiled.test);
+            captures.extend(compiled.captures);
+        }
+        let test = tests.into_iter().reduce(|both, next| self.short_circuit(BinOp::And, both, next, span, body));
+        Ok(CompiledPattern { test, captures })
+    }
+
+    /// The attribute names positional sub-patterns of a class pattern match:
+    /// the class's `__match_args__` (its own or the nearest base's), else a
+    /// dataclass's fields in declaration order (what `@dataclass` generates),
+    /// else none.
+    fn class_match_args(&self, class_sym: Symbol) -> Vec<String> {
+        let mut current = Some(class_sym);
+        while let Some(class) = current {
+            if let Some(names) = self.class_match_args.get(&class) {
+                return names.clone();
+            }
+            let Some(Item::Class(item)) = self.items.values().map(|id| self.item_ref(*id)).find(|item| matches!(item, Item::Class(found) if found.name == class)) else {
+                break;
+            };
+            if matches!(item.kind, ClassKind::DataclassLike { .. }) {
+                let mut names: Vec<String> = item
+                    .base
+                    .map(|base| self.class_match_args(base))
+                    .unwrap_or_default();
+                for field in &item.fields {
+                    let name = self.ctx.krate.symbols.get(field.name).unwrap_or_default().to_owned();
+                    if !names.contains(&name) {
+                        names.push(name);
+                    }
+                }
+                return names;
+            }
+            current = item.base;
+        }
+        Vec::new()
+    }
+
+    /// Build a read of `subject`: its local, then each cast and attribute.
+    fn pattern_subject_read(&self, subject: &PatternSubject, span: Span, body: &mut Body) -> smelt_hir::ExprId {
+        let mut read = body.push_expr(HirExpr { kind: ExprKind::Local(subject.local), ty: subject.local_ty, span });
+        for step in &subject.steps {
+            read = match *step {
+                SubjectStep::Cast(target) => {
+                    body.push_expr(HirExpr { kind: ExprKind::UnknownCast { value: read, target }, ty: target, span })
+                }
+                SubjectStep::Field(field, ty) => {
+                    body.push_expr(HirExpr { kind: ExprKind::Field { receiver: read, field }, ty, span })
+                }
+            };
+        }
+        read
     }
 
     /// Bind the match capture `name` to `value` in the case block (the second
@@ -380,4 +510,43 @@ impl ModuleBuilder<'_> {
             Ok(block)
         })
     }
+}
+
+/// One step from the match subject to the sub-value a nested pattern tests.
+#[derive(Debug, Clone, Copy)]
+enum SubjectStep {
+    /// The value read as the given class (after its class test passed).
+    Cast(TypeId),
+    /// The value's attribute, at its type.
+    Field(Symbol, TypeId),
+}
+
+/// The value a (sub-)pattern is matched against: the match subject's local
+/// and the steps that reach it.
+#[derive(Debug, Clone)]
+struct PatternSubject {
+    /// The local holding the whole match subject.
+    local: smelt_hir::LocalId,
+    /// That local's type.
+    local_ty: TypeId,
+    /// The casts and attribute reads from the subject to this value.
+    steps: Vec<SubjectStep>,
+}
+
+impl PatternSubject {
+    /// The value's type.
+    fn ty(&self) -> TypeId {
+        match self.steps.last() {
+            Some(SubjectStep::Cast(ty) | SubjectStep::Field(_, ty)) => *ty,
+            None => self.local_ty,
+        }
+    }
+}
+
+/// A compiled pattern (`ModuleBuilder::compile_pattern`).
+struct CompiledPattern {
+    /// The test, `None` when the pattern always matches.
+    test: Option<smelt_hir::ExprId>,
+    /// The names it binds, each with its span and the value it captures.
+    captures: Vec<(String, Span, PatternSubject)>,
 }
