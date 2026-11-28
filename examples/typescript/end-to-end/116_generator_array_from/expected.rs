@@ -2740,7 +2740,7 @@ impl<Y, R, N> Clone for SmeltGenerator<Y, R, N> { fn clone(&self) -> Self { Self
 impl<Y, R, N> PartialEq for SmeltGenerator<Y, R, N> { fn eq(&self, other: &Self) -> bool { self.identity() == other.identity() } }
 impl<Y, R, N> SmeltGenerator<Y, R, N> {
     #[allow(dead_code)]
-    fn identity(&self) -> usize { match &self.source { Some(source) => ::std::rc::Rc::as_ptr(source) as *const () as usize, None => ::std::rc::Rc::as_ptr(&self.resume) as *const () as usize } }
+    fn identity(&self) -> usize { self.source.as_ref().map_or_else(|| ::std::rc::Rc::as_ptr(&self.resume).cast::<()>() as usize, |source| ::std::rc::Rc::as_ptr(source).cast::<()>() as usize) }
 }
 impl<Y, R, N> ::std::fmt::Debug for SmeltGenerator<Y, R, N> { fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result { formatter.write_str("SmeltGenerator") } }
 impl<Y, R: Clone + Default, N> SmeltGenerator<Y, R, N> {
@@ -2772,16 +2772,13 @@ impl<Y: 'static, R: Clone + Default + 'static, N: 'static> SmeltGenerator<Y, R, 
     #[allow(dead_code, clippy::too_many_arguments)]
     fn from_protocol(source: Option<::std::rc::Rc<dyn ::std::any::Any>>, next: SmeltProtocolCall<Y, R>, next_with: Option<SmeltProtocolSend<N, Y, R>>, close: Option<SmeltProtocolCall<Y, R>>, close_with: Option<SmeltProtocolSend<R, Y, R>>, throw_with: Option<SmeltProtocolSend<Box<dyn ::std::error::Error>, Y, R>>) -> Self {
         let resume = move |command: SmeltGeneratorCommand<N, R>| match command {
-            SmeltGeneratorCommand::Next(Some(sent)) => match &next_with { Some(next_with) => next_with(sent), None => next() },
+            SmeltGeneratorCommand::Next(Some(sent)) => next_with.as_ref().map_or_else(|| next(), |next_with| next_with(sent)),
             SmeltGeneratorCommand::Next(None) => next(),
             SmeltGeneratorCommand::Return(Some(value)) => match (&close_with, &close) { (Some(close_with), _) => close_with(value), (None, Some(close)) => close(), (None, None) => Ok(SmeltGeneratorResult::Complete(value)) },
-            SmeltGeneratorCommand::Return(None) => match &close { Some(close) => close(), None => Ok(SmeltGeneratorResult::Complete(R::default())) },
-            SmeltGeneratorCommand::Throw(error) => match &throw_with {
-                Some(throw_with) => throw_with(error),
-                None => {
-                    if let Some(close) = &close { close()?; }
-                    Err(smelt_throw(SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_error".to_owned(), SmeltUnknown::String("TypeError".into())), ("message".to_owned(), SmeltUnknown::String("The iterator does not provide a 'throw' method.".into())), ("stack".to_owned(), SmeltUnknown::Undefined), ("cause".to_owned(), SmeltUnknown::Undefined)])))))
-                }
+            SmeltGeneratorCommand::Return(None) => close.as_ref().map_or_else(|| Ok(SmeltGeneratorResult::Complete(R::default())), |close| close()),
+            SmeltGeneratorCommand::Throw(error) => if let Some(throw_with) = &throw_with { throw_with(error) } else {
+                if let Some(close) = &close { close()?; }
+                Err(smelt_throw(SmeltUnknown::Object(SmeltObject::new(Vec::from([("__smelt_error".to_owned(), SmeltUnknown::String("TypeError".into())), ("message".to_owned(), SmeltUnknown::String("The iterator does not provide a 'throw' method.".into())), ("stack".to_owned(), SmeltUnknown::Undefined), ("cause".to_owned(), SmeltUnknown::Undefined)])))))
             },
         };
         Self { resume: ::std::rc::Rc::new(::std::cell::RefCell::new(Box::new(resume))), completed: ::std::rc::Rc::new(::std::cell::RefCell::new(None)), started: ::std::rc::Rc::new(::std::cell::Cell::new(true)), latches: false, source }
