@@ -2,6 +2,7 @@
 //! host overrides.
 
 use super::*;
+use super::call::RenderedCall;
 use crate::rust::RustExpr;
 
 impl FunctionEmitter<'_> {
@@ -621,6 +622,28 @@ impl FunctionEmitter<'_> {
         Ok(Some(RustExpr::chain(format!(
             "{slot}.with(|smelt_slot| smelt_host_override_instance_of(smelt_slot, &{probed}, &[{marker_list}]))",
             slot = slot.tight()
+        ))))
+    }
+
+    /// `value instanceof <Name>` where the crate reassigns the host global
+    /// `<Name>` (`InstanceOf { rebound: true }`): the binding is read first,
+    /// and one that holds no constructor (`globalThis.File = undefined`)
+    /// throws `TypeError` as JavaScript does; otherwise the ordinary check
+    /// answers.
+    pub(super) fn rebound_instance_of_call(
+        &self,
+        value: &Operand,
+        class: Symbol,
+    ) -> Result<RenderedCall, EmitError> {
+        let check = self.instance_of_expr(value, class)?;
+        let slot = format!(
+            "{prefix}{suffix}",
+            prefix = smelt_stdlib::runtime_symbols::host_override::SLOT_PREFIX,
+            suffix = crate::stdlib::host_override_slot_suffix(self.symbol_name(class)?),
+        );
+        Ok(RenderedCall::propagating(RustExpr::chain(format!(
+            "{slot}.with(smelt_host_override_require_constructor).map(|()| {check})",
+            check = check.delimited()
         ))))
     }
 

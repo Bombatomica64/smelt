@@ -162,6 +162,7 @@ impl LoweringCtx<'_> {
             volatile_locals: self.volatile_locals,
             global_ids: self.global_ids,
             languages: self.languages,
+            rebound_host_classes: self.rebound_host_classes,
             loop_index_ty: self.loop_index_ty,
             loop_bool_ty: self.loop_bool_ty,
             thrown_ty: self.thrown_ty,

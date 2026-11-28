@@ -95,7 +95,7 @@ impl ModuleBuilder<'_> {
                 let bool_ty = self.intern_type(Type::Bool);
                 let read = body.push_expr(HirExpr { kind: ExprKind::Local(local), ty: value_ty, span });
                 let test = body.push_expr(HirExpr {
-                    kind: ExprKind::InstanceOf { value: read, class: descendant_sym },
+                    kind: ExprKind::InstanceOf { value: read, class: descendant_sym, rebound: false },
                     ty: bool_ty,
                     span,
                 });

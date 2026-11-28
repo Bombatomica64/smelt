@@ -454,6 +454,14 @@ impl FunctionEmitter<'_> {
                 )?),
                 self.type_id(Type::String)?,
             ),
+            Rvalue::InstanceOf {
+                value,
+                class,
+                rebound: true,
+            } => (
+                self.rebound_instance_of_call(value, *class)?,
+                self.type_id(Type::Bool)?,
+            ),
             Rvalue::PythonDictRead { dict, key } => self.python_dict_read_call(dict, key)?,
             Rvalue::BindingCheck { binding, unbound } => {
                 self.binding_check_call(binding, *unbound)?

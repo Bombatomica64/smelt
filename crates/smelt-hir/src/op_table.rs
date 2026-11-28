@@ -2402,13 +2402,31 @@ macro_rules! op_group_transcribed {
                     )
                 );
             /// Test whether a value is an instance of a class.
+            ///
+            /// When the program reassigns the class's host global
+            /// (`globalThis.File = undefined`), the binding `instanceof` reads
+            /// can hold a non-constructor at run time, and JavaScript then
+            /// throws `TypeError` ("Right-hand side of 'instanceof' is not
+            /// callable"): such a check is fallible.
             InstanceOf {
                 /// Value being tested. Kept as an operand so side effects are evaluated before the check.
                 value: one @READ,
                 /// Target class symbol.
                 class: [$crate::Symbol],
+                /// Whether `class` names a host global the crate reassigns, so
+                /// the check reads a binding that may not be callable.
+                /// Frontends write `false`; MIR lowering sets it from the
+                /// crate's `HostGlobalWrite`s, which may sit in another module.
+                rebound: [bool],
             }
-                => (format!("instanceof {}, class{}", value, class.0));
+                fallible(*rebound)
+                call("@instanceof_rebound".to_owned())
+                => (format!(
+                    "instanceof {}, class{}{}",
+                    value,
+                    class.0,
+                    if *rebound { " (rebound)" } else { "" }
+                ));
             /// A static member reached through a RECEIVER class: `this.count`,
             /// `this.count = v`, `new this()`, `this.m()` or `this` inside a
             /// static method of `class` (`receiver` is `None`: the class the

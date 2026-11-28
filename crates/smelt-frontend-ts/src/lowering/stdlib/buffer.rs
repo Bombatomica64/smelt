@@ -311,7 +311,7 @@ impl ModuleBuilder<'_> {
         ) {
             let class = self.intern_type_name("Buffer");
             return Ok(Some(body.push_expr(Expr {
-                kind: ExprKind::InstanceOf { value, class },
+                kind: ExprKind::InstanceOf { value, class, rebound: false },
                 ty: bool_ty,
                 span,
             })));

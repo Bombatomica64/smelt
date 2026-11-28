@@ -69,7 +69,7 @@ impl ModuleBuilder<'_> {
                 .scoped_type_name(name)
                 .unwrap_or_else(|| this.intern_type_name(name));
             let test = target.push_expr(Expr {
-                kind: ExprKind::InstanceOf { value, class },
+                kind: ExprKind::InstanceOf { value, class, rebound: false },
                 ty: bool_ty,
                 span,
             });

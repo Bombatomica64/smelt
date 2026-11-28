@@ -442,10 +442,6 @@ const NODE_OPEN_DEFECTS: &[(&str, &str)] = &[
          decode, so re-serializing loses it; Node keeps it",
     ),
     (
-        "a deleted global has no instances",
-        "`x instanceof undefined` is a TypeError in JavaScript; Smelt answers false",
-    ),
-    (
         "writes accumulate rather than replacing the container",
         "vitest runs a file's tests in one module instance, so the previous test's key is still there; \
          Smelt's generated tests each start from fresh module state",

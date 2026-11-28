@@ -11,7 +11,7 @@
 //! module builds on (`block`, `hir_expr`, `error`, and friends).
 
 use super::volatile_locals::VolatileLocals;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use smelt_hir::{
     Body, BodyId, ExprId, LocalId as HirLocalId, Span, Stmt as HirStmt, Symbol, TypeId,
@@ -40,6 +40,10 @@ pub(super) struct LoweringCtx<'hir> {
     /// Read through [`LoweringCtx::negative_index_policy`] so a lowered place
     /// records the indexing rule of the language the expression was written in.
     pub(super) languages: &'hir HashMap<smelt_hir::FileId, smelt_hir::Language>,
+    /// Host classes the crate reassigns (`globalThis.File = ...`): an
+    /// `instanceof` against one reads a binding that may not be callable, so
+    /// [`LoweringCtx::finish_op`] marks it `rebound` (fallible).
+    pub(super) rebound_host_classes: &'hir HashSet<Symbol>,
     /// The HIR body being lowered.
     pub(super) body: &'hir Body,
     /// The MIR function being constructed.
@@ -93,7 +97,7 @@ pub(super) struct LoweringCtx<'hir> {
     pub(super) closure_handler_marks: Vec<(crate::ClosureId, HandlerMarks)>,
     /// The HIR locals of [`Self::body`] that some closure expression in it
     /// captures, computed on first use by [`Self::is_captured_by_closure`].
-    pub(super) captured_locals: Option<std::collections::HashSet<HirLocalId>>,
+    pub(super) captured_locals: Option<HashSet<HirLocalId>>,
 }
 
 /// Record the class/interface bound of every type parameter in `params` that
@@ -148,6 +152,10 @@ pub(super) struct LoweringShared<'hir> {
     pub(super) global_ids: &'hir HashMap<smelt_hir::ItemId, u32>,
     /// Source language of every file in the crate, keyed by span `FileId`.
     pub(super) languages: &'hir HashMap<smelt_hir::FileId, smelt_hir::Language>,
+    /// Host classes the crate reassigns (`globalThis.File = ...`): an
+    /// `instanceof` against one reads a binding that may not be callable, so
+    /// [`LoweringCtx::finish_op`] marks it `rebound` (fallible).
+    pub(super) rebound_host_classes: &'hir HashSet<Symbol>,
     /// Numeric type used for generated index-based loop counters.
     pub(super) loop_index_ty: TypeId,
     /// Boolean type used for generated loop conditions.
@@ -359,6 +367,7 @@ impl<'hir> LoweringCtx<'hir> {
             volatile_locals: shared.volatile_locals,
             global_ids: shared.global_ids,
             languages: shared.languages,
+            rebound_host_classes: shared.rebound_host_classes,
             body,
             function,
             closures: Vec::new(),

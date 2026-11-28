@@ -278,6 +278,13 @@ fn instanceof_reads_the_host_override_slot() {
     // instance of the very name that built it. Restoring the slot must put the
     // native answer back, and a subclass instance still satisfies the host base
     // it extends.
+    //
+    // Corrected expectation (deleted global). Old requirement: `x instanceof
+    // File` answered `false` once `globalThis.File = undefined`. New
+    // requirement: JavaScript throws `TypeError` ("Right-hand side of
+    // 'instanceof' is not callable") for a non-callable right-hand side, which
+    // a `try` can catch, and the check works again once the slot is restored
+    // (Node agrees). The old expectation encoded Smelt's absent-slot shortcut.
     let source = r#"
 import { test, expect } from "vitest";
 test("an override class recognizes its own instances", () => {
@@ -300,12 +307,19 @@ test("a restored slot answers with the native identity again", () => {
   const native: any = new File(["content"], "example.txt");
   expect(native instanceof File).toBe(true);
 });
-test("a deleted global has no instances", () => {
+test("instanceof a deleted global throws a TypeError", () => {
   const original: any = globalThis.File;
   globalThis.File = undefined;
   const blob: any = new Blob(["content"]);
-  expect(blob instanceof File).toBe(false);
+  let caught: any = null;
+  try {
+    expect(blob instanceof File).toBe(false);
+  } catch (error) {
+    caught = error;
+  }
+  expect(caught instanceof TypeError).toBe(true);
   globalThis.File = original;
+  expect(blob instanceof File).toBe(false);
 });
 "#;
     run_fixture(source, "smelt_host_override_instanceof");
